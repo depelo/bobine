@@ -10,57 +10,81 @@
     <div class="app-shell">
       <nav class="app-nav" aria-label="Navigazione principale">
         <button class="menu-btn" aria-label="menu">☰</button>
-        <button class="side-btn is-active" data-screen-target="log-edit" title="Log">⌂</button>
-        <button class="side-btn" data-screen-target="machine-list" title="Macchine">⌁</button>
-        <button class="side-btn" data-screen-target="operator-list" title="Operatori">◌</button>
-        <button class="side-btn" data-screen-target="log-list" title="Dettagli">◍</button>
+        <button class="side-btn is-active" data-screen-target="log-edit" title="Registro">⌂</button>
+        <button class="side-btn" data-screen-target="machine-list" title="Macchine">
+          <svg class="icon-machine" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        </button>
+        <button class="side-btn" data-screen-target="operator-list" title="Operatori">
+          <svg class="icon-person" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </button>
+        <button class="side-btn" data-screen-target="log-list" title="Dettagli log">
+          <svg class="icon-db" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </button>
       </nav>
 
       <main class="content">
-        <header class="topbar">
+        <header class="topbar" id="topbar">
+          <div class="actions actions-left" id="topbarActionsLeft"></div>
           <div class="brand">U.Jet</div>
-          <h1 id="screenTitle">Log</h1>
-          <div class="actions" id="topbarActions"></div>
+          <h1 id="screenTitle">Registro</h1>
+          <div class="actions actions-right" id="topbarActionsRight"></div>
         </header>
 
         <section class="screen is-visible" id="screen-log-edit" data-screen="log-edit">
           <form class="form-grid" id="logForm">
-            <label for="logDate">Date</label>
-            <div class="control with-addon">
-              <input id="logDate" name="date" type="date" />
-              <button type="button" class="addon" data-action="pick-date">⌗</button>
-            </div>
-
-            <label for="logOperator">Operator</label>
-            <div class="control with-addon with-icon-btn">
-              <select id="logOperator" name="operator"></select>
-              <button type="button" class="addon" data-action="open-operator-list">⌄</button>
-              <button type="button" class="icon-btn" data-action="scan-operator" title="placeholder scanner">◉</button>
-            </div>
-
-            <label for="logMachine">Machine</label>
-            <div class="control with-addon with-icon-btn">
-              <select id="logMachine" name="machine"></select>
-              <button type="button" class="addon" data-action="open-machine-list">⌄</button>
-              <button type="button" class="icon-btn" data-action="scan-machine" title="placeholder scanner">◉</button>
-            </div>
-
-            <label for="rawCode">Article raw material code</label>
+            <label for="logDate">Data</label>
             <div class="control with-icon-btn">
-              <input id="rawCode" name="rawCode" type="text" placeholder="es. RM-0001" />
-              <button type="button" class="icon-btn" data-action="scan-raw-code" title="placeholder scanner">◉</button>
+              <input id="logDate" name="date" type="date" class="date-input" />
+              <button type="button" class="icon-btn" id="logDatePickerBtn" title="Scegli data" aria-label="Apri calendario">
+                <svg class="icon-calendar" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              </button>
             </div>
 
-            <label for="lot">Lot</label>
-            <div class="control"><input id="lot" name="lot" type="text" placeholder="es. LOT-A1" /></div>
+            <label for="logOperator">Operatore</label>
+            <div class="control with-icon-btn">
+              <div class="combobox-wrap">
+                <input id="logOperator" name="operator" type="text" placeholder="Seleziona o cerca operatore" autocomplete="off" />
+                <div class="combobox-dropdown" id="logOperatorDropdown" aria-hidden="true" role="listbox"></div>
+              </div>
+              <button type="button" class="icon-btn" data-action="scan-operator" title="Scansiona con fotocamera">
+              <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </button>
+            </div>
 
-            <label for="quantity">Quantity</label>
+            <label for="logMachine">Macchina</label>
+            <div class="control with-icon-btn">
+              <div class="combobox-wrap">
+                <input id="logMachine" name="machine" type="text" placeholder="Seleziona o cerca macchina" autocomplete="off" />
+                <div class="combobox-dropdown" id="logMachineDropdown" aria-hidden="true" role="listbox"></div>
+              </div>
+              <button type="button" class="icon-btn" data-action="scan-machine" title="Scansiona con fotocamera">
+              <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </button>
+            </div>
+
+            <label for="rawCode">Codice materia prima</label>
+            <div class="control with-icon-btn">
+              <input id="rawCode" name="rawCode" type="text" placeholder="Scansionare o scrivere" />
+              <button type="button" class="icon-btn" data-action="scan-raw-code" title="Scansiona con fotocamera">
+              <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </button>
+            </div>
+
+            <label for="lot">Lotto</label>
+            <div class="control with-icon-btn">
+              <input id="lot" name="lot" type="text" placeholder="Scansionare o scrivere" />
+              <button type="button" class="icon-btn" data-action="scan-lot" title="Scansiona con fotocamera">
+                <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              </button>
+            </div>
+
+            <label for="quantity">Quantità</label>
             <div class="control"><input id="quantity" name="quantity" type="number" min="0" step="1" placeholder="0" /></div>
 
-            <label for="notes">Notes</label>
-            <div class="control"><textarea id="notes" name="notes" rows="4" placeholder="Note libere..."></textarea></div>
+            <label for="notes">Note</label>
+            <div class="control"><textarea id="notes" name="notes" rows="4" placeholder="Scrivere"></textarea></div>
 
-            <label for="rollId">Roll ID</label>
+            <label for="rollId">ID rotolo</label>
             <div class="control"><input id="rollId" name="rollId" type="text" placeholder="es. R-001" /></div>
           </form>
         </section>
@@ -70,17 +94,23 @@
         </section>
 
         <section class="screen" id="screen-log-list" data-screen="log-list">
-          <div class="search-wrap"><input id="logSearch" type="search" placeholder="Search items" /></div>
+          <div class="search-wrap"><input id="logSearch" type="search" placeholder="Cerca..." /></div>
           <ul class="list" id="logList"></ul>
         </section>
 
         <section class="screen" id="screen-operator-list" data-screen="operator-list">
-          <div class="search-wrap"><input id="operatorSearch" type="search" placeholder="Search items" /></div>
+          <div class="screen-toolbar">
+            <div class="search-wrap"><input id="operatorSearch" type="search" placeholder="Cerca..." /></div>
+            <button type="button" class="action-btn inline-btn" data-action="add-operator-placeholder" title="Aggiungi placeholder">+</button>
+          </div>
           <ul class="list two-col" id="operatorList"></ul>
         </section>
 
         <section class="screen" id="screen-machine-list" data-screen="machine-list">
-          <div class="search-wrap"><input id="machineSearch" type="search" placeholder="Search items" /></div>
+          <div class="screen-toolbar">
+            <div class="search-wrap"><input id="machineSearch" type="search" placeholder="Cerca..." /></div>
+            <button type="button" class="action-btn inline-btn" data-action="add-machine-placeholder" title="Aggiungi placeholder">+</button>
+          </div>
           <ul class="list two-col" id="machineList"></ul>
         </section>
       </main>

@@ -49,42 +49,49 @@ const placeholderData = {
 
 const screenMeta = {
   'log-edit': {
-    title: 'Log',
-    actions: [
-      { icon: '✕', action: 'cancel-log', title: 'Annulla' },
+    title: 'Registro',
+    leftActions: [
+      { icon: '✕', action: 'cancel-log', title: 'Annulla' }
+    ],
+    rightActions: [
       { icon: '✓', action: 'save-log', title: 'Salva' }
     ]
   },
   'log-detail': {
-    title: 'Log Detail',
-    actions: [
-      { icon: '‹', action: 'back-to-list', title: 'Indietro' },
+    title: 'Dettaglio log',
+    leftActions: [
+      { icon: '‹', action: 'back-to-list', title: 'Indietro' }
+    ],
+    rightActions: [
       { icon: '🗑', action: 'delete-log', title: 'Elimina' },
       { icon: '✎', action: 'edit-from-detail', title: 'Modifica' }
     ]
   },
   'log-list': {
-    title: 'Log Details',
-    actions: [
-      { icon: '↻', action: 'refresh-log-list', title: 'Refresh' },
-      { icon: '↕', action: 'sort-log-list', title: 'Ordina' },
-      { icon: '+', action: 'new-log', title: 'Nuovo' }
+    title: 'Dettagli log',
+    leftActions: [
+      { icon: '↻', action: 'refresh-log-list', title: 'Aggiorna' }
+    ],
+    rightActions: [
+      { icon: '↕', action: 'sort-log-list', title: 'Ordina' }
     ]
   },
   'operator-list': {
-    title: 'Operator Names',
-    actions: [
-      { icon: '↻', action: 'refresh-operator-list', title: 'Refresh' },
-      { icon: '↕', action: 'sort-operator-list', title: 'Ordina' },
-      { icon: '+', action: 'add-operator-placeholder', title: 'Aggiungi placeholder' }
+    title: 'Operatori',
+    leftActions: [
+      { icon: '↻', action: 'refresh-operator-list', title: 'Aggiorna' }
+    ],
+    rightActions: [
+      { icon: '↕', action: 'sort-operator-list', title: 'Ordina' }
     ]
   },
   'machine-list': {
-    title: 'Machine Names',
-    actions: [
-      { icon: '↻', action: 'refresh-machine-list', title: 'Refresh' },
-      { icon: '↕', action: 'sort-machine-list', title: 'Ordina' },
-      { icon: '+', action: 'add-machine-placeholder', title: 'Aggiungi placeholder' }
+    title: 'Macchine',
+    leftActions: [
+      { icon: '↻', action: 'refresh-machine-list', title: 'Aggiorna' }
+    ],
+    rightActions: [
+      { icon: '↕', action: 'sort-machine-list', title: 'Ordina' }
     ]
   }
 };
@@ -98,13 +105,13 @@ const state = {
 };
 
 const titleEl = document.getElementById('screenTitle');
-const actionsEl = document.getElementById('topbarActions');
+const actionsLeftEl = document.getElementById('topbarActionsLeft');
+const actionsRightEl = document.getElementById('topbarActionsRight');
+const topbarEl = document.getElementById('topbar');
 const screens = document.querySelectorAll('.screen');
 const navButtons = document.querySelectorAll('.side-btn');
 const form = document.getElementById('logForm');
 const detailGrid = document.getElementById('detailGrid');
-const operatorSelect = document.getElementById('logOperator');
-const machineSelect = document.getElementById('logMachine');
 const logListEl = document.getElementById('logList');
 const operatorListEl = document.getElementById('operatorList');
 const machineListEl = document.getElementById('machineList');
@@ -115,7 +122,80 @@ function toDateInputValue(dateString) {
   return `${year}-${month}-${day}`;
 }
 
+function initCombobox(inputId, dropdownId, getItems, getValueFromItem, clearOptionLabel) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  const wrap = input.closest('.combobox-wrap');
+
+  function filterItems(query) {
+    const q = (query || '').trim().toLowerCase();
+    const items = getItems();
+    if (!q) return items;
+    return items.filter(
+      (item) =>
+        String(item.id).toLowerCase().includes(q) ||
+        String(item.name).toLowerCase().includes(q)
+    );
+  }
+
+  function renderDropdown() {
+    const query = input.value.trim();
+    const filtered = filterItems(query);
+    dropdown.innerHTML = '';
+
+    if (clearOptionLabel) {
+      const clearOpt = document.createElement('div');
+      clearOpt.setAttribute('role', 'option');
+      clearOpt.className = 'combobox-clear';
+      clearOpt.textContent = clearOptionLabel;
+      clearOpt.addEventListener('click', () => {
+        input.value = '';
+        wrap.classList.remove('is-open');
+        dropdown.setAttribute('aria-hidden', 'true');
+      });
+      dropdown.appendChild(clearOpt);
+    }
+
+    filtered.forEach((item) => {
+      const opt = document.createElement('div');
+      opt.setAttribute('role', 'option');
+      opt.textContent = `${item.id} - ${item.name}`;
+      opt.addEventListener('click', () => {
+        input.value = getValueFromItem(item);
+        wrap.classList.remove('is-open');
+        dropdown.setAttribute('aria-hidden', 'true');
+      });
+      dropdown.appendChild(opt);
+    });
+    dropdown.setAttribute('aria-hidden', dropdown.children.length === 0 ? 'true' : 'false');
+  }
+
+  function openDropdown() {
+    wrap.classList.add('is-open');
+    renderDropdown();
+  }
+
+  function closeDropdown() {
+    wrap.classList.remove('is-open');
+    dropdown.setAttribute('aria-hidden', 'true');
+  }
+
+  input.addEventListener('focus', openDropdown);
+  input.addEventListener('input', () => {
+    openDropdown();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDropdown();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (wrap.contains(e.target)) return;
+    closeDropdown();
+  });
+}
+
 function populateSelect(select, items, placeholderLabel) {
+  if (!select) return;
   select.innerHTML = '';
 
   const ph = document.createElement('option');
@@ -131,16 +211,26 @@ function populateSelect(select, items, placeholderLabel) {
   });
 }
 
-function createActionButtons(actions) {
-  actionsEl.innerHTML = '';
-  actions.forEach((item) => {
+function createActionButtons(leftActions, rightActions) {
+  actionsLeftEl.innerHTML = '';
+  actionsRightEl.innerHTML = '';
+  (leftActions || []).forEach((item) => {
     const btn = document.createElement('button');
     btn.className = 'action-btn';
     btn.type = 'button';
     btn.textContent = item.icon;
     btn.title = item.title;
     btn.dataset.action = item.action;
-    actionsEl.appendChild(btn);
+    actionsLeftEl.appendChild(btn);
+  });
+  (rightActions || []).forEach((item) => {
+    const btn = document.createElement('button');
+    btn.className = 'action-btn';
+    btn.type = 'button';
+    btn.textContent = item.icon;
+    btn.title = item.title;
+    btn.dataset.action = item.action;
+    actionsRightEl.appendChild(btn);
   });
 }
 
@@ -155,9 +245,9 @@ function setScreen(name) {
     btn.classList.toggle('is-active', btn.dataset.screenTarget === name);
   });
 
-  const meta = screenMeta[name] ?? { title: 'Log', actions: [] };
+  const meta = screenMeta[name] ?? { title: 'Registro', leftActions: [], rightActions: [] };
   titleEl.textContent = meta.title;
-  createActionButtons(meta.actions);
+  createActionButtons(meta.leftActions, meta.rightActions);
 }
 
 function fillForm(record) {
@@ -188,15 +278,15 @@ function formToRecord() {
 
 function renderDetail(record) {
   const rows = [
-    ['Article raw material code', record.rawCode],
-    ['Lot', record.lot],
-    ['Machine', record.machine],
-    ['Notes', record.notes],
-    ['Operator', record.operator],
-    ['Quantity', record.quantity],
-    ['Roll ID', record.rollId],
-    ['Date', record.date],
-    ['Unique Record ID', record.uniqueRecordId]
+    ['Codice materia prima', record.rawCode],
+    ['Lotto', record.lot],
+    ['Macchina', record.machine],
+    ['Note', record.notes],
+    ['Operatore', record.operator],
+    ['Quantità', record.quantity],
+    ['ID rotolo', record.rollId],
+    ['Data', record.date],
+    ['ID record', record.uniqueRecordId]
   ];
 
   detailGrid.innerHTML = '';
@@ -316,12 +406,6 @@ function handleTopbarAction(action) {
     return;
   }
 
-  if (action === 'new-log') {
-    resetFormWithPlaceholders();
-    setScreen('log-edit');
-    return;
-  }
-
   if (action === 'refresh-operator-list') {
     renderSimpleList(operatorListEl, placeholderData.operators, pickOperatorFromList);
     return;
@@ -336,7 +420,6 @@ function handleTopbarAction(action) {
   if (action === 'add-operator-placeholder') {
     const id = `1${Math.floor(Math.random() * 900 + 100)}`;
     placeholderData.operators.push({ id, name: `Nuovo Operatore ${id}` });
-    populateSelect(operatorSelect, placeholderData.operators, 'Seleziona operatore');
     renderSimpleList(operatorListEl, placeholderData.operators, pickOperatorFromList);
     return;
   }
@@ -355,7 +438,6 @@ function handleTopbarAction(action) {
   if (action === 'add-machine-placeholder') {
     const id = `3${Math.floor(Math.random() * 900 + 100)}`;
     placeholderData.machines.push({ id, name: `Nuova Macchina ${id}` });
-    populateSelect(machineSelect, placeholderData.machines, 'Seleziona macchina');
     renderSimpleList(machineListEl, placeholderData.machines, pickMachineFromList);
   }
 }
@@ -381,7 +463,7 @@ navButtons.forEach((btn) => {
   });
 });
 
-actionsEl.addEventListener('click', (event) => {
+topbarEl.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) {
     return;
@@ -393,16 +475,6 @@ document.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) {
     return;
-  }
-
-  if (action === 'open-operator-list') {
-    state.returnFromLookupTo = 'log-edit';
-    setScreen('operator-list');
-  }
-
-  if (action === 'open-machine-list') {
-    state.returnFromLookupTo = 'log-edit';
-    setScreen('machine-list');
   }
 
   if (action === 'scan-raw-code') {
@@ -417,9 +489,13 @@ document.addEventListener('click', (event) => {
     form.machine.value = placeholderData.machines[Math.floor(Math.random() * placeholderData.machines.length)].name;
   }
 
-  if (action === 'pick-date') {
-    form.date.showPicker?.();
+  if (action === 'scan-lot') {
+    form.lot.value = `LOT-${Math.floor(Math.random() * 900 + 100)}`;
   }
+});
+
+document.getElementById('logDatePickerBtn').addEventListener('click', () => {
+  document.getElementById('logDate').showPicker?.();
 });
 
 document.getElementById('logSearch').addEventListener('input', () => {
@@ -438,12 +514,30 @@ document.getElementById('machineSearch').addEventListener('input', () => {
   });
 });
 
-populateSelect(operatorSelect, placeholderData.operators, 'Seleziona operatore');
-populateSelect(machineSelect, placeholderData.machines, 'Seleziona macchina');
+initCombobox(
+  'logOperator',
+  'logOperatorDropdown',
+  () => placeholderData.operators,
+  (item) => item.name,
+  'Seleziona operatore'
+);
+initCombobox(
+  'logMachine',
+  'logMachineDropdown',
+  () => placeholderData.machines,
+  (item) => item.name,
+  'Seleziona macchina'
+);
 renderLogList(placeholderData.logs);
 renderSimpleList(operatorListEl, placeholderData.operators, pickOperatorFromList);
 renderSimpleList(machineListEl, placeholderData.machines, pickMachineFromList);
 state.formDraft = placeholderData.logs[0];
 fillForm(placeholderData.logs[0]);
+form.operator.value = '';
+form.machine.value = '';
+form.rawCode.value = '';
+form.lot.value = '';
+form.quantity.value = '';
+form.notes.value = '';
 renderDetail(placeholderData.logs[0]);
 setScreen('log-edit');
