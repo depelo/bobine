@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UJet - Rotoli</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="app-nav" aria-label="Navigazione principale">
+        <button class="menu-btn" aria-label="menu">☰</button>
+        <button class="side-btn is-active" data-screen-target="log-edit" title="Log">⌂</button>
+        <button class="side-btn" data-screen-target="machine-list" title="Macchine">⌁</button>
+        <button class="side-btn" data-screen-target="operator-list" title="Operatori">◌</button>
+        <button class="side-btn" data-screen-target="log-list" title="Dettagli">◍</button>
+      </nav>
+
+      <main class="content">
+        <header class="topbar">
+          <div class="brand">U.Jet</div>
+          <h1 id="screenTitle">Log</h1>
+          <div class="actions" id="topbarActions"></div>
+        </header>
+
+        <section class="screen is-visible" id="screen-log-edit" data-screen="log-edit">
+          <form class="form-grid" id="logForm">
+            <label for="logDate">Date</label>
+            <div class="control with-addon">
+              <input id="logDate" name="date" type="date" />
+              <button type="button" class="addon" data-action="pick-date">⌗</button>
+            </div>
+
+            <label for="logOperator">Operator</label>
+            <div class="control with-addon with-icon-btn">
+              <select id="logOperator" name="operator"></select>
+              <button type="button" class="addon" data-action="open-operator-list">⌄</button>
+              <button type="button" class="icon-btn" data-action="scan-operator" title="placeholder scanner">◉</button>
+            </div>
+
+            <label for="logMachine">Machine</label>
+            <div class="control with-addon with-icon-btn">
+              <select id="logMachine" name="machine"></select>
+              <button type="button" class="addon" data-action="open-machine-list">⌄</button>
+              <button type="button" class="icon-btn" data-action="scan-machine" title="placeholder scanner">◉</button>
+            </div>
+
+            <label for="rawCode">Article raw material code</label>
+            <div class="control with-icon-btn">
+              <input id="rawCode" name="rawCode" type="text" placeholder="es. RM-0001" />
+              <button type="button" class="icon-btn" data-action="scan-raw-code" title="placeholder scanner">◉</button>
+            </div>
+
+            <label for="lot">Lot</label>
+            <div class="control"><input id="lot" name="lot" type="text" placeholder="es. LOT-A1" /></div>
+
+            <label for="quantity">Quantity</label>
+            <div class="control"><input id="quantity" name="quantity" type="number" min="0" step="1" placeholder="0" /></div>
+
+            <label for="notes">Notes</label>
+            <div class="control"><textarea id="notes" name="notes" rows="4" placeholder="Note libere..."></textarea></div>
+
+            <label for="rollId">Roll ID</label>
+            <div class="control"><input id="rollId" name="rollId" type="text" placeholder="es. R-001" /></div>
+          </form>
+        </section>
+
+        <section class="screen" id="screen-log-detail" data-screen="log-detail">
+          <div class="detail-grid" id="detailGrid"></div>
+        </section>
+
+        <section class="screen" id="screen-log-list" data-screen="log-list">
+          <div class="search-wrap"><input id="logSearch" type="search" placeholder="Search items" /></div>
+          <ul class="list" id="logList"></ul>
+        </section>
+
+        <section class="screen" id="screen-operator-list" data-screen="operator-list">
+          <div class="search-wrap"><input id="operatorSearch" type="search" placeholder="Search items" /></div>
+          <ul class="list two-col" id="operatorList"></ul>
+        </section>
+
+        <section class="screen" id="screen-machine-list" data-screen="machine-list">
+          <div class="search-wrap"><input id="machineSearch" type="search" placeholder="Search items" /></div>
+          <ul class="list two-col" id="machineList"></ul>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
