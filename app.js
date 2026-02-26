@@ -1,51 +1,4 @@
-const placeholderData = {
-  operators: [
-    { id: '1002', name: 'Abdessamad Mchaoury' },
-    { id: '1003', name: 'Alessio Venanzi' },
-    { id: '1000', name: 'Daniele Boattelli' },
-    { id: '1001', name: 'Stefano Mancinelli' }
-  ],
-  machines: [
-    { id: '3007', name: 'GFM Fasce Laterali' },
-    { id: '3005', name: 'GFM Main' },
-    { id: '3006', name: 'GFM Reinforcement' }
-  ],
-  logs: [
-    {
-      uniqueRecordId: '00001019',
-      date: '23/06/2023 00:00',
-      operator: 'Daniele Boattelli',
-      machine: 'GFM Main',
-      rawCode: '12',
-      lot: '12',
-      quantity: '12',
-      notes: 'Test 1',
-      rollId: '12'
-    },
-    {
-      uniqueRecordId: '00001020',
-      date: '23/06/2023 00:00',
-      operator: 'Stefano Mancinelli',
-      machine: 'GFM Reinforcement',
-      rawCode: 'RM-07',
-      lot: 'L-20',
-      quantity: '9',
-      notes: 'Controllo qualità OK',
-      rollId: 'R-20'
-    },
-    {
-      uniqueRecordId: '00001021',
-      date: '22/06/2023 20:30',
-      operator: 'Alessio Venanzi',
-      machine: 'GFM Main',
-      rawCode: 'RM-31',
-      lot: 'L-44',
-      quantity: '16',
-      notes: 'Cambio bobina',
-      rollId: 'R-44'
-    }
-  ]
-};
+const API_URL = 'http://localhost:3000/api';
 
 const screenMeta = {
   'log-edit': {
@@ -82,7 +35,8 @@ const screenMeta = {
       { icon: '↻', action: 'refresh-operator-list', title: 'Aggiorna' }
     ],
     rightActions: [
-      { icon: '↕', action: 'sort-operator-list', title: 'Ordina' }
+      { icon: '↕', action: 'sort-operator-list', title: 'Ordina' },
+      { icon: '+', action: 'add-operator', title: 'Aggiungi operatore' }
     ]
   },
   'machine-list': {
@@ -91,7 +45,8 @@ const screenMeta = {
       { icon: '↻', action: 'refresh-machine-list', title: 'Aggiorna' }
     ],
     rightActions: [
-      { icon: '↕', action: 'sort-machine-list', title: 'Ordina' }
+      { icon: '↕', action: 'sort-machine-list', title: 'Ordina' },
+      { icon: '+', action: 'add-machine', title: 'Aggiungi macchina' }
     ]
   }
 };
@@ -99,10 +54,45 @@ const screenMeta = {
 const state = {
   currentScreen: 'log-edit',
   sortAsc: true,
-  selectedLog: placeholderData.logs[0],
+  selectedLog: null,
   returnFromLookupTo: null,
-  formDraft: null
+  formDraft: {},
+  operators: [],
+  machines: [],
+  logs: [],
+  currentOperator: null
 };
+
+async function fetchData(endpoint) {
+  const res = await fetch(`${API_URL}${endpoint}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+async function initApp() {
+  try {
+    const [operators, machines, logs] = await Promise.all([
+      fetchData('/operators'),
+      fetchData('/machines'),
+      fetchData('/logs')
+    ]);
+    state.operators = operators;
+    state.machines = machines;
+    state.logs = logs;
+  } catch (err) {
+    console.error(err);
+    alert('Impossibile caricare i dati. Verifica che il backend sia avviato su http://localhost:3000');
+    state.operators = [];
+    state.machines = [];
+    state.logs = [];
+  }
+  renderLogList(state.logs);
+  renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
+  renderSimpleList(machineListEl, state.machines, pickMachineFromList);
+  resetForm();
+  applyPermissions();
+  setScreen('log-edit');
+}
 
 const titleEl = document.getElementById('screenTitle');
 const actionsLeftEl = document.getElementById('topbarActionsLeft');
@@ -122,7 +112,7 @@ function toDateInputValue(dateString) {
   return `${year}-${month}-${day}`;
 }
 
-function initCombobox(inputId, dropdownId, getItems, getValueFromItem, clearOptionLabel) {
+function initCombobox(inputId, dropdownId, getItems, getValueFromItem, clearOptionLabel, onSelectItem, onClear) {
   const input = document.getElementById(inputId);
   const dropdown = document.getElementById(dropdownId);
   const wrap = input.closest('.combobox-wrap');
@@ -150,6 +140,7 @@ function initCombobox(inputId, dropdownId, getItems, getValueFromItem, clearOpti
       clearOpt.textContent = clearOptionLabel;
       clearOpt.addEventListener('click', () => {
         input.value = '';
+        if (typeof onClear === 'function') onClear();
         wrap.classList.remove('is-open');
         dropdown.setAttribute('aria-hidden', 'true');
       });
@@ -162,6 +153,7 @@ function initCombobox(inputId, dropdownId, getItems, getValueFromItem, clearOpti
       opt.textContent = `${item.id} - ${item.name}`;
       opt.addEventListener('click', () => {
         input.value = getValueFromItem(item);
+        if (typeof onSelectItem === 'function') onSelectItem(item);
         wrap.classList.remove('is-open');
         dropdown.setAttribute('aria-hidden', 'true');
       });
@@ -211,6 +203,17 @@ function populateSelect(select, items, placeholderLabel) {
   });
 }
 
+const RESTRICTED_ACTIONS = ['add-operator', 'add-machine', 'delete-log', 'edit-from-detail'];
+
+function applyPermissions() {
+  const isAdmin = state.currentOperator?.isAdmin === true;
+  document.querySelectorAll('[data-action]').forEach((el) => {
+    if (RESTRICTED_ACTIONS.includes(el.dataset.action)) {
+      el.style.display = isAdmin ? '' : 'none';
+    }
+  });
+}
+
 function createActionButtons(leftActions, rightActions) {
   actionsLeftEl.innerHTML = '';
   actionsRightEl.innerHTML = '';
@@ -232,6 +235,7 @@ function createActionButtons(leftActions, rightActions) {
     btn.dataset.action = item.action;
     actionsRightEl.appendChild(btn);
   });
+  applyPermissions();
 }
 
 function setScreen(name) {
@@ -252,27 +256,34 @@ function setScreen(name) {
 
 function fillForm(record) {
   form.date.value = toDateInputValue(record.date);
-  form.operator.value = record.operator;
-  form.machine.value = record.machine;
-  form.rawCode.value = record.rawCode;
-  form.lot.value = record.lot;
-  form.quantity.value = record.quantity;
-  form.notes.value = record.notes;
-  form.rollId.value = record.rollId;
+  form.rawCode.value = record.rawCode ?? '';
+  form.lot.value = record.lot ?? '';
+  form.quantity.value = record.quantity ?? '';
+  form.notes.value = record.notes ?? '';
+  form.rollId.value = record.rollId ?? '';
+  const idOp = record.IDOperator != null ? Number(record.IDOperator) : null;
+  const idMach = record.IDMachine != null ? Number(record.IDMachine) : null;
+  state.formDraft.IDOperator = idOp;
+  state.formDraft.IDMachine = idMach;
+  const op = state.operators.find((o) => Number(o.id) === idOp);
+  const mach = state.machines.find((m) => Number(m.id) === idMach);
+  form.operator.value = op ? op.name : (record.operator ?? '');
+  form.machine.value = mach ? mach.name : (record.machine ?? '');
+  state.currentOperator = op ?? null;
+  applyPermissions();
 }
 
-function formToRecord() {
+function formToPayload() {
   const formattedDate = form.date.value ? `${form.date.value.split('-').reverse().join('/')} 00:00` : '';
   return {
-    uniqueRecordId: state.selectedLog?.uniqueRecordId ?? `TMP${Date.now()}`,
     date: formattedDate,
-    operator: form.operator.value,
-    machine: form.machine.value,
     rawCode: form.rawCode.value,
     lot: form.lot.value,
-    quantity: form.quantity.value,
+    quantity: form.quantity.value ? Number(form.quantity.value) : 0,
     notes: form.notes.value,
-    rollId: form.rollId.value
+    rollId: form.rollId.value,
+    IDOperator: state.formDraft.IDOperator != null ? Number(state.formDraft.IDOperator) : null,
+    IDMachine: state.formDraft.IDMachine != null ? Number(state.formDraft.IDMachine) : null
   };
 }
 
@@ -328,8 +339,9 @@ function renderSimpleList(rootEl, items, onPick) {
 }
 
 function sortByName(listKey) {
-  placeholderData[listKey].sort((a, b) => {
-    const result = a.name.localeCompare(b.name, 'it');
+  const list = listKey === 'operators' ? state.operators : state.machines;
+  list.sort((a, b) => {
+    const result = (a.name || '').localeCompare(b.name || '', 'it');
     return state.sortAsc ? result : -result;
   });
   state.sortAsc = !state.sortAsc;
@@ -341,34 +353,58 @@ function applySearch(inputId, data, renderFn) {
   renderFn(filtered);
 }
 
-function resetFormWithPlaceholders() {
+function resetForm() {
   form.reset();
   form.date.value = new Date().toISOString().slice(0, 10);
+  state.formDraft = {};
+  state.selectedLog = null;
+  form.operator.value = '';
+  form.machine.value = '';
+  state.currentOperator = null;
+  applyPermissions();
 }
 
-function handleTopbarAction(action) {
+async function handleTopbarAction(action) {
   if (action === 'cancel-log') {
-    if (state.formDraft) {
-      fillForm(state.formDraft);
+    if (state.selectedLog) {
+      fillForm(state.selectedLog);
     } else {
-      resetFormWithPlaceholders();
+      resetForm();
     }
     return;
   }
 
   if (action === 'save-log') {
-    const record = formToRecord();
-    const existingIndex = placeholderData.logs.findIndex((l) => l.uniqueRecordId === record.uniqueRecordId);
-    if (existingIndex >= 0) {
-      placeholderData.logs[existingIndex] = record;
-    } else {
-      placeholderData.logs.unshift(record);
+    const payload = formToPayload();
+    if (payload.IDOperator == null || payload.IDMachine == null) {
+      alert('Seleziona operatore e macchina.');
+      return;
     }
-    state.selectedLog = record;
-    state.formDraft = record;
-    renderLogList(placeholderData.logs);
-    renderDetail(record);
-    alert('Salvataggio placeholder completato (in memoria, non DB).');
+    try {
+      if (state.selectedLog) {
+        const res = await fetch(`${API_URL}/logs/${state.selectedLog.uniqueRecordId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(await res.text());
+      } else {
+        const res = await fetch(`${API_URL}/logs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(await res.text());
+      }
+      state.logs = await fetchData('/logs');
+      renderLogList(state.logs);
+      resetForm();
+      setScreen('log-list');
+      alert('Salvataggio completato.');
+    } catch (err) {
+      console.error(err);
+      alert('Errore durante il salvataggio: ' + (err.message || err));
+    }
     return;
   }
 
@@ -378,14 +414,19 @@ function handleTopbarAction(action) {
   }
 
   if (action === 'delete-log') {
-    if (!state.selectedLog) {
-      return;
+    if (!state.selectedLog) return;
+    if (!confirm('Eliminare questo log?')) return;
+    try {
+      const res = await fetch(`${API_URL}/logs/${state.selectedLog.uniqueRecordId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
+      state.logs = await fetchData('/logs');
+      renderLogList(state.logs);
+      setScreen('log-list');
+      alert('Log eliminato.');
+    } catch (err) {
+      console.error(err);
+      alert('Errore durante l\'eliminazione: ' + (err.message || err));
     }
-    placeholderData.logs = placeholderData.logs.filter(
-      (item) => item.uniqueRecordId !== state.selectedLog.uniqueRecordId
-    );
-    renderLogList(placeholderData.logs);
-    setScreen('log-list');
     return;
   }
 
@@ -396,64 +437,110 @@ function handleTopbarAction(action) {
   }
 
   if (action === 'refresh-log-list') {
-    renderLogList(placeholderData.logs);
+    try {
+      state.logs = await fetchData('/logs');
+      renderLogList(state.logs);
+    } catch (err) {
+      alert('Errore aggiornamento lista: ' + (err.message || err));
+    }
     return;
   }
 
   if (action === 'sort-log-list') {
-    placeholderData.logs.reverse();
-    renderLogList(placeholderData.logs);
+    state.logs = state.logs.slice().reverse();
+    renderLogList(state.logs);
     return;
   }
 
   if (action === 'refresh-operator-list') {
-    renderSimpleList(operatorListEl, placeholderData.operators, pickOperatorFromList);
+    try {
+      state.operators = await fetchData('/operators');
+      renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
+    } catch (err) {
+      alert('Errore aggiornamento operatori: ' + (err.message || err));
+    }
     return;
   }
 
   if (action === 'sort-operator-list') {
     sortByName('operators');
-    renderSimpleList(operatorListEl, placeholderData.operators, pickOperatorFromList);
+    renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
     return;
   }
 
-  if (action === 'add-operator-placeholder') {
-    const id = `1${Math.floor(Math.random() * 900 + 100)}`;
-    placeholderData.operators.push({ id, name: `Nuovo Operatore ${id}` });
-    renderSimpleList(operatorListEl, placeholderData.operators, pickOperatorFromList);
+  if (action === 'add-operator') {
+    const name = prompt('Nome operatore');
+    if (name == null || name.trim() === '') return;
+    const barcode = prompt('Barcode');
+    if (barcode == null) return;
+    const isAdmin = confirm('Impostare come amministratore?');
+    try {
+      const res = await fetch(`${API_URL}/operators`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), barcode: barcode.trim(), isAdmin })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      state.operators = await fetchData('/operators');
+      renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
+      alert('Operatore aggiunto.');
+    } catch (err) {
+      console.error(err);
+      alert('Errore: ' + (err.message || err));
+    }
     return;
   }
 
   if (action === 'refresh-machine-list') {
-    renderSimpleList(machineListEl, placeholderData.machines, pickMachineFromList);
+    try {
+      state.machines = await fetchData('/machines');
+      renderSimpleList(machineListEl, state.machines, pickMachineFromList);
+    } catch (err) {
+      alert('Errore aggiornamento macchine: ' + (err.message || err));
+    }
     return;
   }
 
   if (action === 'sort-machine-list') {
     sortByName('machines');
-    renderSimpleList(machineListEl, placeholderData.machines, pickMachineFromList);
+    renderSimpleList(machineListEl, state.machines, pickMachineFromList);
     return;
   }
 
-  if (action === 'add-machine-placeholder') {
-    const id = `3${Math.floor(Math.random() * 900 + 100)}`;
-    placeholderData.machines.push({ id, name: `Nuova Macchina ${id}` });
-    renderSimpleList(machineListEl, placeholderData.machines, pickMachineFromList);
+  if (action === 'add-machine') {
+    const name = prompt('Nome macchina');
+    if (name == null || name.trim() === '') return;
+    const barcode = prompt('Barcode');
+    if (barcode == null) return;
+    try {
+      const res = await fetch(`${API_URL}/machines`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), barcode: barcode.trim() })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      state.machines = await fetchData('/machines');
+      renderSimpleList(machineListEl, state.machines, pickMachineFromList);
+      alert('Macchina aggiunta.');
+    } catch (err) {
+      console.error(err);
+      alert('Errore: ' + (err.message || err));
+    }
   }
 }
 
 function pickOperatorFromList(operator) {
+  state.formDraft.IDOperator = operator.id != null ? Number(operator.id) : operator.id;
+  state.currentOperator = operator;
   form.operator.value = operator.name;
-  if (state.returnFromLookupTo === 'log-edit') {
-    setScreen('log-edit');
-  }
+  applyPermissions();
+  if (state.returnFromLookupTo === 'log-edit') setScreen('log-edit');
 }
 
 function pickMachineFromList(machine) {
+  state.formDraft.IDMachine = machine.id != null ? Number(machine.id) : machine.id;
   form.machine.value = machine.name;
-  if (state.returnFromLookupTo === 'log-edit') {
-    setScreen('log-edit');
-  }
+  if (state.returnFromLookupTo === 'log-edit') setScreen('log-edit');
 }
 
 navButtons.forEach((btn) => {
@@ -515,10 +602,8 @@ document.getElementById('menuDrawer').addEventListener('click', (e) => {
 
 topbarEl.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
-  if (!action) {
-    return;
-  }
-  handleTopbarAction(action);
+  if (!action) return;
+  void handleTopbarAction(action);
 });
 
 const scanActionToFieldId = {
@@ -570,8 +655,32 @@ function openBarcodeScanner(targetFieldId) {
 
   const onSuccess = (decodedText) => {
     playBarcodeBeep();
-    const field = document.getElementById(targetFieldId);
-    if (field) field.value = decodedText;
+    if (targetFieldId === 'logOperator') {
+      const op = state.operators.find((o) => String(o.barcode || o.id || '').trim() === String(decodedText).trim());
+      if (op) {
+        state.formDraft.IDOperator = op.id != null ? Number(op.id) : op.id;
+        state.currentOperator = op;
+        const input = document.getElementById('logOperator');
+        if (input) input.value = op.name;
+        applyPermissions();
+      } else {
+        const input = document.getElementById('logOperator');
+        if (input) input.value = decodedText;
+      }
+    } else if (targetFieldId === 'logMachine') {
+      const mach = state.machines.find((m) => String(m.barcode || m.id || '').trim() === String(decodedText).trim());
+      if (mach) {
+        state.formDraft.IDMachine = mach.id != null ? Number(mach.id) : mach.id;
+        const input = document.getElementById('logMachine');
+        if (input) input.value = mach.name;
+      } else {
+        const input = document.getElementById('logMachine');
+        if (input) input.value = decodedText;
+      }
+    } else {
+      const field = document.getElementById(targetFieldId);
+      if (field) field.value = decodedText;
+    }
     closeBarcodeScanner();
   };
 
@@ -597,14 +706,15 @@ document.getElementById('scannerModal').addEventListener('click', (e) => {
 
 document.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
-  if (!action) {
-    return;
-  }
+  if (!action) return;
 
   const fieldId = scanActionToFieldId[action];
   if (fieldId) {
     openBarcodeScanner(fieldId);
     return;
+  }
+  if (['add-operator', 'add-machine'].includes(action)) {
+    void handleTopbarAction(action);
   }
 });
 
@@ -613,17 +723,17 @@ document.getElementById('logDatePickerBtn').addEventListener('click', () => {
 });
 
 document.getElementById('logSearch').addEventListener('input', () => {
-  applySearch('logSearch', placeholderData.logs, renderLogList);
+  applySearch('logSearch', state.logs, renderLogList);
 });
 
 document.getElementById('operatorSearch').addEventListener('input', () => {
-  applySearch('operatorSearch', placeholderData.operators, (list) => {
+  applySearch('operatorSearch', state.operators, (list) => {
     renderSimpleList(operatorListEl, list, pickOperatorFromList);
   });
 });
 
 document.getElementById('machineSearch').addEventListener('input', () => {
-  applySearch('machineSearch', placeholderData.machines, (list) => {
+  applySearch('machineSearch', state.machines, (list) => {
     renderSimpleList(machineListEl, list, pickMachineFromList);
   });
 });
@@ -631,28 +741,32 @@ document.getElementById('machineSearch').addEventListener('input', () => {
 initCombobox(
   'logOperator',
   'logOperatorDropdown',
-  () => placeholderData.operators,
+  () => state.operators,
   (item) => item.name,
-  'Seleziona operatore'
+  'Seleziona operatore',
+  (item) => {
+    state.formDraft.IDOperator = item.id != null ? Number(item.id) : item.id;
+    state.currentOperator = item;
+    applyPermissions();
+  },
+  () => {
+    state.formDraft.IDOperator = undefined;
+    state.currentOperator = null;
+    applyPermissions();
+  }
 );
 initCombobox(
   'logMachine',
   'logMachineDropdown',
-  () => placeholderData.machines,
+  () => state.machines,
   (item) => item.name,
-  'Seleziona macchina'
+  'Seleziona macchina',
+  (item) => {
+    state.formDraft.IDMachine = item.id != null ? Number(item.id) : item.id;
+  },
+  () => {
+    state.formDraft.IDMachine = undefined;
+  }
 );
-renderLogList(placeholderData.logs);
-renderSimpleList(operatorListEl, placeholderData.operators, pickOperatorFromList);
-renderSimpleList(machineListEl, placeholderData.machines, pickMachineFromList);
-state.formDraft = placeholderData.logs[0];
-fillForm(placeholderData.logs[0]);
-form.operator.value = '';
-form.machine.value = '';
-form.rawCode.value = '';
-form.lot.value = '';
-form.quantity.value = '';
-form.notes.value = '';
-form.rollId.value = '';
-renderDetail(placeholderData.logs[0]);
-setScreen('log-edit');
+
+initApp();
