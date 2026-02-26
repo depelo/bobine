@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:3000/api';
+const API_URL = '/api';
 
 const screenMeta = {
   'log-edit': {
@@ -110,6 +110,16 @@ function toDateInputValue(dateString) {
   const datePart = dateString.split(' ')[0];
   const [day, month, year] = datePart.split('/');
   return `${year}-${month}-${day}`;
+}
+
+function calculateNextRollId(logs) {
+  if (!logs || logs.length === 0) return 1;
+  let max = 0;
+  for (const log of logs) {
+    const n = parseInt(log.rollId, 10);
+    if (!Number.isNaN(n) && n > max) max = n;
+  }
+  return max + 1;
 }
 
 // Tratta la stringa dal server come ora locale (evita offset UTC del browser)
@@ -283,9 +293,8 @@ function fillForm(record) {
 }
 
 function formToPayload() {
-  const formattedDate = form.date.value ? `${form.date.value.split('-').reverse().join('/')} 00:00` : '';
   return {
-    date: formattedDate,
+    date: new Date().toISOString(),
     rawCode: form.rawCode.value,
     lot: form.lot.value,
     quantity: form.quantity.value ? Number(form.quantity.value) : 0,
@@ -374,6 +383,7 @@ function applySearch(inputId, data, renderFn) {
 function resetForm() {
   form.reset();
   form.date.value = new Date().toISOString().slice(0, 10);
+  form.rollId.value = String(calculateNextRollId(state.logs));
   state.formDraft = {};
   state.selectedLog = null;
   form.operator.value = '';

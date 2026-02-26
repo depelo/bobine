@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const sql = require('mssql');
 const cors = require('cors');
@@ -5,6 +6,7 @@ const cors = require('cors');
 const app = express();
 app.use(express.json());
 app.use(cors());
+app.use(express.static(__dirname));
 
 const dbConfig = {
     user: 'sa',
@@ -141,15 +143,19 @@ app.get('/api/logs/:id', async (req, res) => {
 
 app.post('/api/logs', async (req, res) => {
     const { date, IDOperator, IDMachine, rawCode, lot, quantity, notes, rollId } = req.body;
+    const dateToSave = date ? new Date(date) : new Date();
+    const idOperator = IDOperator != null ? parseInt(IDOperator, 10) : null;
+    const idMachine = IDMachine != null ? parseInt(IDMachine, 10) : null;
+    const qty = quantity != null ? parseFloat(quantity) : 0;
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
-            .input('Date', sql.DateTime, date)
-            .input('IDOperator', sql.Int, IDOperator)
-            .input('IDMachine', sql.Int, IDMachine)
+            .input('Date', sql.DateTime, dateToSave)
+            .input('IDOperator', sql.Int, idOperator)
+            .input('IDMachine', sql.Int, idMachine)
             .input('Codart', sql.NVarChar, rawCode)
             .input('Lot', sql.NVarChar, lot)
-            .input('Quantity', sql.Decimal, quantity)
+            .input('Quantity', sql.Decimal, qty)
             .input('Notes', sql.NVarChar, notes)
             .input('IDRoll', sql.NVarChar, rollId)
             .query(`
@@ -166,16 +172,20 @@ app.post('/api/logs', async (req, res) => {
 app.put('/api/logs/:id', async (req, res) => {
     const id = req.params.id;
     const { date, IDOperator, IDMachine, rawCode, lot, quantity, notes, rollId } = req.body;
+    const dateToSave = date ? new Date(date) : new Date();
+    const idOperator = IDOperator != null ? parseInt(IDOperator, 10) : null;
+    const idMachine = IDMachine != null ? parseInt(IDMachine, 10) : null;
+    const qty = quantity != null ? parseFloat(quantity) : 0;
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('IDLog', sql.Int, id)
-            .input('Date', sql.DateTime, date)
-            .input('IDOperator', sql.Int, IDOperator)
-            .input('IDMachine', sql.Int, IDMachine)
+            .input('Date', sql.DateTime, dateToSave)
+            .input('IDOperator', sql.Int, idOperator)
+            .input('IDMachine', sql.Int, idMachine)
             .input('Codart', sql.NVarChar, rawCode)
             .input('Lot', sql.NVarChar, lot)
-            .input('Quantity', sql.Decimal, quantity)
+            .input('Quantity', sql.Decimal, qty)
             .input('Notes', sql.NVarChar, notes)
             .input('IDRoll', sql.NVarChar, rollId)
             .query(`
