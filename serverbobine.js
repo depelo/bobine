@@ -8,7 +8,7 @@ app.use(cors());
 
 const dbConfig = {
     user: 'sa',
-    password: 'Uwey-2735',
+    password: 'Risk0804',
     server: 'localhost',
     database: 'CMP',
     options: {
