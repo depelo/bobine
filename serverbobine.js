@@ -204,7 +204,11 @@ app.put('/api/logs/:id', async (req, res) => {
 });
 
 app.delete('/api/logs/:id', async (req, res) => {
-    const id = req.params.id;
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+        res.status(400).send('ID log non valido');
+        return;
+    }
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()

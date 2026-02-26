@@ -112,14 +112,30 @@ function toDateInputValue(dateString) {
   return `${year}-${month}-${day}`;
 }
 
-function calculateNextRollId(logs) {
-  if (!logs || logs.length === 0) return 1;
-  let max = 0;
-  for (const log of logs) {
-    const n = parseInt(log.rollId, 10);
-    if (!Number.isNaN(n) && n > max) max = n;
+// IDRoll progressivo condizionale: stesso (Codart, Lot) => ultimo IDRoll + 1; altrimenti 0
+function updateDynamicRollId() {
+  const rawCode = (form.rawCode && form.rawCode.value ? form.rawCode.value : '').trim();
+  const lot = (form.lot && form.lot.value ? form.lot.value : '').trim();
+  const rollInput = document.getElementById('rollId');
+  if (!rollInput) return;
+
+  if (!state.logs || state.logs.length === 0) {
+    rollInput.value = '0';
+    return;
   }
-  return max + 1;
+
+  const sorted = [...state.logs].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const lastLog = sorted[0];
+  const lastCodart = (lastLog.rawCode != null ? String(lastLog.rawCode) : '').trim();
+  const lastLot = (lastLog.lot != null ? String(lastLog.lot) : '').trim();
+
+  if (rawCode === lastCodart && lot === lastLot) {
+    const lastRoll = parseInt(lastLog.rollId, 10);
+    const next = (Number.isNaN(lastRoll) ? 0 : lastRoll) + 1;
+    rollInput.value = String(next);
+  } else {
+    rollInput.value = '0';
+  }
 }
 
 // Tratta la stringa dal server come ora locale (evita offset UTC del browser)
@@ -383,12 +399,12 @@ function applySearch(inputId, data, renderFn) {
 function resetForm() {
   form.reset();
   form.date.value = new Date().toISOString().slice(0, 10);
-  form.rollId.value = String(calculateNextRollId(state.logs));
   state.formDraft = {};
   state.selectedLog = null;
   form.operator.value = '';
   form.machine.value = '';
   state.currentOperator = null;
+  updateDynamicRollId();
   applyPermissions();
 }
 
@@ -708,6 +724,7 @@ function openBarcodeScanner(targetFieldId) {
     } else {
       const field = document.getElementById(targetFieldId);
       if (field) field.value = decodedText;
+      if (targetFieldId === 'rawCode' || targetFieldId === 'lot') updateDynamicRollId();
     }
     closeBarcodeScanner();
   };
@@ -749,6 +766,11 @@ document.addEventListener('click', (event) => {
 document.getElementById('logDatePickerBtn').addEventListener('click', () => {
   document.getElementById('logDate').showPicker?.();
 });
+
+document.getElementById('rawCode').addEventListener('input', updateDynamicRollId);
+document.getElementById('rawCode').addEventListener('change', updateDynamicRollId);
+document.getElementById('lot').addEventListener('input', updateDynamicRollId);
+document.getElementById('lot').addEventListener('change', updateDynamicRollId);
 
 document.getElementById('logSearch').addEventListener('input', () => {
   applySearch('logSearch', state.logs, renderLogList);
