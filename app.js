@@ -112,6 +112,15 @@ function toDateInputValue(dateString) {
   return `${year}-${month}-${day}`;
 }
 
+// Tratta la stringa dal server come ora locale (evita offset UTC del browser)
+function displayDate(dateStr) {
+  if (dateStr == null || dateStr === '') return '-';
+  const cleanDateStr = String(dateStr).replace('Z', '');
+  const d = new Date(cleanDateStr);
+  if (Number.isNaN(d.getTime())) return String(dateStr);
+  return d.toLocaleDateString('it-IT') + ' ' + d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+}
+
 function initCombobox(inputId, dropdownId, getItems, getValueFromItem, clearOptionLabel, onSelectItem, onClear) {
   const input = document.getElementById(inputId);
   const dropdown = document.getElementById(dropdownId);
@@ -289,15 +298,9 @@ function formToPayload() {
 
 // Ordine campi come in [CMP].[dbo].[Log]: IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll
 function renderLogDetail(record) {
-  const formatDate = (dateVal) => {
-    if (dateVal == null || dateVal === '') return '-';
-    const d = new Date(dateVal);
-    return Number.isNaN(d.getTime()) ? String(dateVal) : d.toLocaleString('it-IT');
-  };
-
   const rows = [
     ['ID Record', record.uniqueRecordId],
-    ['Data', formatDate(record.date)],
+    ['Data', displayDate(record.date)],
     ['Operatore', record.operator ?? '-'],
     ['Macchina', record.machine ?? '-'],
     ['Codice Articolo', record.rawCode ?? '-'],
@@ -325,7 +328,7 @@ function renderLogList(items) {
   logListEl.innerHTML = '';
   items.forEach((log) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span>${log.uniqueRecordId}<br /><small>${log.date}</small></span><span>›</span>`;
+    li.innerHTML = `<span>${log.uniqueRecordId}<br /><small>${displayDate(log.date)}</small></span><span>›</span>`;
     li.addEventListener('click', async () => {
       state.selectedLog = log;
       renderLogDetail(log);
