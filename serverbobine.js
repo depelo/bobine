@@ -42,7 +42,8 @@ app.post('/api/operators', async (req, res) => {
             .input('Operator', sql.NVarChar, name)
             .input('Admin', sql.Bit, isAdmin ? 1 : 0)
             .input('Barcode', sql.NVarChar, barcode)
-            .query('INSERT INTO [CMP].[dbo].[Operators] (Operator, Admin, Barcode) VALUES (@Operator, @Admin, @Barcode)');
+            .query(`INSERT INTO [CMP].[dbo].[Operators] (IDOperator, Operator, Admin, Barcode)
+VALUES ((SELECT ISNULL(MAX(IDOperator), 0) + 1 FROM [CMP].[dbo].[Operators]), @Operator, @Admin, @Barcode)`);
         res.status(201).send({ message: 'Operatore aggiunto' });
     } catch (err) {
         res.status(500).send(err.message);
@@ -160,8 +161,9 @@ app.post('/api/logs', async (req, res) => {
             .input('IDRoll', sql.NVarChar, rollId)
             .query(`
                 INSERT INTO [CMP].[dbo].[Log]
-                (Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll)
-                VALUES (@Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll)
+                (IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll)
+                VALUES
+                ((SELECT ISNULL(MAX(IDLog), 0) + 1 FROM [CMP].[dbo].[Log]), @Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll)
             `);
         res.status(201).send({ message: 'Log registrato con successo' });
     } catch (err) {

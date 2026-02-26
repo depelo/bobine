@@ -501,7 +501,7 @@ async function handleTopbarAction(action) {
     if (name == null || name.trim() === '') return;
     const barcode = prompt('Barcode');
     if (barcode == null) return;
-    const isAdmin = confirm('Impostare come amministratore?');
+    const isAdmin = window.confirm("L'operatore è un Amministratore?\n\nPremi 'OK' per Sì\nPremi 'Annulla' per No");
     try {
       const res = await fetch(`${API_URL}/operators`, {
         method: 'POST',
