@@ -500,6 +500,65 @@ input.date-input {
   margin-right: var(--space-12);
 }
 
+/* --- Modale scanner barcode --- */
+.scanner-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-16);
+}
+
+.scanner-modal.is-open {
+  display: flex;
+}
+
+.scanner-modal-inner {
+  background: var(--bg-content);
+  border-radius: var(--radius);
+  padding: var(--space-16);
+  max-width: 100%;
+  width: 320px;
+}
+
+.scanner-title {
+  margin: 0 0 var(--space-12);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  color: var(--text);
+}
+
+#scannerContainer {
+  min-height: 200px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: var(--space-12);
+}
+
+#scannerContainer video {
+  width: 100%;
+  display: block;
+}
+
+.scanner-cancel {
+  width: 100%;
+  min-height: var(--touch-btn);
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+
+.scanner-cancel:hover {
+  background: var(--border);
+}
+
 /* ========== RESPONSIVE ========== */
 
 /* Tablet: 601px – 900px */

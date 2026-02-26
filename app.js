@@ -471,26 +471,73 @@ topbarEl.addEventListener('click', (event) => {
   handleTopbarAction(action);
 });
 
+const scanActionToFieldId = {
+  'scan-raw-code': 'rawCode',
+  'scan-lot': 'lot',
+  'scan-operator': 'logOperator',
+  'scan-machine': 'logMachine'
+};
+
+let barcodeScannerInstance = null;
+
+function closeBarcodeScanner() {
+  const modal = document.getElementById('scannerModal');
+  if (barcodeScannerInstance && typeof barcodeScannerInstance.stop === 'function') {
+    barcodeScannerInstance.stop().catch(() => {});
+    barcodeScannerInstance = null;
+  }
+  const container = document.getElementById('scannerContainer');
+  if (container) container.innerHTML = '';
+  if (modal) {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+}
+
+function openBarcodeScanner(targetFieldId) {
+  const modal = document.getElementById('scannerModal');
+  const container = document.getElementById('scannerContainer');
+  if (!modal || !container) return;
+
+  if (typeof Html5Qrcode === 'undefined') {
+    alert('Libreria scanner non disponibile. Controlla la connessione.');
+    return;
+  }
+
+  modal.classList.add('is-open');
+  modal.setAttribute('aria-hidden', 'false');
+  container.innerHTML = '';
+
+  const onSuccess = (decodedText) => {
+    const field = document.getElementById(targetFieldId);
+    if (field) field.value = decodedText;
+    closeBarcodeScanner();
+  };
+
+  barcodeScannerInstance = new Html5Qrcode('scannerContainer');
+  const config = { fps: 10, qrbox: { width: 260, height: 120 } };
+
+  barcodeScannerInstance
+    .start({ facingMode: 'environment' }, config, onSuccess)
+    .catch((err) => {
+      closeBarcodeScanner();
+      alert('Impossibile accedere alla fotocamera. Verifica i permessi o usa un dispositivo con fotocamera.');
+      console.warn(err);
+    });
+}
+
+document.getElementById('scannerCancel').addEventListener('click', closeBarcodeScanner);
+
 document.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) {
     return;
   }
 
-  if (action === 'scan-raw-code') {
-    form.rawCode.value = `RM-${Math.floor(Math.random() * 900 + 100)}`;
-  }
-
-  if (action === 'scan-operator') {
-    form.operator.value = placeholderData.operators[Math.floor(Math.random() * placeholderData.operators.length)].name;
-  }
-
-  if (action === 'scan-machine') {
-    form.machine.value = placeholderData.machines[Math.floor(Math.random() * placeholderData.machines.length)].name;
-  }
-
-  if (action === 'scan-lot') {
-    form.lot.value = `LOT-${Math.floor(Math.random() * 900 + 100)}`;
+  const fieldId = scanActionToFieldId[action];
+  if (fieldId) {
+    openBarcodeScanner(fieldId);
+    return;
   }
 });
 

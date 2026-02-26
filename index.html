@@ -12,7 +12,7 @@
         <button class="menu-btn" aria-label="menu">☰</button>
         <button class="side-btn is-active" data-screen-target="log-edit" title="Registro">⌂</button>
         <button class="side-btn" data-screen-target="machine-list" title="Macchine">
-          <svg class="icon-machine" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <svg class="icon-machine" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2.5"/><circle cx="18" cy="17" r="2.5"/><path d="M8.5 17h7M7 5h10v8H7zM12 13v-3"/></svg>
         </button>
         <button class="side-btn" data-screen-target="operator-list" title="Operatori">
           <svg class="icon-person" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -116,6 +116,15 @@
       </main>
     </div>
 
+    <div class="scanner-modal" id="scannerModal" aria-hidden="true" aria-label="Scansione barcode">
+      <div class="scanner-modal-inner">
+        <p class="scanner-title">Inquadra il barcode</p>
+        <div id="scannerContainer"></div>
+        <button type="button" class="scanner-cancel" id="scannerCancel">Annulla</button>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
