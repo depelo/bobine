@@ -10,6 +10,7 @@ const dbConfig = {
     user: 'user49',
     password: 'Uwey-2735',
     server: 'localhost',
+    domain: 'PC-Test',
     database: 'CMP',
     options: {
         encrypt: false,
