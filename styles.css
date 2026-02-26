@@ -517,6 +517,8 @@ input.date-input {
 }
 
 .scanner-modal-inner {
+  position: relative;
+  z-index: 2;
   background: var(--bg-content);
   border-radius: var(--radius);
   padding: var(--space-16);
@@ -544,6 +546,8 @@ input.date-input {
 }
 
 .scanner-cancel {
+  position: relative;
+  z-index: 3;
   width: 100%;
   min-height: var(--touch-btn);
   border: 2px solid var(--border);

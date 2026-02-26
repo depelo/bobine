@@ -482,16 +482,16 @@ let barcodeScannerInstance = null;
 
 function closeBarcodeScanner() {
   const modal = document.getElementById('scannerModal');
+  if (modal) {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
   if (barcodeScannerInstance && typeof barcodeScannerInstance.stop === 'function') {
     barcodeScannerInstance.stop().catch(() => {});
     barcodeScannerInstance = null;
   }
   const container = document.getElementById('scannerContainer');
   if (container) container.innerHTML = '';
-  if (modal) {
-    modal.classList.remove('is-open');
-    modal.setAttribute('aria-hidden', 'true');
-  }
 }
 
 function openBarcodeScanner(targetFieldId) {
@@ -526,7 +526,13 @@ function openBarcodeScanner(targetFieldId) {
     });
 }
 
-document.getElementById('scannerCancel').addEventListener('click', closeBarcodeScanner);
+document.getElementById('scannerModal').addEventListener('click', (e) => {
+  if (e.target.id === 'scannerCancel' || e.target.closest('#scannerCancel') || e.target.id === 'scannerModal') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeBarcodeScanner();
+  }
+});
 
 document.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
