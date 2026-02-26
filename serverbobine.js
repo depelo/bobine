@@ -104,6 +104,40 @@ app.get('/api/logs', async (req, res) => {
     }
 });
 
+app.get('/api/logs/:id', async (req, res) => {
+    const id = req.params.id;
+    try {
+        let pool = await sql.connect(dbConfig);
+        let result = await pool.request()
+            .input('IDLog', sql.Int, id)
+            .query(`
+                SELECT
+                    L.IDLog as uniqueRecordId,
+                    L.Date as date,
+                    O.Operator as operator,
+                    L.IDOperator,
+                    M.Machine as machine,
+                    L.IDMachine,
+                    L.Codart as rawCode,
+                    L.Lot as lot,
+                    L.Quantity as quantity,
+                    L.Notes as notes,
+                    L.IDRoll as rollId
+                FROM [CMP].[dbo].[Log] L
+                LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
+                LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
+                WHERE L.IDLog = @IDLog
+            `);
+        if (!result.recordset || result.recordset.length === 0) {
+            res.status(404).send('Log non trovato');
+            return;
+        }
+        res.json(result.recordset[0]);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
 app.post('/api/logs', async (req, res) => {
     const { date, IDOperator, IDMachine, rawCode, lot, quantity, notes, rollId } = req.body;
     try {

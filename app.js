@@ -287,17 +287,24 @@ function formToPayload() {
   };
 }
 
-function renderDetail(record) {
+// Ordine campi come in [CMP].[dbo].[Log]: IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll
+function renderLogDetail(record) {
+  const formatDate = (dateVal) => {
+    if (dateVal == null || dateVal === '') return '-';
+    const d = new Date(dateVal);
+    return Number.isNaN(d.getTime()) ? String(dateVal) : d.toLocaleString('it-IT');
+  };
+
   const rows = [
-    ['Codice materia prima', record.rawCode],
-    ['Lotto', record.lot],
-    ['Macchina', record.machine],
-    ['Note', record.notes],
-    ['Operatore', record.operator],
-    ['Quantità', record.quantity],
-    ['ID rotolo', record.rollId],
-    ['Data', record.date],
-    ['ID record', record.uniqueRecordId]
+    ['ID Record', record.uniqueRecordId],
+    ['Data', formatDate(record.date)],
+    ['Operatore', record.operator ?? '-'],
+    ['Macchina', record.machine ?? '-'],
+    ['Codice Articolo', record.rawCode ?? '-'],
+    ['Lotto', record.lot ?? '-'],
+    ['Quantità', record.quantity != null ? String(record.quantity) : '-'],
+    ['Note', record.notes ?? '-'],
+    ['ID Bobina', record.rollId ?? '-']
   ];
 
   detailGrid.innerHTML = '';
@@ -308,7 +315,7 @@ function renderDetail(record) {
 
     const value = document.createElement('p');
     value.className = 'v';
-    value.textContent = v || '-';
+    value.textContent = v;
 
     detailGrid.append(key, value);
   });
@@ -319,10 +326,18 @@ function renderLogList(items) {
   items.forEach((log) => {
     const li = document.createElement('li');
     li.innerHTML = `<span>${log.uniqueRecordId}<br /><small>${log.date}</small></span><span>›</span>`;
-    li.addEventListener('click', () => {
+    li.addEventListener('click', async () => {
       state.selectedLog = log;
-      renderDetail(log);
+      renderLogDetail(log);
       setScreen('log-detail');
+      try {
+        const fetched = await fetchData(`/logs/${log.uniqueRecordId}`);
+        state.selectedLog = fetched;
+        renderLogDetail(fetched);
+      } catch (err) {
+        console.error(err);
+        alert('Impossibile caricare il dettaglio. Verifica connessione.');
+      }
     });
     logListEl.appendChild(li);
   });
