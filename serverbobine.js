@@ -7,12 +7,12 @@ app.use(express.json());
 app.use(cors());
 
 const dbConfig = {
-    server: '127.0.0.1',
+    server: 'localhost',
     database: 'CMP',
     authentication: {
         type: 'ntlm',
         options: {
-            domain: 'PC-Test',
+            domain: 'UJETSRL',
             userName: 'user49',
             password: 'Uwey-2735'
         }
