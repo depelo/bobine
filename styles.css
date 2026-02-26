@@ -47,11 +47,116 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: var(--font-family);
   font-size: var(--font-size-base);
   line-height: var(--line-height);
   color: var(--text);
   background: var(--bg);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* --- Menu drawer (barra laterale) --- */
+.menu-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 150;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+}
+
+.menu-drawer-backdrop.is-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.menu-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 280px;
+  max-width: 85vw;
+  background: var(--bg-content);
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+  z-index: 160;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease-out;
+  padding-top: env(safe-area-inset-top);
+}
+
+.menu-drawer.is-open {
+  transform: translateX(0);
+}
+
+.menu-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-12) var(--space-16);
+  border-bottom: 1px solid var(--border);
+}
+
+.menu-drawer-title {
+  font-size: var(--font-size-title);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.menu-drawer-close {
+  width: var(--touch-btn);
+  height: var(--touch-btn);
+  border: 0;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+  padding: 0;
+}
+
+.menu-drawer-close:hover {
+  background: var(--bg);
+}
+
+.menu-drawer-actions {
+  padding: var(--space-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-10);
+}
+
+.menu-drawer-btn {
+  width: 100%;
+  min-height: var(--touch-btn);
+  padding: 0 var(--space-16);
+  border: 2px solid var(--border);
+  background: var(--bg-content);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--radius);
+  text-align: left;
+}
+
+.menu-drawer-btn:hover {
+  background: var(--bg);
+}
+
+.menu-drawer-btn-primary {
+  border-color: var(--primary);
+  background: #e3eef8;
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+.menu-drawer-btn-primary:hover {
+  background: #cce0f5;
 }
 
 /* --- Layout: app-shell --- */
@@ -502,18 +607,25 @@ input.date-input {
 
 /* --- Modale scanner barcode --- */
 .scanner-modal {
-  display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.85);
   z-index: 300;
   align-items: center;
   justify-content: center;
   padding: var(--space-16);
 }
 
+.scanner-modal:not(.is-open) {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .scanner-modal.is-open {
   display: flex;
+  visibility: visible;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.85);
 }
 
 .scanner-modal-inner {
@@ -587,7 +699,7 @@ input.date-input {
   .content {
     flex: 1;
     min-height: 0;
-    padding-bottom: 60px;
+    padding-bottom: calc(60px + env(safe-area-inset-bottom));
   }
 
   .app-nav {
@@ -596,7 +708,8 @@ input.date-input {
     left: 0;
     right: 0;
     width: 100%;
-    height: 60px;
+    height: calc(60px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
     flex-direction: row;
     justify-content: space-around;
     align-items: center;

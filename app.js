@@ -463,6 +463,56 @@ navButtons.forEach((btn) => {
   });
 });
 
+/* --- Menu drawer (barra laterale) --- */
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+
+function openMenuDrawer() {
+  document.getElementById('menuDrawer').classList.add('is-open');
+  document.getElementById('menuDrawer').setAttribute('aria-hidden', 'false');
+  document.getElementById('menuDrawerBackdrop').classList.add('is-open');
+  document.getElementById('menuDrawerBackdrop').setAttribute('aria-hidden', 'false');
+}
+
+function closeMenuDrawer() {
+  document.getElementById('menuDrawer').classList.remove('is-open');
+  document.getElementById('menuDrawer').setAttribute('aria-hidden', 'true');
+  document.getElementById('menuDrawerBackdrop').classList.remove('is-open');
+  document.getElementById('menuDrawerBackdrop').setAttribute('aria-hidden', 'true');
+}
+
+document.getElementById('menuBtn').addEventListener('click', openMenuDrawer);
+document.getElementById('menuDrawerClose').addEventListener('click', closeMenuDrawer);
+document.getElementById('menuDrawerBackdrop').addEventListener('click', closeMenuDrawer);
+
+document.getElementById('menuDrawer').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-menu-action]');
+  if (!btn) return;
+  const action = btn.dataset.menuAction;
+  if (action === 'placeholder1' || action === 'placeholder2') return;
+  if (action === 'add-to-home') {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.then(() => {
+        deferredInstallPrompt = null;
+      });
+      closeMenuDrawer();
+    } else {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (isIOS) {
+        alert('Per aggiungere alla Home: tocca il pulsante Condividi (quadrato con freccia) in Safari, poi "Aggiungi a Home".');
+      } else {
+        alert('Usa il menu del browser (⋮) e scegli "Installa app" o "Aggiungi a Home".');
+      }
+      closeMenuDrawer();
+    }
+  }
+});
+
 topbarEl.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) {
