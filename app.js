@@ -530,6 +530,13 @@ const scanActionToFieldId = {
 
 let barcodeScannerInstance = null;
 
+function playBarcodeBeep() {
+  const audio = document.getElementById('barcodeBeepSound');
+  if (!audio) return;
+  audio.currentTime = 0;
+  audio.play().catch(() => {});
+}
+
 function closeBarcodeScanner() {
   const modal = document.getElementById('scannerModal');
   if (modal) {
@@ -559,6 +566,7 @@ function openBarcodeScanner(targetFieldId) {
   container.innerHTML = '';
 
   const onSuccess = (decodedText) => {
+    playBarcodeBeep();
     const field = document.getElementById(targetFieldId);
     if (field) field.value = decodedText;
     closeBarcodeScanner();
