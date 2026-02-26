@@ -533,8 +533,11 @@ let barcodeScannerInstance = null;
 function playBarcodeBeep() {
   const audio = document.getElementById('barcodeBeepSound');
   if (!audio) return;
+
   audio.currentTime = 0;
-  audio.play().catch(() => {});
+  audio.play().catch((error) => {
+    console.warn("Impossibile riprodurre il beep:", error);
+  });
 }
 
 function closeBarcodeScanner() {
@@ -650,5 +653,6 @@ form.rawCode.value = '';
 form.lot.value = '';
 form.quantity.value = '';
 form.notes.value = '';
+form.rollId.value = '';
 renderDetail(placeholderData.logs[0]);
 setScreen('log-edit');
