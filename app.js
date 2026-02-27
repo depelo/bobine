@@ -689,6 +689,7 @@ const scanActionToFieldId = {
 };
 
 let barcodeScannerInstance = null;
+let isScannerRunning = false;
 
 function loginByBarcode(barcode, type = 'operator') {
   const code = String(barcode || '').trim();
@@ -754,9 +755,14 @@ function closeBarcodeScanner() {
     modal.classList.remove('is-open');
     modal.setAttribute('aria-hidden', 'true');
   }
-  if (barcodeScannerInstance && typeof barcodeScannerInstance.stop === 'function') {
-    barcodeScannerInstance.stop().catch(() => {});
+  if (barcodeScannerInstance) {
+    if (isScannerRunning) {
+      try {
+        barcodeScannerInstance.stop().catch(() => {});
+      } catch (e) {}
+    }
     barcodeScannerInstance = null;
+    isScannerRunning = false;
   }
   const container = document.getElementById('scannerContainer');
   if (container) container.innerHTML = '';
@@ -801,10 +807,14 @@ function openBarcodeScanner(targetFieldId) {
 
   barcodeScannerInstance
     .start({ facingMode: 'environment' }, config, onSuccess)
+    .then(() => {
+      isScannerRunning = true;
+    })
     .catch((err) => {
+      isScannerRunning = false;
       closeBarcodeScanner();
-      alert('Impossibile accedere alla fotocamera. Verifica i permessi o usa un dispositivo con fotocamera.');
-      console.warn(err);
+      alert('Impossibile accedere alla fotocamera. Verifica i permessi o controlla di avere un dispositivo video collegato.');
+      console.warn('Errore fotocamera:', err);
     });
 }
 
