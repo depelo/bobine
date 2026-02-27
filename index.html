@@ -59,26 +59,36 @@
               </button>
             </div>
 
-            <label for="logOperator">Operatore</label>
+            <label for="operatorSearch">Operatore</label>
             <div class="control with-icon-btn">
-              <div class="combobox-wrap">
-                <input id="logOperator" name="operator" type="text" placeholder="Seleziona o cerca operatore" autocomplete="off" />
-                <div class="combobox-dropdown" id="logOperatorDropdown" aria-hidden="true" role="listbox"></div>
-              </div>
+              <input type="hidden" id="IDOperator" name="IDOperator" />
+              <input
+                type="text"
+                id="operatorSearch"
+                list="operatorList"
+                placeholder="Seleziona o scansiona operatore..."
+                autocomplete="off"
+              />
+              <datalist id="operatorList"></datalist>
               <button type="button" class="icon-btn" data-action="scan-operator" title="Scansiona con fotocamera">
-              <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            </button>
+                <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              </button>
             </div>
 
-            <label for="logMachine">Macchina</label>
+            <label for="machineSearch">Macchina</label>
             <div class="control with-icon-btn">
-              <div class="combobox-wrap">
-                <input id="logMachine" name="machine" type="text" placeholder="Seleziona o cerca macchina" autocomplete="off" />
-                <div class="combobox-dropdown" id="logMachineDropdown" aria-hidden="true" role="listbox"></div>
-              </div>
+              <input type="hidden" id="IDMachine" name="IDMachine" />
+              <input
+                type="text"
+                id="machineSearch"
+                list="machineList"
+                placeholder="Seleziona o scansiona macchina..."
+                autocomplete="off"
+              />
+              <datalist id="machineList"></datalist>
               <button type="button" class="icon-btn" data-action="scan-machine" title="Scansiona con fotocamera">
-              <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            </button>
+                <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              </button>
             </div>
 
             <label for="rawCode">Codice materia prima</label>
@@ -119,18 +129,18 @@
 
         <section class="screen" id="screen-operator-list" data-screen="operator-list">
           <div class="screen-toolbar">
-            <div class="search-wrap"><input id="operatorSearch" type="search" placeholder="Cerca..." /></div>
+            <div class="search-wrap"><input id="operatorListSearch" type="search" placeholder="Cerca..." /></div>
             <button type="button" class="action-btn inline-btn" data-action="add-operator" title="Aggiungi operatore">+</button>
           </div>
-          <ul class="list two-col" id="operatorList"></ul>
+          <ul class="list two-col" id="operatorListView"></ul>
         </section>
 
         <section class="screen" id="screen-machine-list" data-screen="machine-list">
           <div class="screen-toolbar">
-            <div class="search-wrap"><input id="machineSearch" type="search" placeholder="Cerca..." /></div>
+            <div class="search-wrap"><input id="machineListSearch" type="search" placeholder="Cerca..." /></div>
             <button type="button" class="action-btn inline-btn" data-action="add-machine" title="Aggiungi macchina">+</button>
           </div>
-          <ul class="list two-col" id="machineList"></ul>
+          <ul class="list two-col" id="machineListView"></ul>
         </section>
       </main>
     </div>

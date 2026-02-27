@@ -86,6 +86,8 @@ async function initApp() {
     state.machines = [];
     state.logs = [];
   }
+  populateOperatorDatalist();
+  populateMachineDatalist();
   renderLogList(state.logs);
   renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
   renderSimpleList(machineListEl, state.machines, pickMachineFromList);
@@ -103,8 +105,8 @@ const navButtons = document.querySelectorAll('.side-btn');
 const form = document.getElementById('logForm');
 const detailGrid = document.getElementById('detailGrid');
 const logListEl = document.getElementById('logList');
-const operatorListEl = document.getElementById('operatorList');
-const machineListEl = document.getElementById('machineList');
+const operatorListEl = document.getElementById('operatorListView');
+const machineListEl = document.getElementById('machineListView');
 
 function toDateInputValue(dateString) {
   const datePart = dateString.split(' ')[0];
@@ -296,19 +298,38 @@ function fillForm(record) {
   form.quantity.value = record.quantity ?? '';
   form.notes.value = record.notes ?? '';
   form.rollId.value = record.rollId ?? '';
+
+  const hiddenOp = document.getElementById('IDOperator');
+  const hiddenMach = document.getElementById('IDMachine');
+  const opInput = document.getElementById('operatorSearch');
+  const machInput = document.getElementById('machineSearch');
+
   const idOp = record.IDOperator != null ? Number(record.IDOperator) : null;
   const idMach = record.IDMachine != null ? Number(record.IDMachine) : null;
   state.formDraft.IDOperator = idOp;
   state.formDraft.IDMachine = idMach;
+
   const op = state.operators.find((o) => Number(o.id) === idOp);
   const mach = state.machines.find((m) => Number(m.id) === idMach);
-  form.operator.value = op ? op.name : (record.operator ?? '');
-  form.machine.value = mach ? mach.name : (record.machine ?? '');
+
+  if (hiddenOp) hiddenOp.value = idOp != null ? String(idOp) : '';
+  if (hiddenMach) hiddenMach.value = idMach != null ? String(idMach) : '';
+  if (opInput) opInput.value = op ? op.name : (record.operator ?? '');
+  if (machInput) machInput.value = mach ? mach.name : (record.machine ?? '');
+
   state.currentOperator = op ?? null;
   applyPermissions();
 }
 
 function formToPayload() {
+  const hiddenOp = document.getElementById('IDOperator');
+  const hiddenMach = document.getElementById('IDMachine');
+  const idOp = hiddenOp && hiddenOp.value !== '' ? parseInt(hiddenOp.value, 10) : null;
+  const idMach = hiddenMach && hiddenMach.value !== '' ? parseInt(hiddenMach.value, 10) : null;
+
+  state.formDraft.IDOperator = idOp;
+  state.formDraft.IDMachine = idMach;
+
   return {
     date: new Date().toISOString(),
     rawCode: form.rawCode.value,
@@ -316,8 +337,8 @@ function formToPayload() {
     quantity: form.quantity.value ? Number(form.quantity.value) : 0,
     notes: form.notes.value,
     rollId: form.rollId.value,
-    IDOperator: state.formDraft.IDOperator != null ? Number(state.formDraft.IDOperator) : null,
-    IDMachine: state.formDraft.IDMachine != null ? Number(state.formDraft.IDMachine) : null
+    IDOperator: idOp,
+    IDMachine: idMach
   };
 }
 
@@ -381,6 +402,34 @@ function renderSimpleList(rootEl, items, onPick) {
   });
 }
 
+function populateOperatorDatalist() {
+  const dl = document.getElementById('operatorList');
+  if (!dl) return;
+  dl.innerHTML = '';
+  state.operators
+    .filter((op) => !op.isAdmin && op.isAdmin !== 1)
+    .forEach((op) => {
+      const opt = document.createElement('option');
+      opt.value = op.name;
+      opt.dataset.id = op.id != null ? String(op.id) : '';
+      opt.dataset.barcode = op.barcode != null ? String(op.barcode) : '';
+      dl.appendChild(opt);
+    });
+}
+
+function populateMachineDatalist() {
+  const dl = document.getElementById('machineList');
+  if (!dl) return;
+  dl.innerHTML = '';
+  state.machines.forEach((m) => {
+    const opt = document.createElement('option');
+    opt.value = m.name;
+    opt.dataset.id = m.id != null ? String(m.id) : '';
+    opt.dataset.barcode = m.barcode != null ? String(m.barcode) : '';
+    dl.appendChild(opt);
+  });
+}
+
 function sortByName(listKey) {
   const list = listKey === 'operators' ? state.operators : state.machines;
   list.sort((a, b) => {
@@ -391,7 +440,9 @@ function sortByName(listKey) {
 }
 
 function applySearch(inputId, data, renderFn) {
-  const query = document.getElementById(inputId).value.trim().toLowerCase();
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  const query = el.value.trim().toLowerCase();
   const filtered = data.filter((item) => JSON.stringify(item).toLowerCase().includes(query));
   renderFn(filtered);
 }
@@ -401,8 +452,14 @@ function resetForm() {
   form.date.value = new Date().toISOString().slice(0, 10);
   state.formDraft = {};
   state.selectedLog = null;
-  form.operator.value = '';
-  form.machine.value = '';
+  const hiddenOp = document.getElementById('IDOperator');
+  const hiddenMach = document.getElementById('IDMachine');
+  const opInput = document.getElementById('operatorSearch');
+  const machInput = document.getElementById('machineSearch');
+  if (hiddenOp) hiddenOp.value = '';
+  if (hiddenMach) hiddenMach.value = '';
+  if (opInput) opInput.value = '';
+  if (machInput) machInput.value = '';
   state.currentOperator = null;
   updateDynamicRollId();
   applyPermissions();
@@ -499,6 +556,7 @@ async function handleTopbarAction(action) {
   if (action === 'refresh-operator-list') {
     try {
       state.operators = await fetchData('/operators');
+      populateOperatorDatalist();
       renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
     } catch (err) {
       alert('Errore aggiornamento operatori: ' + (err.message || err));
@@ -526,6 +584,7 @@ async function handleTopbarAction(action) {
       });
       if (!res.ok) throw new Error(await res.text());
       state.operators = await fetchData('/operators');
+      populateOperatorDatalist();
       renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
       alert('Operatore aggiunto.');
     } catch (err) {
@@ -539,6 +598,7 @@ async function handleTopbarAction(action) {
     try {
       state.machines = await fetchData('/machines');
       renderSimpleList(machineListEl, state.machines, pickMachineFromList);
+      populateMachineDatalist();
     } catch (err) {
       alert('Errore aggiornamento macchine: ' + (err.message || err));
     }
@@ -565,6 +625,7 @@ async function handleTopbarAction(action) {
       if (!res.ok) throw new Error(await res.text());
       state.machines = await fetchData('/machines');
       renderSimpleList(machineListEl, state.machines, pickMachineFromList);
+      populateMachineDatalist();
       alert('Macchina aggiunta.');
     } catch (err) {
       console.error(err);
@@ -576,14 +637,20 @@ async function handleTopbarAction(action) {
 function pickOperatorFromList(operator) {
   state.formDraft.IDOperator = operator.id != null ? Number(operator.id) : operator.id;
   state.currentOperator = operator;
-  form.operator.value = operator.name;
+  const hiddenOp = document.getElementById('IDOperator');
+  const opInput = document.getElementById('operatorSearch');
+  if (hiddenOp) hiddenOp.value = operator.id != null ? String(operator.id) : '';
+  if (opInput) opInput.value = operator.name;
   applyPermissions();
   if (state.returnFromLookupTo === 'log-edit') setScreen('log-edit');
 }
 
 function pickMachineFromList(machine) {
   state.formDraft.IDMachine = machine.id != null ? Number(machine.id) : machine.id;
-  form.machine.value = machine.name;
+  const hiddenMach = document.getElementById('IDMachine');
+  const machInput = document.getElementById('machineSearch');
+  if (hiddenMach) hiddenMach.value = machine.id != null ? String(machine.id) : '';
+  if (machInput) machInput.value = machine.name;
   if (state.returnFromLookupTo === 'log-edit') setScreen('log-edit');
 }
 
@@ -653,8 +720,8 @@ topbarEl.addEventListener('click', (event) => {
 const scanActionToFieldId = {
   'scan-raw-code': 'rawCode',
   'scan-lot': 'lot',
-  'scan-operator': 'logOperator',
-  'scan-machine': 'logMachine'
+  'scan-operator': 'operatorSearch',
+  'scan-machine': 'machineSearch'
 };
 
 let barcodeScannerInstance = null;
@@ -699,29 +766,36 @@ function openBarcodeScanner(targetFieldId) {
 
   const onSuccess = (decodedText) => {
     playBarcodeBeep();
-    if (targetFieldId === 'logOperator') {
-      const op = state.operators.find((o) => String(o.barcode || o.id || '').trim() === String(decodedText).trim());
-      if (op) {
-        state.formDraft.IDOperator = op.id != null ? Number(op.id) : op.id;
-        state.currentOperator = op;
-        const input = document.getElementById('logOperator');
-        if (input) input.value = op.name;
-        applyPermissions();
-      } else {
-        const input = document.getElementById('logOperator');
-        if (input) input.value = decodedText;
-      }
-    } else if (targetFieldId === 'logMachine') {
-      const mach = state.machines.find((m) => String(m.barcode || m.id || '').trim() === String(decodedText).trim());
-      if (mach) {
-        state.formDraft.IDMachine = mach.id != null ? Number(mach.id) : mach.id;
-        const input = document.getElementById('logMachine');
-        if (input) input.value = mach.name;
-      } else {
-        const input = document.getElementById('logMachine');
-        if (input) input.value = decodedText;
-      }
-    } else {
+    const cleaned = String(decodedText).trim();
+
+    // 1) prova come barcode operatore (inclusi Admin)
+    const op = state.operators.find((o) => String(o.barcode || '').trim() === cleaned);
+    if (op) {
+      const hiddenOp = document.getElementById('IDOperator');
+      const opInput = document.getElementById('operatorSearch');
+      if (hiddenOp) hiddenOp.value = op.id != null ? String(op.id) : '';
+      if (opInput) opInput.value = op.name;
+      state.formDraft.IDOperator = op.id != null ? Number(op.id) : op.id;
+      state.currentOperator = op;
+      applyPermissions();
+      closeBarcodeScanner();
+      return;
+    }
+
+    // 2) altrimenti prova come barcode macchina
+    const mach = state.machines.find((m) => String(m.barcode || '').trim() === cleaned);
+    if (mach) {
+      const hiddenMach = document.getElementById('IDMachine');
+      const machInput = document.getElementById('machineSearch');
+      if (hiddenMach) hiddenMach.value = mach.id != null ? String(mach.id) : '';
+      if (machInput) machInput.value = mach.name;
+      state.formDraft.IDMachine = mach.id != null ? Number(mach.id) : mach.id;
+      closeBarcodeScanner();
+      return;
+    }
+
+    // 3) fallback: scrivi nel campo target originale (es. rawCode / lot)
+    {
       const field = document.getElementById(targetFieldId);
       if (field) field.value = decodedText;
       if (targetFieldId === 'rawCode' || targetFieldId === 'lot') updateDynamicRollId();
@@ -776,47 +850,94 @@ document.getElementById('logSearch').addEventListener('input', () => {
   applySearch('logSearch', state.logs, renderLogList);
 });
 
-document.getElementById('operatorSearch').addEventListener('input', () => {
-  applySearch('operatorSearch', state.operators, (list) => {
+function handleOperatorSearchInput() {
+  const input = document.getElementById('operatorSearch');
+  const hiddenOp = document.getElementById('IDOperator');
+  if (!input || !hiddenOp) return;
+  const value = input.value.trim();
+  if (!value) {
+    hiddenOp.value = '';
+    state.formDraft.IDOperator = undefined;
+    state.currentOperator = null;
+    applyPermissions();
+    return;
+  }
+
+  // 1) match barcode (tutti gli operatori, inclusi Admin)
+  const byBarcode = state.operators.find((o) => String(o.barcode || '').trim() === value);
+  if (byBarcode) {
+    hiddenOp.value = byBarcode.id != null ? String(byBarcode.id) : '';
+    input.value = byBarcode.name;
+    state.formDraft.IDOperator = byBarcode.id != null ? Number(byBarcode.id) : byBarcode.id;
+    state.currentOperator = byBarcode;
+    applyPermissions();
+    return;
+  }
+
+  // 2) match nome (solo non admin dal datalist)
+  const byName = state.operators.find((o) => !o.isAdmin && o.name === value);
+  if (byName) {
+    hiddenOp.value = byName.id != null ? String(byName.id) : '';
+    state.formDraft.IDOperator = byName.id != null ? Number(byName.id) : byName.id;
+    state.currentOperator = byName;
+    applyPermissions();
+    return;
+  }
+
+  // nessuna corrispondenza
+  hiddenOp.value = '';
+  state.formDraft.IDOperator = undefined;
+  state.currentOperator = null;
+  applyPermissions();
+}
+
+function handleMachineSearchInput() {
+  const input = document.getElementById('machineSearch');
+  const hiddenMach = document.getElementById('IDMachine');
+  if (!input || !hiddenMach) return;
+  const value = input.value.trim();
+  if (!value) {
+    hiddenMach.value = '';
+    state.formDraft.IDMachine = undefined;
+    return;
+  }
+
+  // 1) match barcode
+  const byBarcode = state.machines.find((m) => String(m.barcode || '').trim() === value);
+  if (byBarcode) {
+    hiddenMach.value = byBarcode.id != null ? String(byBarcode.id) : '';
+    input.value = byBarcode.name;
+    state.formDraft.IDMachine = byBarcode.id != null ? Number(byBarcode.id) : byBarcode.id;
+    return;
+  }
+
+  // 2) match nome
+  const byName = state.machines.find((m) => m.name === value);
+  if (byName) {
+    hiddenMach.value = byName.id != null ? String(byName.id) : '';
+    state.formDraft.IDMachine = byName.id != null ? Number(byName.id) : byName.id;
+    return;
+  }
+
+  hiddenMach.value = '';
+  state.formDraft.IDMachine = undefined;
+}
+
+document.getElementById('operatorListSearch').addEventListener('input', () => {
+  applySearch('operatorListSearch', state.operators, (list) => {
     renderSimpleList(operatorListEl, list, pickOperatorFromList);
   });
 });
 
-document.getElementById('machineSearch').addEventListener('input', () => {
-  applySearch('machineSearch', state.machines, (list) => {
+document.getElementById('machineListSearch').addEventListener('input', () => {
+  applySearch('machineListSearch', state.machines, (list) => {
     renderSimpleList(machineListEl, list, pickMachineFromList);
   });
 });
 
-initCombobox(
-  'logOperator',
-  'logOperatorDropdown',
-  () => state.operators,
-  (item) => item.name,
-  'Seleziona operatore',
-  (item) => {
-    state.formDraft.IDOperator = item.id != null ? Number(item.id) : item.id;
-    state.currentOperator = item;
-    applyPermissions();
-  },
-  () => {
-    state.formDraft.IDOperator = undefined;
-    state.currentOperator = null;
-    applyPermissions();
-  }
-);
-initCombobox(
-  'logMachine',
-  'logMachineDropdown',
-  () => state.machines,
-  (item) => item.name,
-  'Seleziona macchina',
-  (item) => {
-    state.formDraft.IDMachine = item.id != null ? Number(item.id) : item.id;
-  },
-  () => {
-    state.formDraft.IDMachine = undefined;
-  }
-);
+document.getElementById('operatorSearch').addEventListener('input', handleOperatorSearchInput);
+document.getElementById('operatorSearch').addEventListener('change', handleOperatorSearchInput);
+document.getElementById('machineSearch').addEventListener('input', handleMachineSearchInput);
+document.getElementById('machineSearch').addEventListener('change', handleMachineSearchInput);
 
 initApp();
