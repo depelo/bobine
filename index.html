@@ -60,30 +60,26 @@
             </div>
 
             <label for="operatorSelect">Operatore</label>
-            <div class="control with-icon-btn">
+            <div class="control with-dual-btn">
+              <button type="button" class="icon-btn-left" data-action="manual-operator-barcode" title="Inserisci barcode">⌨</button>
               <select id="operatorSelect" name="operator"></select>
-              <button type="button" class="icon-btn" data-action="manual-operator-barcode" title="Inserisci barcode operatore">
-                ⌨
-              </button>
-              <button type="button" class="icon-btn" data-action="scan-operator" title="Scansiona operatore con fotocamera">
+              <button type="button" class="icon-btn-right" data-action="scan-operator" title="Scansiona con fotocamera">
                 <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
               </button>
             </div>
 
             <label for="machineSelect">Macchina</label>
-            <div class="control with-icon-btn">
+            <div class="control with-dual-btn">
+              <button type="button" class="icon-btn-left" data-action="manual-machine-barcode" title="Inserisci barcode">⌨</button>
               <select id="machineSelect" name="machine"></select>
-              <button type="button" class="icon-btn" data-action="manual-machine-barcode" title="Inserisci barcode macchina">
-                ⌨
-              </button>
-              <button type="button" class="icon-btn" data-action="scan-machine" title="Scansiona macchina con fotocamera">
+              <button type="button" class="icon-btn-right" data-action="scan-machine" title="Scansiona con fotocamera">
                 <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
               </button>
             </div>
 
             <label for="rawCode">Codice materia prima</label>
             <div class="control with-icon-btn">
-              <input id="rawCode" name="rawCode" type="text" placeholder="Scansionare o scrivere" />
+              <input id="rawCode" name="rawCode" type="text" placeholder="Scansionare o scrivere" autocomplete="off" />
               <button type="button" class="icon-btn" data-action="scan-raw-code" title="Scansiona con fotocamera">
               <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </button>
@@ -91,17 +87,17 @@
 
             <label for="lot">Lotto</label>
             <div class="control with-icon-btn">
-              <input id="lot" name="lot" type="text" placeholder="Scansionare o scrivere" />
+              <input id="lot" name="lot" type="text" placeholder="Scansionare o scrivere" autocomplete="off" />
               <button type="button" class="icon-btn" data-action="scan-lot" title="Scansiona con fotocamera">
                 <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
               </button>
             </div>
 
             <label for="quantity">Quantità</label>
-            <div class="control"><input id="quantity" name="quantity" type="number" min="0" step="1" placeholder="0" /></div>
+            <div class="control"><input id="quantity" name="quantity" type="number" min="0" step="1" placeholder="0" autocomplete="off" /></div>
 
             <label for="notes">Note</label>
-            <div class="control"><textarea id="notes" name="notes" rows="4" placeholder="Scrivere"></textarea></div>
+            <div class="control"><textarea id="notes" name="notes" rows="4" placeholder="Scrivere" autocomplete="off"></textarea></div>
 
             <label for="rollId">ID Bobina (IDRoll)</label>
             <div class="control"><input id="rollId" name="rollId" type="text" placeholder="0" readonly style="background-color: #e9ecef; cursor: not-allowed;" /></div>

@@ -747,7 +747,47 @@ input.date-input {
     grid-template-columns: 1fr;
   }
 
-  .detail-grid .k {
-    margin-bottom: 2px;
-  }
+.detail-grid .k {
+  margin-bottom: 2px;
+}
+}
+
+.with-dual-btn {
+  display: grid;
+  grid-template-columns: var(--touch-btn) 1fr var(--touch-btn);
+  gap: 0;
+}
+.with-dual-btn .icon-btn-left {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e3eef8;
+  color: var(--primary-dark);
+  border: 2px solid var(--primary);
+  border-radius: var(--radius) 0 0 var(--radius);
+  font-size: 1.4rem;
+  cursor: pointer;
+  border-right: none;
+  padding: 0;
+}
+.with-dual-btn .icon-btn-right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e3eef8;
+  color: var(--primary-dark);
+  border: 2px solid var(--primary);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  cursor: pointer;
+  border-left: none;
+  padding: 0;
+}
+.with-dual-btn .icon-btn-left:hover,
+.with-dual-btn .icon-btn-right:hover {
+  background: #cce0f5;
+}
+.with-dual-btn input,
+.with-dual-btn select {
+  border-radius: 0;
+  min-height: var(--touch-btn);
 }
