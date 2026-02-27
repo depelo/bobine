@@ -767,7 +767,6 @@ input.date-input {
   border-radius: var(--radius) 0 0 var(--radius);
   font-size: 1.4rem;
   cursor: pointer;
-  border-right: none;
   padding: 0;
 }
 .with-dual-btn .icon-btn-right {
@@ -779,7 +778,6 @@ input.date-input {
   border: 2px solid var(--primary);
   border-radius: 0 var(--radius) var(--radius) 0;
   cursor: pointer;
-  border-left: none;
   padding: 0;
 }
 .with-dual-btn .icon-btn-left:hover,
