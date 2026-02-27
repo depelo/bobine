@@ -432,7 +432,7 @@ function renderOperatorList(items) {
     const li = document.createElement('li');
     let timeVal = '';
     if (op.startTime) {
-      timeVal = String(op.startTime).substring(0, 5); // HH:mm
+      timeVal = op.startTime;
     }
 
     li.innerHTML = `

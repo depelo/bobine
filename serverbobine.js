@@ -26,7 +26,15 @@ const dbConfig = {
 app.get('/api/operators', async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
-        let result = await pool.request().query('SELECT IDOperator as id, Operator as name, Admin as isAdmin, Barcode as barcode, StartTime as startTime FROM [CMP].[dbo].[Operators]');
+        let result = await pool.request().query(
+            `SELECT
+                IDOperator as id,
+                Operator as name,
+                Admin as isAdmin,
+                Barcode as barcode,
+                CONVERT(varchar(5), StartTime, 108) as startTime
+             FROM [CMP].[dbo].[Operators]`
+        );
         res.json(result.recordset);
     } catch (err) {
         res.status(500).send(err.message);
@@ -101,7 +109,7 @@ app.get('/api/logs', async (req, res) => {
         let query = `
             SELECT
                 L.IDLog as uniqueRecordId,
-                L.Date as date,
+                CONVERT(varchar(23), L.[Date], 126) as date,
                 O.Operator as operator,
                 L.IDOperator,
                 M.Machine as machine,
@@ -132,7 +140,7 @@ app.get('/api/logs/:id', async (req, res) => {
             .query(`
                 SELECT
                     L.IDLog as uniqueRecordId,
-                    L.Date as date,
+                    CONVERT(varchar(23), L.[Date], 126) as date,
                     O.Operator as operator,
                     L.IDOperator,
                     M.Machine as machine,
