@@ -39,7 +39,7 @@ app.patch('/api/operators/:id/time', async (req, res) => {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('ID', sql.Int, parseInt(req.params.id, 10))
-            .input('StartTime', sql.Time, startTime ? startTime : null)
+            .input('StartTime', sql.VarChar, startTime || null)
             .query('UPDATE [CMP].[dbo].[Operators] SET StartTime = @StartTime WHERE IDOperator = @ID');
         res.status(200).send({ message: 'Orario aggiornato' });
     } catch (err) {
