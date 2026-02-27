@@ -22,13 +22,28 @@ const dbConfig = {
 
 // --- API OPERATORI ---
 
-// Recupera todos los operadores, incluyendo el código de barras
+// Recupera todos los operadores, incluyendo il codice di barras e l'orario di inizio turno
 app.get('/api/operators', async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
-        let result = await pool.request().query('SELECT IDOperator as id, Operator as name, Admin as isAdmin, Barcode as barcode FROM [CMP].[dbo].[Operators]');
+        let result = await pool.request().query('SELECT IDOperator as id, Operator as name, Admin as isAdmin, Barcode as barcode, StartTime as startTime FROM [CMP].[dbo].[Operators]');
         res.json(result.recordset);
     } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+app.patch('/api/operators/:id/time', async (req, res) => {
+    const { startTime } = req.body; // Formato "HH:mm" o stringa vuota
+    try {
+        let pool = await sql.connect(dbConfig);
+        await pool.request()
+            .input('ID', sql.Int, parseInt(req.params.id, 10))
+            .input('StartTime', sql.Time, startTime ? startTime : null)
+            .query('UPDATE [CMP].[dbo].[Operators] SET StartTime = @StartTime WHERE IDOperator = @ID');
+        res.status(200).send({ message: 'Orario aggiornato' });
+    } catch (err) {
+        console.error(err);
         res.status(500).send(err.message);
     }
 });

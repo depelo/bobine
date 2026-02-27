@@ -89,7 +89,7 @@ async function initApp() {
   populateOperatorSelect();
   populateMachineSelect();
   renderLogList(state.logs);
-  renderSimpleList(operatorListEl, state.operators, () => {});
+  renderOperatorList(state.operators);
   renderSimpleList(machineListEl, state.machines, pickMachineFromList);
   resetForm();
   applyPermissions();
@@ -242,10 +242,31 @@ function populateSelect(select, items, placeholderLabel) {
   });
 }
 
+function getSortedOperatorsForSelect() {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const visibleOps = state.operators.filter((op) => !op.isAdmin && op.isAdmin !== 1);
+
+  const getMins = (timeStr) => {
+    if (!timeStr) return Number.POSITIVE_INFINITY; // I NULL vanno in fondo
+    const parts = String(timeStr).split(':');
+    const h = parseInt(parts[0] || '0', 10);
+    const m = parseInt(parts[1] || '0', 10);
+    return h * 60 + m;
+  };
+
+  return visibleOps.slice().sort((a, b) => {
+    const diffA = Math.abs(currentMinutes - getMins(a.startTime));
+    const diffB = Math.abs(currentMinutes - getMins(b.startTime));
+    return diffA - diffB;
+  });
+}
+
 function populateOperatorSelect() {
   if (!operatorSelect) return;
-  const visibleOperators = state.operators.filter((op) => !op.isAdmin && op.isAdmin !== 1);
-  populateSelect(operatorSelect, visibleOperators, 'Seleziona operatore');
+  const sortedOperators = getSortedOperatorsForSelect();
+  populateSelect(operatorSelect, sortedOperators, 'Seleziona operatore');
 }
 
 function populateMachineSelect() {
@@ -406,6 +427,46 @@ function renderSimpleList(rootEl, items, onPick) {
   });
 }
 
+function renderOperatorList(items) {
+  operatorListEl.innerHTML = '';
+  items.forEach((op) => {
+    const li = document.createElement('li');
+    let timeVal = '';
+    if (op.startTime) {
+      timeVal = String(op.startTime).substring(0, 5); // HH:mm
+    }
+
+    li.innerHTML = `
+      <span><strong>${op.id}</strong> ${op.name}</span>
+      <input type="time"
+             class="op-time-input"
+             data-id="${op.id}"
+             value="${timeVal}"
+             style="padding: 4px; border: 1px solid #ccc; border-radius: 4px; width: 110px;">
+    `;
+
+    const timeInput = li.querySelector('.op-time-input');
+    timeInput.addEventListener('change', async (e) => {
+      const newTime = e.target.value;
+      try {
+        const res = await fetch(`${API_URL}/operators/${op.id}/time`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startTime: newTime })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        op.startTime = newTime || null;
+        populateOperatorSelect(); // riordina immediatamente la tendina in Home
+      } catch (err) {
+        console.error(err);
+        alert('Errore salvataggio orario');
+      }
+    });
+
+    operatorListEl.appendChild(li);
+  });
+}
+
 // (datalist helpers rimossi: ora usiamo <select> nativi per operatore/macchina)
 
 function sortByName(listKey) {
@@ -529,7 +590,7 @@ async function handleTopbarAction(action) {
     try {
       state.operators = await fetchData('/operators');
       populateOperatorSelect();
-      renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
+      renderOperatorList(state.operators);
     } catch (err) {
       alert('Errore aggiornamento operatori: ' + (err.message || err));
     }
@@ -538,7 +599,7 @@ async function handleTopbarAction(action) {
 
   if (action === 'sort-operator-list') {
     sortByName('operators');
-    renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
+    renderOperatorList(state.operators);
     return;
   }
 
@@ -557,7 +618,7 @@ async function handleTopbarAction(action) {
       if (!res.ok) throw new Error(await res.text());
       state.operators = await fetchData('/operators');
       populateOperatorSelect();
-      renderSimpleList(operatorListEl, state.operators, pickOperatorFromList);
+      renderOperatorList(state.operators);
       alert('Operatore aggiunto.');
     } catch (err) {
       console.error(err);
@@ -866,7 +927,7 @@ document.getElementById('logSearch').addEventListener('input', () => {
 
 document.getElementById('operatorListSearch').addEventListener('input', () => {
   applySearch('operatorListSearch', state.operators, (list) => {
-    renderSimpleList(operatorListEl, list, () => {});
+    renderOperatorList(list);
   });
 });
 

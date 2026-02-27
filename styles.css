@@ -801,3 +801,8 @@ input.date-input {
   width: 1.65rem;
   height: 1.65rem;
 }
+
+.op-time-input {
+  font-size: var(--font-size-base);
+  background: var(--bg);
+}
