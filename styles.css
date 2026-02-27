@@ -790,4 +790,16 @@ input.date-input {
 .with-dual-btn select {
   border-radius: 0;
   min-height: var(--touch-btn);
+  border-left: none;
+  border-right: none;
+}
+
+.with-dual-btn .icon-btn-left,
+.with-dual-btn .icon-btn-right {
+  min-height: var(--touch-btn);
+}
+
+.with-dual-btn .icon-btn-right .icon-camera {
+  width: 1.65rem;
+  height: 1.65rem;
 }
