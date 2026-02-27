@@ -806,3 +806,11 @@ input.date-input {
   font-size: var(--font-size-base);
   background: var(--bg);
 }
+
+.list.no-interaction li {
+  cursor: default;
+  background: var(--bg-content) !important;
+}
+.list.no-interaction li:active {
+  background: var(--bg-content) !important;
+}

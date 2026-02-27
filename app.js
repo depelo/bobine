@@ -237,16 +237,14 @@ function populateSelect(select, items, placeholderLabel) {
   items.forEach((item) => {
     const option = document.createElement('option');
     option.value = item.id != null ? String(item.id) : '';
-    option.textContent = `${item.id} - ${item.name}`;
+    option.textContent = item.name;
     select.appendChild(option);
   });
 }
 
-function getSortedOperatorsForSelect() {
+function sortOperatorsByTime(operatorsArray) {
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-  const visibleOps = state.operators.filter((op) => !op.isAdmin && op.isAdmin !== 1);
 
   const getMins = (timeStr) => {
     if (!timeStr) return Number.POSITIVE_INFINITY; // I NULL vanno in fondo
@@ -256,7 +254,7 @@ function getSortedOperatorsForSelect() {
     return h * 60 + m;
   };
 
-  return visibleOps.slice().sort((a, b) => {
+  return operatorsArray.slice().sort((a, b) => {
     const diffA = Math.abs(currentMinutes - getMins(a.startTime));
     const diffB = Math.abs(currentMinutes - getMins(b.startTime));
     return diffA - diffB;
@@ -265,7 +263,8 @@ function getSortedOperatorsForSelect() {
 
 function populateOperatorSelect() {
   if (!operatorSelect) return;
-  const sortedOperators = getSortedOperatorsForSelect();
+  const visibleOps = state.operators.filter((op) => !op.isAdmin && op.isAdmin !== 1);
+  const sortedOperators = sortOperatorsByTime(visibleOps);
   populateSelect(operatorSelect, sortedOperators, 'Seleziona operatore');
 }
 
@@ -421,15 +420,15 @@ function renderSimpleList(rootEl, items, onPick) {
   rootEl.innerHTML = '';
   items.forEach((item) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span><strong>${item.id}</strong> ${item.name}</span><span>›</span>`;
-    li.addEventListener('click', () => onPick(item));
+    li.innerHTML = `<span>${item.name}</span>`;
     rootEl.appendChild(li);
   });
 }
 
 function renderOperatorList(items) {
   operatorListEl.innerHTML = '';
-  items.forEach((op) => {
+  const sortedItems = sortOperatorsByTime(items);
+  sortedItems.forEach((op) => {
     const li = document.createElement('li');
     let timeVal = '';
     if (op.startTime) {
@@ -437,7 +436,7 @@ function renderOperatorList(items) {
     }
 
     li.innerHTML = `
-      <span><strong>${op.id}</strong> ${op.name}</span>
+      <span>${op.name}</span>
       <input type="time"
              class="op-time-input"
              data-id="${op.id}"
