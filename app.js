@@ -967,6 +967,7 @@ function loginByBarcode(barcode, type = 'operator') {
     state.formDraft.IDOperator = user.id != null ? Number(user.id) : user.id;
     state.currentOperator = user;
     applyPermissions();
+    renderLogList(state.logs);
     return;
   }
 
@@ -1181,6 +1182,7 @@ if (operatorSelect) {
     state.formDraft.IDOperator = id;
     state.currentOperator = op ?? null;
     applyPermissions();
+    renderLogList(state.logs);
   });
 }
 
