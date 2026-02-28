@@ -439,6 +439,7 @@ function renderLogDetailEditMode(record) {
   const editableRows = [
     ['Quantità', 'quantity', 'number', record.quantity != null ? String(record.quantity) : ''],
     ['Codice Articolo', 'rawCode', 'text', record.rawCode ?? ''],
+    ['Lotto', 'lot', 'text', record.lot ?? ''],
     ['Note', 'notes', 'textarea', record.notes ?? '']
   ];
 
@@ -663,13 +664,15 @@ async function handleTopbarAction(action) {
     }
     const quantityEl = document.getElementById('detailEdit-quantity');
     const rawCodeEl = document.getElementById('detailEdit-rawCode');
+    const lotEl = document.getElementById('detailEdit-lot');
     const notesEl = document.getElementById('detailEdit-notes');
-    if (!quantityEl || !rawCodeEl || !notesEl) return;
+
+    if (!quantityEl || !rawCodeEl || !lotEl || !notesEl) return;
+
     const payload = {
       modifyingOperatorId: state.currentOperator.id,
-      IDMachine: state.selectedLog.IDMachine,
       rawCode: rawCodeEl.value,
-      lot: state.selectedLog.lot,
+      lot: lotEl.value,
       quantity: quantityEl.value ? parseFloat(quantityEl.value) : 0,
       notes: notesEl.value
     };

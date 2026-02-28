@@ -197,27 +197,24 @@ app.post('/api/logs', async (req, res) => {
 
 app.put('/api/logs/:id', async (req, res) => {
     const id = req.params.id;
-    const { modifyingOperatorId, IDMachine, rawCode, lot, quantity, notes } = req.body;
-    const idModifyingOperator = modifyingOperatorId != null ? parseInt(modifyingOperatorId, 10) : null;
-    const idMachine = IDMachine != null ? parseInt(IDMachine, 10) : null;
-    const qty = quantity != null ? parseFloat(quantity) : 0;
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('IDLog', sql.Int, id)
-            .input('ModificatoDa', sql.Int, idModifyingOperator)
-            .input('IDMachine', sql.Int, idMachine)
-            .input('Codart', sql.NVarChar, rawCode)
-            .input('Lot', sql.NVarChar, lot)
-            .input('Quantity', sql.Decimal, qty)
-            .input('Notes', sql.NVarChar, notes)
+            .input('Codart', sql.NVarChar, req.body.rawCode)
+            .input('Lot', sql.NVarChar, req.body.lot)
+            .input('Quantity', sql.Decimal, req.body.quantity != null ? parseFloat(req.body.quantity) : 0)
+            .input('Notes', sql.NVarChar, req.body.notes)
+            .input('ModificatoDa', sql.Int, req.body.modifyingOperatorId || null)
             .query(`
                 UPDATE [CMP].[dbo].[Log]
-                SET ModificatoDa = @ModificatoDa, IDMachine = @IDMachine,
-                    Codart = @Codart, Lot = @Lot, Quantity = @Quantity,
+                SET Codart = @Codart,
+                    Lot = @Lot,
+                    Quantity = @Quantity,
                     Notes = @Notes,
+                    ModificatoDa = @ModificatoDa,
                     NumeroModifiche = NumeroModifiche + 1
-                WHERE IDLog = @IDLog AND Eliminato = 0
+                WHERE IDLog = @IDLog
             `);
         res.status(200).send({ message: 'Log aggiornato' });
     } catch (err) {
@@ -227,22 +224,24 @@ app.put('/api/logs/:id', async (req, res) => {
 
 app.delete('/api/logs/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
-    const operatorId = req.query.operatorId != null ? parseInt(req.query.operatorId, 10) : null;
+    const operatorId = req.query.operatorId ? parseInt(req.query.operatorId, 10) : null;
+
     if (Number.isNaN(id)) {
-        res.status(400).send('ID log non valido');
-        return;
+        return res.status(400).send('ID log non valido');
     }
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('IDLog', sql.Int, id)
-            .input('IDOperator', sql.Int, operatorId)
+            .input('ModificatoDa', sql.Int, operatorId)
             .query(`
                 UPDATE [CMP].[dbo].[Log]
-                SET Eliminato = 1, ModificatoDa = @IDOperator, NumeroModifiche = NumeroModifiche + 1
+                SET Eliminato = 1,
+                    ModificatoDa = @ModificatoDa,
+                    NumeroModifiche = NumeroModifiche + 1
                 WHERE IDLog = @IDLog
             `);
-        res.status(200).send({ message: 'Log eliminato' });
+        res.status(200).send({ message: 'Log eliminato logicamente' });
     } catch (err) {
         res.status(500).send(err.message);
     }
