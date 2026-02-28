@@ -829,3 +829,32 @@ input.date-input {
 .list.no-interaction li:active {
   background: var(--bg-content) !important;
 }
+
+/* --- Tabella Storico --- */
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+.history-table th, .history-table td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+}
+.history-table th {
+  background-color: var(--primary);
+  color: white;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+.history-table tr:nth-child(even) { background-color: var(--bg); }
+.history-table tr:hover { background-color: #e3eef8; }
+.history-link {
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+  margin-left: 10px;
+  font-size: var(--font-size-sm);
+  font-weight: normal;
+}

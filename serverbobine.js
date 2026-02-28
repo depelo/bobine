@@ -150,7 +150,8 @@ app.get('/api/logs/:id', async (req, res) => {
                     L.Lot as lot,
                     L.Quantity as quantity,
                     L.Notes as notes,
-                    L.IDRoll as rollId
+                    L.IDRoll as rollId,
+                    L.NumeroModifiche
                 FROM [CMP].[dbo].[Log] L
                 LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
                 LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
@@ -161,6 +162,33 @@ app.get('/api/logs/:id', async (req, res) => {
             return;
         }
         res.json(result.recordset[0]);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+app.get('/api/logs/:id/history', async (req, res) => {
+    const id = req.params.id;
+    try {
+        let pool = await sql.connect(dbConfig);
+        let result = await pool.request()
+            .input('IDLog', sql.Int, id)
+            .query(`
+                SELECT 
+                    L.Quantity AS quantity,
+                    L.Codart AS rawCode,
+                    L.Lot AS lot,
+                    L.Notes AS notes,
+                    CONVERT(varchar(23), DATEADD(minute, DATEDIFF(minute, GETUTCDATE(), GETDATE()), L.ValidFrom), 126) AS validFrom,
+                    ISNULL(O_Mod.Operator, O_Crea.Operator) AS operatorName,
+                    L.NumeroModifiche
+                FROM [CMP].[dbo].[Log] FOR SYSTEM_TIME ALL AS L
+                LEFT JOIN [CMP].[dbo].[Operators] O_Mod ON L.ModificatoDa = O_Mod.IDOperator
+                LEFT JOIN [CMP].[dbo].[Operators] O_Crea ON L.IDOperator = O_Crea.IDOperator
+                WHERE L.IDLog = @IDLog
+                ORDER BY L.ValidFrom ASC
+            `);
+        res.json(result.recordset);
     } catch (err) {
         res.status(500).send(err.message);
     }

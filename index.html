@@ -143,6 +143,28 @@
       </div>
     </div>
 
+    <div class="scanner-modal" id="historyModal" aria-hidden="true" aria-label="Storico Modifiche">
+      <div class="scanner-modal-inner" style="width: 90%; max-width: 800px; max-height: 90vh; display: flex; flex-direction: column;">
+        <p class="scanner-title" style="margin-bottom: 16px;">Storico Modifiche</p>
+        <div style="overflow-x: auto; flex: 1; margin-bottom: 16px;">
+          <table class="history-table" id="historyTable">
+            <thead>
+              <tr>
+                <th>Data Modifica</th>
+                <th>Operatore</th>
+                <th>Q.tà</th>
+                <th>Cod. Art.</th>
+                <th>Lotto</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button type="button" class="scanner-cancel" id="historyCancel">Chiudi</button>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="app.js"></script>
   </body>

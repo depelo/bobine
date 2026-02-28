@@ -391,8 +391,21 @@ function formToPayload() {
 
 // Ordine campi come in [CMP].[dbo].[Log]: IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll
 function renderLogDetail(record) {
+  detailGrid.innerHTML = '';
+
+  const idContainer = document.createElement('div');
+  idContainer.textContent = record.uniqueRecordId;
+
+  if (state.currentOperator?.isAdmin && record.NumeroModifiche > 0) {
+    const historyLink = document.createElement('span');
+    historyLink.className = 'history-link';
+    historyLink.textContent = `(modificato ${record.NumeroModifiche} volte)`;
+    historyLink.onclick = () => openHistoryModal(record.uniqueRecordId);
+    idContainer.appendChild(historyLink);
+  }
+
   const rows = [
-    ['ID Record', record.uniqueRecordId],
+    ['ID Record', idContainer],
     ['Data', displayDate(record.date)],
     ['Operatore', record.operator ?? '-'],
     ['Macchina', record.machine ?? '-'],
@@ -403,15 +416,18 @@ function renderLogDetail(record) {
     ['ID Bobina', record.rollId ?? '-']
   ];
 
-  detailGrid.innerHTML = '';
   rows.forEach(([k, v]) => {
     const key = document.createElement('p');
     key.className = 'k';
     key.textContent = k;
 
-    const value = document.createElement('p');
+    const value = document.createElement('div');
     value.className = 'v';
-    value.textContent = v;
+    if (v instanceof HTMLElement) {
+      value.appendChild(v);
+    } else {
+      value.textContent = v;
+    }
 
     detailGrid.append(key, value);
   });
@@ -1028,6 +1044,51 @@ document.getElementById('scannerModal').addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
     closeBarcodeScanner();
+  }
+});
+
+async function openHistoryModal(logId) {
+  try {
+    const historyData = await fetchData(`/logs/${logId}/history`);
+    const tbody = document.querySelector('#historyTable tbody');
+    tbody.innerHTML = '';
+
+    historyData.forEach(row => {
+      const tr = document.createElement('tr');
+      const dataLabel = row.NumeroModifiche === 0 ? 'Creazione Originale' : displayDate(row.validFrom);
+
+      tr.innerHTML = `
+        <td>${dataLabel}</td>
+        <td>${row.operatorName ?? '-'}</td>
+        <td>${row.quantity ?? '-'}</td>
+        <td>${row.rawCode ?? '-'}</td>
+        <td>${row.lot ?? '-'}</td>
+        <td>${row.notes ?? '-'}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    const modal = document.getElementById('historyModal');
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+  } catch (err) {
+    alert('Errore caricamento storico: ' + err.message);
+  }
+}
+
+function closeHistoryModal() {
+  const modal = document.getElementById('historyModal');
+  if (modal) {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+}
+
+document.getElementById('historyModal').addEventListener('click', (e) => {
+  if (e.target.id === 'historyCancel' || e.target.id === 'historyModal') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeHistoryModal();
   }
 });
 
