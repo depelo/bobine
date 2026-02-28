@@ -370,24 +370,22 @@ function formToPayload() {
   };
 }
 
-// Ordine campi come in [CMP].[dbo].[Log]: IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll
 function renderLogDetail(record) {
   detailGrid.innerHTML = '';
 
-  const idContainer = document.createElement('div');
-  idContainer.textContent = record.uniqueRecordId;
+  const dateContainer = document.createElement('div');
+  dateContainer.textContent = displayDate(record.date);
 
   if (state.currentOperator?.isAdmin && record.NumeroModifiche > 0) {
     const historyLink = document.createElement('span');
     historyLink.className = 'history-link';
     historyLink.textContent = `(modificato ${record.NumeroModifiche} volte)`;
     historyLink.onclick = () => openHistoryModal(record.uniqueRecordId);
-    idContainer.appendChild(historyLink);
+    dateContainer.appendChild(historyLink);
   }
 
   const rows = [
-    ['ID Record', idContainer],
-    ['Data', displayDate(record.date)],
+    ['Data', dateContainer],
     ['Operatore', record.operator ?? '-'],
     ['Macchina', record.machine ?? '-'],
     ['Codice Articolo', record.rawCode ?? '-'],
@@ -417,7 +415,6 @@ function renderLogDetail(record) {
 
 function renderLogDetailEditMode(record) {
   const staticRows = [
-    ['ID Record', String(record.uniqueRecordId ?? '')],
     ['Data', displayDate(record.date)],
     ['Operatore Originale', record.operator ?? '-'],
     ['ID Bobina', record.rollId ?? '-']
@@ -636,7 +633,7 @@ async function handleTopbarAction(action) {
         // --- ERA UNA MODIFICA ---
         resetForm();
         setScreen('log-list');
-        alert('Modifica salvata completata.');
+        showEditSuccessModal();
       } else {
         // --- È UN NUOVO INSERIMENTO ---
         // 1. Salviamo le selezioni attuali
@@ -872,6 +869,11 @@ function pickMachineFromList(machine) {
 navButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
     state.returnFromLookupTo = null;
+    // Se torniamo alla schermata del registro principale, assicuriamoci di essere in modalità "Nuovo Inserimento"
+    if (btn.dataset.screenTarget === 'log-edit') {
+      state.selectedLog = null;
+      bypassBobinaPrompt = false;
+    }
     setScreen(btn.dataset.screenTarget);
   });
 });
@@ -1275,6 +1277,22 @@ function showSuccessModal() {
 
 document.getElementById('successBtnClose')?.addEventListener('click', () => {
   const modal = document.getElementById('successModal');
+  if (modal) {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+});
+
+function showEditSuccessModal() {
+  const modal = document.getElementById('editSuccessModal');
+  if (modal) {
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+}
+
+document.getElementById('editSuccessBtnClose')?.addEventListener('click', () => {
+  const modal = document.getElementById('editSuccessModal');
   if (modal) {
     modal.classList.remove('is-open');
     modal.setAttribute('aria-hidden', 'true');
