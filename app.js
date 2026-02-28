@@ -631,9 +631,36 @@ async function handleTopbarAction(action) {
       }
       state.logs = await fetchData('/logs');
       renderLogList(state.logs);
-      resetForm();
-      setScreen('log-list');
-      alert('Salvataggio completato.');
+
+      if (state.selectedLog) {
+        // --- ERA UNA MODIFICA ---
+        resetForm();
+        setScreen('log-list');
+        alert('Modifica salvata completata.');
+      } else {
+        // --- È UN NUOVO INSERIMENTO ---
+        // 1. Salviamo le selezioni attuali
+        const savedOperator = state.currentOperator;
+        const savedMachineVal = machineSelect ? machineSelect.value : '';
+
+        // 2. Resettiamo il form (pulisce date, quantità, lotti, etc.)
+        resetForm();
+
+        // 3. Ripristiniamo Operatore e Macchina
+        if (savedOperator && operatorSelect) {
+          operatorSelect.value = savedOperator.id;
+          state.currentOperator = savedOperator;
+          state.formDraft.IDOperator = savedOperator.id;
+        }
+        if (savedMachineVal && machineSelect) {
+          machineSelect.value = savedMachineVal;
+          state.formDraft.IDMachine = parseInt(savedMachineVal, 10);
+        }
+        applyPermissions();
+
+        // 4. Mostriamo il modale e NON cambiamo schermata
+        showSuccessModal();
+      }
     } catch (err) {
       console.error(err);
       alert('Errore durante il salvataggio: ' + (err.message || err));
@@ -1237,5 +1264,21 @@ async function impostaStatoBobina(isFinita) {
 document.getElementById('bobinaBtnYes').addEventListener('click', () => impostaStatoBobina(true));
 document.getElementById('bobinaBtnNo').addEventListener('click', () => impostaStatoBobina(false));
 document.getElementById('bobinaBtnCancel').addEventListener('click', chiudiBobinaModal);
+
+function showSuccessModal() {
+  const modal = document.getElementById('successModal');
+  if (modal) {
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+}
+
+document.getElementById('successBtnClose')?.addEventListener('click', () => {
+  const modal = document.getElementById('successModal');
+  if (modal) {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+});
 
 initApp();
