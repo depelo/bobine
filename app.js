@@ -594,6 +594,7 @@ function resetForm() {
   state.currentOperator = null;
   updateDynamicRollId();
   applyPermissions();
+  bypassBobinaPrompt = false;
 }
 
 async function handleTopbarAction(action) {
@@ -1174,19 +1175,28 @@ if (quantityInput) {
     if (!state.selectedLog && state.logs && state.logs.length > 0) {
       const lastLog = state.logs[0];
       if (lastLog.bobina_finita === null && !bypassBobinaPrompt) {
-        e.target.blur();
+        // Blocca subito il trigger per evitare rientri
+        bypassBobinaPrompt = true;
         pendingBobinaLogId = lastLog.uniqueRecordId;
+
         const modal = document.getElementById('bobinaModal');
         modal.classList.add('is-open');
         modal.setAttribute('aria-hidden', 'false');
+
+        // Togli il focus per chiudere la tastiera virtuale sui device mobile
+        e.target.blur();
       }
     }
   });
+
   quantityInput.addEventListener('blur', () => {
     const modal = document.getElementById('bobinaModal');
-    if (!modal.classList.contains('is-open')) {
-      bypassBobinaPrompt = false;
-    }
+    // Il timeout previene conflitti se l'evento blur scatta mentre il modale si sta aprendo
+    setTimeout(() => {
+      if (!modal.classList.contains('is-open')) {
+        bypassBobinaPrompt = false;
+      }
+    }, 50);
   });
 }
 

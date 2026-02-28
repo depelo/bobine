@@ -216,9 +216,9 @@ app.post('/api/logs', async (req, res) => {
             .input('IDRoll', sql.NVarChar, rollId)
             .query(`
                 INSERT INTO [CMP].[dbo].[Log]
-                (IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll)
+                (IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll, bobina_finita)
                 VALUES
-                ((SELECT ISNULL(MAX(IDLog), 0) + 1 FROM [CMP].[dbo].[Log]), @Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll)
+                ((SELECT ISNULL(MAX(IDLog), 0) + 1 FROM [CMP].[dbo].[Log]), @Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll, NULL)
             `);
         res.status(201).send({ message: 'Log registrato con successo' });
     } catch (err) {
