@@ -237,6 +237,7 @@ app.put('/api/logs/:id', async (req, res) => {
             .input('Quantity', sql.Decimal, req.body.quantity != null ? parseFloat(req.body.quantity) : 0)
             .input('Notes', sql.NVarChar, req.body.notes)
             .input('ModificatoDa', sql.Int, req.body.modifyingOperatorId || null)
+            .input('BobinaFinita', sql.Bit, req.body.bobina_finita !== undefined ? req.body.bobina_finita : null)
             .query(`
                 UPDATE [CMP].[dbo].[Log]
                 SET Codart = @Codart,
@@ -244,6 +245,7 @@ app.put('/api/logs/:id', async (req, res) => {
                     Quantity = @Quantity,
                     Notes = @Notes,
                     ModificatoDa = @ModificatoDa,
+                    bobina_finita = @BobinaFinita,
                     NumeroModifiche = NumeroModifiche + 1
                 WHERE IDLog = @IDLog
             `);

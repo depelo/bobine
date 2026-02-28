@@ -394,7 +394,8 @@ function renderLogDetail(record) {
     ['Lotto', record.lot ?? '-'],
     ['Quantità', record.quantity != null ? String(record.quantity) : '-'],
     ['Note', record.notes ?? '-'],
-    ['ID Bobina', record.rollId ?? '-']
+    ['ID Bobina', record.rollId ?? '-'],
+    ['Bobina Finita', record.bobina_finita === true ? 'Sì' : record.bobina_finita === false ? 'No' : '-']
   ];
 
   rows.forEach(([k, v]) => {
@@ -437,7 +438,8 @@ function renderLogDetailEditMode(record) {
     ['Quantità', 'quantity', 'number', record.quantity != null ? String(record.quantity) : ''],
     ['Codice Articolo', 'rawCode', 'text', record.rawCode ?? ''],
     ['Lotto', 'lot', 'text', record.lot ?? ''],
-    ['Note', 'notes', 'textarea', record.notes ?? '']
+    ['Note', 'notes', 'textarea', record.notes ?? ''],
+    ['Bobina Finita', 'bobinaFinita', 'select', record.bobina_finita == null ? '' : String(record.bobina_finita)]
   ];
 
   editableRows.forEach(([label, fieldId, type, val]) => {
@@ -452,6 +454,21 @@ function renderLogDetailEditMode(record) {
       ta.rows = 4;
       ta.value = val;
       valueWrap.appendChild(ta);
+    } else if (type === 'select') {
+      const sel = document.createElement('select');
+      sel.id = `detailEdit-${fieldId}`;
+      const opt0 = document.createElement('option');
+      opt0.value = '';
+      opt0.textContent = 'Da definire';
+      const opt1 = document.createElement('option');
+      opt1.value = 'true';
+      opt1.textContent = 'Sì';
+      const opt2 = document.createElement('option');
+      opt2.value = 'false';
+      opt2.textContent = 'No';
+      sel.append(opt0, opt1, opt2);
+      sel.value = val;
+      valueWrap.appendChild(sel);
     } else {
       const inp = document.createElement('input');
       inp.id = `detailEdit-${fieldId}`;
@@ -572,7 +589,6 @@ function resetForm() {
   form.date.value = new Date().toISOString().slice(0, 10);
   state.formDraft = {};
   state.selectedLog = null;
-  bypassBobinaPrompt = false;
   if (operatorSelect) operatorSelect.value = '';
   if (machineSelect) machineSelect.value = '';
   state.currentOperator = null;
@@ -664,15 +680,19 @@ async function handleTopbarAction(action) {
     const rawCodeEl = document.getElementById('detailEdit-rawCode');
     const lotEl = document.getElementById('detailEdit-lot');
     const notesEl = document.getElementById('detailEdit-notes');
+    const bobinaFinitaEl = document.getElementById('detailEdit-bobinaFinita');
 
-    if (!quantityEl || !rawCodeEl || !lotEl || !notesEl) return;
+    if (!quantityEl || !rawCodeEl || !lotEl || !notesEl || !bobinaFinitaEl) return;
+
+    const bobinaFinitaValue = bobinaFinitaEl.value === 'true' ? true : bobinaFinitaEl.value === 'false' ? false : null;
 
     const payload = {
       modifyingOperatorId: state.currentOperator.id,
       rawCode: rawCodeEl.value,
       lot: lotEl.value,
       quantity: quantityEl.value ? parseFloat(quantityEl.value) : 0,
-      notes: notesEl.value
+      notes: notesEl.value,
+      bobina_finita: bobinaFinitaValue
     };
     try {
       const res = await fetch(`${API_URL}/logs/${state.selectedLog.uniqueRecordId}`, {
@@ -1160,6 +1180,12 @@ if (quantityInput) {
         modal.classList.add('is-open');
         modal.setAttribute('aria-hidden', 'false');
       }
+    }
+  });
+  quantityInput.addEventListener('blur', () => {
+    const modal = document.getElementById('bobinaModal');
+    if (!modal.classList.contains('is-open')) {
+      bypassBobinaPrompt = false;
     }
   });
 }
