@@ -858,3 +858,41 @@ input.date-input {
   font-size: var(--font-size-sm);
   font-weight: normal;
 }
+
+/* --- Layout Dettaglio Log in Lista --- */
+.log-card-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 4px;
+}
+.log-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.log-card-row .log-date {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+.log-card-row .log-machine {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.log-card-row .log-code-lot {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+}
+.log-card-row .log-qty {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--primary);
+}
+
+/* Stile per record modificati (vista Admin) */
+.list li.is-modified-admin,
+.list li.is-modified-admin .log-date,
+.list li.is-modified-admin .log-qty {
+  color: var(--line) !important;
+}

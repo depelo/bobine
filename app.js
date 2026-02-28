@@ -497,7 +497,37 @@ function renderLogList(items) {
   logListEl.innerHTML = '';
   items.forEach((log) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span>${log.uniqueRecordId}<br /><small>${displayDate(log.date)}</small></span><span>›</span>`;
+
+    // 1. Estrai solo la data (senza l'ora) dividendo la stringa
+    const dateOnly = displayDate(log.date).split(' ')[0];
+
+    // 2. Prepara le variabili con fallback se vuote
+    const machineName = log.machine || '-';
+    const code = log.rawCode || '-';
+    const lot = log.lot || '-';
+    const qty = log.quantity != null ? log.quantity : '-';
+
+    // 3. Verifica le condizioni per colorare la riga in blu (Admin + Record modificato)
+    const isAdmin = state.currentOperator?.isAdmin === true || state.currentOperator?.isAdmin === 1;
+    if (isAdmin && log.NumeroModifiche > 0) {
+      li.classList.add('is-modified-admin');
+    }
+
+    // 4. Costruisci il nuovo layout
+    li.innerHTML = `
+      <div class="log-card-content">
+        <div class="log-card-row">
+          <span class="log-date">${dateOnly}</span>
+          <span class="log-machine">${machineName}</span>
+        </div>
+        <div class="log-card-row">
+          <span class="log-code-lot">${code} | L. ${lot}</span>
+          <span class="log-qty">${qty} pz</span>
+        </div>
+      </div>
+    `;
+
+    // 5. Mantieni la logica del click invariata
     li.addEventListener('click', async () => {
       state.selectedLog = log;
       renderLogDetail(log);
@@ -513,6 +543,7 @@ function renderLogList(items) {
         alert('Impossibile caricare il dettaglio. Verifica connessione.');
       }
     });
+
     logListEl.appendChild(li);
   });
 }

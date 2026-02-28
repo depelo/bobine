@@ -118,7 +118,8 @@ app.get('/api/logs', async (req, res) => {
                 L.Lot as lot,
                 L.Quantity as quantity,
                 L.Notes as notes,
-                L.IDRoll as rollId
+                L.IDRoll as rollId,
+                L.NumeroModifiche
             FROM [CMP].[dbo].[Log] L
             LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
             LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
