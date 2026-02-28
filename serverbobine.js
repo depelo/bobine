@@ -119,7 +119,8 @@ app.get('/api/logs', async (req, res) => {
                 L.Quantity as quantity,
                 L.Notes as notes,
                 L.IDRoll as rollId,
-                L.NumeroModifiche
+                L.NumeroModifiche,
+                L.bobina_finita
             FROM [CMP].[dbo].[Log] L
             LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
             LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
@@ -152,7 +153,8 @@ app.get('/api/logs/:id', async (req, res) => {
                     L.Quantity as quantity,
                     L.Notes as notes,
                     L.IDRoll as rollId,
-                    L.NumeroModifiche
+                    L.NumeroModifiche,
+                    L.bobina_finita
                 FROM [CMP].[dbo].[Log] L
                 LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
                 LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
@@ -271,6 +273,21 @@ app.delete('/api/logs/:id', async (req, res) => {
                 WHERE IDLog = @IDLog
             `);
         res.status(200).send({ message: 'Log eliminato logicamente' });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+app.patch('/api/logs/:id/bobina-finita', async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { bobina_finita } = req.body; // true = 1 (Sì), false = 0 (No)
+    try {
+        let pool = await sql.connect(dbConfig);
+        await pool.request()
+            .input('IDLog', sql.Int, id)
+            .input('BobinaFinita', sql.Bit, bobina_finita)
+            .query(`UPDATE [CMP].[dbo].[Log] SET bobina_finita = @BobinaFinita WHERE IDLog = @IDLog`);
+        res.status(200).send({ message: 'Stato bobina aggiornato' });
     } catch (err) {
         res.status(500).send(err.message);
     }

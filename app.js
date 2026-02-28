@@ -572,6 +572,7 @@ function resetForm() {
   form.date.value = new Date().toISOString().slice(0, 10);
   state.formDraft = {};
   state.selectedLog = null;
+  bypassBobinaPrompt = false;
   if (operatorSelect) operatorSelect.value = '';
   if (machineSelect) machineSelect.value = '';
   state.currentOperator = null;
@@ -1143,5 +1144,62 @@ if (machineSelect) {
     state.formDraft.IDMachine = id;
   });
 }
+
+let pendingBobinaLogId = null;
+let bypassBobinaPrompt = false;
+
+const quantityInput = document.getElementById('quantity');
+if (quantityInput) {
+  quantityInput.addEventListener('focus', (e) => {
+    if (!state.selectedLog && state.logs && state.logs.length > 0) {
+      const lastLog = state.logs[0];
+      if (lastLog.bobina_finita === null && !bypassBobinaPrompt) {
+        e.target.blur();
+        pendingBobinaLogId = lastLog.uniqueRecordId;
+        const modal = document.getElementById('bobinaModal');
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+      }
+    }
+  });
+}
+
+function chiudiBobinaModal() {
+  const modal = document.getElementById('bobinaModal');
+  modal.classList.remove('is-open');
+  modal.setAttribute('aria-hidden', 'true');
+  pendingBobinaLogId = null;
+  bypassBobinaPrompt = true;
+
+  setTimeout(() => {
+    const qty = document.getElementById('quantity');
+    if (qty) qty.focus();
+  }, 100);
+}
+
+async function impostaStatoBobina(isFinita) {
+  if (!pendingBobinaLogId) return chiudiBobinaModal();
+  try {
+    const res = await fetch(`${API_URL}/logs/${pendingBobinaLogId}/bobina-finita`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bobina_finita: isFinita })
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    const lastLog = state.logs.find(l => l.uniqueRecordId === pendingBobinaLogId);
+    if (lastLog) {
+      lastLog.bobina_finita = isFinita;
+    }
+    chiudiBobinaModal();
+  } catch (err) {
+    alert('Errore durante l\'aggiornamento della bobina: ' + (err.message || err));
+    chiudiBobinaModal();
+  }
+}
+
+document.getElementById('bobinaBtnYes').addEventListener('click', () => impostaStatoBobina(true));
+document.getElementById('bobinaBtnNo').addEventListener('click', () => impostaStatoBobina(false));
+document.getElementById('bobinaBtnCancel').addEventListener('click', chiudiBobinaModal);
 
 initApp();

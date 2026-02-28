@@ -898,3 +898,50 @@ input.date-input {
 .list li.is-modified-admin * {
   color: var(--line) !important;
 }
+
+/* --- Modale Bobina Finita --- */
+#bobinaModal .bobina-modal-inner {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100%;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-content);
+}
+.bobina-title {
+  text-align: center;
+  font-size: 1.5rem;
+  padding: 24px 16px;
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+}
+.bobina-split {
+  display: flex;
+  flex: 1;
+  width: 100%;
+}
+.bobina-btn {
+  flex: 1;
+  border: none;
+  color: white;
+  font-size: 3rem;
+  font-weight: bold;
+  cursor: pointer;
+}
+.bobina-no {
+  background-color: var(--danger);
+}
+.bobina-yes {
+  background-color: var(--line);
+}
+.bobina-cancel {
+  height: 70px;
+  background-color: #888888;
+  color: white;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
