@@ -60,7 +60,8 @@ const state = {
   operators: [],
   machines: [],
   logs: [],
-  currentOperator: null
+  currentOperator: null,
+  detailEditMode: false
 };
 
 async function fetchData(endpoint) {
@@ -273,13 +274,34 @@ function populateMachineSelect() {
   populateSelect(machineSelect, state.machines, 'Seleziona macchina');
 }
 
-const RESTRICTED_ACTIONS = ['add-operator', 'add-machine', 'delete-log', 'edit-from-detail'];
+const ADMIN_ONLY_ACTIONS = ['add-operator', 'add-machine'];
 
 function applyPermissions() {
   const isAdmin = state.currentOperator?.isAdmin === true;
+  const hasOperator = state.currentOperator != null;
+
+  const lastLogByID = state.logs.length > 0
+    ? state.logs.reduce((a, b) => (Number(a.uniqueRecordId) > Number(b.uniqueRecordId) ? a : b))
+    : null;
+  const isLastRecord = state.selectedLog && lastLogByID &&
+    Number(state.selectedLog.uniqueRecordId) === Number(lastLogByID.uniqueRecordId);
+
   document.querySelectorAll('[data-action]').forEach((el) => {
-    if (RESTRICTED_ACTIONS.includes(el.dataset.action)) {
+    const action = el.dataset.action;
+    if (ADMIN_ONLY_ACTIONS.includes(action)) {
       el.style.display = isAdmin ? '' : 'none';
+      return;
+    }
+    if (action === 'edit-from-detail') {
+      el.style.display = hasOperator ? '' : 'none';
+      el.disabled = !hasOperator;
+      return;
+    }
+    if (action === 'delete-log') {
+      const canDelete = isAdmin || isLastRecord;
+      el.style.display = canDelete ? '' : 'none';
+      el.disabled = !canDelete;
+      return;
     }
   });
 }
@@ -310,6 +332,7 @@ function createActionButtons(leftActions, rightActions) {
 
 function setScreen(name) {
   state.currentScreen = name;
+  if (name !== 'log-detail') state.detailEditMode = false;
 
   screens.forEach((section) => {
     section.classList.toggle('is-visible', section.dataset.screen === name);
@@ -394,6 +417,65 @@ function renderLogDetail(record) {
   });
 }
 
+function renderLogDetailEditMode(record) {
+  const staticRows = [
+    ['ID Record', String(record.uniqueRecordId ?? '')],
+    ['Data', displayDate(record.date)],
+    ['Operatore Originale', record.operator ?? '-'],
+    ['ID Bobina', record.rollId ?? '-']
+  ];
+
+  detailGrid.innerHTML = '';
+  staticRows.forEach(([k, v]) => {
+    const key = document.createElement('p');
+    key.className = 'k';
+    key.textContent = k;
+    const value = document.createElement('p');
+    value.className = 'v';
+    value.textContent = v;
+    detailGrid.append(key, value);
+  });
+
+  const editableRows = [
+    ['Quantità', 'quantity', 'number', record.quantity != null ? String(record.quantity) : ''],
+    ['Codice Articolo', 'rawCode', 'text', record.rawCode ?? ''],
+    ['Note', 'notes', 'textarea', record.notes ?? '']
+  ];
+
+  editableRows.forEach(([label, fieldId, type, val]) => {
+    const key = document.createElement('p');
+    key.className = 'k';
+    key.textContent = label;
+    const valueWrap = document.createElement('div');
+    valueWrap.className = 'v';
+    if (type === 'textarea') {
+      const ta = document.createElement('textarea');
+      ta.id = `detailEdit-${fieldId}`;
+      ta.rows = 4;
+      ta.value = val;
+      valueWrap.appendChild(ta);
+    } else {
+      const inp = document.createElement('input');
+      inp.id = `detailEdit-${fieldId}`;
+      inp.type = type;
+      inp.value = val;
+      if (type === 'number') inp.min = '0';
+      valueWrap.appendChild(inp);
+    }
+    detailGrid.append(key, valueWrap);
+  });
+}
+
+function exitDetailEditMode() {
+  state.detailEditMode = false;
+  if (state.selectedLog) {
+    renderLogDetail(state.selectedLog);
+  }
+  const meta = screenMeta['log-detail'] ?? { leftActions: [], rightActions: [] };
+  createActionButtons(meta.leftActions, meta.rightActions);
+  applyPermissions();
+}
+
 function renderLogList(items) {
   logListEl.innerHTML = '';
   items.forEach((log) => {
@@ -403,10 +485,12 @@ function renderLogList(items) {
       state.selectedLog = log;
       renderLogDetail(log);
       setScreen('log-detail');
+      applyPermissions();
       try {
         const fetched = await fetchData(`/logs/${log.uniqueRecordId}`);
         state.selectedLog = fetched;
         renderLogDetail(fetched);
+        applyPermissions();
       } catch (err) {
         console.error(err);
         alert('Impossibile caricare il dettaglio. Verifica connessione.');
@@ -549,8 +633,12 @@ async function handleTopbarAction(action) {
   if (action === 'delete-log') {
     if (!state.selectedLog) return;
     if (!confirm('Eliminare questo log?')) return;
+    const operatorId = state.currentOperator?.id;
+    const url = operatorId != null
+      ? `${API_URL}/logs/${state.selectedLog.uniqueRecordId}?operatorId=${operatorId}`
+      : `${API_URL}/logs/${state.selectedLog.uniqueRecordId}`;
     try {
-      const res = await fetch(`${API_URL}/logs/${state.selectedLog.uniqueRecordId}`, { method: 'DELETE' });
+      const res = await fetch(url, { method: 'DELETE' });
       if (!res.ok) throw new Error(await res.text());
       state.logs = await fetchData('/logs');
       renderLogList(state.logs);
@@ -563,9 +651,63 @@ async function handleTopbarAction(action) {
     return;
   }
 
+  if (action === 'cancel-detail-edit') {
+    exitDetailEditMode();
+    return;
+  }
+
+  if (action === 'save-detail-edit') {
+    if (!state.selectedLog || !state.currentOperator) {
+      alert('Seleziona un operatore per poter modificare.');
+      return;
+    }
+    const quantityEl = document.getElementById('detailEdit-quantity');
+    const rawCodeEl = document.getElementById('detailEdit-rawCode');
+    const notesEl = document.getElementById('detailEdit-notes');
+    if (!quantityEl || !rawCodeEl || !notesEl) return;
+    const payload = {
+      modifyingOperatorId: state.currentOperator.id,
+      IDMachine: state.selectedLog.IDMachine,
+      rawCode: rawCodeEl.value,
+      lot: state.selectedLog.lot,
+      quantity: quantityEl.value ? parseFloat(quantityEl.value) : 0,
+      notes: notesEl.value
+    };
+    try {
+      const res = await fetch(`${API_URL}/logs/${state.selectedLog.uniqueRecordId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error(await res.text());
+      state.logs = await fetchData('/logs');
+      renderLogList(state.logs);
+      const updated = await fetchData(`/logs/${state.selectedLog.uniqueRecordId}`);
+      state.selectedLog = updated;
+      state.detailEditMode = false;
+      renderLogDetail(updated);
+      const meta = screenMeta['log-detail'] ?? { leftActions: [], rightActions: [] };
+      createActionButtons(meta.leftActions, meta.rightActions);
+      applyPermissions();
+      alert('Salvataggio completato.');
+    } catch (err) {
+      console.error(err);
+      alert('Errore durante il salvataggio: ' + (err.message || err));
+    }
+    return;
+  }
+
   if (action === 'edit-from-detail') {
-    fillForm(state.selectedLog);
-    setScreen('log-edit');
+    if (!state.currentOperator) {
+      alert('Seleziona un operatore per poter modificare.');
+      return;
+    }
+    state.detailEditMode = true;
+    renderLogDetailEditMode(state.selectedLog);
+    createActionButtons(
+      [{ icon: '✕', action: 'cancel-detail-edit', title: 'Annulla' }],
+      [{ icon: '✓', action: 'save-detail-edit', title: 'Salva' }]
+    );
     return;
   }
 

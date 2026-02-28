@@ -122,6 +122,7 @@ app.get('/api/logs', async (req, res) => {
             FROM [CMP].[dbo].[Log] L
             LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
             LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
+            WHERE L.Eliminato = 0
             ORDER BY L.Date DESC
         `;
         let result = await pool.request().query(query);
@@ -153,7 +154,7 @@ app.get('/api/logs/:id', async (req, res) => {
                 FROM [CMP].[dbo].[Log] L
                 LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
                 LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
-                WHERE L.IDLog = @IDLog
+                WHERE L.IDLog = @IDLog AND L.Eliminato = 0
             `);
         if (!result.recordset || result.recordset.length === 0) {
             res.status(404).send('Log non trovato');
@@ -196,29 +197,27 @@ app.post('/api/logs', async (req, res) => {
 
 app.put('/api/logs/:id', async (req, res) => {
     const id = req.params.id;
-    const { date, IDOperator, IDMachine, rawCode, lot, quantity, notes, rollId } = req.body;
-    const dateToSave = date ? new Date(date) : new Date();
-    const idOperator = IDOperator != null ? parseInt(IDOperator, 10) : null;
+    const { modifyingOperatorId, IDMachine, rawCode, lot, quantity, notes } = req.body;
+    const idModifyingOperator = modifyingOperatorId != null ? parseInt(modifyingOperatorId, 10) : null;
     const idMachine = IDMachine != null ? parseInt(IDMachine, 10) : null;
     const qty = quantity != null ? parseFloat(quantity) : 0;
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('IDLog', sql.Int, id)
-            .input('Date', sql.DateTime, dateToSave)
-            .input('IDOperator', sql.Int, idOperator)
+            .input('ModificatoDa', sql.Int, idModifyingOperator)
             .input('IDMachine', sql.Int, idMachine)
             .input('Codart', sql.NVarChar, rawCode)
             .input('Lot', sql.NVarChar, lot)
             .input('Quantity', sql.Decimal, qty)
             .input('Notes', sql.NVarChar, notes)
-            .input('IDRoll', sql.NVarChar, rollId)
             .query(`
                 UPDATE [CMP].[dbo].[Log]
-                SET Date = @Date, IDOperator = @IDOperator, IDMachine = @IDMachine,
+                SET ModificatoDa = @ModificatoDa, IDMachine = @IDMachine,
                     Codart = @Codart, Lot = @Lot, Quantity = @Quantity,
-                    Notes = @Notes, IDRoll = @IDRoll
-                WHERE IDLog = @IDLog
+                    Notes = @Notes,
+                    NumeroModifiche = NumeroModifiche + 1
+                WHERE IDLog = @IDLog AND Eliminato = 0
             `);
         res.status(200).send({ message: 'Log aggiornato' });
     } catch (err) {
@@ -228,6 +227,7 @@ app.put('/api/logs/:id', async (req, res) => {
 
 app.delete('/api/logs/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
+    const operatorId = req.query.operatorId != null ? parseInt(req.query.operatorId, 10) : null;
     if (Number.isNaN(id)) {
         res.status(400).send('ID log non valido');
         return;
@@ -236,7 +236,12 @@ app.delete('/api/logs/:id', async (req, res) => {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('IDLog', sql.Int, id)
-            .query('DELETE FROM [CMP].[dbo].[Log] WHERE IDLog = @IDLog');
+            .input('IDOperator', sql.Int, operatorId)
+            .query(`
+                UPDATE [CMP].[dbo].[Log]
+                SET Eliminato = 1, ModificatoDa = @IDOperator, NumeroModifiche = NumeroModifiche + 1
+                WHERE IDLog = @IDLog
+            `);
         res.status(200).send({ message: 'Log eliminato' });
     } catch (err) {
         res.status(500).send(err.message);

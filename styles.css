@@ -530,6 +530,21 @@ input.date-input {
   font-weight: 500;
 }
 
+.detail-grid .v input,
+.detail-grid .v textarea {
+  width: 100%;
+  padding: var(--input-padding);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+}
+
+.detail-grid .v textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
 /* --- Ricerca --- */
 .screen-toolbar {
   display: flex;
