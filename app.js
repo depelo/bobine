@@ -243,29 +243,10 @@ function populateSelect(select, items, placeholderLabel) {
   });
 }
 
-function sortOperatorsByTime(operatorsArray) {
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-  const getMins = (timeStr) => {
-    if (!timeStr) return Number.POSITIVE_INFINITY; // I NULL vanno in fondo
-    const parts = String(timeStr).split(':');
-    const h = parseInt(parts[0] || '0', 10);
-    const m = parseInt(parts[1] || '0', 10);
-    return h * 60 + m;
-  };
-
-  return operatorsArray.slice().sort((a, b) => {
-    const diffA = Math.abs(currentMinutes - getMins(a.startTime));
-    const diffB = Math.abs(currentMinutes - getMins(b.startTime));
-    return diffA - diffB;
-  });
-}
-
 function populateOperatorSelect() {
   if (!operatorSelect) return;
   const visibleOps = state.operators.filter((op) => !op.isAdmin && op.isAdmin !== 1);
-  const sortedOperators = sortOperatorsByTime(visibleOps);
+  const sortedOperators = visibleOps.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'it'));
   populateSelect(operatorSelect, sortedOperators, 'Seleziona operatore');
 }
 
@@ -559,41 +540,10 @@ function renderSimpleList(rootEl, items, onPick) {
 
 function renderOperatorList(items) {
   operatorListEl.innerHTML = '';
-  const sortedItems = sortOperatorsByTime(items);
+  const sortedItems = items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'it'));
   sortedItems.forEach((op) => {
     const li = document.createElement('li');
-    let timeVal = '';
-    if (op.startTime) {
-      timeVal = op.startTime;
-    }
-
-    li.innerHTML = `
-      <span>${op.name}</span>
-      <input type="time"
-             class="op-time-input"
-             data-id="${op.id}"
-             value="${timeVal}"
-             style="padding: 4px; border: 1px solid #ccc; border-radius: 4px; width: 110px;">
-    `;
-
-    const timeInput = li.querySelector('.op-time-input');
-    timeInput.addEventListener('change', async (e) => {
-      const newTime = e.target.value;
-      try {
-        const res = await fetch(`${API_URL}/operators/${op.id}/time`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ startTime: newTime })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        op.startTime = newTime || null;
-        populateOperatorSelect(); // riordina immediatamente la tendina in Home
-      } catch (err) {
-        console.error(err);
-        alert('Errore salvataggio orario');
-      }
-    });
-
+    li.innerHTML = `<span>${op.name}</span>`;
     operatorListEl.appendChild(li);
   });
 }

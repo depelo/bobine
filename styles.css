@@ -875,21 +875,22 @@ input.date-input {
 .log-card-row .log-date {
   font-size: var(--font-size-sm);
   color: var(--text);
+  font-weight: normal;
 }
 .log-card-row .log-machine {
   font-size: var(--font-size-sm);
-  font-weight: 600;
   color: var(--text);
+  font-weight: normal;
 }
 .log-card-row .log-code-lot {
   font-size: var(--font-size-base);
-  font-weight: 700;
   color: var(--text);
+  font-weight: normal;
 }
 .log-card-row .log-qty {
   font-size: var(--font-size-base);
-  font-weight: 700;
   color: var(--text);
+  font-weight: normal;
 }
 
 /* Stile per record modificati (vista Admin) */
