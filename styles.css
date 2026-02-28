@@ -892,7 +892,6 @@ input.date-input {
 
 /* Stile per record modificati (vista Admin) */
 .list li.is-modified-admin,
-.list li.is-modified-admin .log-date,
-.list li.is-modified-admin .log-qty {
+.list li.is-modified-admin * {
   color: var(--line) !important;
 }

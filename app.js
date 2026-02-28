@@ -522,7 +522,7 @@ function renderLogList(items) {
         </div>
         <div class="log-card-row">
           <span class="log-code-lot">${code} | L. ${lot}</span>
-          <span class="log-qty">${qty} pz</span>
+          <span class="log-qty">${qty}</span>
         </div>
       </div>
     `;
