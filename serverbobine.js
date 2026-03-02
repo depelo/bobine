@@ -177,19 +177,39 @@ app.get('/api/logs/:id/history', async (req, res) => {
         let result = await pool.request()
             .input('IDLog', sql.Int, id)
             .query(`
+                WITH HistoryCTE AS (
+                    SELECT 
+                        L.Quantity AS quantity,
+                        L.Codart AS rawCode,
+                        L.Lot AS lot,
+                        L.Notes AS notes,
+                        L.ValidFrom,
+                        ISNULL(O_Mod.Operator, O_Crea.Operator) AS operatorName,
+                        L.NumeroModifiche,
+                        LAG(L.Quantity) OVER (ORDER BY L.ValidFrom) AS prev_quantity,
+                        LAG(L.Codart) OVER (ORDER BY L.ValidFrom) AS prev_rawCode,
+                        LAG(L.Lot) OVER (ORDER BY L.ValidFrom) AS prev_lot,
+                        LAG(L.Notes) OVER (ORDER BY L.ValidFrom) AS prev_notes
+                    FROM [CMP].[dbo].[Log] FOR SYSTEM_TIME ALL AS L
+                    LEFT JOIN [CMP].[dbo].[Operators] O_Mod ON L.ModificatoDa = O_Mod.IDOperator
+                    LEFT JOIN [CMP].[dbo].[Operators] O_Crea ON L.IDOperator = O_Crea.IDOperator
+                    WHERE L.IDLog = @IDLog
+                )
                 SELECT 
-                    L.Quantity AS quantity,
-                    L.Codart AS rawCode,
-                    L.Lot AS lot,
-                    L.Notes AS notes,
-                    CONVERT(varchar(23), DATEADD(minute, DATEDIFF(minute, GETUTCDATE(), GETDATE()), L.ValidFrom), 126) AS validFrom,
-                    ISNULL(O_Mod.Operator, O_Crea.Operator) AS operatorName,
-                    L.NumeroModifiche
-                FROM [CMP].[dbo].[Log] FOR SYSTEM_TIME ALL AS L
-                LEFT JOIN [CMP].[dbo].[Operators] O_Mod ON L.ModificatoDa = O_Mod.IDOperator
-                LEFT JOIN [CMP].[dbo].[Operators] O_Crea ON L.IDOperator = O_Crea.IDOperator
-                WHERE L.IDLog = @IDLog
-                ORDER BY L.ValidFrom ASC
+                    quantity,
+                    rawCode,
+                    lot,
+                    notes,
+                    CONVERT(varchar(23), DATEADD(minute, DATEDIFF(minute, GETUTCDATE(), GETDATE()), ValidFrom), 126) AS validFrom,
+                    operatorName,
+                    NumeroModifiche
+                FROM HistoryCTE
+                WHERE prev_quantity IS NULL 
+                   OR quantity <> prev_quantity
+                   OR ISNULL(rawCode, '') <> ISNULL(prev_rawCode, '')
+                   OR ISNULL(lot, '') <> ISNULL(prev_lot, '')
+                   OR ISNULL(notes, '') <> ISNULL(prev_notes, '')
+                ORDER BY ValidFrom ASC
             `);
         res.json(result.recordset);
     } catch (err) {
