@@ -494,15 +494,26 @@ function getDetailEditCurrentValues() {
 }
 
 function hasDetailEditChanges() {
-  if (!state.detailEditInitial) return false;
+  if (!state.detailEditInitial) {
+    console.log('hasDetailEditChanges: stato iniziale mancante, permetto comunque il salvataggio.');
+    return true;
+  }
   const current = getDetailEditCurrentValues();
-  if (!current) return false;
-  return (
+  if (!current) {
+    console.log('hasDetailEditChanges: valori correnti non disponibili, permetto comunque il salvataggio.');
+    return true;
+  }
+  const hasChanges =
     current.quantity !== state.detailEditInitial.quantity ||
     current.rawCode !== state.detailEditInitial.rawCode ||
     current.lot !== state.detailEditInitial.lot ||
-    current.notes !== state.detailEditInitial.notes
-  );
+    current.notes !== state.detailEditInitial.notes;
+  console.log('hasDetailEditChanges:', {
+    initial: state.detailEditInitial,
+    current,
+    hasChanges
+  });
+  return hasChanges;
 }
 
 function setupDetailEditChangeTracking(record) {
@@ -513,10 +524,11 @@ function setupDetailEditChangeTracking(record) {
     notes: record.notes ?? ''
   };
 
-  const saveBtn = document.querySelector('[data-action="save-detail-edit"]');
+  const saveBtn = document.querySelector('#topbarActionsRight [data-action="save-detail-edit"]');
   const updateSaveButtonState = () => {
     if (!saveBtn) return;
     const hasChanges = hasDetailEditChanges();
+    console.log('updateSaveButtonState:', { hasChanges });
     saveBtn.disabled = !hasChanges;
     saveBtn.classList.toggle('is-disabled', !hasChanges);
   };
@@ -687,7 +699,7 @@ async function handleTopbarAction(action) {
         // --- ERA UNA MODIFICA ---
         resetForm();
         setScreen('log-list');
-        showEditSuccessModal();
+        document.getElementById('editSuccessModal').classList.add('is-open');
       } else {
         // --- È UN NUOVO INSERIMENTO ---
         // 1. Salviamo le selezioni attuali
@@ -766,6 +778,7 @@ async function handleTopbarAction(action) {
     const bobinaFinitaValue = bobinaFinitaEl.value === 'true' ? true : bobinaFinitaEl.value === 'false' ? false : null;
 
     if (!hasDetailEditChanges()) {
+      console.log('save-detail-edit: nessuna modifica rilevata, nessun salvataggio eseguito.');
       return;
     }
 
@@ -794,7 +807,7 @@ async function handleTopbarAction(action) {
       const meta = screenMeta['log-detail'] ?? { leftActions: [], rightActions: [] };
       createActionButtons(meta.leftActions, meta.rightActions);
       applyPermissions();
-      showEditSuccessModal();
+      document.getElementById('editSuccessModal').classList.add('is-open');
     } catch (err) {
       console.error(err);
       alert('Errore durante il salvataggio: ' + (err.message || err));
@@ -813,6 +826,7 @@ async function handleTopbarAction(action) {
       [{ icon: '✕', action: 'cancel-detail-edit', title: 'Annulla' }],
       [{ icon: '✓', action: 'save-detail-edit', title: 'Salva' }]
     );
+    setupDetailEditChangeTracking(state.selectedLog);
     return;
   }
 
@@ -1342,20 +1356,8 @@ document.getElementById('successBtnClose')?.addEventListener('click', () => {
   }
 });
 
-function showEditSuccessModal() {
-  const modal = document.getElementById('editSuccessModal');
-  if (modal) {
-    modal.classList.add('is-open');
-    modal.setAttribute('aria-hidden', 'false');
-  }
-}
-
 document.getElementById('editSuccessBtnClose')?.addEventListener('click', () => {
-  const modal = document.getElementById('editSuccessModal');
-  if (modal) {
-    modal.classList.remove('is-open');
-    modal.setAttribute('aria-hidden', 'true');
-  }
+  document.getElementById('editSuccessModal').classList.remove('is-open');
 });
 
 initApp();
