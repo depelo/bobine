@@ -935,7 +935,7 @@ input.date-input {
   background-color: var(--danger);
 }
 .bobina-yes {
-  background-color: var(--line);
+  background-color: var(--success);
 }
 .bobina-cancel {
   height: 70px;
