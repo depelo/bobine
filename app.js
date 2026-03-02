@@ -61,7 +61,8 @@ const state = {
   machines: [],
   logs: [],
   currentOperator: null,
-  detailEditMode: false
+  detailEditMode: false,
+  detailEditInitial: null
 };
 
 async function fetchData(endpoint) {
@@ -478,8 +479,61 @@ function renderLogDetailEditMode(record) {
   });
 }
 
+function getDetailEditCurrentValues() {
+  const quantityEl = document.getElementById('detailEdit-quantity');
+  const rawCodeEl = document.getElementById('detailEdit-rawCode');
+  const lotEl = document.getElementById('detailEdit-lot');
+  const notesEl = document.getElementById('detailEdit-notes');
+  if (!quantityEl || !rawCodeEl || !lotEl || !notesEl) return null;
+  return {
+    quantity: quantityEl.value.trim(),
+    rawCode: rawCodeEl.value.trim(),
+    lot: lotEl.value.trim(),
+    notes: notesEl.value.trim()
+  };
+}
+
+function hasDetailEditChanges() {
+  if (!state.detailEditInitial) return false;
+  const current = getDetailEditCurrentValues();
+  if (!current) return false;
+  return (
+    current.quantity !== state.detailEditInitial.quantity ||
+    current.rawCode !== state.detailEditInitial.rawCode ||
+    current.lot !== state.detailEditInitial.lot ||
+    current.notes !== state.detailEditInitial.notes
+  );
+}
+
+function setupDetailEditChangeTracking(record) {
+  state.detailEditInitial = {
+    quantity: record.quantity != null ? String(record.quantity) : '',
+    rawCode: record.rawCode ?? '',
+    lot: record.lot ?? '',
+    notes: record.notes ?? ''
+  };
+
+  const saveBtn = document.querySelector('[data-action="save-detail-edit"]');
+  const updateSaveButtonState = () => {
+    if (!saveBtn) return;
+    const hasChanges = hasDetailEditChanges();
+    saveBtn.disabled = !hasChanges;
+    saveBtn.classList.toggle('is-disabled', !hasChanges);
+  };
+
+  ['detailEdit-quantity', 'detailEdit-rawCode', 'detailEdit-lot', 'detailEdit-notes'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', updateSaveButtonState);
+    el.addEventListener('change', updateSaveButtonState);
+  });
+
+  updateSaveButtonState();
+}
+
 function exitDetailEditMode() {
   state.detailEditMode = false;
+  state.detailEditInitial = null;
   if (state.selectedLog) {
     renderLogDetail(state.selectedLog);
   }
@@ -711,6 +765,10 @@ async function handleTopbarAction(action) {
 
     const bobinaFinitaValue = bobinaFinitaEl.value === 'true' ? true : bobinaFinitaEl.value === 'false' ? false : null;
 
+    if (!hasDetailEditChanges()) {
+      return;
+    }
+
     const payload = {
       modifyingOperatorId: state.currentOperator.id,
       rawCode: rawCodeEl.value,
@@ -731,11 +789,12 @@ async function handleTopbarAction(action) {
       const updated = await fetchData(`/logs/${state.selectedLog.uniqueRecordId}`);
       state.selectedLog = updated;
       state.detailEditMode = false;
+      state.detailEditInitial = null;
       renderLogDetail(updated);
       const meta = screenMeta['log-detail'] ?? { leftActions: [], rightActions: [] };
       createActionButtons(meta.leftActions, meta.rightActions);
       applyPermissions();
-      alert('Salvataggio completato.');
+      showEditSuccessModal();
     } catch (err) {
       console.error(err);
       alert('Errore durante il salvataggio: ' + (err.message || err));
