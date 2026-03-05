@@ -26,7 +26,8 @@ const screenMeta = {
       { icon: '↻', action: 'refresh-log-list', title: 'Aggiorna' }
     ],
     rightActions: [
-      { icon: '↕', action: 'sort-log-list', title: 'Ordina' }
+      { icon: '↕', action: 'sort-log-list', title: 'Ordina' },
+      { icon: '+', action: 'new-log', title: 'Nuovo Log' }
     ]
   },
   'operator-list': {
@@ -805,6 +806,12 @@ async function handleTopbarAction(action) {
     return;
   }
 
+  if (action === 'new-log') {
+    resetForm();
+    setScreen('log-edit');
+    return;
+  }
+
   if (action === 'save-log') {
     const payload = formToPayload();
     if (payload.IDOperator == null) {
@@ -1078,11 +1085,24 @@ function pickMachineFromList(machine) {
 navButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
     state.returnFromLookupTo = null;
-    // Se torniamo alla schermata del registro principale, assicuriamoci di essere in modalità "Nuovo Inserimento"
+    
+    // Se torniamo alla schermata del registro principale (Home)
     if (btn.dataset.screenTarget === 'log-edit') {
       state.selectedLog = null;
       bypassBobinaPrompt = false;
+      
+      // Salviamo la macchina selezionata prima di resettare la maschera
+      const savedMachineVal = machineSelect ? machineSelect.value : '';
+      
+      resetForm();
+      
+      // Ripristiniamo la macchina così l'operatore non deve reinserirla
+      if (savedMachineVal && machineSelect) {
+        machineSelect.value = savedMachineVal;
+        state.formDraft.IDMachine = parseInt(savedMachineVal, 10);
+      }
     }
+    
     setScreen(btn.dataset.screenTarget);
   });
 });
@@ -1147,7 +1167,8 @@ const scanActionToFieldId = {
   'scan-raw-code': 'rawCode',
   'scan-lot': 'lot',
   'scan-operator': 'operator',
-  'scan-machine': 'machine'
+  'scan-machine': 'machine',
+  'login-scan-operator': 'loginBarcode'
 };
 
 let barcodeScannerInstance = null;
