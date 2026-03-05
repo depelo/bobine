@@ -2,11 +2,21 @@ const path = require('path');
 const express = require('express');
 const sql = require('mssql');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+app.use(cookieParser());
 app.use(express.static(__dirname));
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('JWT_SECRET non è definito nelle variabili di ambiente.');
+}
 
 const dbConfig = {
     user: 'sa',
@@ -19,6 +29,20 @@ const dbConfig = {
         useUTC: false
     }
 };
+
+function authenticateToken(req, res, next) {
+    const token = req.cookies && req.cookies.jwt_token;
+    if (!token) {
+        return res.status(401).send('Token mancante');
+    }
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(403).send('Token non valido');
+        }
+        req.user = user;
+        next();
+    });
+}
 
 // --- API OPERATORI ---
 
@@ -99,6 +123,85 @@ app.post('/api/machines', async (req, res) => {
     } catch (err) {
         res.status(500).send(err.message);
     }
+});
+
+app.post('/api/login', async (req, res) => {
+    const { barcode, password } = req.body || {};
+    if (!barcode) {
+        return res.status(400).json({ message: 'Barcode richiesto' });
+    }
+    try {
+        let pool = await sql.connect(dbConfig);
+        const result = await pool.request()
+            .input('Barcode', sql.NVarChar, barcode)
+            .query(`
+                SELECT TOP 1
+                    IDOperator,
+                    Operator,
+                    Admin,
+                    Barcode,
+                    PasswordHash,
+                    IsSuperuser
+                FROM [CMP].[dbo].[Operators]
+                WHERE Barcode = @Barcode AND IsActive = 1
+            `);
+
+        if (!result.recordset || result.recordset.length === 0) {
+            return res.status(401).json({ message: 'Credenziali non valide' });
+        }
+
+        const row = result.recordset[0];
+        const isAdmin = row.Admin === true || row.Admin === 1;
+        const isSuperuser = row.IsSuperuser === true || row.IsSuperuser === 1;
+
+        const payload = {
+            id: row.IDOperator,
+            name: row.Operator,
+            isAdmin,
+            isSuperuser,
+            barcode: row.Barcode
+        };
+
+        if (!isAdmin && !isSuperuser) {
+            const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
+            res.cookie('jwt_token', token, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'strict',
+                maxAge: 12 * 60 * 60 * 1000
+            });
+            return res.json({ user: payload });
+        }
+
+        if (!password) {
+            return res.status(401).json({ requiresPassword: true, message: 'Password richiesta' });
+        }
+
+        const passwordOk = await bcrypt.compare(password, row.PasswordHash || '');
+        if (!passwordOk) {
+            return res.status(401).json({ message: 'Credenziali non valide' });
+        }
+
+        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
+        res.cookie('jwt_token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 12 * 60 * 60 * 1000
+        });
+        return res.json({ user: payload });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+app.get('/api/me', authenticateToken, (req, res) => {
+    res.json(req.user);
+});
+
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('jwt_token');
+    res.json({ message: 'Logout eseguito' });
 });
 
 // --- API LOG (REGISTRO) ---
@@ -217,10 +320,10 @@ app.get('/api/logs/:id/history', async (req, res) => {
     }
 });
 
-app.post('/api/logs', async (req, res) => {
-    const { date, IDOperator, IDMachine, rawCode, lot, quantity, notes, rollId } = req.body;
+app.post('/api/logs', authenticateToken, async (req, res) => {
+    const { date, IDMachine, rawCode, lot, quantity, notes, rollId } = req.body;
     const dateToSave = date ? new Date(date) : new Date();
-    const idOperator = IDOperator != null ? parseInt(IDOperator, 10) : null;
+    const idOperator = req.user && req.user.id != null ? parseInt(req.user.id, 10) : null;
     const idMachine = IDMachine != null ? parseInt(IDMachine, 10) : null;
     const qty = quantity != null ? parseFloat(quantity) : 0;
     try {
@@ -246,7 +349,7 @@ app.post('/api/logs', async (req, res) => {
     }
 });
 
-app.put('/api/logs/:id', async (req, res) => {
+app.put('/api/logs/:id', authenticateToken, async (req, res) => {
     const id = req.params.id;
     try {
         let pool = await sql.connect(dbConfig);
@@ -256,7 +359,7 @@ app.put('/api/logs/:id', async (req, res) => {
             .input('Lot', sql.NVarChar, req.body.lot)
             .input('Quantity', sql.Decimal, req.body.quantity != null ? parseFloat(req.body.quantity) : 0)
             .input('Notes', sql.NVarChar, req.body.notes)
-            .input('ModificatoDa', sql.Int, req.body.modifyingOperatorId || null)
+            .input('ModificatoDa', sql.Int, req.user && req.user.id != null ? parseInt(req.user.id, 10) : null)
             .input('BobinaFinita', sql.Bit, req.body.bobina_finita !== undefined ? req.body.bobina_finita : null)
             .query(`
                 UPDATE [CMP].[dbo].[Log]
@@ -275,32 +378,31 @@ app.put('/api/logs/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/logs/:id', async (req, res) => {
-    const id = parseInt(req.params.id, 10);
-    const operatorId = req.query.operatorId ? parseInt(req.query.operatorId, 10) : null;
-
-    if (Number.isNaN(id)) {
-        return res.status(400).send('ID log non valido');
-    }
+app.delete('/api/logs/:id', authenticateToken, async (req, res) => {
+    const logId = parseInt(req.params.id, 10);
+    const operatorId = req.user.id;
+    if (Number.isNaN(logId)) return res.status(400).send('ID log non valido');
     try {
         let pool = await sql.connect(dbConfig);
+        if (req.user.isAdmin || req.user.isSuperuser) {
+            await pool.request()
+                .input('IDLog', sql.Int, logId)
+                .input('ModificatoDa', sql.Int, operatorId)
+                .query(`UPDATE [CMP].[dbo].[Log] SET Eliminato = 1, ModificatoDa = @ModificatoDa, NumeroModifiche = NumeroModifiche + 1 WHERE IDLog = @IDLog`);
+            return res.status(200).send({ message: 'Log eliminato da Admin' });
+        }
         await pool.request()
-            .input('IDLog', sql.Int, id)
-            .input('ModificatoDa', sql.Int, operatorId)
-            .query(`
-                UPDATE [CMP].[dbo].[Log]
-                SET Eliminato = 1,
-                    ModificatoDa = @ModificatoDa,
-                    NumeroModifiche = NumeroModifiche + 1
-                WHERE IDLog = @IDLog
-            `);
+            .input('IDLog', sql.Int, logId)
+            .input('IDOperator', sql.Int, operatorId)
+            .execute('[dbo].[sp_DeleteLogOperatore]');
         res.status(200).send({ message: 'Log eliminato logicamente' });
     } catch (err) {
-        res.status(500).send(err.message);
+        const status = err.number >= 50000 ? 403 : 500;
+        res.status(status).send(err.message);
     }
 });
 
-app.patch('/api/logs/:id/bobina-finita', async (req, res) => {
+app.patch('/api/logs/:id/bobina-finita', authenticateToken, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const { bobina_finita } = req.body; // true = 1 (Sì), false = 0 (No)
     try {

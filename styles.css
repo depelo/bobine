@@ -660,6 +660,31 @@ input.date-input {
   color: var(--text);
 }
 
+.login-field {
+  margin-bottom: var(--space-10);
+}
+
+.login-field label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.login-message {
+  min-height: 1.2em;
+  font-size: var(--font-size-sm);
+  color: var(--danger);
+  margin-bottom: var(--space-10);
+}
+
+.login-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
 #scannerContainer {
   min-height: 200px;
   border-radius: var(--radius);

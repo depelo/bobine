@@ -66,12 +66,18 @@ const state = {
 };
 
 async function fetchData(endpoint) {
-  const res = await fetch(`${API_URL}${endpoint}`);
+  const res = await fetch(`${API_URL}${endpoint}`, {
+    credentials: 'include'
+  });
+  if (res.status === 401 || res.status === 403) {
+    handleAuthError();
+    throw new Error(`HTTP ${res.status}: autorizzazione richiesta`);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   return res.json();
 }
 
-async function initApp() {
+async function loadInitialData() {
   try {
     const [operators, machines, logs] = await Promise.all([
       fetchData('/operators'),
@@ -88,7 +94,6 @@ async function initApp() {
     state.machines = [];
     state.logs = [];
   }
-  populateOperatorSelect();
   populateMachineSelect();
   renderLogList(state.logs);
   renderOperatorList(state.operators);
@@ -96,6 +101,35 @@ async function initApp() {
   resetForm();
   applyPermissions();
   setScreen('log-edit');
+}
+
+async function initApp() {
+  const currentOperatorDisplay = document.getElementById('currentOperatorDisplay');
+  const loginModal = document.getElementById('loginModal');
+  if (!loginModal) {
+    // fallback: caricamento dati senza login modal
+    await loadInitialData();
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/me`, { credentials: 'include' });
+    if (res.ok) {
+      const user = await res.json();
+      state.currentOperator = user;
+      updateCurrentOperatorUI();
+      await loadInitialData();
+      return;
+    }
+    if (res.status === 401 || res.status === 403) {
+      openLoginModal();
+      return;
+    }
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  } catch (err) {
+    console.error(err);
+    openLoginModal();
+  }
 }
 
 const titleEl = document.getElementById('screenTitle');
@@ -109,8 +143,120 @@ const detailGrid = document.getElementById('detailGrid');
 const logListEl = document.getElementById('logList');
 const operatorListEl = document.getElementById('operatorListView');
 const machineListEl = document.getElementById('machineListView');
-const operatorSelect = document.getElementById('operatorSelect');
 const machineSelect = document.getElementById('machineSelect');
+const currentOperatorDisplay = document.getElementById('currentOperatorDisplay');
+const loginModal = document.getElementById('loginModal');
+const loginBarcodeInput = document.getElementById('loginBarcode');
+const loginPasswordField = document.getElementById('loginPasswordField');
+const loginPasswordInput = document.getElementById('loginPassword');
+const loginMessageEl = document.getElementById('loginMessage');
+const logoutBtn = document.getElementById('logoutBtn');
+
+function updateCurrentOperatorUI() {
+  if (!currentOperatorDisplay) return;
+  if (state.currentOperator) {
+    const name = state.currentOperator.name || '';
+    const roleLabel = state.currentOperator.isSuperuser
+      ? 'Superuser'
+      : state.currentOperator.isAdmin
+        ? 'Admin'
+        : '';
+    currentOperatorDisplay.value = roleLabel ? `${name} (${roleLabel})` : name;
+  } else {
+    currentOperatorDisplay.value = '';
+    currentOperatorDisplay.placeholder = 'Nessun operatore loggato';
+  }
+}
+
+function openLoginModal(initialRequiresPassword = false) {
+  if (!loginModal) return;
+  loginModal.classList.add('is-open');
+  loginModal.setAttribute('aria-hidden', 'false');
+  if (loginBarcodeInput) {
+    loginBarcodeInput.value = '';
+  }
+  if (loginPasswordInput) {
+    loginPasswordInput.value = '';
+  }
+  if (loginMessageEl) {
+    loginMessageEl.textContent = '';
+  }
+  if (loginPasswordField) {
+    loginPasswordField.classList.toggle('is-hidden', !initialRequiresPassword);
+  }
+  setTimeout(() => {
+    loginBarcodeInput?.focus();
+  }, 0);
+}
+
+function closeLoginModal() {
+  if (!loginModal) return;
+  loginModal.classList.remove('is-open');
+  loginModal.setAttribute('aria-hidden', 'true');
+}
+
+function handleAuthError() {
+  state.currentOperator = null;
+  updateCurrentOperatorUI();
+  applyPermissions();
+  openLoginModal();
+}
+
+async function performLogin() {
+  const barcode = loginBarcodeInput ? loginBarcodeInput.value.trim() : '';
+  const password = loginPasswordInput ? loginPasswordInput.value : '';
+  if (!barcode) {
+    if (loginMessageEl) loginMessageEl.textContent = 'Inserisci il barcode operatore.';
+    return;
+  }
+  try {
+    const res = await fetch(`${API_URL}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ barcode, password: password || undefined })
+    });
+    if (res.status === 401) {
+      const data = await res.json().catch(() => ({}));
+      if (data.requiresPassword) {
+        if (loginPasswordField) {
+          loginPasswordField.classList.remove('is-hidden');
+        }
+        if (loginMessageEl) {
+          loginMessageEl.textContent = data.message || 'Password richiesta per questo utente.';
+        }
+        if (loginPasswordInput) {
+          loginPasswordInput.focus();
+        }
+        return;
+      }
+      if (loginMessageEl) {
+        loginMessageEl.textContent = data.message || 'Credenziali non valide.';
+      }
+      return;
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      if (loginMessageEl) {
+        loginMessageEl.textContent = text || `Errore HTTP ${res.status}`;
+      }
+      return;
+    }
+    const data = await res.json();
+    state.currentOperator = data.user || null;
+    updateCurrentOperatorUI();
+    applyPermissions();
+    closeLoginModal();
+    if (!state.logs || state.logs.length === 0) {
+      await loadInitialData();
+    }
+  } catch (err) {
+    console.error(err);
+    if (loginMessageEl) {
+      loginMessageEl.textContent = 'Errore di rete durante il login.';
+    }
+  }
+}
 
 function toDateInputValue(dateString) {
   const datePart = dateString.split(' ')[0];
@@ -245,10 +391,7 @@ function populateSelect(select, items, placeholderLabel) {
 }
 
 function populateOperatorSelect() {
-  if (!operatorSelect) return;
-  const visibleOps = state.operators.filter((op) => !op.isAdmin && op.isAdmin !== 1);
-  const sortedOperators = visibleOps.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'it'));
-  populateSelect(operatorSelect, sortedOperators, 'Seleziona operatore');
+  // Se in futuro servirà un select per operatori, si potrà riutilizzare questa funzione.
 }
 
 function populateMachineSelect() {
@@ -337,23 +480,17 @@ function fillForm(record) {
   form.notes.value = record.notes ?? '';
   form.rollId.value = record.rollId ?? '';
 
-  const idOp = record.IDOperator != null ? Number(record.IDOperator) : null;
   const idMach = record.IDMachine != null ? Number(record.IDMachine) : null;
-  state.formDraft.IDOperator = idOp;
   state.formDraft.IDMachine = idMach;
 
-  const op = state.operators.find((o) => Number(o.id) === idOp);
   const mach = state.machines.find((m) => Number(m.id) === idMach);
 
-  if (operatorSelect) operatorSelect.value = idOp != null ? String(idOp) : '';
   if (machineSelect) machineSelect.value = idMach != null ? String(idMach) : '';
-
-  state.currentOperator = op ?? null;
   applyPermissions();
 }
 
 function formToPayload() {
-  const opId = operatorSelect && operatorSelect.value !== '' ? parseInt(operatorSelect.value, 10) : null;
+  const opId = state.currentOperator && state.currentOperator.id != null ? Number(state.currentOperator.id) : null;
   const machId = machineSelect && machineSelect.value !== '' ? parseInt(machineSelect.value, 10) : null;
 
   state.formDraft.IDOperator = opId;
@@ -652,9 +789,7 @@ function resetForm() {
   form.date.value = new Date().toISOString().slice(0, 10);
   state.formDraft = {};
   state.selectedLog = null;
-  if (operatorSelect) operatorSelect.value = '';
   if (machineSelect) machineSelect.value = '';
-  state.currentOperator = null;
   updateDynamicRollId();
   applyPermissions();
   bypassBobinaPrompt = false;
@@ -672,8 +807,12 @@ async function handleTopbarAction(action) {
 
   if (action === 'save-log') {
     const payload = formToPayload();
-    if (payload.IDOperator == null || payload.IDMachine == null) {
-      alert('Seleziona operatore e macchina.');
+    if (payload.IDOperator == null) {
+      alert('Effettua il login come operatore.');
+      return;
+    }
+    if (payload.IDMachine == null) {
+      alert('Seleziona una macchina.');
       return;
     }
     try {
@@ -681,14 +820,16 @@ async function handleTopbarAction(action) {
         const res = await fetch(`${API_URL}/logs/${state.selectedLog.uniqueRecordId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          credentials: 'include'
         });
         if (!res.ok) throw new Error(await res.text());
       } else {
         const res = await fetch(`${API_URL}/logs`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          credentials: 'include'
         });
         if (!res.ok) throw new Error(await res.text());
       }
@@ -710,8 +851,7 @@ async function handleTopbarAction(action) {
         resetForm();
 
         // 3. Ripristiniamo Operatore e Macchina
-        if (savedOperator && operatorSelect) {
-          operatorSelect.value = savedOperator.id;
+        if (savedOperator) {
           state.currentOperator = savedOperator;
           state.formDraft.IDOperator = savedOperator.id;
         }
@@ -741,10 +881,10 @@ async function handleTopbarAction(action) {
     if (!confirm('Eliminare questo log?')) return;
     const operatorId = state.currentOperator?.id;
     const url = operatorId != null
-      ? `${API_URL}/logs/${state.selectedLog.uniqueRecordId}?operatorId=${operatorId}`
+      ? `${API_URL}/logs/${state.selectedLog.uniqueRecordId}`
       : `${API_URL}/logs/${state.selectedLog.uniqueRecordId}`;
     try {
-      const res = await fetch(url, { method: 'DELETE' });
+      const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) throw new Error(await res.text());
       state.logs = await fetchData('/logs');
       renderLogList(state.logs);
@@ -783,7 +923,6 @@ async function handleTopbarAction(action) {
     }
 
     const payload = {
-      modifyingOperatorId: state.currentOperator.id,
       rawCode: rawCodeEl.value,
       lot: lotEl.value,
       quantity: quantityEl.value ? parseFloat(quantityEl.value) : 0,
@@ -794,7 +933,8 @@ async function handleTopbarAction(action) {
       const res = await fetch(`${API_URL}/logs/${state.selectedLog.uniqueRecordId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        credentials: 'include'
       });
       if (!res.ok) throw new Error(await res.text());
       state.logs = await fetchData('/logs');
@@ -849,7 +989,6 @@ async function handleTopbarAction(action) {
   if (action === 'refresh-operator-list') {
     try {
       state.operators = await fetchData('/operators');
-      populateOperatorSelect();
       renderOperatorList(state.operators);
     } catch (err) {
       alert('Errore aggiornamento operatori: ' + (err.message || err));
@@ -873,11 +1012,11 @@ async function handleTopbarAction(action) {
       const res = await fetch(`${API_URL}/operators`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), barcode: barcode.trim(), isAdmin })
+        body: JSON.stringify({ name: name.trim(), barcode: barcode.trim(), isAdmin }),
+        credentials: 'include'
       });
       if (!res.ok) throw new Error(await res.text());
       state.operators = await fetchData('/operators');
-      populateOperatorSelect();
       renderOperatorList(state.operators);
       alert('Operatore aggiunto.');
     } catch (err) {
@@ -891,7 +1030,6 @@ async function handleTopbarAction(action) {
     try {
       state.machines = await fetchData('/machines');
       renderSimpleList(machineListEl, state.machines, pickMachineFromList);
-      populateMachineSelect();
     } catch (err) {
       alert('Errore aggiornamento macchine: ' + (err.message || err));
     }
@@ -913,12 +1051,12 @@ async function handleTopbarAction(action) {
       const res = await fetch(`${API_URL}/machines`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), barcode: barcode.trim() })
+        body: JSON.stringify({ name: name.trim(), barcode: barcode.trim() }),
+        credentials: 'include'
       });
       if (!res.ok) throw new Error(await res.text());
       state.machines = await fetchData('/machines');
       renderSimpleList(machineListEl, state.machines, pickMachineFromList);
-      populateMachineSelect();
       alert('Macchina aggiunta.');
     } catch (err) {
       console.error(err);
@@ -928,9 +1066,7 @@ async function handleTopbarAction(action) {
 }
 
 function pickOperatorFromList(operator) {
-  state.formDraft.IDOperator = operator.id != null ? Number(operator.id) : operator.id;
-  state.currentOperator = operator;
-  applyPermissions();
+  // Manteniamo per compatibilità futura; al momento il login è gestito via JWT.
 }
 
 function pickMachineFromList(machine) {
@@ -1021,30 +1157,6 @@ function loginByBarcode(barcode, type = 'operator') {
   const code = String(barcode || '').trim();
   if (!code) return;
 
-  if (type === 'operator') {
-    const user = state.operators.find((o) => String(o.barcode || '').trim() === code);
-    if (!user) {
-      alert('Operatore non trovato per il barcode fornito.');
-      return;
-    }
-    if (!operatorSelect) return;
-
-    let option = Array.from(operatorSelect.options).find((opt) => opt.value === String(user.id));
-    if (!option) {
-      option = document.createElement('option');
-      option.value = user.id != null ? String(user.id) : '';
-      option.textContent = `${user.id} - ${user.name}`;
-      operatorSelect.appendChild(option);
-    }
-
-    operatorSelect.value = user.id != null ? String(user.id) : '';
-    state.formDraft.IDOperator = user.id != null ? Number(user.id) : user.id;
-    state.currentOperator = user;
-    applyPermissions();
-    renderLogList(state.logs);
-    return;
-  }
-
   if (type === 'machine') {
     const machine = state.machines.find((m) => String(m.barcode || '').trim() === code);
     if (!machine) {
@@ -1119,6 +1231,18 @@ function openBarcodeScanner(targetFieldId) {
     if (targetFieldId === 'machine') {
       loginByBarcode(decodedText, 'machine');
       closeBarcodeScanner();
+      return;
+    }
+
+    if (targetFieldId === 'loginBarcode') {
+      const field = document.getElementById('loginBarcode');
+      if (field) {
+        field.value = decodedText;
+      }
+      closeBarcodeScanner();
+      if (typeof performLogin === 'function') {
+        void performLogin();
+      }
       return;
     }
 
@@ -1203,8 +1327,7 @@ document.addEventListener('click', (event) => {
   if (!action) return;
 
   if (action === 'manual-operator-barcode') {
-    const code = window.prompt("Inserisci o scansiona il codice a barre dell'operatore:");
-    if (code) loginByBarcode(code, 'operator');
+    // Gestito ora tramite modale di login.
     return;
   }
   if (action === 'manual-machine-barcode') {
@@ -1222,6 +1345,54 @@ document.addEventListener('click', (event) => {
     void handleTopbarAction(action);
   }
 });
+
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', async () => {
+    try {
+      await fetch(`${API_URL}/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch (err) {
+      console.error(err);
+    }
+    handleAuthError();
+  });
+}
+
+if (loginModal && loginModal.addEventListener) {
+  loginModal.addEventListener('click', (e) => {
+    if (e.target.id === 'loginModal') {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+}
+
+const loginSubmitBtn = document.getElementById('loginSubmitBtn');
+if (loginSubmitBtn) {
+  loginSubmitBtn.addEventListener('click', () => {
+    void performLogin();
+  });
+}
+
+if (loginBarcodeInput) {
+  loginBarcodeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void performLogin();
+    }
+  });
+}
+
+if (loginPasswordInput) {
+  loginPasswordInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void performLogin();
+    }
+  });
+}
 
 document.getElementById('logDatePickerBtn').addEventListener('click', () => {
   document.getElementById('logDate').showPicker?.();
@@ -1321,7 +1492,8 @@ async function impostaStatoBobina(isFinita) {
     const res = await fetch(`${API_URL}/logs/${pendingBobinaLogId}/bobina-finita`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bobina_finita: isFinita })
+      body: JSON.stringify({ bobina_finita: isFinita }),
+      credentials: 'include'
     });
     if (!res.ok) throw new Error(await res.text());
 
