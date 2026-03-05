@@ -1384,8 +1384,11 @@ if (logoutBtn) {
 if (loginModal && loginModal.addEventListener) {
   loginModal.addEventListener('click', (e) => {
     if (e.target.id === 'loginModal') {
-      e.preventDefault();
-      e.stopPropagation();
+      closeLoginModal();
+      // Forza il render della UI di base anche se non loggato, per mostrare i pulsanti superiori
+      if (!state.logs || state.logs.length === 0) {
+        setScreen('log-edit');
+      }
     }
   });
 }
