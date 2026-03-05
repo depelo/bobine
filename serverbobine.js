@@ -417,7 +417,17 @@ app.patch('/api/logs/:id/bobina-finita', authenticateToken, async (req, res) => 
     }
 });
 
-const PORT = 3000;
-app.listen(PORT, () => {
-    console.log(`Server API in ascolto sulla porta ${PORT}`);
+const https = require('https');
+const fs = require('fs');
+
+// Percorsi assoluti dei certificati SSL generati in locale
+const sslOptions = {
+    key: fs.readFileSync('C:\\Acme\\certificati_ssl\\rotoli.ujet.it-key.pem'),
+    cert: fs.readFileSync('C:\\Acme\\certificati_ssl\\rotoli.ujet.it-chain.pem')
+};
+
+// Avvio del server in HTTPS sulla porta standard 443
+const PORT = 443;
+https.createServer(sslOptions, app).listen(PORT, '0.0.0.0', () => {
+    console.log(`Server API in ascolto in HTTPS sulla porta ${PORT} all'indirizzo https://rotoli.ujet.it`);
 });
