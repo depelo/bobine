@@ -63,9 +63,12 @@
 
             <label for="currentOperatorDisplay">Operatore loggato</label>
             <div class="control with-icon-btn">
-              <input id="currentOperatorDisplay" type="text" readonly placeholder="Nessun operatore loggato" />
-              <button type="button" class="icon-btn" id="logoutBtn" title="Cambia utente / Logout">
-                <svg class="icon-logout" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 1.35rem; height: 1.35rem;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              <input id="currentOperatorDisplay" type="text" readonly placeholder="Nessun operatore loggato" style="background-color: #e9ecef; cursor: not-allowed; font-weight: bold; color: var(--text-muted);" />
+              <button type="button" class="icon-btn" id="logoutBtn" title="Cambia utente / Logout" style="background-color: #fee2e2; border-color: var(--danger); color: var(--danger);">
+                <svg class="icon-logout" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 1.45rem; height: 1.45rem;">
+                  <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                  <line x1="12" y1="2" x2="12" y2="12"></line>
+                </svg>
               </button>
             </div>
 
