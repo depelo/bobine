@@ -923,6 +923,7 @@ function resetForm() {
   if (machineSelect) machineSelect.value = '';
   updateDynamicRollId();
   applyPermissions();
+  updateCurrentOperatorUI();
 }
 
 async function handleTopbarAction(action) {

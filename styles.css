@@ -236,8 +236,8 @@ body {
 
 /* --- Topbar --- */
 .topbar {
-  height: 48px;
-  min-height: 48px;
+  height: 64px;
+  min-height: 64px;
   background: var(--primary);
   color: #fff;
   display: grid;
@@ -295,10 +295,10 @@ body {
 }
 
 .topbar .action-btn {
-  min-width: 38px;
-  min-height: 38px;
-  font-size: 1.25rem;
-  padding: 0 6px;
+  min-width: 50px;
+  min-height: 50px;
+  font-size: 1.6rem;
+  padding: 0 8px;
 }
 
 .action-btn:hover {
@@ -977,13 +977,10 @@ input.date-input {
 }
 
 button[data-action="save-log"] {
-  background-color: var(--success) !important;
-  border-color: #146c2e !important;
-  color: #fff !important;
-  font-size: 1.6rem !important;
-  min-width: 44px !important;
-  min-height: 44px !important;
+  background-color: #e6f4ea !important;
+  border: 2px solid #28a745 !important;
+  color: #146c2e !important;
 }
 button[data-action="save-log"]:active {
-  background-color: #146c2e !important;
+  background-color: #c3e6cb !important;
 }
