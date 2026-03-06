@@ -52,16 +52,16 @@
         </header>
 
         <section class="screen is-visible" id="screen-log-edit" data-screen="log-edit">
-          <form class="form-grid" id="logForm">
+        <form class="form-grid" id="logForm">
             
-            <div class="control with-icon-btn">
-              <input id="currentOperatorDisplay" type="text" readonly placeholder="Nessun operatore loggato" style="background-color: #e9ecef; cursor: not-allowed; font-weight: bold; color: var(--text-muted);" />
-              <button type="button" class="icon-btn" id="logoutBtn" title="Cambia utente / Logout" style="background-color: #fee2e2; border-color: var(--danger); color: var(--danger);">
+            <div class="control" style="display: flex; gap: 0;">
+              <button type="button" class="icon-btn" id="logoutBtn" title="Cambia utente / Logout" style="background-color: #fee2e2; border-color: var(--danger); color: var(--danger); border-radius: var(--radius) 0 0 var(--radius); border-right: none;">
                 <svg class="icon-logout" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 1.45rem; height: 1.45rem;">
                   <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
                   <line x1="12" y1="2" x2="12" y2="12"></line>
                 </svg>
               </button>
+              <input id="currentOperatorDisplay" type="text" readonly placeholder="Nessun operatore loggato" style="background-color: #e9ecef; cursor: not-allowed; font-weight: bold; color: var(--text-muted); border-radius: 0 var(--radius) var(--radius) 0; flex: 1; min-width: 0; padding: var(--input-padding); font-family: inherit; font-size: var(--font-size-base); border: var(--border-width) solid var(--border);" />
             </div>
 
             <label for="machineSelect">Macchina</label>
@@ -183,6 +183,32 @@
       <div class="scanner-modal-inner" style="text-align: center;">
         <h2 class="scanner-title" style="color: var(--success); font-size: 1.6rem; margin-bottom: 24px;">Modifica salvata completata.</h2>
         <button type="button" class="scanner-cancel" id="editSuccessBtnClose" style="background-color: var(--primary); color: white; border: none;">OK</button>
+      </div>
+    </div>
+
+    <div class="scanner-modal" id="dynamicPromptModal" aria-hidden="true">
+      <div class="scanner-modal-inner">
+        <p class="scanner-title" id="dpTitle">Inserisci Valore</p>
+        <div class="login-field">
+          <div class="control with-icon-btn" id="dpControl" style="display: flex; gap: 0;">
+            <input id="dpInput" type="text" autocomplete="off" style="flex: 1; min-width: 0; border-radius: var(--radius) 0 0 var(--radius);" />
+            <button type="button" class="icon-btn" id="dpScanBtn" title="Scansiona con fotocamera">
+              <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="login-actions" style="gap: 12px; display: flex; margin-top: 16px;">
+          <button type="button" class="scanner-cancel" id="dpCancelBtn" style="flex: 1; background-color: var(--border);">Annulla</button>
+          <button type="button" class="scanner-cancel" id="dpConfirmBtn" style="flex: 1; background-color: var(--primary); color: white; border-color: var(--primary-dark);">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="scanner-modal" id="machinePromptModal" aria-hidden="true">
+      <div class="scanner-modal-inner">
+        <p class="scanner-title">Seleziona Macchina</p>
+        <ul class="list" id="mpMachineList" style="max-height: 40vh; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: var(--radius);"></ul>
+        <button type="button" class="scanner-cancel" id="mpCancelBtn">Annulla</button>
       </div>
     </div>
 

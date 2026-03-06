@@ -66,6 +66,137 @@ const state = {
   detailEditInitial: null
 };
 
+function askDynamicPrompt(title, type, showScanner) {
+  return new Promise((resolve, reject) => {
+    const modal = document.getElementById('dynamicPromptModal');
+    if (!modal) {
+      reject('modal-missing');
+      return;
+    }
+    const titleEl = document.getElementById('dpTitle');
+    const input = document.getElementById('dpInput');
+    const scanBtn = document.getElementById('dpScanBtn');
+    if (titleEl) titleEl.textContent = title;
+    if (!input || !scanBtn) {
+      reject('input-missing');
+      return;
+    }
+
+    input.type = type;
+    input.value = '';
+    scanBtn.style.display = showScanner ? '' : 'none';
+    input.style.borderRadius = showScanner ? 'var(--radius) 0 0 var(--radius)' : 'var(--radius)';
+
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+
+    const confirmBtn = document.getElementById('dpConfirmBtn');
+    const cancelBtn = document.getElementById('dpCancelBtn');
+    if (!confirmBtn || !cancelBtn) {
+      reject('buttons-missing');
+      return;
+    }
+
+    const newConfirm = confirmBtn.cloneNode(true);
+    const newCancel = cancelBtn.cloneNode(true);
+    confirmBtn.replaceWith(newConfirm);
+    cancelBtn.replaceWith(newCancel);
+
+    newConfirm.addEventListener('click', () => {
+      const val = input.value;
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      if (val) {
+        resolve(val);
+      } else {
+        reject('empty');
+      }
+    });
+
+    newCancel.addEventListener('click', () => {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      reject('cancelled');
+    });
+
+    const scanButton = document.getElementById('dpScanBtn');
+    if (scanButton) {
+      scanButton.onclick = () => {
+        openBarcodeScanner('dynamicPrompt');
+      };
+    }
+
+    setTimeout(() => {
+      input.focus();
+    }, 0);
+  });
+}
+
+function askMachinePrompt() {
+  return new Promise((resolve, reject) => {
+    const modal = document.getElementById('machinePromptModal');
+    const listEl = document.getElementById('mpMachineList');
+    const cancelBtn = document.getElementById('mpCancelBtn');
+    if (!modal || !listEl || !cancelBtn) {
+      reject('modal-missing');
+      return;
+    }
+
+    listEl.innerHTML = '';
+    state.machines.forEach((m) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span>${m.name}</span>`;
+      li.onclick = () => {
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+        resolve(m.id);
+      };
+      listEl.appendChild(li);
+    });
+
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+
+    cancelBtn.onclick = () => {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      reject('cancelled');
+    };
+  });
+}
+
+function askBobinaFinitaAsync() {
+  return new Promise((resolve, reject) => {
+    const modal = document.getElementById('bobinaModal');
+    const yesBtn = document.getElementById('bobinaBtnYes');
+    const noBtn = document.getElementById('bobinaBtnNo');
+    const cancelBtn = document.getElementById('bobinaBtnCancel');
+    if (!modal || !yesBtn || !noBtn || !cancelBtn) {
+      reject('modal-missing');
+      return;
+    }
+
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+
+    yesBtn.onclick = () => {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      resolve(true);
+    };
+    noBtn.onclick = () => {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      resolve(false);
+    };
+    cancelBtn.onclick = () => {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      reject('cancelled');
+    };
+  });
+}
+
 async function fetchData(endpoint) {
   const res = await fetch(`${API_URL}${endpoint}`, {
     credentials: 'include'
@@ -792,7 +923,6 @@ function resetForm() {
   if (machineSelect) machineSelect.value = '';
   updateDynamicRollId();
   applyPermissions();
-  bypassBobinaPrompt = false;
 }
 
 async function handleTopbarAction(action) {
@@ -812,15 +942,72 @@ async function handleTopbarAction(action) {
   }
 
   if (action === 'save-log') {
+    // Step 1: Operator check
+    if (!state.currentOperator) {
+      openLoginModal();
+      return;
+    }
+
+    // Step 2: Machine check
+    if (!machineSelect || !machineSelect.value) {
+      try {
+        const machId = await askMachinePrompt();
+        if (machineSelect) machineSelect.value = machId;
+        state.formDraft.IDMachine = parseInt(machId, 10);
+      } catch (e) {
+        return;
+      }
+    }
+
+    // Step 3: Data fields check
+    if (!form.rawCode.value.trim()) {
+      try {
+        form.rawCode.value = await askDynamicPrompt('Inserisci Codice Materia', 'text', true);
+        updateDynamicRollId();
+      } catch (e) {
+        return;
+      }
+    }
+
+    if (!form.lot.value.trim()) {
+      try {
+        form.lot.value = await askDynamicPrompt('Inserisci Lotto', 'text', true);
+        updateDynamicRollId();
+      } catch (e) {
+        return;
+      }
+    }
+
+    if (!form.quantity.value.trim()) {
+      try {
+        form.quantity.value = await askDynamicPrompt('Inserisci Quantità', 'number', false);
+      } catch (e) {
+        return;
+      }
+    }
+
+    // Step 4: Bobina finita check on last log
+    if (!state.selectedLog && state.logs && state.logs.length > 0) {
+      const lastLog = state.logs[0];
+      if (lastLog.bobina_finita === null) {
+        try {
+          const isFinita = await askBobinaFinitaAsync();
+          const res = await fetch(`${API_URL}/logs/${lastLog.uniqueRecordId}/bobina-finita`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bobina_finita: isFinita }),
+            credentials: 'include'
+          });
+          if (!res.ok) throw new Error(await res.text());
+          lastLog.bobina_finita = isFinita;
+        } catch (e) {
+          return;
+        }
+      }
+    }
+
+    // Step 5: Final save execution
     const payload = formToPayload();
-    if (payload.IDOperator == null) {
-      alert('Effettua il login come operatore.');
-      return;
-    }
-    if (payload.IDMachine == null) {
-      alert('Seleziona una macchina.');
-      return;
-    }
     try {
       if (state.selectedLog) {
         const res = await fetch(`${API_URL}/logs/${state.selectedLog.uniqueRecordId}`, {
@@ -830,6 +1017,11 @@ async function handleTopbarAction(action) {
           credentials: 'include'
         });
         if (!res.ok) throw new Error(await res.text());
+        state.logs = await fetchData('/logs');
+        renderLogList(state.logs);
+        resetForm();
+        setScreen('log-list');
+        document.getElementById('editSuccessModal').classList.add('is-open');
       } else {
         const res = await fetch(`${API_URL}/logs`, {
           method: 'POST',
@@ -838,25 +1030,14 @@ async function handleTopbarAction(action) {
           credentials: 'include'
         });
         if (!res.ok) throw new Error(await res.text());
-      }
-      state.logs = await fetchData('/logs');
-      renderLogList(state.logs);
+        state.logs = await fetchData('/logs');
+        renderLogList(state.logs);
 
-      if (state.selectedLog) {
-        // --- ERA UNA MODIFICA ---
-        resetForm();
-        setScreen('log-list');
-        document.getElementById('editSuccessModal').classList.add('is-open');
-      } else {
-        // --- È UN NUOVO INSERIMENTO ---
-        // 1. Salviamo le selezioni attuali
         const savedOperator = state.currentOperator;
         const savedMachineVal = machineSelect ? machineSelect.value : '';
 
-        // 2. Resettiamo il form (pulisce date, quantità, lotti, etc.)
         resetForm();
 
-        // 3. Ripristiniamo Operatore e Macchina
         if (savedOperator) {
           state.currentOperator = savedOperator;
           state.formDraft.IDOperator = savedOperator.id;
@@ -866,8 +1047,6 @@ async function handleTopbarAction(action) {
           state.formDraft.IDMachine = parseInt(savedMachineVal, 10);
         }
         applyPermissions();
-
-        // 4. Mostriamo il modale e NON cambiamo schermata
         showSuccessModal();
       }
     } catch (err) {
@@ -1081,14 +1260,13 @@ function pickMachineFromList(machine) {
   if (state.returnFromLookupTo === 'log-edit') setScreen('log-edit');
 }
 
-navButtons.forEach((btn) => {
+  navButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
     state.returnFromLookupTo = null;
     
     // Se torniamo alla schermata del registro principale (Home)
     if (btn.dataset.screenTarget === 'log-edit') {
       state.selectedLog = null;
-      bypassBobinaPrompt = false;
       
       // Salviamo la macchina selezionata prima di resettare la maschera
       const savedMachineVal = machineSelect ? machineSelect.value : '';
@@ -1250,6 +1428,13 @@ function openBarcodeScanner(targetFieldId) {
     }
     if (targetFieldId === 'machine') {
       loginByBarcode(decodedText, 'machine');
+      closeBarcodeScanner();
+      return;
+    }
+
+    if (targetFieldId === 'dynamicPrompt') {
+      const dpInput = document.getElementById('dpInput');
+      if (dpInput) dpInput.value = decodedText;
       closeBarcodeScanner();
       return;
     }
@@ -1445,79 +1630,6 @@ if (machineSelect) {
     state.formDraft.IDMachine = id;
   });
 }
-
-let pendingBobinaLogId = null;
-let bypassBobinaPrompt = false;
-
-const quantityInput = document.getElementById('quantity');
-if (quantityInput) {
-  quantityInput.addEventListener('focus', (e) => {
-    if (!state.selectedLog && state.logs && state.logs.length > 0) {
-      const lastLog = state.logs[0];
-      if (lastLog.bobina_finita === null && !bypassBobinaPrompt) {
-        // Blocca subito il trigger per evitare rientri
-        bypassBobinaPrompt = true;
-        pendingBobinaLogId = lastLog.uniqueRecordId;
-
-        const modal = document.getElementById('bobinaModal');
-        modal.classList.add('is-open');
-        modal.setAttribute('aria-hidden', 'false');
-
-        // Togli il focus per chiudere la tastiera virtuale sui device mobile
-        e.target.blur();
-      }
-    }
-  });
-
-  quantityInput.addEventListener('blur', () => {
-    const modal = document.getElementById('bobinaModal');
-    // Il timeout previene conflitti se l'evento blur scatta mentre il modale si sta aprendo
-    setTimeout(() => {
-      if (!modal.classList.contains('is-open')) {
-        bypassBobinaPrompt = false;
-      }
-    }, 50);
-  });
-}
-
-function chiudiBobinaModal() {
-  const modal = document.getElementById('bobinaModal');
-  modal.classList.remove('is-open');
-  modal.setAttribute('aria-hidden', 'true');
-  pendingBobinaLogId = null;
-  bypassBobinaPrompt = true;
-
-  setTimeout(() => {
-    const qty = document.getElementById('quantity');
-    if (qty) qty.focus();
-  }, 100);
-}
-
-async function impostaStatoBobina(isFinita) {
-  if (!pendingBobinaLogId) return chiudiBobinaModal();
-  try {
-    const res = await fetch(`${API_URL}/logs/${pendingBobinaLogId}/bobina-finita`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bobina_finita: isFinita }),
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error(await res.text());
-
-    const lastLog = state.logs.find(l => l.uniqueRecordId === pendingBobinaLogId);
-    if (lastLog) {
-      lastLog.bobina_finita = isFinita;
-    }
-    chiudiBobinaModal();
-  } catch (err) {
-    alert('Errore durante l\'aggiornamento della bobina: ' + (err.message || err));
-    chiudiBobinaModal();
-  }
-}
-
-document.getElementById('bobinaBtnYes').addEventListener('click', () => impostaStatoBobina(true));
-document.getElementById('bobinaBtnNo').addEventListener('click', () => impostaStatoBobina(false));
-document.getElementById('bobinaBtnCancel').addEventListener('click', chiudiBobinaModal);
 
 function showSuccessModal() {
   const modal = document.getElementById('successModal');

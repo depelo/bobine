@@ -975,3 +975,15 @@ input.date-input {
 #scannerModal {
   z-index: 9999 !important;
 }
+
+button[data-action="save-log"] {
+  background-color: var(--success) !important;
+  border-color: #146c2e !important;
+  color: #fff !important;
+  font-size: 1.6rem !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+}
+button[data-action="save-log"]:active {
+  background-color: #146c2e !important;
+}
