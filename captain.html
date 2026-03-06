@@ -48,18 +48,6 @@
           <p style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">Gestisci le App attive e i ruoli interni disponibili per l'assegnazione.</p>
         </div>
         <div id="modulesContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
-          <div style="border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; background: var(--bg);">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 12px;">
-              <h4 style="margin: 0; color: var(--primary);">📦 Reparto Bobine</h4>
-              <span style="font-size: 0.8rem; background: var(--success); color: white; padding: 2px 8px; border-radius: 12px;">Attiva</span>
-            </div>
-            <p style="font-size: 0.85rem; font-weight: bold; margin: 0 0 8px 0;">Ruoli interni configurati:</p>
-            <ul style="margin: 0; padding-left: 20px; font-size: 0.85rem; color: var(--text-muted);">
-              <li>Caporeparto (Richiede Password)</li>
-              <li>Operatore Base (Solo Barcode)</li>
-            </ul>
-            <button class="action-btn" style="width: 100%; margin-top: 16px; font-size: 0.9rem; padding: 8px;">Modifica App</button>
-          </div>
         </div>
       </div>
 
@@ -196,6 +184,41 @@
     </div>
   </div>
 
+  <div class="scanner-modal" id="editModuleModal" aria-hidden="true">
+    <div class="scanner-modal-inner" style="width: 700px; max-width: 95%;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px;">
+        <div>
+          <h2 style="margin: 0; font-size: 1.3rem;" id="emModalTitle">Modifica App</h2>
+          <span style="font-size: 0.9rem; color: var(--text-muted);" id="emModalTarget"></span>
+        </div>
+        <button class="scanner-cancel" id="emCloseBtn" style="width: auto; padding: 6px 12px;">Chiudi</button>
+      </div>
+
+      <input type="hidden" id="emModuleId">
+
+      <p style="font-weight: bold; margin-bottom: 12px;">Configurazione Ruoli Interni</p>
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--border);">
+              <th style="padding: 8px;">ID Ruolo (Fisso)</th>
+              <th style="padding: 8px;">Nome Visibile</th>
+              <th style="padding: 8px; text-align: center;">Richiede Pwd</th>
+              <th style="padding: 8px; width: 100px;">Sessione (Ore)</th>
+              <th style="padding: 8px; width: 100px;">Scadenza Pwd (Giorni)</th>
+            </tr>
+          </thead>
+          <tbody id="emRolesTableBody">
+          </tbody>
+        </table>
+      </div>
+
+      <div class="login-actions" style="margin-top: 24px;">
+        <button type="button" class="scanner-cancel" id="emSaveBtn" style="width: 100%; background: var(--success); color: white; border: none;">Salva Configurazione App</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_URL = '/api';
     let globalUsers = [];
@@ -241,8 +264,9 @@
         ]);
         globalUsers = users;
         globalModules = modules;
-        
+
         renderUsersTable();
+        renderModulesCards();
       } catch (err) {
         console.error('Errore nel caricamento dei dati Admin:', err);
       }
@@ -294,6 +318,38 @@
 
       html += `</tbody></table></div>`;
       container.innerHTML = html;
+    }
+
+    function renderModulesCards() {
+      const container = document.getElementById('modulesContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      globalModules.forEach(mod => {
+        const roles = mod.roleDefinition || {};
+        const roleKeys = Object.keys(roles);
+
+        let rolesHtml = '';
+        roleKeys.forEach(key => {
+          const r = roles[key];
+          const pwdBadge = r.requiresPassword ? '<span style="color:var(--danger); font-size:0.75rem;">(Pwd)</span>' : '<span style="color:var(--success); font-size:0.75rem;">(Fast)</span>';
+          rolesHtml += `<li>${(r.label || key)} ${pwdBadge}</li>`;
+        });
+
+        const card = document.createElement('div');
+        card.style.cssText = 'border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; background: var(--bg); display: flex; flex-direction: column;';
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 12px;">
+                <h4 style="margin: 0; color: var(--primary);">📦 ${mod.name}</h4>
+            </div>
+            <p style="font-size: 0.85rem; font-weight: bold; margin: 0 0 8px 0;">Ruoli interni configurati:</p>
+            <ul style="margin: 0; padding-left: 20px; font-size: 0.85rem; color: var(--text-muted); flex: 1;">
+                ${rolesHtml || '<li>Nessun ruolo definito</li>'}
+            </ul>
+            <button class="action-btn" onclick="openEditModuleModal(${mod.id})" style="width: 100%; margin-top: 16px; font-size: 0.9rem; padding: 8px;">Modifica App</button>
+        `;
+        container.appendChild(card);
+      });
     }
 
     // Pannello Gestione Utente (Passaporto / Sessioni / Accessi)
@@ -480,6 +536,93 @@
         document.getElementById('userManagePanel').setAttribute('aria-hidden', 'true');
       } catch (err) {
         alert('Errore salvataggio: ' + err.message);
+      }
+    });
+
+    // Modale Modifica App (RoleDefinition)
+    function openEditModuleModal(id) {
+      const mod = globalModules.find(m => m.id === id);
+      if (!mod) return;
+
+      document.getElementById('emModuleId').value = mod.id;
+      document.getElementById('emModalTitle').innerText = 'Modifica App: ' + mod.name;
+      document.getElementById('emModalTarget').innerText = 'Tabella Target: ' + mod.targetTable;
+
+      const tbody = document.getElementById('emRolesTableBody');
+      tbody.innerHTML = '';
+
+      const roles = mod.roleDefinition || {};
+      for (const [key, config] of Object.entries(roles)) {
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid var(--bg)';
+        const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const labelVal = esc(config.label || '');
+        tr.innerHTML = `
+            <td style="padding: 8px; font-family: monospace; color: var(--text-muted);">${esc(key)}</td>
+            <td style="padding: 8px;"><input type="text" class="control role-label" data-key="${esc(key)}" value="${labelVal}" style="padding: 4px;"></td>
+            <td style="padding: 8px; text-align: center;"><input type="checkbox" class="role-reqpwd" data-key="${esc(key)}" ${config.requiresPassword ? 'checked' : ''} style="width:18px; height:18px;"></td>
+            <td style="padding: 8px;"><input type="number" class="control role-ses" data-key="${esc(key)}" value="${config.sessionHours ?? ''}" min="1" placeholder="Global" style="padding: 4px;"></td>
+            <td style="padding: 8px;"><input type="number" class="control role-pwd" data-key="${esc(key)}" value="${config.pwdExpiryDays ?? ''}" min="1" placeholder="Global" style="padding: 4px;"></td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      const modal = document.getElementById('editModuleModal');
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    document.getElementById('emCloseBtn').addEventListener('click', () => {
+      document.getElementById('editModuleModal').classList.remove('is-open');
+      document.getElementById('editModuleModal').setAttribute('aria-hidden', 'true');
+    });
+
+    document.getElementById('emSaveBtn').addEventListener('click', async () => {
+      const id = document.getElementById('emModuleId').value;
+      const mod = globalModules.find(m => m.id == id);
+      if (!mod) return;
+
+      const newRoleDef = {};
+      const tbody = document.getElementById('emRolesTableBody');
+      const rows = tbody.querySelectorAll('tr');
+
+      rows.forEach(row => {
+        const labelInput = row.querySelector('.role-label');
+        if (!labelInput) return;
+        const key = labelInput.dataset.key;
+        const label = labelInput.value.trim();
+        const reqPwd = row.querySelector('.role-reqpwd').checked;
+        const ses = row.querySelector('.role-ses').value;
+        const pwd = row.querySelector('.role-pwd').value;
+
+        newRoleDef[key] = {
+          label: label,
+          requiresPassword: reqPwd,
+          sessionHours: ses !== '' ? parseInt(ses, 10) : null,
+          pwdExpiryDays: pwd !== '' ? parseInt(pwd, 10) : null
+        };
+      });
+
+      try {
+        const res = await fetch(`${API_URL}/admin/modules/${id}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roleDefinition: newRoleDef })
+        });
+        if (res.status === 401 || res.status === 403) {
+          alert('Sessione scaduta o privilegi insufficienti.');
+          window.location.href = 'index.html';
+          return;
+        }
+        if (!res.ok) throw new Error(await res.text());
+
+        document.getElementById('editModuleModal').classList.remove('is-open');
+        document.getElementById('editModuleModal').setAttribute('aria-hidden', 'true');
+        await loadData();
+        alert('Configurazione App salvata con successo.');
+      } catch (err) {
+        alert('Errore salvataggio modulo: ' + err.message);
       }
     });
 

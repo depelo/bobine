@@ -309,6 +309,25 @@ app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
     }
 });
 
+// 3b. Aggiorna RoleDefinition del modulo
+app.put('/api/admin/modules/:id', authenticateCaptain, async (req, res) => {
+    const idModule = parseInt(req.params.id, 10);
+    const { roleDefinition } = req.body;
+
+    try {
+        let pool = await sql.connect(dbConfig);
+        await pool.request()
+            .input('idModule', sql.Int, idModule)
+            .input('roleDef', sql.NVarChar, JSON.stringify(roleDefinition))
+            .query(`UPDATE [CMP].[dbo].[Modules] SET RoleDefinition = @roleDef WHERE IDModule = @idModule`);
+
+        res.status(200).json({ message: 'Regole dell\'app aggiornate con successo.' });
+    } catch (err) {
+        console.error('Errore PUT /api/admin/modules/:id:', err);
+        res.status(500).send(err.message);
+    }
+});
+
 // 4. Creazione utente con transazione (Passaporto + Visti)
 app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
     const { name, barcode, password, roles } = req.body;
