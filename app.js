@@ -1444,18 +1444,6 @@ document.getElementById('machineListSearch').addEventListener('input', () => {
   });
 });
 
-if (operatorSelect) {
-  operatorSelect.addEventListener('change', () => {
-    const val = operatorSelect.value;
-    const id = val ? parseInt(val, 10) : null;
-    const op = id != null ? state.operators.find((o) => Number(o.id) === id) : null;
-    state.formDraft.IDOperator = id;
-    state.currentOperator = op ?? null;
-    applyPermissions();
-    renderLogList(state.logs);
-  });
-}
-
 if (machineSelect) {
   machineSelect.addEventListener('change', () => {
     const val = machineSelect.value;
