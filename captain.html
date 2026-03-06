@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Captain Console - UJet</title>
   <link rel="stylesheet" href="captain.css" />
+  <style>
+    .ump-tab.active {
+      background: var(--bg-content);
+      border-left: 4px solid var(--primary);
+    }
+  </style>
 </head>
 <body class="captain-body">
 
@@ -63,6 +69,69 @@
       <div class="login-actions" style="margin-top: 24px; gap: 12px; display: flex;">
         <button type="button" class="scanner-cancel" id="adminUserCancelBtn" style="flex:1;">Annulla</button>
         <button type="button" class="scanner-cancel" id="adminUserSaveBtn" style="flex:1; background: var(--success); color: white; border: none;">Salva</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="scanner-modal" id="userManagePanel" aria-hidden="true">
+    <div class="scanner-modal-inner" style="width: 800px; max-width: 95%; height: 80vh; display: flex; flex-direction: column; padding: 0;">
+      
+      <div style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--bg); border-radius: var(--radius) var(--radius) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h2 style="margin: 0; font-size: 1.4rem;" id="umpUserName">Nome Utente</h2>
+          <span style="font-family: monospace; color: var(--text-muted);" id="umpUserBarcode">Barcode</span>
+        </div>
+        <button class="scanner-cancel" id="umpCloseBtn" style="width: auto; padding: 8px 16px;">Chiudi</button>
+      </div>
+
+      <div style="display: flex; flex: 1; overflow: hidden;">
+        
+        <div style="width: 220px; background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column;">
+          <button class="ump-tab active" data-tab="ump-sec" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border); font-weight: bold;">🔐 1. Sicurezza (Passaporto)</button>
+          <button class="ump-tab" data-tab="ump-ses" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">📡 2. Sessioni (Radar)</button>
+          <button class="ump-tab" data-tab="ump-acc" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">🛂 3. Accessi (Visti)</button>
+        </div>
+
+        <div style="flex: 1; padding: 24px; overflow-y: auto; background: var(--bg-content);">
+          
+          <div id="ump-sec" class="ump-content-section">
+            <h3 style="margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Impostazioni Passaporto</h3>
+            
+            <input type="hidden" id="umpUserId">
+            
+            <div class="login-field"><label>Nome</label><input type="text" id="umpInputName" class="control"></div>
+            <div class="login-field"><label>Barcode</label><input type="text" id="umpInputBarcode" class="control"></div>
+            
+            <div style="margin-top: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius);">
+              <h4 style="margin-top:0; color: #856404;">Gestione Password</h4>
+              <div class="login-field">
+                <label>Nuova Password (lascia vuoto per non modificare)</label>
+                <input type="password" id="umpInputPwd" class="control" autocomplete="new-password">
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+                <input type="checkbox" id="umpForcePwdChange" style="width: 18px; height: 18px;">
+                <label for="umpForcePwdChange" style="margin: 0; font-weight: bold; cursor: pointer;">Forza reset password al prossimo login</label>
+              </div>
+              <div class="login-field" style="margin-top: 12px;">
+                <label>Scadenza Password (giorni, vuoto = default di sistema)</label>
+                <input type="number" id="umpPwdExpiry" class="control" min="0">
+              </div>
+            </div>
+
+            <button id="umpSaveSecBtn" style="margin-top: 24px; padding: 12px 24px; background: var(--primary); color: white; border: none; border-radius: var(--radius); font-weight: bold; cursor: pointer;">Salva Sicurezza</button>
+          </div>
+
+          <div id="ump-ses" class="ump-content-section" style="display: none;">
+            <h3>Controllo Sessioni Attive</h3>
+            <p>Funzionalità in arrivo...</p>
+          </div>
+
+          <div id="ump-acc" class="ump-content-section" style="display: none;">
+            <h3>Gestione Visti e App di Destinazione</h3>
+            <p>Funzionalità in arrivo...</p>
+          </div>
+
+        </div>
       </div>
     </div>
   </div>
@@ -156,7 +225,7 @@
               <td style="padding: 12px; font-family: monospace; font-size: 1rem;">${u.barcode}</td>
               <td style="padding: 12px;">${statusBadge}</td>
               <td style="padding: 12px; text-align: right;">
-                <button style="background: var(--bg); border: 1px solid var(--border); padding: 6px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; color: var(--primary-dark);">Gestisci Accessi</button>
+                <button onclick="openUserManager(${u.id})" class="action-btn">Gestisci</button>
               </td>
             </tr>
           `;
@@ -165,6 +234,28 @@
 
       html += `</tbody></table></div>`;
       container.innerHTML = html;
+    }
+
+    // Pannello Gestione Utente (Passaporto / Sessioni / Accessi)
+    function openUserManager(id) {
+      const u = globalUsers.find(x => x.id === id);
+      if (!u) return;
+      document.getElementById('umpUserName').textContent = u.name;
+      document.getElementById('umpUserBarcode').textContent = u.barcode;
+      document.getElementById('umpUserId').value = u.id;
+      document.getElementById('umpInputName').value = u.name || '';
+      document.getElementById('umpInputBarcode').value = u.barcode || '';
+      document.getElementById('umpInputPwd').value = '';
+      document.getElementById('umpForcePwdChange').checked = !!u.forcePwdChange;
+      document.getElementById('umpPwdExpiry').value = u.pwdExpiryDaysOverride != null ? u.pwdExpiryDaysOverride : '';
+      // Ripristina tab Sicurezza
+      document.querySelectorAll('.ump-tab').forEach(t => t.classList.remove('active'));
+      document.querySelector('.ump-tab[data-tab="ump-sec"]').classList.add('active');
+      document.querySelectorAll('.ump-content-section').forEach(s => { s.style.display = 'none'; });
+      document.getElementById('ump-sec').style.display = 'block';
+      const panel = document.getElementById('userManagePanel');
+      panel.classList.add('is-open');
+      panel.setAttribute('aria-hidden', 'false');
     }
 
     // Navigazione Sidebar
@@ -224,9 +315,9 @@
       modal.setAttribute('aria-hidden', 'false');
     }
 
-    // Delegazione: + Nuovo Utente (il bottone viene re-renderizzato in renderUsersTable)
+    // Delegazione: + Nuovo Utente (solo il bottone nell'header, non "Gestisci" in tabella)
     document.getElementById('view-utenti').addEventListener('click', (e) => {
-      if (e.target.closest('.action-btn')) openNewUserModal();
+      if (e.target.closest('.data-card-header') && e.target.closest('.action-btn')) openNewUserModal();
     });
 
     document.getElementById('adminUserCancelBtn').addEventListener('click', () => {
@@ -258,6 +349,63 @@
         document.getElementById('adminUserModal').classList.remove('is-open');
         document.getElementById('adminUserModal').setAttribute('aria-hidden', 'true');
         loadData();
+      } catch (err) {
+        alert('Errore salvataggio: ' + err.message);
+      }
+    });
+
+    // Pannello Gestione: cambio tab
+    document.querySelectorAll('.ump-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tabId = btn.getAttribute('data-tab');
+        document.querySelectorAll('.ump-tab').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.ump-content-section').forEach(s => { s.style.display = 'none'; });
+        const section = document.getElementById(tabId);
+        if (section) section.style.display = 'block';
+      });
+    });
+
+    document.getElementById('umpCloseBtn').addEventListener('click', () => {
+      const panel = document.getElementById('userManagePanel');
+      panel.classList.remove('is-open');
+      panel.setAttribute('aria-hidden', 'true');
+    });
+
+    document.getElementById('umpSaveSecBtn').addEventListener('click', async () => {
+      const id = document.getElementById('umpUserId').value;
+      const name = document.getElementById('umpInputName').value.trim();
+      const barcode = document.getElementById('umpInputBarcode').value.trim();
+      const password = document.getElementById('umpInputPwd').value.trim();
+      const forcePwdChange = document.getElementById('umpForcePwdChange').checked;
+      const pwdExpiryVal = document.getElementById('umpPwdExpiry').value.trim();
+      const pwdExpiryDaysOverride = pwdExpiryVal === '' ? null : parseInt(pwdExpiryVal, 10);
+
+      try {
+        const res = await fetch(`${API_URL}/admin/users/${id}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            barcode,
+            password: password || undefined,
+            forcePwdChange,
+            pwdExpiryDaysOverride
+          })
+        });
+        if (res.status === 401 || res.status === 403) {
+          alert('Sessione scaduta o privilegi insufficienti.');
+          window.location.href = 'index.html';
+          return;
+        }
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+        await loadData();
+        alert('Impostazioni di sicurezza aggiornate con successo.');
+        document.getElementById('userManagePanel').classList.remove('is-open');
+        document.getElementById('userManagePanel').setAttribute('aria-hidden', 'true');
       } catch (err) {
         alert('Errore salvataggio: ' + err.message);
       }

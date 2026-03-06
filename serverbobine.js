@@ -235,6 +235,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
                 IsActive as isActive,
                 SessionHoursOverride as sessionHoursOverride,
                 ForcePwdChange as forcePwdChange,
+                PwdExpiryDaysOverride as pwdExpiryDaysOverride,
                 LastPasswordChange as lastPasswordChange
             FROM [CMP].[dbo].[Users]
             ORDER BY Name ASC
@@ -245,7 +246,45 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
     }
 });
 
-// 2. Recupera i moduli e i ruoli autodefiniti
+// 2. Aggiorna utente (identità e sicurezza - Passaporto)
+app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
+    const idUser = parseInt(req.params.id, 10);
+    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride } = req.body;
+
+    try {
+        let pool = await sql.connect(dbConfig);
+        const request = pool.request();
+        request.input('idUser', sql.Int, idUser);
+        request.input('name', sql.NVarChar, name);
+        request.input('barcode', sql.NVarChar, barcode);
+        request.input('forcePwdChange', sql.Bit, forcePwdChange ? 1 : 0);
+        request.input('pwdExpiry', sql.Int, pwdExpiryDaysOverride ? parseInt(pwdExpiryDaysOverride, 10) : null);
+
+        let pwdQuery = '';
+        if (password && password.trim() !== '') {
+            const hash = await bcrypt.hash(password, 10);
+            request.input('pwd', sql.NVarChar, hash);
+            pwdQuery = ', PasswordHash = @pwd, LastPasswordChange = GETDATE()';
+        }
+
+        await request.query(`
+            UPDATE [CMP].[dbo].[Users] 
+            SET Name = @name, 
+                Barcode = @barcode,
+                ForcePwdChange = @forcePwdChange,
+                PwdExpiryDaysOverride = @pwdExpiry
+                ${pwdQuery}
+            WHERE IDUser = @idUser
+        `);
+
+        res.status(200).json({ message: 'Impostazioni di sicurezza aggiornate con successo.' });
+    } catch (err) {
+        console.error('Errore PUT /api/admin/users/:id:', err);
+        res.status(500).send(err.message);
+    }
+});
+
+// 3. Recupera i moduli e i ruoli autodefiniti
 app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
@@ -270,7 +309,7 @@ app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
     }
 });
 
-// 3. Creazione utente con transazione (Passaporto + Visti)
+// 4. Creazione utente con transazione (Passaporto + Visti)
 app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
     const { name, barcode, password, roles } = req.body;
     try {
@@ -323,7 +362,7 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
     }
 });
 
-// 4. Soft delete globale utente
+// 5. Soft delete globale utente
 app.delete('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
     const idUser = parseInt(req.params.id, 10);
     try {
