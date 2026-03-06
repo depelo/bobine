@@ -1,10 +1,42 @@
+/* --- Variabili globali indipendenti per Captain Console --- */
+:root {
+  --primary: #2563a8;
+  --primary-dark: #1a4d82;
+  --bg: #f0f2f5;
+  --bg-content: #fff;
+  --text: #0d0d0d;
+  --text-muted: #404040;
+  --border: #c5cdd4;
+  --success: #1a7f37;
+  --danger: #c41e1e;
+  --font-family: "Segoe UI", system-ui, Roboto, sans-serif;
+  --radius: 6px;
+}
+
+/* --- Reset Base --- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 17px;
+  font-family: var(--font-family);
+  -webkit-font-smoothing: antialiased;
+}
+
 /* Stili specifici per la dashboard Desktop */
 .captain-body {
   background-color: var(--bg);
+  color: var(--text); /* Eredita il colore testo corretto senza styles.css */
   display: flex;
-  height: 100vh;
+  height: 100dvh; /* Usiamo dvh per sicurezza mobile */
   overflow: hidden;
   margin: 0;
+}
+
+/* Effetto hover per i bottoni interni alla console */
+.captain-body .action-btn:hover {
+  opacity: 0.9;
 }
 
 .captain-body .sidebar {
