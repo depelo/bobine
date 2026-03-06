@@ -144,14 +144,33 @@
           
           <div id="ump-sec" class="ump-content-section">
             <h3 style="margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Impostazioni Passaporto</h3>
-            
+
             <input type="hidden" id="umpUserId">
-            
-            <div class="login-field"><label>Nome</label><input type="text" id="umpInputName" class="control"></div>
-            <div class="login-field"><label>Barcode</label><input type="text" id="umpInputBarcode" class="control"></div>
-            
+
+            <div class="login-field">
+              <label>Nome Completo</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="umpInputName" class="control" readonly style="background-color: var(--bg); color: var(--text-muted); flex: 1;">
+                <button type="button" class="icon-btn edit-toggle-btn" data-target="umpInputName" title="Sblocca modifica" style="border-radius: var(--radius); min-width: 44px; font-size: 1.2rem;">✏️</button>
+              </div>
+            </div>
+
+            <div class="login-field">
+              <label>Barcode Login</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="umpInputBarcode" class="control" readonly style="background-color: var(--bg); color: var(--text-muted); font-family: monospace; flex: 1;">
+                <button type="button" class="icon-btn edit-toggle-btn" data-target="umpInputBarcode" title="Sblocca modifica" style="border-radius: var(--radius); min-width: 44px; font-size: 1.2rem;">✏️</button>
+              </div>
+            </div>
+
             <div style="margin-top: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius);">
-              <h4 style="margin-top:0; color: #856404;">Gestione Password</h4>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h4 style="margin:0; color: #856404;">Gestione Credenziali & Accesso</h4>
+                <button type="button" id="umpKickBtn" style="background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" title="Espelli immediatamente l'utente">
+                  <span style="font-size: 1.2rem;">🦵</span> Kick Utente
+                </button>
+              </div>
+
               <div class="login-field">
                 <label>Nuova Password (lascia vuoto per non modificare)</label>
                 <input type="password" id="umpInputPwd" class="control" autocomplete="new-password">
@@ -361,6 +380,13 @@
       document.getElementById('umpUserId').value = u.id;
       document.getElementById('umpInputName').value = u.name || '';
       document.getElementById('umpInputBarcode').value = u.barcode || '';
+      // Blocca nuovamente i campi anagrafici per prevenire modifiche accidentali
+      ['umpInputName', 'umpInputBarcode'].forEach(idField => {
+        const el = document.getElementById(idField);
+        el.setAttribute('readonly', 'true');
+        el.style.backgroundColor = 'var(--bg)';
+        el.style.color = 'var(--text-muted)';
+      });
       document.getElementById('umpInputPwd').value = '';
       document.getElementById('umpForcePwdChange').checked = !!u.forcePwdChange;
       document.getElementById('umpPwdExpiry').value = u.pwdExpiryDaysOverride != null ? u.pwdExpiryDaysOverride : '';
@@ -537,6 +563,23 @@
       } catch (err) {
         alert('Errore salvataggio: ' + err.message);
       }
+    });
+
+    document.querySelectorAll('.edit-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const targetId = e.currentTarget.getAttribute('data-target');
+        const inputEl = document.getElementById(targetId);
+        if (inputEl) {
+          inputEl.removeAttribute('readonly');
+          inputEl.style.backgroundColor = 'var(--bg-content)';
+          inputEl.style.color = 'var(--text)';
+          inputEl.focus();
+        }
+      });
+    });
+
+    document.getElementById('umpKickBtn').addEventListener('click', () => {
+      alert("Funzionalità Kick in tempo reale in fase di sviluppo. Preparazione infrastruttura in corso.");
     });
 
     // Modale Modifica App (RoleDefinition)
