@@ -1315,7 +1315,11 @@ document.getElementById('menuDrawer').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-menu-action]');
   if (!btn) return;
   const action = btn.dataset.menuAction;
-  if (action === 'placeholder1' || action === 'placeholder2') return;
+  if (action === 'placeholder1') return;
+  if (action === 'open-captain') {
+    window.location.href = 'captain.html';
+    return;
+  }
   if (action === 'add-to-home') {
     if (deferredInstallPrompt) {
       deferredInstallPrompt.prompt();

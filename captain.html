@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Captain Console - UJet</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Stili specifici per la dashboard Desktop */
+    body { background-color: var(--bg); display: flex; height: 100vh; overflow: hidden; margin: 0; }
+    .sidebar { width: 280px; background-color: var(--primary-dark); color: white; display: flex; flex-direction: column; }
+    .sidebar-header { padding: 24px; font-size: 1.5rem; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .sidebar-nav { flex: 1; padding: 16px 0; overflow-y: auto; }
+    .nav-item { padding: 12px 24px; color: rgba(255,255,255,0.8); text-decoration: none; display: block; cursor: pointer; transition: 0.2s; }
+    .nav-item:hover, .nav-item.active { background-color: rgba(255,255,255,0.1); color: white; border-left: 4px solid var(--success); }
+    .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar-console { height: 64px; background: white; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
+    .content-area { flex: 1; padding: 32px; overflow-y: auto; }
+    
+    /* Griglia Dati */
+    .data-card { background: white; border-radius: var(--radius); padding: 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .data-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+
+  <aside class="sidebar">
+    <div class="sidebar-header">UJet Captain</div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-target="utenti">👥 Gestione Utenti</div>
+      <div class="nav-item" data-target="moduli">🧩 Accessi & Moduli</div>
+      <div class="nav-item" data-target="config">⚙️ Configurazioni</div>
+      <div class="nav-item" data-target="audit">🛡️ Audit Logs</div>
+    </nav>
+    <div class="nav-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: auto;" id="backToAppBtn">
+      🔙 Torna all'App
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="topbar-console">
+      <h2 style="margin: 0; color: var(--text);" id="consolePageTitle">Gestione Utenti</h2>
+      <div style="font-weight: bold; color: var(--primary);">Admin: <span id="captainNameDisplay">Caricamento...</span></div>
+    </header>
+    
+    <div class="content-area">
+      <div class="data-card" id="view-utenti">
+        <div class="data-card-header">
+          <h3 style="margin: 0;">Anagrafica Globale (Passaporti)</h3>
+          <button class="action-btn" style="background: var(--primary); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">+ Nuovo Utente</button>
+        </div>
+        <p style="color: var(--text-muted);">L'interfaccia di gestione verrà caricata qui.</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Logica di base per il menu e il ritorno
+    document.getElementById('backToAppBtn').addEventListener('click', () => {
+      window.location.href = 'index.html';
+    });
+
+    document.querySelectorAll('.nav-item[data-target]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        e.currentTarget.classList.add('active');
+        document.getElementById('consolePageTitle').innerText = e.currentTarget.innerText.replace(/[^\w\s]/gi, '').trim();
+      });
+    });
+  </script>
+</body>
+</html>
