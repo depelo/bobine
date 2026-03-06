@@ -195,4 +195,50 @@ html {
     padding: 16px;
   }
 }
+/* --- Modale Captain Console --- */
+.scanner-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  display: none;
+  background: rgba(0, 0, 0, 0.85);
+}
 
+.scanner-modal.is-open {
+  display: flex;
+}
+
+.scanner-modal-inner {
+  background: var(--bg-content);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 100%;
+  width: 400px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.scanner-title {
+  margin: 0 0 16px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.login-field { margin-bottom: 12px; }
+.login-field label { display: block; margin-bottom: 4px; font-size: 0.9rem; font-weight: 500;}
+.control {
+  width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); font-family: inherit;
+}
+.control:focus { outline: none; border-color: var(--primary); }
+
+.scanner-cancel {
+  padding: 10px; border: 1px solid var(--border); background: var(--bg);
+  color: var(--text); font-weight: 600; cursor: pointer; border-radius: var(--radius);
+}
+.scanner-cancel:hover { background: var(--border); }
