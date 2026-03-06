@@ -105,6 +105,7 @@ async function loadInitialData() {
 }
 
 async function initApp() {
+  setScreen('log-edit');
   const currentOperatorDisplay = document.getElementById('currentOperatorDisplay');
   const loginModal = document.getElementById('loginModal');
   if (!loginModal) {
