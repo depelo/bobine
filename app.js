@@ -475,7 +475,6 @@ function setScreen(name) {
 }
 
 function fillForm(record) {
-  form.date.value = toDateInputValue(record.date);
   form.rawCode.value = record.rawCode ?? '';
   form.lot.value = record.lot ?? '';
   form.quantity.value = record.quantity ?? '';
@@ -788,7 +787,6 @@ function applySearch(inputId, data, renderFn) {
 
 function resetForm() {
   form.reset();
-  form.date.value = new Date().toISOString().slice(0, 10);
   state.formDraft = {};
   state.selectedLog = null;
   if (machineSelect) machineSelect.value = '';
@@ -1418,10 +1416,6 @@ if (loginPasswordInput) {
     }
   });
 }
-
-document.getElementById('logDatePickerBtn').addEventListener('click', () => {
-  document.getElementById('logDate').showPicker?.();
-});
 
 document.getElementById('rawCode').addEventListener('input', updateDynamicRollId);
 document.getElementById('rawCode').addEventListener('change', updateDynamicRollId);
