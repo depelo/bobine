@@ -50,15 +50,17 @@ function authenticateToken(req, res, next) {
 app.get('/api/operators', async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
-        let result = await pool.request().query(
-            `SELECT
-                IDOperator as id,
-                Operator as name,
-                Admin as isAdmin,
-                Barcode as barcode,
-                CONVERT(varchar(5), StartTime, 108) as startTime
-             FROM [CMP].[dbo].[Operators]`
-        );
+        let result = await pool.request().query(`
+            SELECT 
+                O.IDOperator AS id, 
+                U.Name AS name, 
+                U.Barcode AS barcode, 
+                O.Admin AS isAdmin,
+                CONVERT(varchar(5), O.StartTime, 108) AS startTime
+            FROM [CMP].[dbo].[Operators] O
+            INNER JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
+            WHERE U.IsActive = 1
+        `);
         res.json(result.recordset);
     } catch (err) {
         res.status(500).send(err.message);
@@ -82,17 +84,127 @@ app.patch('/api/operators/:id/time', async (req, res) => {
 
 // Añade un nuevo operador con código de barras
 app.post('/api/operators', async (req, res) => {
-    const { name, isAdmin, barcode } = req.body;
+    try {
+        const operator = req.body?.operator ?? req.body?.name;
+        const admin = req.body?.admin ?? req.body?.isAdmin;
+        const barcode = req.body?.barcode;
+        const startTime = req.body?.startTime ?? null;
+        const password = req.body?.password;
+
+        const hash = await bcrypt.hash(password || '123456', 10); // Default password if empty
+        let pool = await sql.connect(dbConfig);
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        try {
+            // 1. Insert into Users (Passport)
+            const userReq = new sql.Request(transaction);
+            userReq.input('name', sql.NVarChar, operator);
+            userReq.input('barcode', sql.NVarChar, barcode);
+            userReq.input('pwd', sql.NVarChar, hash);
+            const userRes = await userReq.query(`
+                INSERT INTO [CMP].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive)
+                OUTPUT INSERTED.IDUser
+                VALUES (@name, @barcode, @pwd, 1)
+            `);
+            const newUserId = userRes.recordset[0].IDUser;
+
+            // 2. Insert into Operators (Visa)
+            const opReq = new sql.Request(transaction);
+            opReq.input('idUser', sql.Int, newUserId);
+            opReq.input('admin', sql.Bit, admin);
+            opReq.input('startTime', sql.VarChar, startTime);
+            await opReq.query(`
+                INSERT INTO [CMP].[dbo].[Operators] (IDUser, Admin, StartTime)
+                VALUES (@idUser, @admin, @startTime)
+            `);
+
+            await transaction.commit();
+            res.status(201).send({ message: 'Operatore creato con successo' });
+        } catch (txErr) {
+            await transaction.rollback();
+            throw txErr;
+        }
+    } catch (err) {
+        console.error('Errore POST /api/operators:', err);
+        res.status(500).send(err.message);
+    }
+});
+
+app.put('/api/operators/:id', async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { operator, admin, barcode, startTime, password } = req.body;
+    try {
+        let pool = await sql.connect(dbConfig);
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        try {
+            // Get the linked IDUser
+            const getReq = new sql.Request(transaction);
+            getReq.input('idOp', sql.Int, id);
+            const getRes = await getReq.query(`SELECT IDUser FROM [CMP].[dbo].[Operators] WHERE IDOperator = @idOp`);
+            if (getRes.recordset.length === 0) throw new Error("Operatore non trovato");
+            const idUser = getRes.recordset[0].IDUser;
+
+            // Update Users
+            const userReq = new sql.Request(transaction);
+            userReq.input('idUser', sql.Int, idUser);
+            userReq.input('name', sql.NVarChar, operator);
+            userReq.input('barcode', sql.NVarChar, barcode);
+
+            let pwdQuery = '';
+            if (password && password.trim() !== '') {
+                const hash = await bcrypt.hash(password, 10);
+                userReq.input('pwd', sql.NVarChar, hash);
+                pwdQuery = ', PasswordHash = @pwd, LastPasswordChange = GETDATE()';
+            }
+
+            await userReq.query(`
+                UPDATE [CMP].[dbo].[Users] 
+                SET Name = @name, Barcode = @barcode ${pwdQuery}
+                WHERE IDUser = @idUser
+            `);
+
+            // Update Operators
+            const opReq = new sql.Request(transaction);
+            opReq.input('idOp', sql.Int, id);
+            opReq.input('admin', sql.Bit, admin);
+            opReq.input('startTime', sql.VarChar, startTime);
+            await opReq.query(`
+                UPDATE [CMP].[dbo].[Operators]
+                SET Admin = @admin, StartTime = @startTime
+                WHERE IDOperator = @idOp
+            `);
+
+            await transaction.commit();
+            res.status(200).send({ message: 'Operatore aggiornato' });
+        } catch (txErr) {
+            await transaction.rollback();
+            throw txErr;
+        }
+    } catch (err) {
+        console.error('Errore PUT /api/operators:', err);
+        res.status(500).send(err.message);
+    }
+});
+
+app.delete('/api/operators/:id', async (req, res) => {
+    const id = parseInt(req.params.id, 10);
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
-            .input('Operator', sql.NVarChar, name)
-            .input('Admin', sql.Bit, isAdmin ? 1 : 0)
-            .input('Barcode', sql.NVarChar, barcode)
-            .query(`INSERT INTO [CMP].[dbo].[Operators] (IDOperator, Operator, Admin, Barcode)
-VALUES ((SELECT ISNULL(MAX(IDOperator), 0) + 1 FROM [CMP].[dbo].[Operators]), @Operator, @Admin, @Barcode)`);
-        res.status(201).send({ message: 'Operatore aggiunto' });
+            .input('idOp', sql.Int, id)
+            .query(`
+                UPDATE U
+                SET U.IsActive = 0
+                FROM [CMP].[dbo].[Users] U
+                INNER JOIN [CMP].[dbo].[Operators] O ON U.IDUser = O.IDUser
+                WHERE O.IDOperator = @idOp
+            `);
+        res.status(200).send({ message: 'Operatore disattivato logicamente' });
     } catch (err) {
+        console.error('Errore DELETE /api/operators:', err);
         res.status(500).send(err.message);
     }
 });
@@ -133,17 +245,21 @@ app.post('/api/login', async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
         const result = await pool.request()
-            .input('Barcode', sql.NVarChar, barcode)
+            .input('barcode', sql.NVarChar, barcode)
             .query(`
-                SELECT TOP 1
-                    IDOperator,
-                    Operator,
-                    Admin,
-                    Barcode,
-                    PasswordHash,
-                    IsSuperuser
-                FROM [CMP].[dbo].[Operators]
-                WHERE Barcode = @Barcode AND IsActive = 1
+                SELECT 
+                    U.IDUser, 
+                    U.Name AS Operator, 
+                    U.Barcode, 
+                    U.PasswordHash, 
+                    U.IsActive,
+                    O.IDOperator,
+                    O.Admin,
+                    CASE WHEN C.IDCaptain IS NOT NULL THEN 1 ELSE 0 END AS IsSuperuser
+                FROM [CMP].[dbo].[Users] U
+                LEFT JOIN [CMP].[dbo].[Operators] O ON U.IDUser = O.IDUser
+                LEFT JOIN [CMP].[dbo].[Captains] C ON U.IDUser = C.IDUser
+                WHERE U.Barcode = @barcode AND U.IsActive = 1
             `);
 
         if (!result.recordset || result.recordset.length === 0) {
@@ -213,7 +329,7 @@ app.get('/api/logs', async (req, res) => {
             SELECT
                 L.IDLog as uniqueRecordId,
                 CONVERT(varchar(23), L.[Date], 126) as date,
-                O.Operator as operator,
+                U.Name as operator,
                 L.IDOperator,
                 M.Machine as machine,
                 L.IDMachine,
@@ -226,6 +342,7 @@ app.get('/api/logs', async (req, res) => {
                 L.bobina_finita
             FROM [CMP].[dbo].[Log] L
             LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
+            LEFT JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
             LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
             WHERE L.Eliminato = 0
             ORDER BY L.Date DESC
@@ -247,7 +364,7 @@ app.get('/api/logs/:id', async (req, res) => {
                 SELECT
                     L.IDLog as uniqueRecordId,
                     CONVERT(varchar(23), L.[Date], 126) as date,
-                    O.Operator as operator,
+                    U.Name as operator,
                     L.IDOperator,
                     M.Machine as machine,
                     L.IDMachine,
@@ -260,6 +377,7 @@ app.get('/api/logs/:id', async (req, res) => {
                     L.bobina_finita
                 FROM [CMP].[dbo].[Log] L
                 LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
+                LEFT JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
                 LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
                 WHERE L.IDLog = @IDLog AND L.Eliminato = 0
             `);
@@ -287,7 +405,7 @@ app.get('/api/logs/:id/history', async (req, res) => {
                         L.Lot AS lot,
                         L.Notes AS notes,
                         L.ValidFrom,
-                        ISNULL(O_Mod.Operator, O_Crea.Operator) AS operatorName,
+                        ISNULL(U_Mod.Name, U_Crea.Name) AS operatorName,
                         L.NumeroModifiche,
                         LAG(L.Quantity) OVER (ORDER BY L.ValidFrom) AS prev_quantity,
                         LAG(L.Codart) OVER (ORDER BY L.ValidFrom) AS prev_rawCode,
@@ -295,7 +413,9 @@ app.get('/api/logs/:id/history', async (req, res) => {
                         LAG(L.Notes) OVER (ORDER BY L.ValidFrom) AS prev_notes
                     FROM [CMP].[dbo].[Log] FOR SYSTEM_TIME ALL AS L
                     LEFT JOIN [CMP].[dbo].[Operators] O_Mod ON L.ModificatoDa = O_Mod.IDOperator
+                    LEFT JOIN [CMP].[dbo].[Users] U_Mod ON O_Mod.IDUser = U_Mod.IDUser
                     LEFT JOIN [CMP].[dbo].[Operators] O_Crea ON L.IDOperator = O_Crea.IDOperator
+                    LEFT JOIN [CMP].[dbo].[Users] U_Crea ON O_Crea.IDUser = U_Crea.IDUser
                     WHERE L.IDLog = @IDLog
                 )
                 SELECT 
