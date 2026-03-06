@@ -104,6 +104,7 @@ function askDynamicPrompt(title, type, showScanner) {
 
     newConfirm.addEventListener('click', () => {
       const val = input.value;
+      document.activeElement?.blur();
       modal.classList.remove('is-open');
       modal.setAttribute('aria-hidden', 'true');
       if (val) {
@@ -114,6 +115,7 @@ function askDynamicPrompt(title, type, showScanner) {
     });
 
     newCancel.addEventListener('click', () => {
+      document.activeElement?.blur();
       modal.classList.remove('is-open');
       modal.setAttribute('aria-hidden', 'true');
       reject('cancelled');
@@ -147,6 +149,7 @@ function askMachinePrompt() {
       const li = document.createElement('li');
       li.innerHTML = `<span>${m.name}</span>`;
       li.onclick = () => {
+        document.activeElement?.blur();
         modal.classList.remove('is-open');
         modal.setAttribute('aria-hidden', 'true');
         resolve(m.id);
@@ -158,6 +161,7 @@ function askMachinePrompt() {
     modal.setAttribute('aria-hidden', 'false');
 
     cancelBtn.onclick = () => {
+      document.activeElement?.blur();
       modal.classList.remove('is-open');
       modal.setAttribute('aria-hidden', 'true');
       reject('cancelled');
@@ -180,16 +184,19 @@ function askBobinaFinitaAsync() {
     modal.setAttribute('aria-hidden', 'false');
 
     yesBtn.onclick = () => {
+      document.activeElement?.blur();
       modal.classList.remove('is-open');
       modal.setAttribute('aria-hidden', 'true');
       resolve(true);
     };
     noBtn.onclick = () => {
+      document.activeElement?.blur();
       modal.classList.remove('is-open');
       modal.setAttribute('aria-hidden', 'true');
       resolve(false);
     };
     cancelBtn.onclick = () => {
+      document.activeElement?.blur();
       modal.classList.remove('is-open');
       modal.setAttribute('aria-hidden', 'true');
       reject('cancelled');
@@ -1647,6 +1654,7 @@ function showSuccessModal() {
 document.getElementById('successBtnClose')?.addEventListener('click', () => {
   const modal = document.getElementById('successModal');
   if (modal) {
+    document.activeElement?.blur();
     modal.classList.remove('is-open');
     modal.setAttribute('aria-hidden', 'true');
   }

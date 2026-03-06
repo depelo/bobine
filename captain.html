@@ -20,6 +20,20 @@
     /* Griglia Dati */
     .data-card { background: white; border-radius: var(--radius); padding: 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .data-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+
+    /* Responsive: Mobile Bottom Navigation */
+    @media (max-width: 768px) {
+      body { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; flex-direction: row; border-top: 1px solid rgba(255,255,255,0.1); border-bottom: none; order: 2; z-index: 100; }
+      .sidebar-header { display: none; }
+      .sidebar-nav { display: flex; flex-direction: row; padding: 0; overflow-x: auto; flex: 1; }
+      .nav-item { flex: 1; text-align: center; padding: 12px 8px; font-size: 0.85rem; border-left: none; border-bottom: 4px solid transparent; white-space: nowrap; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+      .nav-item:hover, .nav-item.active { border-left: none; border-bottom: 4px solid var(--success); }
+      #backToAppBtn { border-top: none; border-left: 1px solid rgba(255,255,255,0.1); margin-top: 0; }
+      .main-content { order: 1; height: calc(100vh - 60px); }
+      .topbar-console { padding: 0 16px; }
+      .content-area { padding: 16px; }
+    }
   </style>
 </head>
 <body>
