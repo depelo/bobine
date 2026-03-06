@@ -34,12 +34,72 @@
     </header>
     
     <div class="content-area">
-      <div class="data-card" id="view-utenti">
+      <div class="data-card console-view" id="view-utenti" style="display: block;">
         <div class="data-card-header">
           <h3 style="margin: 0;">Anagrafica Globale (Passaporti)</h3>
           <button class="action-btn" style="background: var(--primary); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">+ Nuovo Utente</button>
         </div>
         <p style="color: var(--text-muted);">L'interfaccia di gestione verrà caricata qui.</p>
+      </div>
+
+      <div class="data-card console-view" id="view-moduli" style="display: none;">
+        <div class="data-card-header">
+          <h3 style="margin: 0;">Catalogo Applicazioni (I Visti)</h3>
+          <p style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">Gestisci le App attive e i ruoli interni disponibili per l'assegnazione.</p>
+        </div>
+        <div id="modulesContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+          <div style="border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; background: var(--bg);">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 12px;">
+              <h4 style="margin: 0; color: var(--primary);">📦 Reparto Bobine</h4>
+              <span style="font-size: 0.8rem; background: var(--success); color: white; padding: 2px 8px; border-radius: 12px;">Attiva</span>
+            </div>
+            <p style="font-size: 0.85rem; font-weight: bold; margin: 0 0 8px 0;">Ruoli interni configurati:</p>
+            <ul style="margin: 0; padding-left: 20px; font-size: 0.85rem; color: var(--text-muted);">
+              <li>Caporeparto (Richiede Password)</li>
+              <li>Operatore Base (Solo Barcode)</li>
+            </ul>
+            <button class="action-btn" style="width: 100%; margin-top: 16px; font-size: 0.9rem; padding: 8px;">Modifica App</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="data-card console-view" id="view-config" style="display: none;">
+        <div class="data-card-header">
+          <h3 style="margin: 0;">Regole di Fabbrica</h3>
+          <button class="action-btn" style="background: var(--success); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">Salva Modifiche</button>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+          <div style="border: 1px solid var(--border); padding: 16px; border-radius: var(--radius);">
+            <h4 style="margin-top: 0; color: var(--primary-dark);">🛡️ Sicurezza Captain & Admin</h4>
+            <div class="login-field">
+              <label>Scadenza Password (giorni)</label>
+              <input type="number" id="cfg_AdminPwdExpiryDays" class="control" placeholder="es. 90">
+            </div>
+            <div class="login-field">
+              <label>Disconnessione Automatica Sessione (ore)</label>
+              <input type="number" id="cfg_AdminSessionHours" class="control" placeholder="es. 8">
+            </div>
+          </div>
+
+          <div style="border: 1px solid var(--border); padding: 16px; border-radius: var(--radius);">
+            <h4 style="margin-top: 0; color: var(--primary-dark);">⚙️ Limiti Operativi (Reparto)</h4>
+            <div class="login-field">
+              <label>Tempo limite eliminazione log (ore retroattive)</label>
+              <input type="number" id="cfg_OpDeleteMaxHours" class="control" placeholder="es. 48">
+            </div>
+            <div class="login-field">
+              <label>Numero max di log recenti eliminabili</label>
+              <input type="number" id="cfg_OpDeleteMaxRecords" class="control" placeholder="es. 2">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="data-card console-view" id="view-audit" style="display: none; text-align: center; padding: 48px 24px;">
+        <span style="font-size: 3rem;">🚧</span>
+        <h3 style="color: var(--text-muted); margin-top: 16px;">Sotto Costruzione</h3>
+        <p style="color: var(--text-muted);">L'area di tracciamento avanzato (System-Versioned Temporal Tables) sarà disponibile a breve.</p>
       </div>
     </div>
   </main>
@@ -265,13 +325,25 @@
 
     document.querySelectorAll('.nav-item[data-target]').forEach(item => {
       item.addEventListener('click', (e) => {
+        // 1. Aggiorna lo stato visivo del menu laterale
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         e.currentTarget.classList.add('active');
         
-        // Estrai solo il testo pulito (rimuove l'emoji) per il titolo
+        // 2. Estrai il target e aggiorna il titolo della pagina
+        const target = e.currentTarget.dataset.target;
         const spans = e.currentTarget.querySelectorAll('span');
         const titleText = spans.length > 1 ? spans[1].innerText : e.currentTarget.innerText;
         document.getElementById('consolePageTitle').innerText = titleText.replace(/[^\w\s]/gi, '').trim();
+
+        // 3. Esegui il routing nascondendo tutte le viste e mostrando quella target
+        document.querySelectorAll('.console-view').forEach(view => {
+          view.style.display = 'none';
+        });
+        
+        const targetView = document.getElementById('view-' + target);
+        if (targetView) {
+          targetView.style.display = 'block';
+        }
       });
     });
 
