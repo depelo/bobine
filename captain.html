@@ -291,7 +291,18 @@
       }
     }
 
-    // Renderizza la griglia degli utenti
+    // Palette fissa di 16 colori per le etichette delle App
+    const appColors = [
+      '#2563a8', '#1a7f37', '#b32d00', '#6f42c1',
+      '#d97706', '#0284c7', '#be185d', '#059669',
+      '#4f46e5', '#c026d3', '#ea580c', '#0d9488',
+      '#e11d48', '#65a30d', '#0891b2', '#7c3aed'
+    ];
+
+    function getAppColor(moduleId) {
+      return appColors[(moduleId || 0) % 16];
+    }
+
     function renderUsersTable() {
       const container = document.getElementById('view-utenti');
       let html = `
@@ -303,35 +314,67 @@
           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
             <thead>
               <tr style="border-bottom: 2px solid var(--border);">
-                <th style="padding: 12px; color: var(--text-muted);">ID</th>
                 <th style="padding: 12px; color: var(--text-muted);">Nome</th>
-                <th style="padding: 12px; color: var(--text-muted);">Barcode</th>
-                <th style="padding: 12px; color: var(--text-muted);">Stato</th>
+                <th style="padding: 12px; color: var(--text-muted);">App</th>
+                <th style="padding: 12px; color: var(--text-muted);">Ruolo</th>
+                <th style="padding: 12px; color: var(--text-muted);">Stato Sessione</th>
                 <th style="padding: 12px; color: var(--text-muted); text-align: right;">Azioni</th>
               </tr>
             </thead>
             <tbody>
       `;
-      
+
       if (globalUsers.length === 0) {
         html += `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--text-muted);">Nessun utente trovato.</td></tr>`;
       } else {
         globalUsers.forEach(u => {
-          const statusBadge = u.isActive 
-            ? `<span style="padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; background: var(--success); color: white;">Attivo</span>`
-            : `<span style="padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; background: var(--danger); color: white;">Disattivo</span>`;
-            
+          let appsHtml = '';
+          let rolesHtml = '';
+
+          if (u.apps && u.apps.length > 0) {
+            u.apps.forEach(app => {
+              const color = getAppColor(app.moduleId);
+              appsHtml += `<span style="display:inline-block; margin:2px; padding:4px 8px; border-radius:12px; font-size:0.8rem; font-weight:bold; background-color:${color}; color:white;">${app.moduleName}</span><br>`;
+              rolesHtml += `<span style="display:inline-block; margin:2px; padding:4px 8px; border-radius:12px; font-size:0.8rem; border: 1px solid ${color}; color:${color}; font-weight:bold;">${app.roleLabel}</span><br>`;
+            });
+          } else {
+            appsHtml = `<span style="color: var(--text-muted); font-size: 0.85rem;">Nessuna</span>`;
+            rolesHtml = `-`;
+          }
+
+          let statoHtml = '';
+          if (u.hasActiveSession) {
+            const safeName = (u.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            statoHtml = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width:10px; height:10px; border-radius:50%; background-color:var(--success);" title="Online"></div>
+            <span style="font-size: 0.9rem; font-weight: bold; color: var(--success);">Attivo</span>
+            <button onclick="kickUser(${u.id}, '${safeName}')" style="background:var(--danger); color:white; border:none; border-radius:4px; padding:4px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Killa Sessione">🦵</button>
+          </div>
+        `;
+          } else {
+            statoHtml = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width:10px; height:10px; border-radius:50%; background-color:var(--border);" title="Offline"></div>
+            <span style="font-size: 0.9rem; color: var(--text-muted);">Inattivo</span>
+          </div>
+        `;
+          }
+
           html += `
-            <tr style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
-              <td style="padding: 12px; color: var(--text-muted);">#${u.id}</td>
-              <td style="padding: 12px; font-weight: bold;">${u.name}</td>
-              <td style="padding: 12px; font-family: monospace; font-size: 1rem;">${u.barcode}</td>
-              <td style="padding: 12px;">${statusBadge}</td>
-              <td style="padding: 12px; text-align: right;">
-                <button onclick="openUserManager(${u.id})" class="action-btn">Gestisci</button>
-              </td>
-            </tr>
-          `;
+        <tr style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+          <td style="padding: 12px; font-weight: bold;">
+            ${u.name}
+            <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">${u.barcode}</div>
+          </td>
+          <td style="padding: 12px;">${appsHtml}</td>
+          <td style="padding: 12px;">${rolesHtml}</td>
+          <td style="padding: 12px;">${statoHtml}</td>
+          <td style="padding: 12px; text-align: right;">
+            <button onclick="openUserManager(${u.id})" class="action-btn" style="font-size: 1rem; padding: 6px 12px;">Gestisci</button>
+          </td>
+        </tr>
+      `;
         });
       }
 
@@ -668,6 +711,14 @@
         alert('Errore salvataggio modulo: ' + err.message);
       }
     });
+
+    // Funzione per l'espulsione rapida dell'utente
+    function kickUser(userId, userName) {
+      if (confirm(`Sei sicuro di voler interrompere immediatamente la sessione attiva di ${userName}?`)) {
+        // TODO: Collegare alla futura API /api/admin/users/:id/kick che aggiornerà SessionValidFrom
+        alert(`Simulazione: L'utente ${userName} è stato disconnesso con successo.\n(Il backend reale è in fase di implementazione)`);
+      }
+    }
 
     // Avvia l'app
     initCaptainConsole();

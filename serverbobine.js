@@ -223,25 +223,61 @@ app.delete('/api/operators/:id', async (req, res) => {
 
 // --- API ADMIN / CAPTAIN CONSOLE ---
 
-// 1. Recupera tutti gli utenti globali (Passaporti)
+// 1. Recupera tutti gli utenti globali (Passaporti) con Visti aggregati
 app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
-        const result = await pool.request().query(`
-            SELECT 
-                IDUser as id, 
-                Name as name, 
-                Barcode as barcode, 
-                IsActive as isActive,
-                SessionHoursOverride as sessionHoursOverride,
-                ForcePwdChange as forcePwdChange,
-                PwdExpiryDaysOverride as pwdExpiryDaysOverride,
-                LastPasswordChange as lastPasswordChange
+
+        // 1. Recupera gli utenti attivi (Passaporto)
+        const usersRes = await pool.request().query(`
+            SELECT IDUser as id, Name as name, Barcode as barcode, IsActive as isActive,
+                   SessionHoursOverride as sessionHoursOverride, ForcePwdChange as forcePwdChange,
+                   PwdExpiryDaysOverride as pwdExpiryDaysOverride, LastPasswordChange as lastPasswordChange
             FROM [CMP].[dbo].[Users]
+            WHERE IsActive = 1
             ORDER BY Name ASC
         `);
-        res.json(result.recordset);
+        let users = usersRes.recordset;
+
+        // 2. Recupera i moduli (Visti disponibili)
+        const modRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetTable, RoleDefinition FROM [CMP].[dbo].[Modules]`);
+        const modules = modRes.recordset;
+
+        // Inizializza gli array per ogni utente
+        for (let u of users) {
+            u.apps = [];
+            // TODO: Sostituire con vero controllo su SessionValidFrom. Per ora simuliamo che tutti abbiano una sessione attiva per testare la UI.
+            u.hasActiveSession = true;
+        }
+
+        // 3. Popola le autorizzazioni interrogando le tabelle dipartimentali
+        const validTables = ['Operators', 'Operators_Man']; // Whitelist anti SQL-Injection
+
+        for (let mod of modules) {
+            if (!mod.TargetTable || !validTables.includes(mod.TargetTable)) continue;
+
+            let roleDef = {};
+            try { roleDef = JSON.parse(mod.RoleDefinition); } catch (e) {}
+
+            const roleRes = await pool.request().query(`SELECT IDUser, Admin FROM [CMP].[dbo].[${mod.TargetTable}]`);
+
+            for (let row of roleRes.recordset) {
+                let user = users.find(x => x.id === row.IDUser);
+                if (user) {
+                    let rKey = row.Admin ? 'Admin' : 'Base';
+                    let rLabel = roleDef[rKey] ? roleDef[rKey].label : rKey;
+                    user.apps.push({
+                        moduleId: mod.IDModule,
+                        moduleName: mod.ModuleName,
+                        roleKey: rKey,
+                        roleLabel: rLabel
+                    });
+                }
+            }
+        }
+        res.json(users);
     } catch (err) {
+        console.error('Errore GET /api/admin/users:', err);
         res.status(500).send(err.message);
     }
 });
