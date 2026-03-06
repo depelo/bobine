@@ -1,0 +1,564 @@
+Captain Console User Management Implementation Plan
+
+Overview
+
+
+
+
+
+Goal: Exporre API admin protette per la Captain Console e implementare in captain.html la logica JavaScript per verificare i permessi, caricare i dati (Passaporti/Users e Modules) e renderizzare la tabella utenti.
+
+
+
+Sicurezza: Riutilizzare i JWT già emessi al login, verificando il flag isSuperuser nel payload per limitare l’accesso alle nuove rotte /api/admin/*.
+
+Backend: Admin APIs protette (serverbobine.js)
+
+
+
+
+
+Punto di ingresso: Il file principale è [serverbobine.js](serverbobine.js). Esistono già:
+
+
+
+
+
+Configurazione dbConfig e connessione mssql.
+
+
+
+Middleware authenticateToken(req,res,next) che legge jwt_token dal cookie e popola req.user.
+
+
+
+Login /api/login che salva nel JWT anche il flag isSuperuser:
+
+function authenticateToken(req, res, next) {
+    const token = req.cookies && req.cookies.jwt_token;
+    if (!token) {
+        return res.status(401).send('Token mancante');
+    }
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(403).send('Token non valido');
+        }
+        req.user = user;
+        next();
+    });
+}
+
+const payload = {
+    id: row.IDOperator,
+    name: row.Operator,
+    isAdmin,
+    isSuperuser,
+    barcode: row.Barcode
+};
+
+
+
+
+
+Nuovo middleware authenticateCaptain
+
+
+
+
+
+Inserire subito dopo authenticateToken (o in una sezione vicina alle definizioni di middleware) una funzione:
+
+
+
+
+
+Chiama internamente authenticateToken.
+
+
+
+Verifica che req.user esista e che req.user.isSuperuser sia vero.
+
+
+
+In caso contrario risponde con HTTP 403 e messaggio in italiano.
+
+
+
+Questo middleware verrà usato come guard su tutte le API /api/admin/*.
+
+
+
+Sezione "API ADMIN / CAPTAIN CONSOLE"
+
+
+
+
+
+Posizionare la nuova sezione prima del blocco di login, idealmente subito prima di // --- API MACCHINE --- o esattamente dove indicato dal requisito: "o in ogni caso prima della login API".
+
+
+
+Aggiungere il commento di sezione:
+
+
+
+
+
+// --- API ADMIN / CAPTAIN CONSOLE --- per separare chiaramente le rotte.
+
+
+
+Endpoint 1: GET /api/admin/users
+
+
+
+
+
+Definire la rotta app.get('/api/admin/users', authenticateCaptain, async (req, res) => { ... }).
+
+
+
+Query su [CMP].[dbo].[Users] per restituire l’anagrafica globale (Passaporti):
+
+
+
+
+
+IDUser AS id
+
+
+
+Name AS name
+
+
+
+Barcode AS barcode
+
+
+
+IsActive AS isActive
+
+
+
+SessionHoursOverride AS sessionHoursOverride
+
+
+
+ForcePwdChange AS forcePwdChange
+
+
+
+LastPasswordChange AS lastPasswordChange
+
+
+
+Ordine per Name ASC.
+
+
+
+Gestione errori: in catch, rispondere con res.status(500).send(err.message); come nelle altre API.
+
+
+
+Non sono necessarie transazioni poiché è una semplice read-only query.
+
+
+
+Endpoint 2: GET /api/admin/modules
+
+
+
+
+
+Definire la rotta app.get('/api/admin/modules', authenticateCaptain, async (req, res) => { ... }).
+
+
+
+Query su [CMP].[dbo].[Modules] per restituire:
+
+
+
+
+
+IDModule AS id
+
+
+
+ModuleName AS name
+
+
+
+TargetTable AS targetTable
+
+
+
+RoleDefinition AS roleDefinition
+
+
+
+Dopo il fetch, mappare result.recordset per:
+
+
+
+
+
+Clonare ogni record.
+
+
+
+Applicare JSON.parse al campo roleDefinition così che il frontend riceva un oggetto JS e non una stringa JSON.
+
+
+
+Gestire eventuali errori di database con 500 come sopra.
+
+
+
+(Opzionale) Se si vuole maggiore robustezza, racchiudere il JSON.parse in un try/catch interno che, in caso di errore di parsing, logga e rimanda il valore originale o null, ma per ora attenersi alla specifica fornita.
+
+
+
+Coerenza con CORS e cookie
+
+
+
+
+
+L’app già usa cookieParser() e serve i file statici dalla stessa origin (express.static(__dirname)), quindi le chiamate da captain.html a /api/... useranno i cookie jwt_token in modo implicito se credentials: 'include' è impostato a livello di fetch.
+
+
+
+Non sono necessarie modifiche a CORS in quanto le richieste arrivano dalla stessa origin.
+
+Frontend: Captain Console (captain.html)
+
+
+
+
+
+Stato attuale
+
+
+
+
+
+[captain.html](captain.html) contiene già la struttura di layout (sidebar, topbar, scheda principale Utenti) e un piccolo script di base per navigazione e bottone "Esci":
+
+<div class="data-card" id="view-utenti">
+  <div class="data-card-header">
+    <h3 style="margin: 0;">Anagrafica Globale (Passaporti)</h3>
+    <button class="action-btn" style="background: var(--primary); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">+ Nuovo Utente</button>
+  </div>
+  <p style="color: var(--text-muted);">L'interfaccia di gestione verrà caricata qui.</p>
+</div>
+
+<script>
+  // Logica di base per il menu e il ritorno
+  document.getElementById('backToAppBtn').addEventListener('click', () => {
+    window.location.href = 'index.html';
+  });
+
+  document.querySelectorAll('.nav-item[data-target]').forEach(item => {
+    item.addEventListener('click', (e) => {
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      e.currentTarget.classList.add('active');
+      document.getElementById('consolePageTitle').innerText = e.currentTarget.innerText.replace(/[^\w\s]/gi, '').trim();
+    });
+  });
+</script>
+
+
+
+
+
+Rimozione script temporaneo
+
+
+
+
+
+Eliminare completamente lo <script> esistente (righe 42–55) per evitare conflitti.
+
+
+
+Nuovo script principale
+
+
+
+
+
+Inserire, in coda al body (al posto dello script eliminato), lo script completo fornito dal requisito, che deve:
+
+
+
+
+
+Definire const API_URL = '/api'; e gli array globali globalUsers e globalModules.
+
+
+
+Implementare apiFetch(endpoint, options) che:
+
+
+
+
+
+Aggiunge options.credentials = 'include'.
+
+
+
+Chiama fetch(API_URL + endpoint, options).
+
+
+
+Gestisce stati 401/403 con alert e redirect a index.html.
+
+
+
+Lancia errori se !res.ok.
+
+
+
+Definire initCaptainConsole() che:
+
+
+
+
+
+Chiama apiFetch('/me') per sapere chi è loggato.
+
+
+
+Verifica me.isSuperuser; se falso mostra alert e fa redirect a index.html.
+
+
+
+Aggiorna #captainNameDisplay con me.name.
+
+
+
+Chiama loadData().
+
+
+
+Implementare loadData() che:
+
+
+
+
+
+Usa Promise.all per chiamare in parallelo:
+
+
+
+
+
+apiFetch('/admin/users') → globalUsers.
+
+
+
+apiFetch('/admin/modules') → globalModules (anche se per ora solo globalUsers viene effettivamente usato).
+
+
+
+Alla fine chiama renderUsersTable().
+
+
+
+Implementare renderUsersTable() che:
+
+
+
+
+
+Costruisce dinamicamente l’HTML per il contenitore #view-utenti con:
+
+
+
+
+
+Header con titolo "Anagrafica Globale (Passaporti)" e bottone "+ Nuovo Utente".
+
+
+
+Tabella responsive con colonne: ID, Nome, Barcode, Stato, Azioni.
+
+
+
+Per ogni elemento di globalUsers:
+
+
+
+
+
+Mostra #id e name.
+
+
+
+Mostra barcode in font monospazio.
+
+
+
+Crea un badge di stato condizionale su isActive (verde "Attivo" o rosso "Disattivo").
+
+
+
+Aggiunge un bottone "Gestisci Accessi" (funzionalità futura, per ora solo UI).
+
+
+
+Se globalUsers è vuoto, mostra una riga con messaggio "Nessun utente trovato.".
+
+
+
+Aggiorna container.innerHTML con la stringa HTML costruita.
+
+
+
+Gestire la navigazione della sidebar:
+
+
+
+
+
+Aggiungere listener su #backToAppBtn per tornare a index.html.
+
+
+
+Aggiungere listener su ogni .nav-item[data-target] per:
+
+
+
+
+
+Aggiornare la classe active.
+
+
+
+Aggiornare il titolo #consolePageTitle usando solo il testo pulito (secondo span, senza emoji), rimuovendo caratteri non alfanumerici con regex.
+
+
+
+Chiamare initCaptainConsole() al fondo dello script per avviare l’app all’apertura della pagina.
+
+
+
+Stile e UX
+
+
+
+
+
+Riutilizzare le variabili CSS esistenti (--primary, --border, --success, --danger, --bg, --text-muted, --primary-dark) per mantenere la coerenza con il resto dell’app.
+
+
+
+Mantenere il layout responsive con overflow-x: auto sulla tabella, come nello snippet fornito.
+
+Verifiche e test manuali
+
+
+
+
+
+Test login e accesso Captain
+
+
+
+
+
+Effettuare login con un utente che non è Captain (isSuperuser = 0):
+
+
+
+
+
+Verificare che, tentando di aprire captain.html, la chiamata a /api/me ritorni un me senza isSuperuser e che lo script mostri alert e faccia redirect a index.html.
+
+
+
+Effettuare login con un utente Captain (isSuperuser = 1):
+
+
+
+
+
+Aprire captain.html.
+
+
+
+Verificare che #captainNameDisplay mostri il nome corretto.
+
+
+
+Test delle API admin
+
+
+
+
+
+Con utente Captain loggato, aprire gli strumenti di sviluppo del browser (Network):
+
+
+
+
+
+Controllare che vengano eseguite le richieste:
+
+
+
+
+
+GET /api/admin/users con risposta 200 e payload array di utenti.
+
+
+
+GET /api/admin/modules con risposta 200 e payload array di moduli con roleDefinition come oggetto.
+
+
+
+Provare a chiamare direttamente le API /api/admin/* con un utente non Captain o senza cookie:
+
+
+
+
+
+Verificare che authenticateCaptain risponda con 401 o 403.
+
+
+
+Test rendering tabella utenti
+
+
+
+
+
+Verificare che la sezione "Anagrafica Globale (Passaporti)" mostri la tabella con tutte le righe attese.
+
+
+
+Verificare badge di stato (Attivo/Disattivo) in base al valore isActive nel database.
+
+
+
+Verificare che il layout rimanga usabile su schermi piccoli grazie allo scroll orizzontale.
+
+Todos
+
+
+
+
+
+backend-admin-middleware: Aggiungere authenticateCaptain in serverbobine.js basato su authenticateToken e req.user.isSuperuser.
+
+
+
+backend-admin-endpoints: Definire le rotte GET /api/admin/users e GET /api/admin/modules nella nuova sezione "API ADMIN / CAPTAIN CONSOLE".
+
+
+
+frontend-captain-script-replace: Rimuovere lo script temporaneo da captain.html e inserirvi lo script completo di inizializzazione, chiamate API e rendering griglia utenti.
+
+
+
+manual-test-captain-console: Eseguire test manuali di login, accesso a captain.html, chiamate alle nuove API e verifica della tabella utenti renderizzata.

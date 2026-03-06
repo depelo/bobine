@@ -44,6 +44,18 @@ function authenticateToken(req, res, next) {
     });
 }
 
+// --- API ADMIN / CAPTAIN CONSOLE ---
+
+// Middleware per verificare i privilegi di Superuser
+function authenticateCaptain(req, res, next) {
+    authenticateToken(req, res, () => {
+        if (!req.user || !req.user.isSuperuser) {
+            return res.status(403).json({ message: 'Accesso negato: richiesti privilegi di Captain' });
+        }
+        next();
+    });
+}
+
 // --- API OPERATORI ---
 
 // Recupera todos los operadores, incluyendo il codice di barras e l'orario di inizio turno
@@ -205,6 +217,55 @@ app.delete('/api/operators/:id', async (req, res) => {
         res.status(200).send({ message: 'Operatore disattivato logicamente' });
     } catch (err) {
         console.error('Errore DELETE /api/operators:', err);
+        res.status(500).send(err.message);
+    }
+});
+
+// --- API ADMIN / CAPTAIN CONSOLE ---
+
+// 1. Recupera tutti gli utenti globali (Passaporti)
+app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
+    try {
+        let pool = await sql.connect(dbConfig);
+        const result = await pool.request().query(`
+            SELECT 
+                IDUser as id, 
+                Name as name, 
+                Barcode as barcode, 
+                IsActive as isActive,
+                SessionHoursOverride as sessionHoursOverride,
+                ForcePwdChange as forcePwdChange,
+                LastPasswordChange as lastPasswordChange
+            FROM [CMP].[dbo].[Users]
+            ORDER BY Name ASC
+        `);
+        res.json(result.recordset);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// 2. Recupera i moduli e i ruoli autodefiniti
+app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
+    try {
+        let pool = await sql.connect(dbConfig);
+        const result = await pool.request().query(`
+            SELECT 
+                IDModule as id, 
+                ModuleName as name, 
+                TargetTable as targetTable,
+                RoleDefinition as roleDefinition
+            FROM [CMP].[dbo].[Modules]
+        `);
+        
+        // Parse the JSON string from the database for the frontend
+        const modules = result.recordset.map(mod => ({
+            ...mod,
+            roleDefinition: JSON.parse(mod.roleDefinition)
+        }));
+        
+        res.json(modules);
+    } catch (err) {
         res.status(500).send(err.message);
     }
 });

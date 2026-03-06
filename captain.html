@@ -40,7 +40,106 @@
   </main>
 
   <script>
-    // Logica di base per il menu e il ritorno
+    const API_URL = '/api';
+    let globalUsers = [];
+    let globalModules = [];
+
+    // Utility per chiamate API protette
+    async function apiFetch(endpoint, options = {}) {
+      options.credentials = 'include';
+      const res = await fetch(`${API_URL}${endpoint}`, options);
+      if (res.status === 401 || res.status === 403) {
+        alert('Sessione scaduta o privilegi insufficienti. Ritorno al login.');
+        window.location.href = 'index.html';
+        throw new Error('Non autorizzato');
+      }
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    // Inizializzazione della Console
+    async function initCaptainConsole() {
+      try {
+        // 1. Verifica chi è loggato
+        const me = await apiFetch('/me');
+        if (!me.isSuperuser) {
+          alert('Accesso negato. Solo i Captain possono accedere a questa area.');
+          window.location.href = 'index.html';
+          return;
+        }
+        document.getElementById('captainNameDisplay').textContent = me.name;
+
+        // 2. Carica i dati base
+        await loadData();
+      } catch (err) {
+        console.error('Errore inizializzazione:', err);
+      }
+    }
+
+    async function loadData() {
+      try {
+        const [users, modules] = await Promise.all([
+          apiFetch('/admin/users'),
+          apiFetch('/admin/modules')
+        ]);
+        globalUsers = users;
+        globalModules = modules;
+        
+        renderUsersTable();
+      } catch (err) {
+        console.error('Errore nel caricamento dei dati Admin:', err);
+      }
+    }
+
+    // Renderizza la griglia degli utenti
+    function renderUsersTable() {
+      const container = document.getElementById('view-utenti');
+      let html = `
+        <div class="data-card-header">
+          <h3 style="margin: 0;">Anagrafica Globale (Passaporti)</h3>
+          <button class="action-btn" style="background: var(--primary); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">+ Nuovo Utente</button>
+        </div>
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--border);">
+                <th style="padding: 12px; color: var(--text-muted);">ID</th>
+                <th style="padding: 12px; color: var(--text-muted);">Nome</th>
+                <th style="padding: 12px; color: var(--text-muted);">Barcode</th>
+                <th style="padding: 12px; color: var(--text-muted);">Stato</th>
+                <th style="padding: 12px; color: var(--text-muted); text-align: right;">Azioni</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+      
+      if (globalUsers.length === 0) {
+        html += `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--text-muted);">Nessun utente trovato.</td></tr>`;
+      } else {
+        globalUsers.forEach(u => {
+          const statusBadge = u.isActive 
+            ? `<span style="padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; background: var(--success); color: white;">Attivo</span>`
+            : `<span style="padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; background: var(--danger); color: white;">Disattivo</span>`;
+            
+          html += `
+            <tr style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 12px; color: var(--text-muted);">#${u.id}</td>
+              <td style="padding: 12px; font-weight: bold;">${u.name}</td>
+              <td style="padding: 12px; font-family: monospace; font-size: 1rem;">${u.barcode}</td>
+              <td style="padding: 12px;">${statusBadge}</td>
+              <td style="padding: 12px; text-align: right;">
+                <button style="background: var(--bg); border: 1px solid var(--border); padding: 6px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; color: var(--primary-dark);">Gestisci Accessi</button>
+              </td>
+            </tr>
+          `;
+        });
+      }
+
+      html += `</tbody></table></div>`;
+      container.innerHTML = html;
+    }
+
+    // Navigazione Sidebar
     document.getElementById('backToAppBtn').addEventListener('click', () => {
       window.location.href = 'index.html';
     });
@@ -49,9 +148,16 @@
       item.addEventListener('click', (e) => {
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         e.currentTarget.classList.add('active');
-        document.getElementById('consolePageTitle').innerText = e.currentTarget.innerText.replace(/[^\w\s]/gi, '').trim();
+        
+        // Estrai solo il testo pulito (rimuove l'emoji) per il titolo
+        const spans = e.currentTarget.querySelectorAll('span');
+        const titleText = spans.length > 1 ? spans[1].innerText : e.currentTarget.innerText;
+        document.getElementById('consolePageTitle').innerText = titleText.replace(/[^\w\s]/gi, '').trim();
       });
     });
+
+    // Avvia l'app
+    initCaptainConsole();
   </script>
 </body>
 </html>
