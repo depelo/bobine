@@ -383,6 +383,12 @@ async function performLogin() {
       return;
     }
     const data = await res.json();
+
+    if (data.user && data.user.isSuperuser) {
+      window.location.href = 'captain.html';
+      return;
+    }
+
     state.currentOperator = data.user || null;
     updateCurrentOperatorUI();
     applyPermissions();

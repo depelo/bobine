@@ -270,6 +270,73 @@ app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
     }
 });
 
+// 3. Creazione utente con transazione (Passaporto + Visti)
+app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
+    const { name, barcode, password, roles } = req.body;
+    try {
+        let pool = await sql.connect(dbConfig);
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        try {
+            const hash = await bcrypt.hash(password || '123456', 10);
+            const userReq = new sql.Request(transaction);
+            userReq.input('name', sql.NVarChar, name);
+            userReq.input('barcode', sql.NVarChar, barcode);
+            userReq.input('pwd', sql.NVarChar, hash);
+
+            const userRes = await userReq.query(`
+                INSERT INTO [CMP].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive)
+                OUTPUT INSERTED.IDUser
+                VALUES (@name, @barcode, @pwd, 1)
+            `);
+            const newUserId = userRes.recordset[0].IDUser;
+
+            if (roles && roles.length > 0) {
+                const validTables = ['Operators', 'Operators_Man'];
+                for (const role of roles) {
+                    if (!validTables.includes(role.targetTable)) continue;
+
+                    const roleReq = new sql.Request(transaction);
+                    roleReq.input('idUser', sql.Int, newUserId);
+
+                    if (role.targetTable === 'Operators') {
+                        const isAdmin = role.roleKey === 'Admin' ? 1 : 0;
+                        roleReq.input('admin', sql.Bit, isAdmin);
+                        await roleReq.query(`
+                            INSERT INTO [CMP].[dbo].[Operators] (IDUser, Admin)
+                            VALUES (@idUser, @admin)
+                        `);
+                    }
+                }
+            }
+
+            await transaction.commit();
+            res.status(201).json({ message: 'Utente globale e visti creati con successo.' });
+        } catch (txErr) {
+            await transaction.rollback();
+            throw txErr;
+        }
+    } catch (err) {
+        console.error('Errore POST /api/admin/users:', err);
+        res.status(500).send(err.message);
+    }
+});
+
+// 4. Soft delete globale utente
+app.delete('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
+    const idUser = parseInt(req.params.id, 10);
+    try {
+        let pool = await sql.connect(dbConfig);
+        await pool.request()
+            .input('idUser', sql.Int, idUser)
+            .query(`UPDATE [CMP].[dbo].[Users] SET IsActive = 0 WHERE IDUser = @idUser`);
+        res.status(200).json({ message: 'Utente disattivato logicamente.' });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
 // --- API MACCHINE ---
 
 // Recupera todas las máquinas, incluyendo el código de barras

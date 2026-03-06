@@ -38,6 +38,35 @@
     </div>
   </main>
 
+  <div class="scanner-modal" id="adminUserModal" aria-hidden="true">
+    <div class="scanner-modal-inner" style="width: 400px; max-width: 90%;">
+      <p class="scanner-title">Nuovo Utente (Passaporto & Visti)</p>
+
+      <div class="login-field">
+        <label>Nome Completo</label>
+        <input type="text" id="adminNewName" class="control" style="width:100%" autocomplete="off" />
+      </div>
+      <div class="login-field">
+        <label>Barcode Login</label>
+        <input type="text" id="adminNewBarcode" class="control" style="width:100%" autocomplete="off" />
+      </div>
+      <div class="login-field">
+        <label>Password (Opzionale)</label>
+        <input type="password" id="adminNewPassword" class="control" style="width:100%" autocomplete="new-password" placeholder="Default: 123456" />
+      </div>
+
+      <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 10px;">
+        <p style="font-weight: 600; margin-bottom: 10px;">Assegna Accessi (Visti):</p>
+        <div id="dynamicRolesContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      </div>
+
+      <div class="login-actions" style="margin-top: 24px; gap: 12px; display: flex;">
+        <button type="button" class="scanner-cancel" id="adminUserCancelBtn" style="flex:1;">Annulla</button>
+        <button type="button" class="scanner-cancel" id="adminUserSaveBtn" style="flex:1; background: var(--success); color: white; border: none;">Salva</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_URL = '/api';
     let globalUsers = [];
@@ -153,6 +182,85 @@
         const titleText = spans.length > 1 ? spans[1].innerText : e.currentTarget.innerText;
         document.getElementById('consolePageTitle').innerText = titleText.replace(/[^\w\s]/gi, '').trim();
       });
+    });
+
+    // Modal Nuovo Utente (Passaporto & Visti)
+    function openNewUserModal() {
+      document.getElementById('adminNewName').value = '';
+      document.getElementById('adminNewBarcode').value = '';
+      document.getElementById('adminNewPassword').value = '';
+
+      const container = document.getElementById('dynamicRolesContainer');
+      container.innerHTML = '';
+
+      globalModules.forEach(mod => {
+        const roles = mod.roleDefinition;
+        if (!roles) return;
+
+        const modGroup = document.createElement('div');
+        modGroup.style.marginBottom = '8px';
+        modGroup.innerHTML = `<strong style="font-size:0.9rem; color: var(--primary);">${mod.name}</strong>`;
+
+        for (const [roleKey, roleInfo] of Object.entries(roles)) {
+          const lbl = document.createElement('label');
+          lbl.style.display = 'flex';
+          lbl.style.alignItems = 'center';
+          lbl.style.gap = '8px';
+          lbl.style.fontSize = '0.9rem';
+          lbl.style.marginTop = '4px';
+          lbl.style.cursor = 'pointer';
+
+          lbl.innerHTML = `
+                <input type="checkbox" class="role-checkbox" data-target-table="${mod.targetTable}" data-role-key="${roleKey}">
+                ${roleInfo.label}
+            `;
+          modGroup.appendChild(lbl);
+        }
+        container.appendChild(modGroup);
+      });
+
+      const modal = document.getElementById('adminUserModal');
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    // Delegazione: + Nuovo Utente (il bottone viene re-renderizzato in renderUsersTable)
+    document.getElementById('view-utenti').addEventListener('click', (e) => {
+      if (e.target.closest('.action-btn')) openNewUserModal();
+    });
+
+    document.getElementById('adminUserCancelBtn').addEventListener('click', () => {
+      document.getElementById('adminUserModal').classList.remove('is-open');
+      document.getElementById('adminUserModal').setAttribute('aria-hidden', 'true');
+    });
+
+    document.getElementById('adminUserSaveBtn').addEventListener('click', async () => {
+      const name = document.getElementById('adminNewName').value.trim();
+      const barcode = document.getElementById('adminNewBarcode').value.trim();
+      const password = document.getElementById('adminNewPassword').value;
+
+      if (!name || !barcode) {
+        alert('Nome e Barcode sono obbligatori');
+        return;
+      }
+
+      const selectedRoles = Array.from(document.querySelectorAll('.role-checkbox:checked')).map(cb => ({
+        targetTable: cb.dataset.targetTable,
+        roleKey: cb.dataset.roleKey
+      }));
+
+      try {
+        await apiFetch('/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, barcode, password, roles: selectedRoles })
+        });
+        document.getElementById('adminUserModal').classList.remove('is-open');
+        document.getElementById('adminUserModal').setAttribute('aria-hidden', 'true');
+        loadData();
+      } catch (err) {
+        alert('Errore salvataggio: ' + err.message);
+      }
     });
 
     // Avvia l'app
