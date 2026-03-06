@@ -1,83 +1,62 @@
-Documentazione Tecnica Database: Progetto UJet Rotoli
-1. Panoramica Generale
-Motore Database: Microsoft SQL Server.
+# Documentazione Tecnica Database: Piattaforma UJet ERP/MES
+Motore Database: Microsoft SQL Server. Nome Database: CMP.
+Paradigma di Sicurezza: "Zero-Trust". I controlli sui permessi non sono demandati solo al codice, ma sono blindati a livello di database.
 
-Nome Database: CMP.
+## 1. Architettura Identità: "Passaporto e Visto"
+Il sistema ospita molteplici app dipartimentali mantenendo una singola base di identità.
+- **Passaporto (Auth Centralizzata):** La tabella `Users` gestisce le credenziali e l'identità fisica della persona.
+- **Visto (Silos Dipartimentali):** Tabelle dedicate per ogni reparto (es. `Operators` per Bobine, `Operators_Man` per Manutenzione).
 
-Scopo Principale: L'applicazione gestisce un registro di produzione industriale (carico/scarico bobine, materie prime, lotti e quantità).
+### 1.1 Tabella [dbo].[Users] (Il Passaporto)
+- `IDUser` (INT, PK): Identificativo assoluto.
+- `Name`, `Barcode` (Unique): Identificatori per il login.
+- `PasswordHash`: Hash bcrypt.
+- `IsActive`: Soft-delete globale.
+- **Overrides di Sicurezza (Eccezioni per utente):**
+  - `SessionHoursOverride` / `PwdExpiryDaysOverride`: Sovrascrivono i valori globali di SystemConfig.
+  - `ForcePwdChange` (BIT): Se 1, blocca l'utente al login finché non cambia password (usato per le password temporanee del Captain).
 
-Paradigma di Sicurezza: "Zero-Trust". I controlli sui permessi (soprattutto per l'eliminazione dei dati) non sono demandati esclusivamente al backend o al frontend, ma sono blindati a livello di database tramite regole strette (Stored Procedures).
+### 1.2 Tabella [dbo].[Modules] (L'Autodefinizione)
+È il "Libretto di Istruzioni" per la Captain Console. Permette alla UI di autoconfigurarsi.
+- `IDModule` (INT, PK).
+- `ModuleName`: Nome app (es. "App Bobine").
+- `TargetTable`: Tabella fisica del reparto (es. "Operators").
+- `RoleDefinition` (JSON): Definisce i ruoli e se richiedono password. 
+  *Esempio:* `{"Admin": {"label": "Caporeparto", "requiresPassword": true}, "Base": {"label": "Operatore Base", "requiresPassword": false}}`.
 
-2. Struttura delle Tabelle Principali
-2.1 Tabella [dbo].[Operators]
-Gestisce l'anagrafica degli utenti e i loro privilegi di accesso.
+### 1.3 Tabelle Dipartimentali (I Visti)
+**Esempio: [dbo].[Operators] (Reparto Bobine)**
+Contiene solo attributi lavorativi locali.
+- `IDOperator` (INT, PK): ID storico usato nei Log.
+- `IDUser` (INT, FK): Relazione con Users.
+- `Admin` (BIT): Ruolo locale nel reparto.
+- `StartTime` (VARCHAR): Orario turno specifico.
 
-IDOperator (INT): Identificativo univoco.
+## 2. Struttura delle Tabelle di Business
 
-Operator (NVARCHAR): Nome visualizzato dell'operatore.
-
-Barcode (NVARCHAR): Codice a barre utilizzato per il login rapido a bordo macchina.
-
-StartTime (VARCHAR): Orario di inizio turno dell'operatore.
-
-Controllo Accessi (RBAC):
-
-Admin (BIT): Se 1, l'utente è un Capo Reparto (può modificare/eliminare log passati e gestire le anagrafiche di base).
-
-IsSuperuser (BIT): Se 1, l'utente ha accesso alle configurazioni di sistema e alla creazione degli amministratori.
-
-Sicurezza:
-
-PasswordHash (NVARCHAR): Contiene l'hash della password (es. bcrypt). Le password non sono mai salvate in chiaro.
-
-LastPasswordChange (DATETIME): Data dell'ultimo aggiornamento della password, utile per forzare rotazioni periodiche (es. ogni X giorni).
-
-IsActive (BIT): Flag per disattivare un operatore senza doverne eliminare il record, mantenendo intatto lo storico dei log.
-
-2.2 Tabella [dbo].[Machines]
-Anagrafica dei macchinari di produzione.
-
-IDMachine (INT), Machine (NVARCHAR): Identificativo e nome.
-
-Barcode (NVARCHAR): Codice scansionabile per la selezione rapida.
-
-2.3 Tabella [dbo].[Log] (Cuore Operativo)
+### 2.1 Tabella [dbo].[Log] (Cuore Operativo)
 Registra tutte le transazioni di produzione.
+- Dati: `IDMachine`, `Codart`, `Lot`, `Quantity`, `IDRoll`, `bobina_finita`.
+- Tracciabilità: Legato a `IDOperator` (il Visto), non a `IDUser` (il Passaporto), per mantenere il contesto dipartimentale.
+- **Sicurezza (Soft-Delete e Auditing):** Usa `Eliminato = 1`. Modifiche tracciate via `ModificatoDa`, `NumeroModifiche` e System-Versioned Temporal Tables (`ValidFrom`, `ValidTo`) interrogabili tramite `FOR SYSTEM_TIME ALL`.
 
-Dati Operativi: IDLog, Date, IDOperator, IDMachine, Codart (Codice materia prima), Lot (Lotto), Quantity, Notes, IDRoll (ID Bobina progressivo), bobina_finita (Booleano).
+### 2.2 Tabella [dbo].[Machines]
+Anagrafica dei macchinari di produzione. `IDMachine`, `Machine`, `Barcode` (per selezione rapida).
 
-Tracciabilità e Soft-Delete:
+### 2.3 Tabella [dbo].[SystemConfig]
+Dizionario Key/Value per le configurazioni dinamiche (modificabili dal Captain a runtime). 
+Valori: `AdminPwdExpiryDays`, `AdminSessionHours`, `OpDeleteMaxRecords`, `OpDeleteMaxHours`.
+*(Per aggiungere parametri, si inserisce una nuova riga, non una nuova colonna).*
 
-Eliminato (BIT): Se 1, il record è considerato cancellato (soft-delete). Non viene mai eseguita un'istruzione DELETE fisica.
+## 3. Logica di Business e Stored Procedures
 
-NumeroModifiche (INT) e ModificatoDa (INT): Tengono traccia di quante volte un record è stato alterato e da chi.
+### sp_DeleteLogOperatore
+Questa procedura garantisce che l'eliminazione (Soft-Delete) dei log da parte di operatori standard sia sicura e limitata.
+**Regole di validazione (Eseguite a livello DB):**
+1. Il record deve esistere e non essere già eliminato.
+2. L'operatore che richiede l'eliminazione deve corrispondere a colui che ha creato originariamente il record.
+3. Il record non deve essere più vecchio del limite stabilito in SystemConfig (es. 48 ore).
+4. Il record deve rientrare tra gli ultimi N record inseriti dall'operatore, stabiliti in SystemConfig (es. ultimi 2 inserimenti).
+Se tutte le condizioni sono soddisfatte, esegue `UPDATE ... SET Eliminato = 1`.
 
-Memoria Attiva (System-Versioned Temporal Table):
-La tabella sfrutta il versionamento di sistema nativo di SQL Server. Ogni operazione di UPDATE o DELETE (logico) genera in automatico una riga in una tabella di storico collegata, registrando l'istante esatto della variazione (ValidFrom). Lo storico viene interrogato tramite la clausola FOR SYSTEM_TIME ALL per ricostruire l'esatta sequenza di modifiche di un record (Auditing).
-
-2.4 Tabella [dbo].[SystemConfig]
-Tabella chiave-valore per le configurazioni dinamiche dell'applicazione, gestibili dai Superuser senza necessità di interventi sul codice sorgente o sul database.
-
-Valori supportati attualmente:
-
-AdminPwdExpiryDays: Giorni di validità della password per i Capi Reparto.
-
-AdminSessionHours: Durata massima in ore del token di sessione (JWT) per gli Admin.
-
-OpDeleteMaxRecords: Numero massimo di record recenti che un operatore standard può annullare/eliminare.
-
-OpDeleteMaxHours: Finestra temporale massima (in ore) entro la quale un operatore standard può annullare un proprio inserimento.
-
-3. Logica di Business e Stored Procedures
-sp_DeleteLogOperatore
-Questa procedura garantisce che l'eliminazione dei log da parte di operatori standard sia sicura e limitata.
-Regole di validazione (Eseguite a livello DB):
-
-Il record deve esistere e non essere già eliminato.
-
-L'operatore che richiede l'eliminazione deve corrispondere a colui che ha creato originariamente il record.
-
-Il record non deve essere più vecchio del limite stabilito in SystemConfig (es. 48 ore).
-
-Il record deve rientrare tra gli ultimi N record inseriti dall'operatore, dove N è stabilito in SystemConfig (es. ultimi 2 inserimenti).
-Se tutte le condizioni sono soddisfatte, la procedura esegue un "Soft Delete" impostando Eliminato = 1.
+---
