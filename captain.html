@@ -53,34 +53,11 @@
 
       <div class="data-card console-view" id="view-config" style="display: none;">
         <div class="data-card-header">
-          <h3 style="margin: 0;">Regole di Fabbrica</h3>
-          <button class="action-btn" style="background: var(--success); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">Salva Modifiche</button>
+          <h3 style="margin: 0;">Regole di Fabbrica Globali</h3>
+          <button id="btnSaveConfig" class="action-btn" style="background: var(--success); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">Salva Modifiche</button>
         </div>
-        
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-          <div style="border: 1px solid var(--border); padding: 16px; border-radius: var(--radius);">
-            <h4 style="margin-top: 0; color: var(--primary-dark);">🛡️ Sicurezza Captain & Admin</h4>
-            <div class="login-field">
-              <label>Scadenza Password (giorni)</label>
-              <input type="number" id="cfg_AdminPwdExpiryDays" class="control" placeholder="es. 90">
-            </div>
-            <div class="login-field">
-              <label>Disconnessione Automatica Sessione (ore)</label>
-              <input type="number" id="cfg_AdminSessionHours" class="control" placeholder="es. 8">
-            </div>
-          </div>
-
-          <div style="border: 1px solid var(--border); padding: 16px; border-radius: var(--radius);">
-            <h4 style="margin-top: 0; color: var(--primary-dark);">⚙️ Limiti Operativi (Reparto)</h4>
-            <div class="login-field">
-              <label>Tempo limite eliminazione log (ore retroattive)</label>
-              <input type="number" id="cfg_OpDeleteMaxHours" class="control" placeholder="es. 48">
-            </div>
-            <div class="login-field">
-              <label>Numero max di log recenti eliminabili</label>
-              <input type="number" id="cfg_OpDeleteMaxRecords" class="control" placeholder="es. 2">
-            </div>
-          </div>
+        <p style="font-size: 0.9rem; color: var(--text-muted); margin-top: 0;">Questi valori fungono da regola generale o da fallback se le singole app non specificano una regola propria.</p>
+        <div id="dynamicConfigContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; margin-top: 24px;">
         </div>
       </div>
 
@@ -163,7 +140,7 @@
               </div>
             </div>
 
-            <div style="margin-top: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius);">
+            <div id="pwdManagementSection" style="margin-top: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h4 style="margin:0; color: #856404;">Gestione Credenziali & Accesso</h4>
                 <button type="button" id="umpKickBtn" style="background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" title="Espelli immediatamente l'utente">
@@ -242,6 +219,7 @@
     const API_URL = '/api';
     let globalUsers = [];
     let globalModules = [];
+    let globalConfig = [];
 
     // Utility per chiamate API protette
     async function apiFetch(endpoint, options = {}) {
@@ -277,15 +255,18 @@
 
     async function loadData() {
       try {
-        const [users, modules] = await Promise.all([
+        const [users, modules, config] = await Promise.all([
           apiFetch('/admin/users'),
-          apiFetch('/admin/modules')
+          apiFetch('/admin/modules'),
+          apiFetch('/admin/config')
         ]);
         globalUsers = users;
         globalModules = modules;
+        globalConfig = config;
 
         renderUsersTable();
         renderModulesCards();
+        renderConfigView();
       } catch (err) {
         console.error('Errore nel caricamento dei dati Admin:', err);
       }
@@ -433,6 +414,27 @@
       document.getElementById('umpInputPwd').value = '';
       document.getElementById('umpForcePwdChange').checked = !!u.forcePwdChange;
       document.getElementById('umpPwdExpiry').value = u.pwdExpiryDaysOverride != null ? u.pwdExpiryDaysOverride : '';
+      // Determina se mostrare la gestione password
+      let needsPassword = false;
+      if (u.apps && u.apps.length > 0) {
+        u.apps.forEach(app => {
+          const mod = globalModules.find(m => m.id === app.moduleId);
+          if (mod && mod.roleDefinition && mod.roleDefinition[app.roleKey]) {
+            if (mod.roleDefinition[app.roleKey].requiresPassword) {
+              needsPassword = true;
+            }
+          }
+        });
+      }
+      const pwdSection = document.getElementById('pwdManagementSection');
+      if (needsPassword) {
+        pwdSection.style.display = 'block';
+      } else {
+        pwdSection.style.display = 'none';
+        document.getElementById('umpInputPwd').value = '';
+        document.getElementById('umpForcePwdChange').checked = false;
+        document.getElementById('umpPwdExpiry').value = '';
+      }
       // Ripristina tab Sicurezza
       document.querySelectorAll('.ump-tab').forEach(t => t.classList.remove('active'));
       document.querySelector('.ump-tab[data-tab="ump-sec"]').classList.add('active');
@@ -709,6 +711,47 @@
         alert('Configurazione App salvata con successo.');
       } catch (err) {
         alert('Errore salvataggio modulo: ' + err.message);
+      }
+    });
+
+    function renderConfigView() {
+      const container = document.getElementById('dynamicConfigContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      globalConfig.forEach(item => {
+        const div = document.createElement('div');
+        div.style.cssText = 'border: 1px solid var(--border); padding: 16px; border-radius: var(--radius); background: var(--bg);';
+        const labelText = item.Description || item.ConfigKey;
+        div.innerHTML = `
+            <label style="display: block; font-weight: bold; color: var(--primary-dark); margin-bottom: 8px;">${esc(labelText)}</label>
+            <div style="font-size: 0.8rem; font-family: monospace; color: var(--text-muted); margin-bottom: 8px;">Chiave DB: ${esc(item.ConfigKey)}</div>
+            <input type="text" class="control dyn-config-input" data-key="${esc(item.ConfigKey)}" style="width: 100%;">
+        `;
+        const input = div.querySelector('.dyn-config-input');
+        input.value = item.ConfigValue != null ? item.ConfigValue : '';
+        container.appendChild(div);
+      });
+    }
+
+    document.getElementById('btnSaveConfig')?.addEventListener('click', async () => {
+      const inputs = document.querySelectorAll('.dyn-config-input');
+      const payload = Array.from(inputs).map(inp => ({
+        key: inp.dataset.key,
+        value: inp.value.trim()
+      }));
+
+      try {
+        await apiFetch('/admin/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        await loadData();
+        alert('Regole globali aggiornate con successo.');
+      } catch (err) {
+        alert('Errore salvataggio configurazioni: ' + err.message);
       }
     });
 

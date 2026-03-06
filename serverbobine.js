@@ -364,6 +364,52 @@ app.put('/api/admin/modules/:id', authenticateCaptain, async (req, res) => {
     }
 });
 
+app.get('/api/admin/config', authenticateCaptain, async (req, res) => {
+    try {
+        let pool = await sql.connect(dbConfig);
+        const result = await pool.request().query(`
+            SELECT ConfigKey, ConfigValue, Description
+            FROM [CMP].[dbo].[SystemConfig]
+            ORDER BY ConfigKey ASC
+        `);
+        res.json(result.recordset);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+app.put('/api/admin/config', authenticateCaptain, async (req, res) => {
+    const configs = req.body;
+    try {
+        let pool = await sql.connect(dbConfig);
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        try {
+            for (const item of configs) {
+                const sqlReq = new sql.Request(transaction);
+                sqlReq.input('key', sql.VarChar, item.key);
+                sqlReq.input('val', sql.VarChar, item.value !== null && item.value !== '' ? String(item.value) : null);
+
+                await sqlReq.query(`
+                    IF EXISTS (SELECT 1 FROM [CMP].[dbo].[SystemConfig] WHERE ConfigKey = @key)
+                        UPDATE [CMP].[dbo].[SystemConfig] SET ConfigValue = @val WHERE ConfigKey = @key
+                    ELSE
+                        INSERT INTO [CMP].[dbo].[SystemConfig] (ConfigKey, ConfigValue) VALUES (@key, @val)
+                `);
+            }
+            await transaction.commit();
+            res.status(200).json({ message: 'Configurazioni aggiornate' });
+        } catch (txErr) {
+            await transaction.rollback();
+            throw txErr;
+        }
+    } catch (err) {
+        console.error('Errore PUT /api/admin/config:', err);
+        res.status(500).send(err.message);
+    }
+});
+
 // 4. Creazione utente con transazione (Passaporto + Visti)
 app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
     const { name, barcode, password, roles } = req.body;
