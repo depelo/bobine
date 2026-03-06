@@ -19,7 +19,6 @@
     <nav class="sidebar-nav">
       <div class="nav-item active" data-target="utenti"><span style="font-size: 1.3rem; margin-bottom: 2px;">👥</span><span>Utenti</span></div>
       <div class="nav-item" data-target="moduli"><span style="font-size: 1.3rem; margin-bottom: 2px;">🧩</span><span>Accessi</span></div>
-      <div class="nav-item" data-target="config"><span style="font-size: 1.3rem; margin-bottom: 2px;">⚙️</span><span>Config.</span></div>
       <div class="nav-item" data-target="audit"><span style="font-size: 1.3rem; margin-bottom: 2px;">🛡️</span><span>Audit</span></div>
     </nav>
     <div class="nav-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: auto;" id="backToAppBtn">
@@ -48,16 +47,6 @@
           <p style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">Gestisci le App attive e i ruoli interni disponibili per l'assegnazione.</p>
         </div>
         <div id="modulesContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
-        </div>
-      </div>
-
-      <div class="data-card console-view" id="view-config" style="display: none;">
-        <div class="data-card-header">
-          <h3 style="margin: 0;">Regole di Fabbrica Globali</h3>
-          <button id="btnSaveConfig" class="action-btn" style="background: var(--success); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">Salva Modifiche</button>
-        </div>
-        <p style="font-size: 0.9rem; color: var(--text-muted); margin-top: 0;">Questi valori fungono da regola generale o da fallback se le singole app non specificano una regola propria.</p>
-        <div id="dynamicConfigContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; margin-top: 24px;">
         </div>
       </div>
 
@@ -209,6 +198,11 @@
         </table>
       </div>
 
+      <div id="emAppSettingsWrapper" style="margin-top: 24px; padding-top: 16px; border-top: 2px solid var(--border); display: none;">
+        <p style="font-weight: bold; margin-bottom: 12px; color: var(--primary-dark);">⚙️ Impostazioni Specifiche App</p>
+        <div id="emAppSettingsContainer" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;"></div>
+      </div>
+
       <div class="login-actions" style="margin-top: 24px;">
         <button type="button" class="scanner-cancel" id="emSaveBtn" style="width: 100%; background: var(--success); color: white; border: none;">Salva Configurazione App</button>
       </div>
@@ -219,7 +213,6 @@
     const API_URL = '/api';
     let globalUsers = [];
     let globalModules = [];
-    let globalConfig = [];
 
     // Utility per chiamate API protette
     async function apiFetch(endpoint, options = {}) {
@@ -255,18 +248,15 @@
 
     async function loadData() {
       try {
-        const [users, modules, config] = await Promise.all([
+        const [users, modules] = await Promise.all([
           apiFetch('/admin/users'),
-          apiFetch('/admin/modules'),
-          apiFetch('/admin/config')
+          apiFetch('/admin/modules')
         ]);
         globalUsers = users;
         globalModules = modules;
-        globalConfig = config;
 
         renderUsersTable();
         renderModulesCards();
-        renderConfigView();
       } catch (err) {
         console.error('Errore nel caricamento dei dati Admin:', err);
       }
@@ -376,7 +366,9 @@
         roleKeys.forEach(key => {
           const r = roles[key];
           const pwdBadge = r.requiresPassword ? '<span style="color:var(--danger); font-size:0.75rem;">(Pwd)</span>' : '<span style="color:var(--success); font-size:0.75rem;">(Fast)</span>';
-          rolesHtml += `<li>${(r.label || key)} ${pwdBadge}</li>`;
+          const hoursBadge = r.sessionHours ? `<span style="color:var(--text-muted); font-size:0.75rem;">(${r.sessionHours}h)</span>` : '';
+          const daysBadge = (r.requiresPassword && r.pwdExpiryDays) ? `<span style="color:var(--text-muted); font-size:0.75rem;">(${r.pwdExpiryDays}gg)</span>` : '';
+          rolesHtml += `<li>${(r.label || key)} ${pwdBadge} ${hoursBadge} ${daysBadge}</li>`;
         });
 
         const card = document.createElement('div');
@@ -655,6 +647,32 @@
         tbody.appendChild(tr);
       }
 
+      const appSetWrapper = document.getElementById('emAppSettingsWrapper');
+      const appSetContainer = document.getElementById('emAppSettingsContainer');
+      appSetContainer.innerHTML = '';
+
+      const settings = mod.appSettings || {};
+      if (Object.keys(settings).length > 0) {
+        appSetWrapper.style.display = 'block';
+        const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        for (const [sKey, sConfig] of Object.entries(settings)) {
+          const fieldDiv = document.createElement('div');
+          fieldDiv.className = 'login-field';
+          const inputType = sConfig.type || 'text';
+          const safeKey = esc(sKey);
+          const safeLabel = esc(sConfig.label || sKey);
+          fieldDiv.innerHTML = `
+            <label style="font-size:0.85rem;">${safeLabel}</label>
+            <input type="${inputType}" class="control dyn-app-setting" data-key="${safeKey}" data-type="${inputType}" data-label="${safeLabel}" style="width:100%;">
+          `;
+          const input = fieldDiv.querySelector('.dyn-app-setting');
+          input.value = sConfig.value != null && sConfig.value !== '' ? sConfig.value : '';
+          appSetContainer.appendChild(fieldDiv);
+        }
+      } else {
+        appSetWrapper.style.display = 'none';
+      }
+
       const modal = document.getElementById('editModuleModal');
       modal.classList.add('is-open');
       modal.setAttribute('aria-hidden', 'false');
@@ -691,12 +709,27 @@
         };
       });
 
+      const newAppSet = {};
+      const settingInputs = document.querySelectorAll('.dyn-app-setting');
+      settingInputs.forEach(inp => {
+        const sKey = inp.dataset.key;
+        const sType = inp.dataset.type || 'text';
+        const sLabel = inp.dataset.label;
+        let sVal = inp.value;
+        if (sType === 'number') sVal = sVal !== '' ? Number(sVal) : null;
+        newAppSet[sKey] = {
+          label: sLabel,
+          type: sType,
+          value: sVal
+        };
+      });
+
       try {
         const res = await fetch(`${API_URL}/admin/modules/${id}`, {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roleDefinition: newRoleDef })
+          body: JSON.stringify({ roleDefinition: newRoleDef, appSettings: newAppSet })
         });
         if (res.status === 401 || res.status === 403) {
           alert('Sessione scaduta o privilegi insufficienti.');
@@ -711,47 +744,6 @@
         alert('Configurazione App salvata con successo.');
       } catch (err) {
         alert('Errore salvataggio modulo: ' + err.message);
-      }
-    });
-
-    function renderConfigView() {
-      const container = document.getElementById('dynamicConfigContainer');
-      if (!container) return;
-      container.innerHTML = '';
-
-      const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      globalConfig.forEach(item => {
-        const div = document.createElement('div');
-        div.style.cssText = 'border: 1px solid var(--border); padding: 16px; border-radius: var(--radius); background: var(--bg);';
-        const labelText = item.Description || item.ConfigKey;
-        div.innerHTML = `
-            <label style="display: block; font-weight: bold; color: var(--primary-dark); margin-bottom: 8px;">${esc(labelText)}</label>
-            <div style="font-size: 0.8rem; font-family: monospace; color: var(--text-muted); margin-bottom: 8px;">Chiave DB: ${esc(item.ConfigKey)}</div>
-            <input type="text" class="control dyn-config-input" data-key="${esc(item.ConfigKey)}" style="width: 100%;">
-        `;
-        const input = div.querySelector('.dyn-config-input');
-        input.value = item.ConfigValue != null ? item.ConfigValue : '';
-        container.appendChild(div);
-      });
-    }
-
-    document.getElementById('btnSaveConfig')?.addEventListener('click', async () => {
-      const inputs = document.querySelectorAll('.dyn-config-input');
-      const payload = Array.from(inputs).map(inp => ({
-        key: inp.dataset.key,
-        value: inp.value.trim()
-      }));
-
-      try {
-        await apiFetch('/admin/config', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        await loadData();
-        alert('Regole globali aggiornate con successo.');
-      } catch (err) {
-        alert('Errore salvataggio configurazioni: ' + err.message);
       }
     });
 

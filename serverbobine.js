@@ -325,39 +325,36 @@ app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
         const result = await pool.request().query(`
-            SELECT 
-                IDModule as id, 
-                ModuleName as name, 
-                TargetTable as targetTable,
-                RoleDefinition as roleDefinition
+            SELECT IDModule as id, ModuleName as name, TargetTable as targetTable, RoleDefinition as roleDefinition, AppSettings as appSettings
             FROM [CMP].[dbo].[Modules]
         `);
-        
-        // Parse the JSON string from the database for the frontend
-        const modules = result.recordset.map(mod => ({
-            ...mod,
-            roleDefinition: JSON.parse(mod.roleDefinition)
-        }));
-        
+
+        const modules = result.recordset.map(mod => {
+            let rDef = {}, aSet = {};
+            try { rDef = mod.roleDefinition ? JSON.parse(mod.roleDefinition) : {}; } catch (e) {}
+            try { aSet = mod.appSettings ? JSON.parse(mod.appSettings) : {}; } catch (e) {}
+            return { ...mod, roleDefinition: rDef, appSettings: aSet };
+        });
         res.json(modules);
     } catch (err) {
         res.status(500).send(err.message);
     }
 });
 
-// 3b. Aggiorna RoleDefinition del modulo
+// 3b. Aggiorna RoleDefinition e AppSettings del modulo
 app.put('/api/admin/modules/:id', authenticateCaptain, async (req, res) => {
     const idModule = parseInt(req.params.id, 10);
-    const { roleDefinition } = req.body;
+    const { roleDefinition, appSettings } = req.body;
 
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('idModule', sql.Int, idModule)
             .input('roleDef', sql.NVarChar, JSON.stringify(roleDefinition))
-            .query(`UPDATE [CMP].[dbo].[Modules] SET RoleDefinition = @roleDef WHERE IDModule = @idModule`);
+            .input('appSet', sql.NVarChar, JSON.stringify(appSettings || {}))
+            .query(`UPDATE [CMP].[dbo].[Modules] SET RoleDefinition = @roleDef, AppSettings = @appSet WHERE IDModule = @idModule`);
 
-        res.status(200).json({ message: 'Regole dell\'app aggiornate con successo.' });
+        res.status(200).json({ message: 'Regole e Impostazioni App aggiornate con successo.' });
     } catch (err) {
         console.error('Errore PUT /api/admin/modules/:id:', err);
         res.status(500).send(err.message);

@@ -23,6 +23,7 @@ Il sistema ospita molteplici app dipartimentali mantenendo una singola base di i
 - `TargetTable`: Tabella fisica del reparto (es. "Operators").
 - `RoleDefinition` (JSON): Definisce i ruoli e se richiedono password. 
   *Esempio:* `{"Admin": {"label": "Caporeparto", "requiresPassword": true}, "Base": {"label": "Operatore Base", "requiresPassword": false}}`.
+- `AppSettings` (NVARCHAR MAX, JSON): Definisce in modo indipendente le impostazioni specifiche e i limiti operativi dell'app (es. OpDeleteMaxRecords, OpDeleteMaxHours) senza hardcoding nel frontend.
 
 ### 1.3 Tabelle Dipartimentali (I Visti)
 **Esempio: [dbo].[Operators] (Reparto Bobine)**
