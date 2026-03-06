@@ -334,6 +334,11 @@ body {
   width: 100%; /* Forza la griglia a espandersi */
 }
 
+/* Risolve lo sfalsamento della griglia: forza il primo elemento (senza label) a occupare entrambe le colonne */
+.form-grid > .control:first-child {
+  grid-column: 1 / -1;
+}
+
 label {
   color: var(--text);
   font-size: var(--font-size-label);
