@@ -17,7 +17,7 @@ async function initSecurity() {
     
     if (res.ok) {
       // --- CONTROLLO ACCESSO AI MODULI (RBAC) ---
-      const user = data.user;
+      const user = data.user || data;
       const currentPath = window.location.pathname.toLowerCase();
 
       // Escludiamo il root e il gateway dal controllo
@@ -45,7 +45,7 @@ async function initSecurity() {
         }
       }
 
-      window.SecurityData = data;
+      window.SecurityData = { user: user };
       document.dispatchEvent(new Event('securityReady')); // Avvisa il Layer 2
       return true;
     }
