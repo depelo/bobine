@@ -151,6 +151,16 @@
               </div>
             </div>
 
+            <div class="form-group" style="margin-top: 15px;">
+              <label>App Autorizzate</label>
+              <div id="umpAuthorizedApps" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+              </div>
+              <label for="umpDefaultModule">App di Destinazione Principale</label>
+              <select id="umpDefaultModule" class="control">
+                <option value="">-- Seleziona automaticamente dopo il login --</option>
+              </select>
+            </div>
+
             <button id="umpSaveSecBtn" style="margin-top: 24px; padding: 12px 24px; background: var(--primary); color: white; border: none; border-radius: var(--radius); font-weight: bold; cursor: pointer;">Salva Sicurezza</button>
           </div>
 
@@ -213,6 +223,7 @@
     const API_URL = '/api';
     let globalUsers = [];
     let globalModules = [];
+    let allModules = [];
 
     // Utility per chiamate API protette
     async function apiFetch(endpoint, options = {}) {
@@ -254,9 +265,11 @@
         ]);
         globalUsers = users;
         globalModules = modules;
+        allModules = modules;
 
         renderUsersTable();
         renderModulesCards();
+        await loadModules();
       } catch (err) {
         console.error('Errore nel caricamento dei dati Admin:', err);
       }
@@ -387,6 +400,51 @@
       });
     }
 
+    async function loadModules() {
+      try {
+        // Usa i moduli già caricati se disponibili
+        const modules = allModules && allModules.length > 0 ? allModules : await apiFetch('/admin/modules');
+        allModules = modules;
+
+        const appsContainer = document.getElementById('umpAuthorizedApps');
+        const defaultSelect = document.getElementById('umpDefaultModule');
+        if (!appsContainer || !defaultSelect) return;
+
+        appsContainer.innerHTML = '';
+        defaultSelect.innerHTML = '<option value=\"\">-- Seleziona automaticamente dopo il login --</option>';
+
+        modules.forEach(mod => {
+          // Checkbox per app autorizzate
+          const wrapper = document.createElement('label');
+          wrapper.style.display = 'flex';
+          wrapper.style.alignItems = 'center';
+          wrapper.style.gap = '6px';
+          wrapper.style.fontSize = '0.85rem';
+
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.value = mod.id;
+          cb.style.width = '16px';
+          cb.style.height = '16px';
+
+          const span = document.createElement('span');
+          span.textContent = mod.name;
+
+          wrapper.appendChild(cb);
+          wrapper.appendChild(span);
+          appsContainer.appendChild(wrapper);
+
+          // Option per default module
+          const opt = document.createElement('option');
+          opt.value = mod.id;
+          opt.textContent = mod.name;
+          defaultSelect.appendChild(opt);
+        });
+      } catch (err) {
+        console.error('Errore caricamento moduli per pannello utente:', err);
+      }
+    }
+
     // Pannello Gestione Utente (Passaporto / Sessioni / Accessi)
     function openUserManager(id) {
       const u = globalUsers.find(x => x.id === id);
@@ -435,6 +493,21 @@
       const panel = document.getElementById('userManagePanel');
       panel.classList.add('is-open');
       panel.setAttribute('aria-hidden', 'false');
+
+      // Gestione App autorizzate e modulo di default
+      const appsContainer = document.getElementById('umpAuthorizedApps');
+      const defaultSelect = document.getElementById('umpDefaultModule');
+      if (appsContainer && defaultSelect) {
+        const checkboxes = appsContainer.querySelectorAll('input[type="checkbox"]');
+        const authorizedIds = Array.isArray(u.authorizedModuleIds) ? u.authorizedModuleIds : (u.apps || []).map(a => a.moduleId);
+
+        checkboxes.forEach(cb => {
+          const idVal = parseInt(cb.value, 10);
+          cb.checked = !Number.isNaN(idVal) && authorizedIds.includes(idVal);
+        });
+
+        defaultSelect.value = u.defaultModuleId != null ? String(u.defaultModuleId) : '';
+      }
     }
 
     // Navigazione Sidebar
@@ -572,6 +645,21 @@
       const pwdExpiryVal = document.getElementById('umpPwdExpiry').value.trim();
       const pwdExpiryDaysOverride = pwdExpiryVal === '' ? null : parseInt(pwdExpiryVal, 10);
 
+      const appsContainer = document.getElementById('umpAuthorizedApps');
+      const defaultSelect = document.getElementById('umpDefaultModule');
+      let authorizedModuleIds = [];
+      let defaultModuleId = null;
+
+      if (appsContainer) {
+        authorizedModuleIds = Array.from(appsContainer.querySelectorAll('input[type="checkbox"]:checked'))
+          .map(cb => parseInt(cb.value, 10))
+          .filter(v => !Number.isNaN(v));
+      }
+      if (defaultSelect) {
+        const raw = defaultSelect.value;
+        defaultModuleId = raw ? parseInt(raw, 10) : null;
+      }
+
       try {
         const res = await fetch(`${API_URL}/admin/users/${id}`, {
           method: 'PUT',
@@ -582,7 +670,9 @@
             barcode,
             password: password || undefined,
             forcePwdChange,
-            pwdExpiryDaysOverride
+            pwdExpiryDaysOverride,
+            authorizedModuleIds,
+            defaultModuleId
           })
         });
         if (res.status === 401 || res.status === 403) {

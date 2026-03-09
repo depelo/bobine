@@ -12,6 +12,7 @@ Il sistema ospita molteplici app dipartimentali mantenendo una singola base di i
 - `Name`, `Barcode` (Unique): Identificatori per il login.
 - `PasswordHash`: Hash bcrypt.
 - `IsActive`: Soft-delete globale.
+- `DefaultModuleID` (INT, FK verso [dbo].[Modules]): Definisce l'app predefinita dell'utente al login (Meta-App Layer 2).
 - **Overrides di Sicurezza (Eccezioni per utente):**
   - `SessionHoursOverride` / `PwdExpiryDaysOverride`: Sovrascrivono i valori globali di SystemConfig.
   - `ForcePwdChange` (BIT): Se 1, blocca l'utente al login finché non cambia password (usato per le password temporanee del Captain).
@@ -61,3 +62,39 @@ Questa procedura garantisce che l'eliminazione (Soft-Delete) dei log da parte di
 Se tutte le condizioni sono soddisfatte, esegue `UPDATE ... SET Eliminato = 1`.
 
 ---
+
+## ARCHITETTURA META-APP
+
+Il sistema è diviso in due Layer principali:
+
+- **Layer 1 – Gateway di accesso**  
+  Punto di ingresso unico (futuro `index.html`) che gestisce login, routing iniziale verso le app dipartimentali e orchestrazione globale.
+
+- **Layer 2 – App operative**  
+  Applicazioni pure (es. `bobine.html`) focalizzate sul dominio di reparto. Non gestiscono direttamente login e permessi globali, ma consumano le decisioni prese a monte.
+
+### Sicurezza Globale e Script `sicurezza.js`
+
+La sicurezza e le autorizzazioni – inclusi i WebSocket e i redirect brutali per sessione scaduta – sono gestite da uno script globale `sicurezza.js` residente nel Layer 1:
+
+- Valida il token JWT e le informazioni di identità/moduli autorizzati.
+- Esegue redirect immediati in caso di sessione scaduta o permessi insufficienti.
+- Gestisce la richiesta di cambio password obbligatorio.
+
+Se è richiesto un cambio password, `sicurezza.js` **inietta un \"Sipario\"** (overlay DOM) sopra il Layer 2:
+
+- Blocca l'interazione con l'app operativa.
+- Mantiene intatto lo stato di lavoro non salvato fino al completamento del cambio password.
+
+### Captain Console e DefaultModuleID
+
+La **Captain Console** è l'interfaccia amministrativa che governa l'accesso alle app dipartimentali:
+
+- Aggiunge/rimuove utenti dalle tabelle di reparto (es. `[Bobine].[Operators]`) per assegnare o revocare i \"Visti\" locali.
+- Imposta `DefaultModuleID` su `[dbo].[Users]`, che definisce **l'app di destinazione principale** (Layer 2) che verrà proposta all'utente al login.
+
+Combinando `DefaultModuleID` con la lista di moduli autorizzati, `sicurezza.js` può:
+
+- Calcolare il redirect iniziale post-login.
+- Validare la navigazione cross-modulo nella Meta-App.
+- Applicare in modo coerente le politiche di sicurezza globali su tutte le app operative.

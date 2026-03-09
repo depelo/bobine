@@ -239,14 +239,16 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
         const usersRes = await pool.request().query(`
             SELECT IDUser as id, Name as name, Barcode as barcode, IsActive as isActive,
                    SessionHoursOverride as sessionHoursOverride, ForcePwdChange as forcePwdChange,
-                   PwdExpiryDaysOverride as pwdExpiryDaysOverride, LastPasswordChange as lastPasswordChange
+                   PwdExpiryDaysOverride as pwdExpiryDaysOverride, LastPasswordChange as lastPasswordChange,
+                   DefaultModuleID
             FROM [CMP].[dbo].[Users]
             WHERE IsActive = 1
             ORDER BY Name ASC
         `);
         let users = usersRes.recordset.map(u => ({
             ...u,
-            forcePwdChange: !!u.forcePwdChange && u.forcePwdChange !== 0 && u.forcePwdChange !== '0'
+            forcePwdChange: !!u.forcePwdChange && u.forcePwdChange !== 0 && u.forcePwdChange !== '0',
+            defaultModuleId: u.DefaultModuleID
         }));
 
         // 2. Recupera i moduli (Visti disponibili)
@@ -256,6 +258,8 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
         // Inizializza gli array per ogni utente
         for (let u of users) {
             u.apps = [];
+            // IDs dei moduli autorizzati (Meta-App)
+            u.authorizedModuleIds = [];
             // TODO: Sostituire con vero controllo su SessionValidFrom. Per ora simuliamo che tutti abbiano una sessione attiva per testare la UI.
             u.hasActiveSession = true;
         }
@@ -282,6 +286,9 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
                         roleKey: rKey,
                         roleLabel: rLabel
                     });
+                    if (!user.authorizedModuleIds.includes(mod.IDModule)) {
+                        user.authorizedModuleIds.push(mod.IDModule);
+                    }
                 }
             }
         }
@@ -295,7 +302,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
 // 2. Aggiorna utente (identità e sicurezza - Passaporto)
 app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
     const idUser = parseInt(req.params.id, 10);
-    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride } = req.body;
+    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride, defaultModuleId, authorizedModuleIds } = req.body;
 
     try {
         let pool = await sql.connect(dbConfig);
@@ -305,6 +312,7 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
         request.input('barcode', sql.NVarChar, barcode);
         request.input('forcePwdChange', sql.Bit, forcePwdChange ? 1 : 0);
         request.input('pwdExpiry', sql.Int, pwdExpiryDaysOverride ? parseInt(pwdExpiryDaysOverride, 10) : null);
+        request.input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null);
 
         let pwdQuery = '';
         if (password && password.trim() !== '') {
@@ -318,10 +326,28 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
             SET Name = @name, 
                 Barcode = @barcode,
                 ForcePwdChange = @forcePwdChange,
-                PwdExpiryDaysOverride = @pwdExpiry
+                PwdExpiryDaysOverride = @pwdExpiry,
+                DefaultModuleID = @defaultModuleId
                 ${pwdQuery}
             WHERE IDUser = @idUser
         `);
+
+        // Gestione accesso modulo Bobine (TargetTable 'Operators')
+        const moduleIds = Array.isArray(authorizedModuleIds) ? authorizedModuleIds.map(x => parseInt(x, 10)).filter(x => !Number.isNaN(x)) : [];
+        // TODO: allineare questo ID con il valore reale in [CMP].[dbo].[Modules] per il modulo Bobine.
+        const BOBINE_MODULE_ID = 1;
+        const hasBobineAccess = moduleIds.includes(BOBINE_MODULE_ID);
+
+        if (hasBobineAccess) {
+            await pool.request()
+                .input('id', sql.Int, idUser)
+                .query(`IF NOT EXISTS (SELECT 1 FROM [CMP].[Bobine].[Operators] WHERE IDUser = @id) 
+                        INSERT INTO [CMP].[Bobine].[Operators] (IDUser, Admin) VALUES (@id, 0)`);
+        } else {
+            await pool.request()
+                .input('id', sql.Int, idUser)
+                .query(`DELETE FROM [CMP].[Bobine].[Operators] WHERE IDUser = @id`);
+        }
 
         res.status(200).json({ message: 'Impostazioni di sicurezza aggiornate con successo.' });
     } catch (err) {
@@ -531,6 +557,7 @@ app.post('/api/login', async (req, res) => {
                     U.ForcePwdChange,
                     U.LastPasswordChange,
                     U.PwdExpiryDaysOverride,
+                    U.DefaultModuleID,
                     O.IDOperator,
                     O.Admin,
                     O.StartTime,
@@ -570,6 +597,25 @@ app.post('/api/login', async (req, res) => {
             console.error('Errore lettura AdminPwdExpiryDays:', cfgErr);
         }
 
+        // --- CALCOLO MODULI AUTORIZZATI / META-APP ---
+        const modulesRes = await pool.request().query('SELECT IDModule, ModuleName, TargetTable FROM [CMP].[dbo].[Modules]');
+        const authorizedApps = [];
+
+        for (let mod of modulesRes.recordset) {
+            let hasAccess = false;
+            if (mod.TargetTable === 'Operators') {
+                const checkRes = await pool.request()
+                    .input('idUserMod', sql.Int, row.IDUser)
+                    .query(`SELECT 1 FROM [CMP].[Bobine].[Operators] WHERE IDUser = @idUserMod`);
+                if (checkRes.recordset.length > 0) hasAccess = true;
+            } 
+            // Futuri moduli verranno aggiunti qui
+
+            if (hasAccess) {
+                authorizedApps.push({ id: mod.IDModule, name: mod.ModuleName, target: mod.TargetTable });
+            }
+        }
+
         let needsPasswordChange = false;
         if (isAdmin || isSuperuser) {
             const overrideDays = row.PwdExpiryDaysOverride != null ? parseInt(row.PwdExpiryDaysOverride, 10) : null;
@@ -597,7 +643,9 @@ app.post('/api/login', async (req, res) => {
             isSuperuser,
             barcode: row.Barcode,
             startTime: row.StartTime ? row.StartTime.toISOString().substring(11, 16) : null,
-            forcePwdChange: needsPasswordChange
+            forcePwdChange: needsPasswordChange,
+            defaultModuleId: row.DefaultModuleID,
+            authorizedApps: authorizedApps
         };
 
         if (!isAdmin && !isSuperuser) {
