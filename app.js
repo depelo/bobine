@@ -1757,7 +1757,8 @@ if (profileSavePwdBtn) {
       if (!res.ok) {
         let message = 'Errore durante l\'aggiornamento della password.';
         try {
-          const data = await res.json();
+          // Usiamo clone() così se fallisce il parsing JSON, lo stream originale non si brucia
+          const data = await res.clone().json();
           if (data && data.message) message = data.message;
         } catch {
           const text = await res.text();

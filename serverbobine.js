@@ -244,7 +244,10 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
             WHERE IsActive = 1
             ORDER BY Name ASC
         `);
-        let users = usersRes.recordset;
+        let users = usersRes.recordset.map(u => ({
+            ...u,
+            forcePwdChange: !!u.forcePwdChange && u.forcePwdChange !== 0 && u.forcePwdChange !== '0'
+        }));
 
         // 2. Recupera i moduli (Visti disponibili)
         const modRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetTable, RoleDefinition FROM [CMP].[dbo].[Modules]`);
@@ -673,9 +676,12 @@ app.put('/api/users/me/password', authenticateToken, async (req, res) => {
                 WHERE IDUser = @idUser
             `);
 
+        // Estrai e scarta 'iat' ed 'exp' dal vecchio token, mantieni il resto in 'cleanUser'
+        const { iat, exp, ...cleanUser } = req.user;
+        
         // Genera un nuovo token JWT aggiornato che non richiede più il cambio password
         const newPayload = {
-            ...req.user,
+            ...cleanUser,
             forcePwdChange: false
         };
 
