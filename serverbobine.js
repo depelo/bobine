@@ -40,6 +40,13 @@ function authenticateToken(req, res, next) {
             return res.status(403).send('Token non valido');
         }
         req.user = user;
+        // Se il token richiede un cambio password e la rotta NON è quella per cambiare la password o fare logout
+        if (req.user && req.user.forcePwdChange) {
+            const isAllowedPath = req.path === '/api/users/me/password' || req.path === '/api/logout';
+            if (!isAllowedPath) {
+                return res.status(403).json({ requiresPasswordChange: true, message: 'Cambio password obbligatorio' });
+            }
+        }
         next();
     });
 }
@@ -518,6 +525,9 @@ app.post('/api/login', async (req, res) => {
                     U.Barcode, 
                     U.PasswordHash, 
                     U.IsActive,
+                    U.ForcePwdChange,
+                    U.LastPasswordChange,
+                    U.PwdExpiryDaysOverride,
                     O.IDOperator,
                     O.Admin,
                     O.StartTime,
@@ -536,13 +546,55 @@ app.post('/api/login', async (req, res) => {
         const isAdmin = row.Admin === true || row.Admin === 1;
         const isSuperuser = row.IsSuperuser === true || row.IsSuperuser === 1;
 
+        // Calcolo scadenza password / cambio forzato
+        let globalExpiryDays = 90;
+        try {
+            const cfgRes = await pool.request().query(`
+                SELECT ConfigValue 
+                FROM [CMP].[dbo].[SystemConfig] 
+                WHERE ConfigKey = 'AdminPwdExpiryDays'
+            `);
+            if (cfgRes.recordset && cfgRes.recordset.length > 0) {
+                const rawVal = cfgRes.recordset[0].ConfigValue;
+                if (rawVal !== null && rawVal !== undefined) {
+                    const parsed = parseInt(rawVal, 10);
+                    if (!Number.isNaN(parsed) && parsed > 0) {
+                        globalExpiryDays = parsed;
+                    }
+                }
+            }
+        } catch (cfgErr) {
+            console.error('Errore lettura AdminPwdExpiryDays:', cfgErr);
+        }
+
+        let needsPasswordChange = false;
+        if (isAdmin || isSuperuser) {
+            const overrideDays = row.PwdExpiryDaysOverride != null ? parseInt(row.PwdExpiryDaysOverride, 10) : null;
+            const expiryDays = !Number.isNaN(overrideDays) && overrideDays > 0 ? overrideDays : globalExpiryDays;
+
+            let expired = false;
+            if (row.LastPasswordChange && expiryDays > 0) {
+                const lastChangeDate = new Date(row.LastPasswordChange);
+                if (!Number.isNaN(lastChangeDate.getTime())) {
+                    const expiryDate = new Date(lastChangeDate.getTime() + expiryDays * 24 * 60 * 60 * 1000);
+                    if (new Date() > expiryDate) {
+                        expired = true;
+                    }
+                }
+            }
+
+            const forceFlag = row.ForcePwdChange === true || row.ForcePwdChange === 1;
+            needsPasswordChange = forceFlag || expired;
+        }
+
         const payload = {
             id: row.IDOperator,
             name: row.Operator,
             isAdmin,
             isSuperuser,
             barcode: row.Barcode,
-            startTime: row.StartTime ? row.StartTime.toISOString().substring(11, 16) : null
+            startTime: row.StartTime ? row.StartTime.toISOString().substring(11, 16) : null,
+            forcePwdChange: needsPasswordChange
         };
 
         if (!isAdmin && !isSuperuser) {
@@ -602,7 +654,7 @@ app.put('/api/users/me/password', authenticateToken, async (req, res) => {
                 INNER JOIN [CMP].[Bobine].[Operators] O ON U.IDUser = O.IDUser
                 WHERE O.IDOperator = @idOp
             `);
-            
+
         if (userRes.recordset.length === 0) return res.status(404).send('Utente non trovato');
         const dbUser = userRes.recordset[0];
 
@@ -621,7 +673,21 @@ app.put('/api/users/me/password', authenticateToken, async (req, res) => {
                 WHERE IDUser = @idUser
             `);
 
-        res.status(200).json({ message: 'Password aggiornata con successo' });
+        // Genera un nuovo token JWT aggiornato che non richiede più il cambio password
+        const newPayload = {
+            ...req.user,
+            forcePwdChange: false
+        };
+
+        const newToken = jwt.sign(newPayload, JWT_SECRET, { expiresIn: '12h' });
+        res.cookie('jwt_token', newToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 12 * 60 * 60 * 1000
+        });
+
+        res.status(200).json({ user: newPayload });
     } catch (err) {
         res.status(500).send(err.message);
     }

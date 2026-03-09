@@ -208,9 +208,27 @@ async function fetchData(endpoint) {
   const res = await fetch(`${API_URL}${endpoint}`, {
     credentials: 'include'
   });
-  if (res.status === 401 || res.status === 403) {
+  if (res.status === 401) {
     handleAuthError();
     throw new Error(`HTTP ${res.status}: autorizzazione richiesta`);
+  }
+  if (res.status === 403) {
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+      // ignore JSON parse errors
+    }
+    if (data && data.requiresPasswordChange) {
+      if (!state.currentOperator) state.currentOperator = {};
+      state.currentOperator.forcePwdChange = true;
+      updateCurrentOperatorUI();
+      openProfileModal(true);
+      throw new Error('HTTP 403: cambio password obbligatorio');
+    }
+    handleAuthError();
+    const msg = data && data.message ? data.message : 'autorizzazione richiesta';
+    throw new Error(`HTTP 403: ${msg}`);
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   return res.json();
@@ -352,7 +370,7 @@ function handleAuthError() {
   openLoginModal();
 }
 
-function openProfileModal() {
+function openProfileModal(isForced = false) {
   if (!state.currentOperator) {
     alert('Effettua il login per visualizzare il profilo.');
     openLoginModal();
@@ -372,13 +390,29 @@ function openProfileModal() {
   if (profileRoleDisplay) profileRoleDisplay.textContent = roleLabel;
   if (profileTimeDisplay) profileTimeDisplay.textContent = startTime;
 
+  const isForcedMode = !!isForced || state.currentOperator.forcePwdChange === true;
+
   const isAdmin = state.currentOperator.isAdmin === true || state.currentOperator.isAdmin === 1;
   if (profilePwdSection) {
     profilePwdSection.style.display = isAdmin ? '' : 'none';
   }
   if (profileOldPwdInput) profileOldPwdInput.value = '';
   if (profileNewPwdInput) profileNewPwdInput.value = '';
-  if (profilePwdMsg) profilePwdMsg.textContent = '';
+  if (profilePwdMsg) {
+    profilePwdMsg.textContent = isForcedMode
+      ? '⚠️ Password scaduta o reset forzato dall\'amministratore. Inserisci una nuova password per continuare.'
+      : '';
+  }
+
+  if (profileCloseBtn) {
+    if (isForcedMode) {
+      profileCloseBtn.style.display = 'none';
+      profileCloseBtn.disabled = true;
+    } else {
+      profileCloseBtn.style.display = '';
+      profileCloseBtn.disabled = false;
+    }
+  }
 
   profileModal.classList.add('is-open');
   profileModal.setAttribute('aria-hidden', 'false');
@@ -441,9 +475,12 @@ async function performLogin() {
     updateCurrentOperatorUI();
     applyPermissions();
     closeLoginModal();
-    if (!state.logs || state.logs.length === 0) {
-      await loadInitialData();
+    if (data.user && data.user.forcePwdChange) {
+      state.currentOperator.forcePwdChange = true;
+      openProfileModal(true);
+      return;
     }
+    await loadInitialData();
   } catch (err) {
     console.error(err);
     if (loginMessageEl) {
@@ -1676,7 +1713,17 @@ if (loginPasswordInput) {
 if (profileCloseBtn) {
   profileCloseBtn.addEventListener('click', () => {
     document.activeElement?.blur();
+    if (state.currentOperator?.forcePwdChange) return;
     closeProfileModal();
+  });
+}
+
+if (profileModal && profileModal.addEventListener) {
+  profileModal.addEventListener('click', (e) => {
+    if (e.target.id === 'profileModal') {
+      if (state.currentOperator?.forcePwdChange) return;
+      closeProfileModal();
+    }
   });
 }
 
@@ -1720,18 +1767,33 @@ if (profileSavePwdBtn) {
         return;
       }
 
-      alert('Password aggiornata con successo. Sarai disconnesso e dovrai eseguire nuovamente il login.');
+      let data = null;
       try {
-        await fetch(`${API_URL}/logout`, {
-          method: 'POST',
-          credentials: 'include'
-        });
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (data && data.user) {
+        state.currentOperator = data.user;
+      }
+      if (state.currentOperator) {
+        state.currentOperator.forcePwdChange = false;
+      }
+      updateCurrentOperatorUI();
+      applyPermissions();
+
+      if (profileOldPwdInput) profileOldPwdInput.value = '';
+      if (profileNewPwdInput) profileNewPwdInput.value = '';
+      if (profilePwdMsg) profilePwdMsg.textContent = '';
+
+      closeProfileModal();
+      try {
+        await loadInitialData();
       } catch (err) {
         console.error(err);
       }
-
-      closeProfileModal();
-      handleAuthError();
+      setScreen('log-edit');
     } catch (err) {
       console.error(err);
       if (profilePwdMsg) profilePwdMsg.textContent = 'Errore di rete durante l\'aggiornamento della password.';
