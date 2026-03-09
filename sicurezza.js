@@ -16,6 +16,35 @@ async function initSecurity() {
     }
     
     if (res.ok) {
+      // --- CONTROLLO ACCESSO AI MODULI (RBAC) ---
+      const user = data.user;
+      const currentPath = window.location.pathname.toLowerCase();
+
+      // Escludiamo il root e il gateway dal controllo
+      if (currentPath !== '/' && currentPath !== '/index.html') {
+        if (user && !user.isSuperuser) {
+          // Se tenta di accedere alla captain console
+          if (currentPath.includes('captain')) {
+            alert('Accesso negato alla Captain Console.');
+            window.location.href = '/';
+            return false;
+          }
+
+          // Se tenta di accedere a bobine
+          if (currentPath.includes('bobine')) {
+            // Cerca se ha l'autorizzazione per la TargetTable 'Operators'
+            const hasBobineAccess =
+              Array.isArray(user.authorizedApps) &&
+              user.authorizedApps.some((app) => app.target === 'Operators');
+            if (!hasBobineAccess) {
+              alert('Non sei autorizzato ad accedere al modulo Bobine.');
+              window.location.href = '/';
+              return false;
+            }
+          }
+        }
+      }
+
       window.SecurityData = data;
       document.dispatchEvent(new Event('securityReady')); // Avvisa il Layer 2
       return true;
@@ -82,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (err) {
         console.error('Errore durante il logout:', err);
       }
+      window.SecurityData = null;
       window.location.href = '/';
     });
   }

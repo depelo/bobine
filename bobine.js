@@ -209,7 +209,7 @@ async function fetchData(endpoint) {
     credentials: 'include'
   });
   if (res.status === 401) {
-    handleAuthError();
+    window.location.href = '/';
     throw new Error(`HTTP ${res.status}: autorizzazione richiesta`);
   }
   if (res.status === 403) {
@@ -226,7 +226,7 @@ async function fetchData(endpoint) {
       openProfileModal(true);
       throw new Error('HTTP 403: cambio password obbligatorio');
     }
-    handleAuthError();
+    window.location.href = '/';
     const msg = data && data.message ? data.message : 'autorizzazione richiesta';
     throw new Error(`HTTP 403: ${msg}`);
   }
@@ -260,36 +260,6 @@ async function loadInitialData() {
   setScreen('log-edit');
 }
 
-async function initApp() {
-  setScreen('log-edit');
-  const currentOperatorDisplay = document.getElementById('currentOperatorDisplay');
-  const loginModal = document.getElementById('loginModal');
-  if (!loginModal) {
-    // fallback: caricamento dati senza login modal
-    await loadInitialData();
-    return;
-  }
-
-  try {
-    const res = await fetch(`${API_URL}/me`, { credentials: 'include' });
-    if (res.ok) {
-      const user = await res.json();
-      state.currentOperator = user;
-      updateCurrentOperatorUI();
-      await loadInitialData();
-      return;
-    }
-    if (res.status === 401 || res.status === 403) {
-      openLoginModal();
-      return;
-    }
-    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  } catch (err) {
-    console.error(err);
-    openLoginModal();
-  }
-}
-
 const titleEl = document.getElementById('screenTitle');
 const actionsLeftEl = document.getElementById('topbarActionsLeft');
 const actionsRightEl = document.getElementById('topbarActionsRight');
@@ -303,11 +273,6 @@ const operatorListEl = document.getElementById('operatorListView');
 const machineListEl = document.getElementById('machineListView');
 const machineSelect = document.getElementById('machineSelect');
 const currentOperatorDisplay = document.getElementById('currentOperatorDisplay');
-const loginModal = document.getElementById('loginModal');
-const loginBarcodeInput = document.getElementById('loginBarcode');
-const loginPasswordField = document.getElementById('loginPasswordField');
-const loginPasswordInput = document.getElementById('loginPassword');
-const loginMessageEl = document.getElementById('loginMessage');
 const logoutBtn = document.getElementById('logoutBtn');
 const profileModal = document.getElementById('profileModal');
 const profileNameDisplay = document.getElementById('profileNameDisplay');
@@ -323,57 +288,37 @@ const profileCloseBtn = document.getElementById('profileCloseBtn');
 function updateCurrentOperatorUI() {
   if (!currentOperatorDisplay) return;
   if (state.currentOperator) {
-    const name = state.currentOperator.name || '';
-    const roleLabel = state.currentOperator.isSuperuser
-      ? 'Superuser'
-      : state.currentOperator.isAdmin
-        ? 'Admin'
-        : '';
-    currentOperatorDisplay.value = roleLabel ? `${name} (${roleLabel})` : name;
+    const name =
+      state.currentOperator.name ||
+      'Operatore';
+    const isAdmin =
+      state.currentOperator.isAdmin === true ||
+      state.currentOperator.isAdmin === 1;
+
+    currentOperatorDisplay.value = name;
+
+    if (isAdmin) {
+      currentOperatorDisplay.style.backgroundColor = '#d4edda';
+      currentOperatorDisplay.style.color = '#155724';
+      currentOperatorDisplay.style.borderColor = '#c3e6cb';
+    } else {
+      currentOperatorDisplay.style.backgroundColor = '#e9ecef';
+      currentOperatorDisplay.style.color = '#495057';
+      currentOperatorDisplay.style.borderColor = '#ced4da';
+    }
   } else {
     currentOperatorDisplay.value = '';
     currentOperatorDisplay.placeholder = 'Nessun operatore loggato';
+    currentOperatorDisplay.style.backgroundColor = '#e9ecef';
+    currentOperatorDisplay.style.color = 'var(--text-muted)';
+    currentOperatorDisplay.style.borderColor = 'var(--border)';
   }
-}
-
-function openLoginModal(initialRequiresPassword = false) {
-  if (!loginModal) return;
-  loginModal.classList.add('is-open');
-  loginModal.setAttribute('aria-hidden', 'false');
-  if (loginBarcodeInput) {
-    loginBarcodeInput.value = '';
-  }
-  if (loginPasswordInput) {
-    loginPasswordInput.value = '';
-  }
-  if (loginMessageEl) {
-    loginMessageEl.textContent = '';
-  }
-  if (loginPasswordField) {
-    loginPasswordField.classList.toggle('is-hidden', !initialRequiresPassword);
-  }
-  setTimeout(() => {
-    loginBarcodeInput?.focus();
-  }, 0);
-}
-
-function closeLoginModal() {
-  if (!loginModal) return;
-  loginModal.classList.remove('is-open');
-  loginModal.setAttribute('aria-hidden', 'true');
-}
-
-function handleAuthError() {
-  state.currentOperator = null;
-  updateCurrentOperatorUI();
-  applyPermissions();
-  openLoginModal();
 }
 
 function openProfileModal(isForced = false) {
   if (!state.currentOperator) {
-    alert('Effettua il login per visualizzare il profilo.');
-    openLoginModal();
+    alert('Sessione scaduta. Effettua nuovamente il login dal gateway.');
+    window.location.href = '/';
     return;
   }
   if (!profileModal) return;
@@ -422,71 +367,6 @@ function closeProfileModal() {
   if (!profileModal) return;
   profileModal.classList.remove('is-open');
   profileModal.setAttribute('aria-hidden', 'true');
-}
-
-async function performLogin() {
-  const barcode = loginBarcodeInput ? loginBarcodeInput.value.trim() : '';
-  const password = loginPasswordInput ? loginPasswordInput.value : '';
-  if (!barcode) {
-    if (loginMessageEl) loginMessageEl.textContent = 'Inserisci il barcode operatore.';
-    return;
-  }
-  try {
-    const res = await fetch(`${API_URL}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ barcode, password: password || undefined })
-    });
-    if (res.status === 401) {
-      const data = await res.json().catch(() => ({}));
-      if (data.requiresPassword) {
-        if (loginPasswordField) {
-          loginPasswordField.classList.remove('is-hidden');
-        }
-        if (loginMessageEl) {
-          loginMessageEl.textContent = data.message || 'Password richiesta per questo utente.';
-        }
-        if (loginPasswordInput) {
-          loginPasswordInput.focus();
-        }
-        return;
-      }
-      if (loginMessageEl) {
-        loginMessageEl.textContent = data.message || 'Credenziali non valide.';
-      }
-      return;
-    }
-    if (!res.ok) {
-      const text = await res.text();
-      if (loginMessageEl) {
-        loginMessageEl.textContent = text || `Errore HTTP ${res.status}`;
-      }
-      return;
-    }
-    const data = await res.json();
-
-    if (data.user && data.user.isSuperuser) {
-      window.location.href = 'captain.html';
-      return;
-    }
-
-    state.currentOperator = data.user || null;
-    updateCurrentOperatorUI();
-    applyPermissions();
-    closeLoginModal();
-    if (data.user && data.user.forcePwdChange) {
-      state.currentOperator.forcePwdChange = true;
-      openProfileModal(true);
-      return;
-    }
-    await loadInitialData();
-  } catch (err) {
-    console.error(err);
-    if (loginMessageEl) {
-      loginMessageEl.textContent = 'Errore di rete durante il login.';
-    }
-  }
 }
 
 function toDateInputValue(dateString) {
@@ -1553,9 +1433,6 @@ function openBarcodeScanner(targetFieldId) {
         field.value = decodedText;
       }
       closeBarcodeScanner();
-      if (typeof performLogin === 'function') {
-        void performLogin();
-      }
       return;
     }
 
@@ -1659,57 +1536,6 @@ document.addEventListener('click', (event) => {
   }
 });
 
-if (logoutBtn) {
-  logoutBtn.addEventListener('click', async () => {
-    try {
-      await fetch(`${API_URL}/logout`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-    } catch (err) {
-      console.error(err);
-    }
-    handleAuthError();
-  });
-}
-
-if (loginModal && loginModal.addEventListener) {
-  loginModal.addEventListener('click', (e) => {
-    if (e.target.id === 'loginModal') {
-      closeLoginModal();
-      // Forza il render della UI di base anche se non loggato, per mostrare i pulsanti superiori
-      if (!state.logs || state.logs.length === 0) {
-        setScreen('log-edit');
-      }
-    }
-  });
-}
-
-const loginSubmitBtn = document.getElementById('loginSubmitBtn');
-if (loginSubmitBtn) {
-  loginSubmitBtn.addEventListener('click', () => {
-    void performLogin();
-  });
-}
-
-if (loginBarcodeInput) {
-  loginBarcodeInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void performLogin();
-    }
-  });
-}
-
-if (loginPasswordInput) {
-  loginPasswordInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void performLogin();
-    }
-  });
-}
-
 if (profileCloseBtn) {
   profileCloseBtn.addEventListener('click', () => {
     document.activeElement?.blur();
@@ -1732,7 +1558,7 @@ if (profileSavePwdBtn) {
     if (!state.currentOperator) {
       alert('Sessione scaduta. Effettua nuovamente il login.');
       closeProfileModal();
-      openLoginModal();
+      window.location.href = '/';
       return;
     }
     if (!profileOldPwdInput || !profileNewPwdInput) return;
@@ -1852,5 +1678,47 @@ document.getElementById('editSuccessBtnClose')?.addEventListener('click', () => 
   document.getElementById('editSuccessModal').classList.remove('is-open');
 });
 
-initApp();
+function bootstrapFromSecurity() {
+  if (!window.SecurityData || !window.SecurityData.user) {
+    return;
+  }
+
+  const user = window.SecurityData.user;
+
+  const mappedUser = {
+    id:
+      user.id ??
+      user.IDUser ??
+      user.IDOperator ??
+      null,
+    name:
+      user.username ??
+      user.Nome ??
+      user.name ??
+      'Operatore',
+    isAdmin: user.isAdmin === true || user.isAdmin === 1,
+    isSuperuser: user.isSuperuser === true || user.isSuperuser === 1
+  };
+
+  state.currentOperator = {
+    ...(state.currentOperator || {}),
+    ...mappedUser
+  };
+
+  updateCurrentOperatorUI();
+  applyPermissions();
+  void loadInitialData().then(() => {
+    setScreen('log-edit');
+  });
+}
+
+document.addEventListener('securityReady', () => {
+  bootstrapFromSecurity();
+});
+
+// Se il layer di sicurezza ha già popolato i dati prima del caricamento di bobine.js,
+// tentiamo un bootstrap immediato.
+if (window.SecurityData && window.SecurityData.user) {
+  bootstrapFromSecurity();
+}
 
