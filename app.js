@@ -291,6 +291,16 @@ const loginPasswordField = document.getElementById('loginPasswordField');
 const loginPasswordInput = document.getElementById('loginPassword');
 const loginMessageEl = document.getElementById('loginMessage');
 const logoutBtn = document.getElementById('logoutBtn');
+const profileModal = document.getElementById('profileModal');
+const profileNameDisplay = document.getElementById('profileNameDisplay');
+const profileRoleDisplay = document.getElementById('profileRoleDisplay');
+const profileTimeDisplay = document.getElementById('profileTimeDisplay');
+const profilePwdSection = document.getElementById('profilePwdSection');
+const profileOldPwdInput = document.getElementById('profileOldPwd');
+const profileNewPwdInput = document.getElementById('profileNewPwd');
+const profilePwdMsg = document.getElementById('profilePwdMsg');
+const profileSavePwdBtn = document.getElementById('profileSavePwdBtn');
+const profileCloseBtn = document.getElementById('profileCloseBtn');
 
 function updateCurrentOperatorUI() {
   if (!currentOperatorDisplay) return;
@@ -340,6 +350,44 @@ function handleAuthError() {
   updateCurrentOperatorUI();
   applyPermissions();
   openLoginModal();
+}
+
+function openProfileModal() {
+  if (!state.currentOperator) {
+    alert('Effettua il login per visualizzare il profilo.');
+    openLoginModal();
+    return;
+  }
+  if (!profileModal) return;
+
+  const name = state.currentOperator.name || '-';
+  const roleLabel = state.currentOperator.isSuperuser
+    ? 'Superuser'
+    : state.currentOperator.isAdmin
+      ? 'Admin'
+      : 'Operatore';
+  const startTime = state.currentOperator.startTime || '-';
+
+  if (profileNameDisplay) profileNameDisplay.textContent = name;
+  if (profileRoleDisplay) profileRoleDisplay.textContent = roleLabel;
+  if (profileTimeDisplay) profileTimeDisplay.textContent = startTime;
+
+  const isAdmin = state.currentOperator.isAdmin === true || state.currentOperator.isAdmin === 1;
+  if (profilePwdSection) {
+    profilePwdSection.style.display = isAdmin ? '' : 'none';
+  }
+  if (profileOldPwdInput) profileOldPwdInput.value = '';
+  if (profileNewPwdInput) profileNewPwdInput.value = '';
+  if (profilePwdMsg) profilePwdMsg.textContent = '';
+
+  profileModal.classList.add('is-open');
+  profileModal.setAttribute('aria-hidden', 'false');
+}
+
+function closeProfileModal() {
+  if (!profileModal) return;
+  profileModal.classList.remove('is-open');
+  profileModal.setAttribute('aria-hidden', 'true');
 }
 
 async function performLogin() {
@@ -1329,6 +1377,11 @@ document.getElementById('menuDrawer').addEventListener('click', (e) => {
   if (!btn) return;
   const action = btn.dataset.menuAction;
   if (action === 'placeholder1') return;
+  if (action === 'open-profile') {
+    closeMenuDrawer();
+    openProfileModal();
+    return;
+  }
   if (action === 'open-captain') {
     window.location.href = 'captain.html';
     return;
@@ -1616,6 +1669,72 @@ if (loginPasswordInput) {
     if (e.key === 'Enter') {
       e.preventDefault();
       void performLogin();
+    }
+  });
+}
+
+if (profileCloseBtn) {
+  profileCloseBtn.addEventListener('click', () => {
+    document.activeElement?.blur();
+    closeProfileModal();
+  });
+}
+
+if (profileSavePwdBtn) {
+  profileSavePwdBtn.addEventListener('click', async () => {
+    if (!state.currentOperator) {
+      alert('Sessione scaduta. Effettua nuovamente il login.');
+      closeProfileModal();
+      openLoginModal();
+      return;
+    }
+    if (!profileOldPwdInput || !profileNewPwdInput) return;
+    const oldPassword = profileOldPwdInput.value;
+    const newPassword = profileNewPwdInput.value;
+
+    if (!newPassword) {
+      if (profilePwdMsg) profilePwdMsg.textContent = 'Inserisci la nuova password.';
+      return;
+    }
+
+    if (profilePwdMsg) profilePwdMsg.textContent = '';
+
+    try {
+      const res = await fetch(`${API_URL}/users/me/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ oldPassword, newPassword })
+      });
+
+      if (!res.ok) {
+        let message = 'Errore durante l\'aggiornamento della password.';
+        try {
+          const data = await res.json();
+          if (data && data.message) message = data.message;
+        } catch {
+          const text = await res.text();
+          if (text) message = text;
+        }
+        if (profilePwdMsg) profilePwdMsg.textContent = message;
+        return;
+      }
+
+      alert('Password aggiornata con successo. Sarai disconnesso e dovrai eseguire nuovamente il login.');
+      try {
+        await fetch(`${API_URL}/logout`, {
+          method: 'POST',
+          credentials: 'include'
+        });
+      } catch (err) {
+        console.error(err);
+      }
+
+      closeProfileModal();
+      handleAuthError();
+    } catch (err) {
+      console.error(err);
+      if (profilePwdMsg) profilePwdMsg.textContent = 'Errore di rete durante l\'aggiornamento della password.';
     }
   });
 }

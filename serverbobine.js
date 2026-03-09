@@ -69,7 +69,7 @@ app.get('/api/operators', async (req, res) => {
                 U.Barcode AS barcode, 
                 O.Admin AS isAdmin,
                 CONVERT(varchar(5), O.StartTime, 108) AS startTime
-            FROM [CMP].[dbo].[Operators] O
+            FROM [CMP].[Bobine].[Operators] O
             INNER JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
             WHERE U.IsActive = 1
         `);
@@ -86,7 +86,7 @@ app.patch('/api/operators/:id/time', async (req, res) => {
         await pool.request()
             .input('ID', sql.Int, parseInt(req.params.id, 10))
             .input('StartTime', sql.VarChar, startTime || null)
-            .query('UPDATE [CMP].[dbo].[Operators] SET StartTime = @StartTime WHERE IDOperator = @ID');
+            .query('UPDATE [CMP].[Bobine].[Operators] SET StartTime = @StartTime WHERE IDOperator = @ID');
         res.status(200).send({ message: 'Orario aggiornato' });
     } catch (err) {
         console.error(err);
@@ -127,7 +127,7 @@ app.post('/api/operators', async (req, res) => {
             opReq.input('admin', sql.Bit, admin);
             opReq.input('startTime', sql.VarChar, startTime);
             await opReq.query(`
-                INSERT INTO [CMP].[dbo].[Operators] (IDUser, Admin, StartTime)
+                INSERT INTO [CMP].[Bobine].[Operators] (IDUser, Admin, StartTime)
                 VALUES (@idUser, @admin, @startTime)
             `);
 
@@ -155,7 +155,7 @@ app.put('/api/operators/:id', async (req, res) => {
             // Get the linked IDUser
             const getReq = new sql.Request(transaction);
             getReq.input('idOp', sql.Int, id);
-            const getRes = await getReq.query(`SELECT IDUser FROM [CMP].[dbo].[Operators] WHERE IDOperator = @idOp`);
+            const getRes = await getReq.query(`SELECT IDUser FROM [CMP].[Bobine].[Operators] WHERE IDOperator = @idOp`);
             if (getRes.recordset.length === 0) throw new Error("Operatore non trovato");
             const idUser = getRes.recordset[0].IDUser;
 
@@ -184,7 +184,7 @@ app.put('/api/operators/:id', async (req, res) => {
             opReq.input('admin', sql.Bit, admin);
             opReq.input('startTime', sql.VarChar, startTime);
             await opReq.query(`
-                UPDATE [CMP].[dbo].[Operators]
+                UPDATE [CMP].[Bobine].[Operators]
                 SET Admin = @admin, StartTime = @startTime
                 WHERE IDOperator = @idOp
             `);
@@ -211,7 +211,7 @@ app.delete('/api/operators/:id', async (req, res) => {
                 UPDATE U
                 SET U.IsActive = 0
                 FROM [CMP].[dbo].[Users] U
-                INNER JOIN [CMP].[dbo].[Operators] O ON U.IDUser = O.IDUser
+                INNER JOIN [CMP].[Bobine].[Operators] O ON U.IDUser = O.IDUser
                 WHERE O.IDOperator = @idOp
             `);
         res.status(200).send({ message: 'Operatore disattivato logicamente' });
@@ -259,7 +259,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
             let roleDef = {};
             try { roleDef = JSON.parse(mod.RoleDefinition); } catch (e) {}
 
-            const roleRes = await pool.request().query(`SELECT IDUser, Admin FROM [CMP].[dbo].[${mod.TargetTable}]`);
+                const roleRes = await pool.request().query(`SELECT IDUser, Admin FROM [CMP].[Bobine].[${mod.TargetTable}]`);
 
             for (let row of roleRes.recordset) {
                 let user = users.find(x => x.id === row.IDUser);
@@ -441,7 +441,7 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
                         const isAdmin = role.roleKey === 'Admin' ? 1 : 0;
                         roleReq.input('admin', sql.Bit, isAdmin);
                         await roleReq.query(`
-                            INSERT INTO [CMP].[dbo].[Operators] (IDUser, Admin)
+                            INSERT INTO [CMP].[Bobine].[Operators] (IDUser, Admin)
                             VALUES (@idUser, @admin)
                         `);
                     }
@@ -480,7 +480,7 @@ app.delete('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
 app.get('/api/machines', async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
-        let result = await pool.request().query('SELECT IDMachine as id, Machine as name, Barcode as barcode FROM [CMP].[dbo].[Machines]');
+        let result = await pool.request().query('SELECT IDMachine as id, Machine as name, Barcode as barcode FROM [CMP].[Bobine].[Machines]');
         res.json(result.recordset);
     } catch (err) {
         res.status(500).send(err.message);
@@ -495,7 +495,7 @@ app.post('/api/machines', async (req, res) => {
         await pool.request()
             .input('Machine', sql.NVarChar, name)
             .input('Barcode', sql.NVarChar, barcode)
-            .query('INSERT INTO [CMP].[dbo].[Machines] (Machine, Barcode) VALUES (@Machine, @Barcode)');
+            .query('INSERT INTO [CMP].[Bobine].[Machines] (Machine, Barcode) VALUES (@Machine, @Barcode)');
         res.status(201).send({ message: 'Macchina aggiunta' });
     } catch (err) {
         res.status(500).send(err.message);
@@ -520,9 +520,10 @@ app.post('/api/login', async (req, res) => {
                     U.IsActive,
                     O.IDOperator,
                     O.Admin,
+                    O.StartTime,
                     CASE WHEN C.IDCaptain IS NOT NULL THEN 1 ELSE 0 END AS IsSuperuser
                 FROM [CMP].[dbo].[Users] U
-                LEFT JOIN [CMP].[dbo].[Operators] O ON U.IDUser = O.IDUser
+                LEFT JOIN [CMP].[Bobine].[Operators] O ON U.IDUser = O.IDUser
                 LEFT JOIN [CMP].[dbo].[Captains] C ON U.IDUser = C.IDUser
                 WHERE U.Barcode = @barcode AND U.IsActive = 1
             `);
@@ -540,7 +541,8 @@ app.post('/api/login', async (req, res) => {
             name: row.Operator,
             isAdmin,
             isSuperuser,
-            barcode: row.Barcode
+            barcode: row.Barcode,
+            startTime: row.StartTime ? row.StartTime.toISOString().substring(11, 16) : null
         };
 
         if (!isAdmin && !isSuperuser) {
@@ -585,6 +587,46 @@ app.post('/api/logout', (req, res) => {
     res.json({ message: 'Logout eseguito' });
 });
 
+app.put('/api/users/me/password', authenticateToken, async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    if (!newPassword) return res.status(400).json({ message: 'Nuova password mancante' });
+
+    try {
+        let pool = await sql.connect(dbConfig);
+        // Ricava il PasswordHash attuale da Users usando l'IDUser tramite la relazione con Operators
+        let userRes = await pool.request()
+            .input('idOp', sql.Int, req.user.id)
+            .query(`
+                SELECT U.IDUser, U.PasswordHash 
+                FROM [CMP].[dbo].[Users] U
+                INNER JOIN [CMP].[Bobine].[Operators] O ON U.IDUser = O.IDUser
+                WHERE O.IDOperator = @idOp
+            `);
+            
+        if (userRes.recordset.length === 0) return res.status(404).send('Utente non trovato');
+        const dbUser = userRes.recordset[0];
+
+        // Verifica vecchia password
+        const passwordOk = await bcrypt.compare(oldPassword, dbUser.PasswordHash || '');
+        if (!passwordOk) return res.status(401).json({ message: 'Vecchia password errata' });
+
+        // Salva nuova password
+        const hash = await bcrypt.hash(newPassword, 10);
+        await pool.request()
+            .input('idUser', sql.Int, dbUser.IDUser)
+            .input('hash', sql.NVarChar, hash)
+            .query(`
+                UPDATE [CMP].[dbo].[Users] 
+                SET PasswordHash = @hash, LastPasswordChange = GETDATE(), ForcePwdChange = 0 
+                WHERE IDUser = @idUser
+            `);
+
+        res.status(200).json({ message: 'Password aggiornata con successo' });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
 // --- API LOG (REGISTRO) ---
 
 app.get('/api/logs', async (req, res) => {
@@ -605,10 +647,10 @@ app.get('/api/logs', async (req, res) => {
                 L.IDRoll as rollId,
                 L.NumeroModifiche,
                 L.bobina_finita
-            FROM [CMP].[dbo].[Log] L
-            LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
+            FROM [CMP].[Bobine].[Log] L
+            LEFT JOIN [CMP].[Bobine].[Operators] O ON L.IDOperator = O.IDOperator
             LEFT JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
-            LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
+            LEFT JOIN [CMP].[Bobine].[Machines] M ON L.IDMachine = M.IDMachine
             WHERE L.Eliminato = 0
             ORDER BY L.Date DESC
         `;
@@ -640,10 +682,10 @@ app.get('/api/logs/:id', async (req, res) => {
                     L.IDRoll as rollId,
                     L.NumeroModifiche,
                     L.bobina_finita
-                FROM [CMP].[dbo].[Log] L
-                LEFT JOIN [CMP].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
+                FROM [CMP].[Bobine].[Log] L
+                LEFT JOIN [CMP].[Bobine].[Operators] O ON L.IDOperator = O.IDOperator
                 LEFT JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
-                LEFT JOIN [CMP].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
+                LEFT JOIN [CMP].[Bobine].[Machines] M ON L.IDMachine = M.IDMachine
                 WHERE L.IDLog = @IDLog AND L.Eliminato = 0
             `);
         if (!result.recordset || result.recordset.length === 0) {
@@ -676,10 +718,10 @@ app.get('/api/logs/:id/history', async (req, res) => {
                         LAG(L.Codart) OVER (ORDER BY L.ValidFrom) AS prev_rawCode,
                         LAG(L.Lot) OVER (ORDER BY L.ValidFrom) AS prev_lot,
                         LAG(L.Notes) OVER (ORDER BY L.ValidFrom) AS prev_notes
-                    FROM [CMP].[dbo].[Log] FOR SYSTEM_TIME ALL AS L
-                    LEFT JOIN [CMP].[dbo].[Operators] O_Mod ON L.ModificatoDa = O_Mod.IDOperator
+                    FROM [CMP].[Bobine].[Log] FOR SYSTEM_TIME ALL AS L
+                    LEFT JOIN [CMP].[Bobine].[Operators] O_Mod ON L.ModificatoDa = O_Mod.IDOperator
                     LEFT JOIN [CMP].[dbo].[Users] U_Mod ON O_Mod.IDUser = U_Mod.IDUser
-                    LEFT JOIN [CMP].[dbo].[Operators] O_Crea ON L.IDOperator = O_Crea.IDOperator
+                    LEFT JOIN [CMP].[Bobine].[Operators] O_Crea ON L.IDOperator = O_Crea.IDOperator
                     LEFT JOIN [CMP].[dbo].[Users] U_Crea ON O_Crea.IDUser = U_Crea.IDUser
                     WHERE L.IDLog = @IDLog
                 )
@@ -723,10 +765,10 @@ app.post('/api/logs', authenticateToken, async (req, res) => {
             .input('Notes', sql.NVarChar, notes)
             .input('IDRoll', sql.NVarChar, rollId)
             .query(`
-                INSERT INTO [CMP].[dbo].[Log]
+                INSERT INTO [CMP].[Bobine].[Log]
                 (IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll, bobina_finita)
                 VALUES
-                ((SELECT ISNULL(MAX(IDLog), 0) + 1 FROM [CMP].[dbo].[Log]), @Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll, NULL)
+                ((SELECT ISNULL(MAX(IDLog), 0) + 1 FROM [CMP].[Bobine].[Log]), @Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll, NULL)
             `);
         res.status(201).send({ message: 'Log registrato con successo' });
     } catch (err) {
@@ -747,7 +789,7 @@ app.put('/api/logs/:id', authenticateToken, async (req, res) => {
             .input('ModificatoDa', sql.Int, req.user && req.user.id != null ? parseInt(req.user.id, 10) : null)
             .input('BobinaFinita', sql.Bit, req.body.bobina_finita !== undefined ? req.body.bobina_finita : null)
             .query(`
-                UPDATE [CMP].[dbo].[Log]
+                UPDATE [CMP].[Bobine].[Log]
                 SET Codart = @Codart,
                     Lot = @Lot,
                     Quantity = @Quantity,
@@ -773,7 +815,7 @@ app.delete('/api/logs/:id', authenticateToken, async (req, res) => {
             await pool.request()
                 .input('IDLog', sql.Int, logId)
                 .input('ModificatoDa', sql.Int, operatorId)
-                .query(`UPDATE [CMP].[dbo].[Log] SET Eliminato = 1, ModificatoDa = @ModificatoDa, NumeroModifiche = NumeroModifiche + 1 WHERE IDLog = @IDLog`);
+                .query(`UPDATE [CMP].[Bobine].[Log] SET Eliminato = 1, ModificatoDa = @ModificatoDa, NumeroModifiche = NumeroModifiche + 1 WHERE IDLog = @IDLog`);
             return res.status(200).send({ message: 'Log eliminato da Admin' });
         }
         await pool.request()
@@ -795,7 +837,7 @@ app.patch('/api/logs/:id/bobina-finita', authenticateToken, async (req, res) => 
         await pool.request()
             .input('IDLog', sql.Int, id)
             .input('BobinaFinita', sql.Bit, bobina_finita)
-            .query(`UPDATE [CMP].[dbo].[Log] SET bobina_finita = @BobinaFinita WHERE IDLog = @IDLog`);
+            .query(`UPDATE [CMP].[Bobine].[Log] SET bobina_finita = @BobinaFinita WHERE IDLog = @IDLog`);
         res.status(200).send({ message: 'Stato bobina aggiornato' });
     } catch (err) {
         res.status(500).send(err.message);
