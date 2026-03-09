@@ -2,218 +2,27 @@
 <html lang="it">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#2563a8" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="UJet Rotoli" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <title>UJet - Rotoli</title>
-    <link rel="manifest" href="manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UJet Gateway</title>
     <link rel="stylesheet" href="styles.css" />
+    <style>
+      body {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg, #0f172a);
+      }
+    </style>
   </head>
   <body>
-    <div class="menu-drawer-backdrop" id="menuDrawerBackdrop" aria-hidden="true"></div>
-    <aside class="menu-drawer" id="menuDrawer" aria-label="Menu" aria-hidden="true">
-      <div class="menu-drawer-header">
-        <span class="menu-drawer-title">Menu</span>
-        <button type="button" class="menu-drawer-close" id="menuDrawerClose" aria-label="Chiudi menu">×</button>
-      </div>
-      <div class="menu-drawer-actions">
-        <button type="button" class="menu-drawer-btn" data-menu-action="placeholder1">Opzione 1</button>
-        <button type="button" class="menu-drawer-btn" data-menu-action="open-profile">👤 Il Mio Profilo</button>
-        <button type="button" class="menu-drawer-btn" data-menu-action="open-captain">⚙️ Captain Console</button>
-        <button type="button" class="menu-drawer-btn menu-drawer-btn-primary" id="menuAddToHome" data-menu-action="add-to-home">Aggiungi a Home</button>
-      </div>
-    </aside>
-
-    <div class="app-shell">
-      <nav class="app-nav" aria-label="Navigazione principale">
-        <button type="button" class="menu-btn" id="menuBtn" aria-label="Apri menu">☰</button>
-        <button type="button" class="side-btn is-active" data-screen-target="log-edit" title="Registro">
-          <svg class="icon-home" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 1.35rem; height: 1.35rem;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-        </button>
-        <button type="button" class="side-btn" data-screen-target="machine-list" title="Macchine">
-          <svg class="icon-machine" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2.5"/><circle cx="18" cy="17" r="2.5"/><path d="M8.5 17h7M7 5h10v8H7zM12 13v-3"/></svg>
-        </button>
-        <button type="button" class="side-btn" data-screen-target="operator-list" title="Operatori">
-          <svg class="icon-person" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        </button>
-        <button type="button" class="side-btn" data-screen-target="log-list" title="Dettagli log">
-          <svg class="icon-db" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-        </button>
-      </nav>
-
-      <main class="content">
-        <header class="topbar" id="topbar">
-          <div class="actions actions-left" id="topbarActionsLeft"></div>
-          <div class="brand">U.Jet</div>
-          <h1 id="screenTitle">Registro</h1>
-          <div class="actions actions-right" id="topbarActionsRight"></div>
-        </header>
-
-        <section class="screen is-visible" id="screen-log-edit" data-screen="log-edit">
-        <form class="form-grid" id="logForm">
-            
-            <div class="control" style="display: flex; gap: 8px;">
-              <button type="button" class="icon-btn" id="logoutBtn" title="Cambia utente / Logout" style="background-color: #fee2e2; border-color: var(--danger); color: var(--danger); border-radius: var(--radius); flex-shrink: 0;">
-                <svg class="icon-logout" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 1.45rem; height: 1.45rem;">
-                  <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
-                  <line x1="12" y1="2" x2="12" y2="12"></line>
-                </svg>
-              </button>
-              <input id="currentOperatorDisplay" type="text" readonly placeholder="Nessun operatore loggato" style="background-color: #e9ecef; cursor: not-allowed; font-weight: bold; color: var(--text-muted); border-radius: var(--radius); flex: 1; min-width: 0; padding: var(--input-padding); font-family: inherit; font-size: var(--font-size-base); border: var(--border-width) solid var(--border);" />
-            </div>
-
-            <label for="machineSelect">Macchina</label>
-            <div class="control with-dual-btn">
-              <button type="button" class="icon-btn-left" data-action="manual-machine-barcode" title="Inserisci barcode">⌨</button>
-              <select id="machineSelect" name="machine"></select>
-              <button type="button" class="icon-btn-right" data-action="scan-machine" title="Scansiona con fotocamera">
-                <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              </button>
-            </div>
-
-            <label for="rawCode">Codice materia prima</label>
-            <div class="control with-icon-btn">
-              <input id="rawCode" name="rawCode" type="text" placeholder="Scansionare o scrivere" autocomplete="off" />
-              <button type="button" class="icon-btn" data-action="scan-raw-code" title="Scansiona con fotocamera">
-              <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            </button>
-            </div>
-
-            <label for="lot">Lotto</label>
-            <div class="control with-icon-btn">
-              <input id="lot" name="lot" type="text" placeholder="Scansionare o scrivere" autocomplete="off" />
-              <button type="button" class="icon-btn" data-action="scan-lot" title="Scansiona con fotocamera">
-                <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              </button>
-            </div>
-
-            <label for="quantity">Quantità</label>
-            <div class="control"><input id="quantity" name="quantity" type="number" min="0" step="1" placeholder="0" autocomplete="off" /></div>
-
-            <label for="notes">Note</label>
-            <div class="control"><textarea id="notes" name="notes" rows="4" placeholder="Scrivere" autocomplete="off"></textarea></div>
-
-            <label for="rollId">ID Bobina (IDRoll)</label>
-            <div class="control"><input id="rollId" name="rollId" type="text" placeholder="0" readonly style="background-color: #e9ecef; cursor: not-allowed;" /></div>
-          </form>
-        </section>
-
-        <section class="screen" id="screen-log-detail" data-screen="log-detail">
-          <div class="detail-grid" id="detailGrid"></div>
-        </section>
-
-        <section class="screen" id="screen-log-list" data-screen="log-list">
-          <div class="search-wrap"><input id="logSearch" type="search" placeholder="Cerca..." /></div>
-          <ul class="list" id="logList"></ul>
-        </section>
-
-        <section class="screen" id="screen-operator-list" data-screen="operator-list">
-          <div class="screen-toolbar">
-            <div class="search-wrap"><input id="operatorListSearch" type="search" placeholder="Cerca..." /></div>
-            <button type="button" class="action-btn inline-btn" data-action="add-operator" title="Aggiungi operatore">+</button>
-          </div>
-          <ul class="list two-col no-interaction" id="operatorListView"></ul>
-        </section>
-
-        <section class="screen" id="screen-machine-list" data-screen="machine-list">
-          <div class="screen-toolbar">
-            <div class="search-wrap"><input id="machineListSearch" type="search" placeholder="Cerca..." /></div>
-            <button type="button" class="action-btn inline-btn" data-action="add-machine" title="Aggiungi macchina">+</button>
-          </div>
-          <ul class="list two-col no-interaction" id="machineListView"></ul>
-        </section>
-      </main>
-    </div>
-
-    <audio id="barcodeBeepSound" preload="auto">
-      <source src="beep.mp3" type="audio/mpeg" />
-    </audio>
-
-    <div class="scanner-modal" id="scannerModal" aria-hidden="true" aria-label="Scansione barcode">
+    <div id="gatewayRoot">
       <div class="scanner-modal-inner">
-        <p class="scanner-title">Inquadra il barcode</p>
-        <div id="scannerContainer"></div>
-        <button type="button" class="scanner-cancel" id="scannerCancel">Annulla</button>
+        <!-- Il contenuto del login verrà gestito dal markup sottostante -->
       </div>
     </div>
 
-    <div class="scanner-modal" id="historyModal" aria-hidden="true" aria-label="Storico Modifiche">
-      <div class="scanner-modal-inner" style="width: 90%; max-width: 800px; max-height: 90vh; display: flex; flex-direction: column;">
-        <p class="scanner-title" style="margin-bottom: 16px;">Storico Modifiche</p>
-        <div style="overflow-x: auto; flex: 1; margin-bottom: 16px;">
-          <table class="history-table" id="historyTable">
-            <thead>
-              <tr>
-                <th>Data Modifica</th>
-                <th>Operatore</th>
-                <th>Q.tà</th>
-                <th>Cod. Art.</th>
-                <th>Lotto</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <button type="button" class="scanner-cancel" id="historyCancel">Chiudi</button>
-      </div>
-    </div>
-
-    <div class="scanner-modal" id="bobinaModal" aria-hidden="true">
-      <div class="bobina-modal-inner">
-        <h2 class="bobina-title">La vecchia bobina è finita?</h2>
-        <div class="bobina-split">
-          <button type="button" class="bobina-btn bobina-no" id="bobinaBtnNo">NO</button>
-          <button type="button" class="bobina-btn bobina-yes" id="bobinaBtnYes">SÌ</button>
-        </div>
-        <button type="button" class="bobina-cancel" id="bobinaBtnCancel">Annulla / Esci</button>
-      </div>
-    </div>
-
-    <div class="scanner-modal" id="successModal" aria-hidden="true">
-      <div class="scanner-modal-inner" style="text-align: center;">
-        <h2 class="scanner-title" style="color: var(--success); font-size: 1.6rem; margin-bottom: 24px;">Bobina inserita con successo!</h2>
-        <button type="button" class="scanner-cancel" id="successBtnClose" style="background-color: var(--primary); color: white; border: none;">OK</button>
-      </div>
-    </div>
-
-    <div class="scanner-modal" id="editSuccessModal" aria-hidden="true">
-      <div class="scanner-modal-inner" style="text-align: center;">
-        <h2 class="scanner-title" style="color: var(--success); font-size: 1.6rem; margin-bottom: 24px;">Modifica salvata completata.</h2>
-        <button type="button" class="scanner-cancel" id="editSuccessBtnClose" style="background-color: var(--primary); color: white; border: none;">OK</button>
-      </div>
-    </div>
-
-    <div class="scanner-modal" id="dynamicPromptModal" aria-hidden="true">
-      <div class="scanner-modal-inner">
-        <p class="scanner-title" id="dpTitle">Inserisci Valore</p>
-        <div class="login-field">
-          <div class="control with-icon-btn" id="dpControl" style="display: flex; gap: 0;">
-            <input id="dpInput" type="text" autocomplete="off" style="flex: 1; min-width: 0; border-radius: var(--radius) 0 0 var(--radius);" />
-            <button type="button" class="icon-btn" id="dpScanBtn" title="Scansiona con fotocamera">
-              <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            </button>
-          </div>
-        </div>
-        <div class="login-actions" style="gap: 12px; display: flex; margin-top: 16px;">
-          <button type="button" class="scanner-cancel" id="dpCancelBtn" style="flex: 1; background-color: var(--border);">Annulla</button>
-          <button type="button" class="scanner-cancel" id="dpConfirmBtn" style="flex: 1; background-color: var(--primary); color: white; border-color: var(--primary-dark);">OK</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="scanner-modal" id="machinePromptModal" aria-hidden="true">
-      <div class="scanner-modal-inner">
-        <p class="scanner-title">Seleziona Macchina</p>
-        <ul class="list" id="mpMachineList" style="max-height: 40vh; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: var(--radius);"></ul>
-        <button type="button" class="scanner-cancel" id="mpCancelBtn">Annulla</button>
-      </div>
-    </div>
-
-    <div class="scanner-modal" id="loginModal" aria-hidden="true" aria-label="Login operatore">
+    <div id="loginModal" aria-label="Login operatore" style="display:flex; align-items:center; justify-content:center;">
       <div class="scanner-modal-inner">
         <p class="scanner-title">Login operatore</p>
         <div class="login-field">
@@ -278,7 +87,7 @@
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <script src="app.js"></script>
+    <script src="portal.js"></script>
   </body>
 </html>
+

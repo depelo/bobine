@@ -98,3 +98,10 @@ Combinando `DefaultModuleID` con la lista di moduli autorizzati, `sicurezza.js` 
 - Calcolare il redirect iniziale post-login.
 - Validare la navigazione cross-modulo nella Meta-App.
 - Applicare in modo coerente le politiche di sicurezza globali su tutte le app operative.
+
+4. ARCHITETTURA META-APP
+
+L'ecosistema usa un approccio a livelli:
+- Layer 1: Gateway (`index.html`, `portal.js`). Esegue l'autenticazione. Valuta `DefaultModuleID` e le app autorizzate per instradare l'utente.
+- Layer 2: App operative (es. `bobine.html`, `bobine.js`). Svuotate dalla logica di auth. Reagiscono all'oggetto globale `window.SecurityData` per autoconfigurare la UI (es. menu).
+- Guardiano: `sicurezza.js`. Caricato in `<head>` di ogni app di Layer 2. Controlla la sessione via `/api/me`. Se l'utente non è loggato -> redirect al Layer 1. Se riceve 403 (Password Scaduta) a sessione in corso -> inietta un 'Sipario' (DOM Overlay z-index:99999) con il form di reset, bloccando la UI sottostante senza far ricaricare la pagina per non perdere i dati in compilazione.
