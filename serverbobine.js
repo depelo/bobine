@@ -332,21 +332,31 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
             WHERE IDUser = @idUser
         `);
 
-        // Gestione accesso modulo Bobine (TargetTable 'Operators')
-        const moduleIds = Array.isArray(authorizedModuleIds) ? authorizedModuleIds.map(x => parseInt(x, 10)).filter(x => !Number.isNaN(x)) : [];
-        // TODO: allineare questo ID con il valore reale in [CMP].[dbo].[Modules] per il modulo Bobine.
-        const BOBINE_MODULE_ID = 1;
-        const hasBobineAccess = moduleIds.includes(BOBINE_MODULE_ID);
+        // Gestione accesso modulo Bobine (Soft Revoke e Safe Insert)
+        const authorizedModuleIds = req.body.authorizedModuleIds || [];
+        const hasBobineAccess = authorizedModuleIds.includes(1); // Modifica l'1 con l'ID reale del modulo Bobine se diverso
 
         if (hasBobineAccess) {
+            // Se l'utente deve avere accesso: se esiste lo riattiviamo, altrimenti lo inseriamo calcolando l'ID
             await pool.request()
-                .input('id', sql.Int, idUser)
-                .query(`IF NOT EXISTS (SELECT 1 FROM [CMP].[Bobine].[Operators] WHERE IDUser = @id) 
-                        INSERT INTO [CMP].[Bobine].[Operators] (IDUser, Admin) VALUES (@id, 0)`);
+                .input('id', sql.Int, req.params.id)
+                .query(`
+                    IF EXISTS (SELECT 1 FROM [CMP].[Bobine].[Operators] WHERE IDUser = @id)
+                    BEGIN
+                        UPDATE [CMP].[Bobine].[Operators] SET IsActive = 1 WHERE IDUser = @id
+                    END
+                    ELSE
+                    BEGIN
+                        DECLARE @newId INT = ISNULL((SELECT MAX(IDOperator) FROM [CMP].[Bobine].[Operators]), 0) + 1;
+                        INSERT INTO [CMP].[Bobine].[Operators] (IDOperator, IDUser, Admin, IsActive) 
+                        VALUES (@newId, @id, 0, 1)
+                    END
+                `);
         } else {
+            // Soft Revoke: disattiviamo l'operatore senza distruggere i log
             await pool.request()
-                .input('id', sql.Int, idUser)
-                .query(`DELETE FROM [CMP].[Bobine].[Operators] WHERE IDUser = @id`);
+                .input('id', sql.Int, req.params.id)
+                .query(`UPDATE [CMP].[Bobine].[Operators] SET IsActive = 0 WHERE IDUser = @id`);
         }
 
         res.status(200).json({ message: 'Impostazioni di sicurezza aggiornate con successo.' });
@@ -606,7 +616,7 @@ app.post('/api/login', async (req, res) => {
             if (mod.TargetTable === 'Operators') {
                 const checkRes = await pool.request()
                     .input('idUserMod', sql.Int, row.IDUser)
-                    .query(`SELECT 1 FROM [CMP].[Bobine].[Operators] WHERE IDUser = @idUserMod`);
+                    .query(`SELECT 1 FROM [CMP].[Bobine].[Operators] WHERE IDUser = @idUserMod AND IsActive = 1`);
                 if (checkRes.recordset.length > 0) hasAccess = true;
             } 
             // Futuri moduli verranno aggiunti qui
