@@ -1008,7 +1008,7 @@ io.on('connection', (socket) => {
     socket.on('kick_user', (data) => {
         if (data && data.targetUserId) {
             io.to(`user_${data.targetUserId}`).emit('force_logout', { 
-                message: 'La tua sessione è stata interrotta forzatamente dall\\'Amministratore.' 
+                message: "La tua sessione è stata interrotta forzatamente dall'Amministratore." 
             });
             console.log(`[Socket] Inviato force_logout all'utente ${data.targetUserId}`);
         }
