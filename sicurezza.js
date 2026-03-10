@@ -45,6 +45,29 @@ async function initSecurity() {
         }
       }
 
+      // --- REAL-TIME SECURITY (WEBSOCKETS) ---
+      if (typeof io !== 'undefined') {
+          const socket = io();
+          const userId = user.id || user.IDUser || user.IDOperator;
+          
+          if (userId) {
+              socket.emit('register', userId);
+              
+              socket.on('force_logout', async (payload) => {
+                  alert(payload.message || 'Sessione interrotta forzatamente.');
+                  try {
+                      // Distrugge il cookie lato server
+                      await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+                  } catch (e) { console.error('Errore durante il logout forzato', e); }
+                  
+                  // Kick al Layer 1
+                  window.location.href = '/';
+              });
+          }
+      } else {
+          console.warn("Socket.io non rilevato. Sicurezza real-time disabilitata.");
+      }
+
       window.SecurityData = { user: user };
       document.dispatchEvent(new Event('securityReady')); // Avvisa il Layer 2
       return true;

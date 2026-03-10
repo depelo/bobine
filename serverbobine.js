@@ -983,8 +983,38 @@ const sslOptions = {
     cert: fs.readFileSync('C:\\Acme\\certificati_ssl\\rotoli.ujet.it-chain.pem')
 };
 
+const { Server } = require('socket.io');
+
 // Avvio del server in HTTPS sulla porta standard 443
 const PORT = 443;
-https.createServer(sslOptions, app).listen(PORT, '0.0.0.0', () => {
+const server = https.createServer(sslOptions, app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+
+io.on('connection', (socket) => {
+    // L'utente si registra nella sua stanza personale
+    socket.on('register', (userId) => {
+        if (userId) {
+            socket.join(`user_${userId}`);
+            console.log(`[Socket] Dispositivo collegato alla stanza: user_${userId}`);
+        }
+    });
+
+    // Il Captain emette l'ordine di kick
+    socket.on('kick_user', (data) => {
+        if (data && data.targetUserId) {
+            io.to(`user_${data.targetUserId}`).emit('force_logout', { 
+                message: 'La tua sessione è stata interrotta forzatamente dall\\'Amministratore.' 
+            });
+            console.log(`[Socket] Inviato force_logout all'utente ${data.targetUserId}`);
+        }
+    });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server API in ascolto in HTTPS sulla porta ${PORT} all'indirizzo https://rotoli.ujet.it`);
 });

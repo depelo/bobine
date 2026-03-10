@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Captain Console - UJet</title>
   <link rel="stylesheet" href="captain.css" />
+  <script src="/socket.io/socket.io.js"></script>
   <script src="sicurezza.js"></script>
   <style>
     .ump-tab.active {
@@ -706,8 +707,27 @@
       });
     });
 
+    let captainSocket = null;
+
     document.getElementById('umpKickBtn').addEventListener('click', () => {
-      alert("Funzionalità Kick in tempo reale in fase di sviluppo. Preparazione infrastruttura in corso.");
+        const targetId = document.getElementById('umpUserId').value;
+        
+        if (!targetId) {
+            alert('Nessun utente selezionato.');
+            return;
+        }
+        
+        if (confirm('Sei sicuro di voler espellere forzatamente questo utente da tutti i suoi dispositivi attivi?')) {
+            if (typeof io !== 'undefined') {
+                if (!captainSocket) {
+                    captainSocket = io(); // Inizializza il socket per il captain solo se necessario
+                }
+                captainSocket.emit('kick_user', { targetUserId: targetId });
+                alert('Segnale di espulsione (Kick) inviato con successo alla rete.');
+            } else {
+                alert('Errore: Connessione di rete (Socket.io) non attiva.');
+            }
+        }
     });
 
     // Modale Modifica App (RoleDefinition)
