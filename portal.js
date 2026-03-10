@@ -116,11 +116,9 @@ async function performLogin() {
 
     currentUser = data.user || null;
 
-    // Cambio password forzato
+    // Cambio password forzato: invochiamo il Sipario Universale invece del modale profilo
     if (data.user && data.user.forcePwdChange) {
-      document.getElementById('profileModal').classList.add('is-open');
-      document.getElementById('profileCloseBtn').style.display = 'none';
-      document.getElementById('profilePwdMsg').textContent = '⚠️ Cambio password obbligatorio.';
+      showGatewayPasswordCurtain(data.user, '⚠️ Cambio password obbligatorio. Inserisci la nuova password per accedere al sistema.');
       return;
     }
     
@@ -243,6 +241,61 @@ if (profileSavePwdBtn) {
     } catch (err) {
       console.error(err);
       if (profilePwdMsg) profilePwdMsg.textContent = 'Errore di rete durante l\'aggiornamento della password.';
+    }
+  });
+}
+
+// --- SIPARIO DI SICUREZZA PER IL GATEWAY ---
+function showGatewayPasswordCurtain(user, customMessage) {
+  if (document.getElementById('securityCurtain')) return;
+  
+  const curtain = document.createElement('div');
+  curtain.id = 'securityCurtain';
+  curtain.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.95); z-index:99999; display:flex; flex-direction:column; justify-content:center; align-items:center; color:white; font-family:sans-serif;';
+  
+  const displayMessage = customMessage || 'Devi cambiare la password per continuare.';
+
+  curtain.innerHTML = `
+        <div style="background:#222; padding:30px; border-radius:8px; width:90%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <h2 style="color: #ffc107; margin-top:0;">⚠️ Sicurezza: Azione Richiesta</h2>
+            <p style="font-size:0.95rem; color:#ccc; margin-bottom:20px; line-height: 1.4;">${displayMessage}</p>
+            <input type="password" id="curtainOldPwd" placeholder="Password Attuale" style="width:100%; margin-bottom:10px; padding:10px; border-radius: 4px; border: 1px solid #444; background: #333; color: white;" />
+            <input type="password" id="curtainNewPwd" placeholder="Nuova Password" style="width:100%; margin-bottom:10px; padding:10px; border-radius: 4px; border: 1px solid #444; background: #333; color: white;" />
+            <button id="curtainSaveBtn" style="width:100%; padding:12px; background:#2563a8; color:white; border:none; border-radius:4px; cursor:pointer; font-weight: bold; margin-top: 10px;">Aggiorna e Accedi</button>
+            <p id="curtainMsg" style="color:#ff4444; margin-top:12px; font-size:0.9rem; text-align: center; min-height: 1.2em;"></p>
+        </div>
+    `;
+  
+  document.body.appendChild(curtain);
+  
+  document.getElementById('curtainSaveBtn').addEventListener('click', async () => {
+    const oldP = document.getElementById('curtainOldPwd').value;
+    const newP = document.getElementById('curtainNewPwd').value;
+    const msg = document.getElementById('curtainMsg');
+    
+    if (!oldP || !newP) { msg.textContent = 'Compila tutti i campi'; return; }
+    
+    const res = await fetch('/api/users/me/password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword: oldP, newPassword: newP })
+    });
+    
+    if (res.ok) {
+      document.body.removeChild(curtain);
+      
+      // Routing automatico basato sui permessi post-aggiornamento password
+      if (user.defaultModuleId) {
+        window.location.href = '/bobine.html';
+      } else if (user.isSuperuser) {
+        window.location.href = '/captain.html';
+      } else {
+        alert('Nessuna app predefinita configurata. Contatta il Captain.');
+        window.location.href = '/';
+      }
+    } else {
+      const errData = await res.clone().json().catch(() => ({}));
+      msg.textContent = errData.message || 'Errore durante l\'aggiornamento.';
     }
   });
 }

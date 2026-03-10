@@ -706,8 +706,30 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-app.get('/api/me', authenticateToken, (req, res) => {
-    res.json(req.user);
+app.get('/api/me', authenticateToken, async (req, res) => {
+    try {
+        let pool = await sql.connect(dbConfig);
+        const userRes = await pool.request()
+            .input('idUser', sql.Int, req.user.globalId)
+            .query(`SELECT IsActive, ForcePwdChange FROM [CMP].[dbo].[Users] WHERE IDUser = @idUser`);
+
+        // Se l'utente non esiste più o è stato disattivato
+        if (userRes.recordset.length === 0 || !userRes.recordset[0].IsActive) {
+            res.clearCookie('jwt_token');
+            return res.status(401).send('Utente disattivato o inesistente');
+        }
+
+        const isForcePwdDB = (userRes.recordset[0].ForcePwdChange === true || userRes.recordset[0].ForcePwdChange === 1);
+
+        // Se il DB impone il cambio password, ma il JWT attuale dell'utente non lo sa (es. post-F5)
+        if (isForcePwdDB && !req.user.forcePwdChange) {
+            return res.status(403).json({ requiresPasswordChange: true, message: 'Cambio password obbligatorio innescato dall\'amministratore' });
+        }
+
+        res.json(req.user);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
 });
 
 app.post('/api/logout', (req, res) => {
