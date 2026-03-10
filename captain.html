@@ -223,6 +223,17 @@
     </div>
   </div>
 
+  <div class="scanner-modal" id="captainConfirmModal" aria-hidden="true">
+    <div class="scanner-modal-inner" style="text-align: center;">
+      <h2 class="scanner-title" style="color: var(--danger); font-size: 1.4rem; margin-bottom: 16px;">⚠️ Richiesta Conferma</h2>
+      <p id="captainConfirmMessage" style="margin-bottom: 24px; font-size: 1.05rem;"></p>
+      <div style="display: flex; gap: 12px;">
+        <button type="button" class="scanner-cancel" id="captainConfirmNo" style="flex: 1; background-color: var(--border);">Annulla</button>
+        <button type="button" class="scanner-cancel" id="captainConfirmYes" style="flex: 1; background-color: var(--danger); color: white; border: none;">Procedi</button>
+      </div>
+    </div>
+  </div>
+
   <div class="scanner-modal" id="captainSuccessModal" aria-hidden="true">
     <div class="scanner-modal-inner" style="text-align: center;">
       <h2 class="scanner-title" id="captainSuccessTitle" style="color: var(--success); font-size: 1.6rem; margin-bottom: 24px;">Operazione completata!</h2>
@@ -649,6 +660,28 @@
       modal.setAttribute('aria-hidden', 'false');
     }
 
+    function askCaptainConfirm(msg) {
+      return new Promise((resolve) => {
+        document.getElementById('captainConfirmMessage').textContent = msg;
+        const modal = document.getElementById('captainConfirmModal');
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+
+        const btnYes = document.getElementById('captainConfirmYes');
+        const btnNo = document.getElementById('captainConfirmNo');
+
+        const cleanup = () => {
+          modal.classList.remove('is-open');
+          modal.setAttribute('aria-hidden', 'true');
+          btnYes.replaceWith(btnYes.cloneNode(true));
+          btnNo.replaceWith(btnNo.cloneNode(true));
+        };
+
+        btnYes.addEventListener('click', () => { cleanup(); resolve(true); });
+        btnNo.addEventListener('click', () => { cleanup(); resolve(false); });
+      });
+    }
+
     document.getElementById('captainSuccessBtnClose').addEventListener('click', () => {
       if (document.activeElement && typeof document.activeElement.blur === 'function') {
         document.activeElement.blur();
@@ -737,11 +770,12 @@
     });
 
     // Listener per l'espulsione dal Pannello Gestione Utente
-    document.getElementById('umpKickBtn').addEventListener('click', () => {
+    document.getElementById('umpKickBtn').addEventListener('click', async () => {
         const targetId = document.getElementById('umpUserId').value;
         if (!targetId) return;
         
-        if (confirm('Sei sicuro di voler espellere forzatamente questo utente da tutti i suoi dispositivi attivi?')) {
+        const isConfirmed = await askCaptainConfirm('Sei sicuro di voler espellere forzatamente questo utente da tutti i suoi dispositivi attivi?');
+        if (isConfirmed) {
             if (typeof io !== 'undefined') {
                 if (!captainSocket) captainSocket = io();
                 captainSocket.emit('kick_user', { targetUserId: targetId });
@@ -881,8 +915,9 @@
     });
 
     // Funzione per l'espulsione rapida dell'utente (Tabella)
-    function kickUser(userId, userName) {
-      if (confirm(`Sei sicuro di voler interrompere immediatamente la sessione attiva di ${userName}?`)) {
+    async function kickUser(userId, userName) {
+      const isConfirmed = await askCaptainConfirm(`Sei sicuro di voler interrompere immediatamente la sessione attiva di ${userName}?`);
+      if (isConfirmed) {
         if (typeof io !== 'undefined') {
             if (!captainSocket) captainSocket = io();
             captainSocket.emit('kick_user', { targetUserId: userId });

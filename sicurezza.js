@@ -53,16 +53,26 @@ async function initSecurity() {
           if (userId) {
               socket.emit('register', userId);
               
-              socket.on('force_logout', async (payload) => {
-                  alert(payload.message || 'Sessione interrotta forzatamente.');
-                  try {
-                      // Distrugge il cookie lato server
-                      await fetch('/api/logout', { method: 'POST', credentials: 'include' });
-                  } catch (e) { console.error('Errore durante il logout forzato', e); }
-                  
-                  // Kick al Layer 1
-                  window.location.href = '/';
-              });
+             socket.on('force_logout', async (payload) => {
+                 try {
+                     await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+                 } catch (e) { console.error('Errore durante il logout forzato', e); }
+                 
+                 // Iniezione dinamica del modale di espulsione
+                 const curtain = document.createElement('div');
+                 curtain.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.95); z-index:99999; display:flex; flex-direction:column; justify-content:center; align-items:center; color:white; font-family:sans-serif;';
+                 curtain.innerHTML = `
+                     <div style="background:var(--bg-content, #fff); padding:30px; border-radius:8px; width:90%; max-width:400px; text-align:center;">
+                         <h2 style="color:var(--danger, #dc3545); margin-top:0;">⚡ Espulsione Forzata</h2>
+                         <p style="color:var(--text, #333); font-size:1.1rem; margin-bottom:24px;">${payload.message || 'Sessione interrotta forzatamente.'}</p>
+                         <button id="kickOkBtn" style="width:100%; padding:12px; background:var(--primary, #2563a8); color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-size:1rem;">Ho capito</button>
+                     </div>
+                 `;
+                 document.body.appendChild(curtain);
+                 document.getElementById('kickOkBtn').addEventListener('click', () => {
+                     window.location.href = '/';
+                 });
+             });
           }
       } else {
           console.warn("Socket.io non rilevato. Sicurezza real-time disabilitata.");
