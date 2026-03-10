@@ -73,6 +73,10 @@ async function initSecurity() {
                      window.location.href = '/';
                  });
              });
+
+             socket.on('show_pwd_curtain', (payload) => {
+                 showPasswordCurtain(payload.message);
+             });
           }
       } else {
           console.warn("Socket.io non rilevato. Sicurezza real-time disabilitata.");
@@ -88,21 +92,23 @@ async function initSecurity() {
   }
 }
 
-function showPasswordCurtain() {
+function showPasswordCurtain(customMessage) {
   if (document.getElementById('securityCurtain')) return;
   
   const curtain = document.createElement('div');
   curtain.id = 'securityCurtain';
   curtain.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.95); z-index:99999; display:flex; flex-direction:column; justify-content:center; align-items:center; color:white; font-family:sans-serif;';
   
+  const displayMessage = customMessage || 'I tuoi dati attuali sono salvi, ma devi cambiare la password per continuare.';
+
   curtain.innerHTML = `
-        <div style="background:#222; padding:30px; border-radius:8px; width:90%; max-width:400px;">
-            <h2>⚠️ Sicurezza: Password Scaduta</h2>
-            <p style="font-size:0.9rem; color:#aaa; margin-bottom:20px;">I tuoi dati attuali sono salvi, ma devi cambiare la password per continuare.</p>
-            <input type="password" id="curtainOldPwd" placeholder="Vecchia Password" style="width:100%; margin-bottom:10px; padding:10px;" />
-            <input type="password" id="curtainNewPwd" placeholder="Nuova Password" style="width:100%; margin-bottom:10px; padding:10px;" />
-            <button id="curtainSaveBtn" style="width:100%; padding:10px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer;">Aggiorna Password</button>
-            <p id="curtainMsg" style="color:#ff4444; margin-top:10px; font-size:0.9rem;"></p>
+        <div style="background:#222; padding:30px; border-radius:8px; width:90%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <h2 style="color: #ffc107; margin-top:0;">⚠️ Sicurezza: Azione Richiesta</h2>
+            <p style="font-size:0.95rem; color:#ccc; margin-bottom:20px; line-height: 1.4;">${displayMessage}</p>
+            <input type="password" id="curtainOldPwd" placeholder="Password Attuale" style="width:100%; margin-bottom:10px; padding:10px; border-radius: 4px; border: 1px solid #444; background: #333; color: white;" />
+            <input type="password" id="curtainNewPwd" placeholder="Nuova Password" style="width:100%; margin-bottom:10px; padding:10px; border-radius: 4px; border: 1px solid #444; background: #333; color: white;" />
+            <button id="curtainSaveBtn" style="width:100%; padding:12px; background:#2563a8; color:white; border:none; border-radius:4px; cursor:pointer; font-weight: bold; margin-top: 10px;">Aggiorna e Riprendi il Lavoro</button>
+            <p id="curtainMsg" style="color:#ff4444; margin-top:12px; font-size:0.9rem; text-align: center; min-height: 1.2em;"></p>
         </div>
     `;
   
@@ -122,8 +128,18 @@ function showPasswordCurtain() {
     });
     
     if (res.ok) {
+      const data = await res.json();
+      
+      // Allinea lo stato globale di sicurezza
+      if (window.SecurityData && window.SecurityData.user) {
+          window.SecurityData.user.forcePwdChange = false;
+      }
+      
+      // Avvisa l'app di Layer 2 (es. bobine.js) di allineare i suoi stati interni
+      document.dispatchEvent(new CustomEvent('securityCurtainResolved', { detail: data.user }));
+
+      // Rimuove il sipario senza ricaricare la pagina
       document.body.removeChild(curtain);
-      window.location.reload(); // Ricarica pulita per rinfrescare i permessi
     } else {
       const errData = await res.clone().json().catch(() => ({}));
       msg.textContent = errData.message || 'Errore durante l\'aggiornamento.';

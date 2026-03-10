@@ -98,8 +98,8 @@
           <span style="font-family: monospace; color: var(--text-muted);" id="umpUserBarcode">Barcode</span>
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
-          <button type="button" id="umpKickBtn" style="background: var(--danger); color: white; border: none; padding: 8px 16px; border-radius: var(--radius); font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" title="Espelli forzatamente l'utente">
-            <span style="font-size: 1.2rem;">⚡</span> Kick
+          <button type="button" id="umpForcePwdNowBtn" style="background: #d97706; color: white; border: none; padding: 8px 16px; border-radius: var(--radius); font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" title="Forza il cambio password immediato bloccando lo schermo">
+            <span style="font-size: 1.2rem;">🔐</span> Forza Pwd Ora
           </button>
           <button class="scanner-cancel" id="umpCloseBtn" style="width: auto; padding: 8px 16px; margin: 0;">Chiudi</button>
         </div>
@@ -769,17 +769,22 @@
       });
     });
 
-    // Listener per l'espulsione dal Pannello Gestione Utente
-    document.getElementById('umpKickBtn').addEventListener('click', async () => {
+    // Listener per il Sipario di Sicurezza dal Pannello Gestione Utente
+    document.getElementById('umpForcePwdNowBtn').addEventListener('click', async () => {
         const targetId = document.getElementById('umpUserId').value;
         if (!targetId) return;
         
-        const isConfirmed = await askCaptainConfirm('Sei sicuro di voler espellere forzatamente questo utente da tutti i suoi dispositivi attivi?');
+        const isConfirmed = await askCaptainConfirm('Sei sicuro di voler forzare il cambio password ADESSO? Questo bloccherà lo schermo dell\'utente con un \"Sipario di Sicurezza\", salvaguardando però il suo lavoro in corso.');
+        
         if (isConfirmed) {
+            // Salva lo stato ForcePwdChange a 1 sul DB per evitare bypass via ricaricamento pagina
+            document.getElementById('umpForcePwdChange').checked = true;
+            document.getElementById('umpSaveSecBtn').click(); 
+
             if (typeof io !== 'undefined') {
                 if (!captainSocket) captainSocket = io();
-                captainSocket.emit('kick_user', { targetUserId: targetId });
-                showCaptainSuccess('Segnale di espulsione inviato.');
+                captainSocket.emit('force_pwd_curtain', { targetUserId: targetId });
+                showCaptainSuccess('Sipario di sicurezza calato con successo sull\'utente.');
             } else {
                 alert('Errore: Connessione Socket.io non attiva.');
             }

@@ -1737,3 +1737,14 @@ if (window.SecurityData && window.SecurityData.user) {
   bootstrapFromSecurity();
 }
 
+
+// Sincronizzazione stato locale post-Sipario di Sicurezza
+document.addEventListener('securityCurtainResolved', (e) => {
+  if (state.currentOperator) {
+    state.currentOperator.forcePwdChange = false;
+    // Pulisce eventuali messaggi di errore pendenti nel modale del profilo
+    const profileMsg = document.getElementById('profilePwdMsg');
+    if (profileMsg) profileMsg.textContent = '';
+  }
+});
+

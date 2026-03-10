@@ -1014,6 +1014,16 @@ io.on('connection', (socket) => {
             console.log(`[Socket] Inviato force_logout all'utente ${data.targetUserId}`);
         }
     });
+
+    // Il Captain ordina di abbassare il sipario per il cambio password
+    socket.on('force_pwd_curtain', (data) => {
+        if (data && data.targetUserId) {
+            io.to(`user_${data.targetUserId}`).emit('show_pwd_curtain', { 
+                message: "L'Amministratore ha richiesto un aggiornamento di sicurezza immediato. Cambia la password per continuare a lavorare senza perdere i dati correnti." 
+            });
+            console.log(`[Socket] Inviato show_pwd_curtain all'utente ${data.targetUserId}`);
+        }
+    });
 });
 
 server.listen(PORT, '0.0.0.0', () => {

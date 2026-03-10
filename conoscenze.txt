@@ -81,10 +81,11 @@ La sicurezza e le autorizzazioni – inclusi i WebSocket e i redirect brutali pe
 - Esegue redirect immediati in caso di sessione scaduta o permessi insufficienti.
 - Gestisce la richiesta di cambio password obbligatorio.
 
-Se è richiesto un cambio password, `sicurezza.js` **inietta un \"Sipario\"** (overlay DOM) sopra il Layer 2:
-
+Se è richiesto un cambio password, `sicurezza.js` inietta un "Sipario" (overlay DOM) sopra il Layer 2:
 - Blocca l'interazione con l'app operativa.
-- Mantiene intatto lo stato di lavoro non salvato fino al completamento del cambio password.
+- Può essere attivato al caricamento (se l'utente ha il flag a DB) oppure in tempo reale dal Captain via WebSockets.
+- Al termine della procedura, aggiorna il JWT nei cookie e chiude il Sipario SENZA ricaricare la pagina, emettendo un evento `securityCurtainResolved`.
+- REGOLA PER LO SVILUPPO DI NUOVE APP (Layer 2): Ogni nuova app deve ascoltare l'evento `document.addEventListener('securityCurtainResolved', ...)` per aggiornare il proprio stato in memoria locale (es. `state.currentOperator.forcePwdChange = false`) in modo silente, preservando il lavoro in corso dell'utente.
 
 ### Captain Console e DefaultModuleID
 
