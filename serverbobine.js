@@ -134,8 +134,9 @@ app.post('/api/operators', async (req, res) => {
             opReq.input('admin', sql.Bit, admin);
             opReq.input('startTime', sql.VarChar, startTime);
             await opReq.query(`
-                INSERT INTO [CMP].[Bobine].[Operators] (IDUser, Admin, StartTime)
-                VALUES (@idUser, @admin, @startTime)
+                DECLARE @newId INT = ISNULL((SELECT MAX(IDOperator) FROM [CMP].[Bobine].[Operators]), 0) + 1;
+                INSERT INTO [CMP].[Bobine].[Operators] (IDOperator, IDUser, Admin, StartTime, IsActive)
+                VALUES (@newId, @idUser, @admin, @startTime, 1)
             `);
 
             await transaction.commit();
@@ -487,8 +488,9 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
                         const isAdmin = role.roleKey === 'Admin' ? 1 : 0;
                         roleReq.input('admin', sql.Bit, isAdmin);
                         await roleReq.query(`
-                            INSERT INTO [CMP].[Bobine].[Operators] (IDUser, Admin)
-                            VALUES (@idUser, @admin)
+                            DECLARE @newId INT = ISNULL((SELECT MAX(IDOperator) FROM [CMP].[Bobine].[Operators]), 0) + 1;
+                            INSERT INTO [CMP].[Bobine].[Operators] (IDOperator, IDUser, Admin, IsActive)
+                            VALUES (@newId, @idUser, @admin, 1)
                         `);
                     }
                 }

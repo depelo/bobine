@@ -241,6 +241,14 @@
     </div>
   </div>
 
+  <div class="scanner-modal" id="captainErrorModal" aria-hidden="true">
+    <div class="scanner-modal-inner" style="text-align: center;">
+      <h2 class="scanner-title" style="color: var(--danger); font-size: 1.6rem; margin-bottom: 24px;">❌ Errore</h2>
+      <p id="captainErrorMessage" style="margin-bottom: 24px; font-size: 1.05rem;"></p>
+      <button type="button" class="scanner-cancel" id="captainErrorBtnClose" style="background-color: var(--danger); color: white; border: none;">Chiudi</button>
+    </div>
+  </div>
+
   <script>
     const API_URL = '/api';
     let globalUsers = [];
@@ -627,7 +635,7 @@
       const password = document.getElementById('adminNewPassword').value;
 
       if (!name || !barcode) {
-        alert('Nome e Barcode sono obbligatori');
+        showCaptainError('Nome e Barcode sono obbligatori.');
         return;
       }
 
@@ -646,7 +654,7 @@
         document.getElementById('adminUserModal').setAttribute('aria-hidden', 'true');
         loadData();
       } catch (err) {
-        alert('Errore salvataggio: ' + err.message);
+        showCaptainError('Errore salvataggio: ' + err.message);
       }
     });
 
@@ -668,6 +676,22 @@
       modal.classList.add('is-open');
       modal.setAttribute('aria-hidden', 'false');
     }
+
+    function showCaptainError(msg) {
+      document.getElementById('captainErrorMessage').textContent = msg;
+      const modal = document.getElementById('captainErrorModal');
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    document.getElementById('captainErrorBtnClose').addEventListener('click', () => {
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+      const modal = document.getElementById('captainErrorModal');
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    });
 
     function askCaptainConfirm(msg) {
       return new Promise((resolve) => {
@@ -761,7 +785,7 @@
         document.getElementById('userManagePanel').classList.remove('is-open');
         document.getElementById('userManagePanel').setAttribute('aria-hidden', 'true');
       } catch (err) {
-        alert('Errore salvataggio: ' + err.message);
+        showCaptainError('Errore salvataggio: ' + err.message);
       }
     });
 
@@ -795,7 +819,7 @@
                 captainSocket.emit('force_pwd_curtain', { targetUserId: targetId });
                 showCaptainSuccess('Sipario di sicurezza calato con successo sull\'utente.');
             } else {
-                alert('Errore: Connessione Socket.io non attiva.');
+                showCaptainError('Errore: Connessione Socket.io non attiva.');
             }
         }
     });
@@ -934,7 +958,7 @@
         await loadData();
         showCaptainSuccess('Configurazione salvata.');
       } catch (err) {
-        alert('Errore salvataggio modulo: ' + err.message);
+        showCaptainError('Errore salvataggio modulo: ' + err.message);
       }
     });
 
@@ -947,7 +971,7 @@
             captainSocket.emit('kick_user', { targetUserId: userId });
             showCaptainSuccess(`Segnale inviato per ${userName}.`);
         } else {
-            alert('Errore: Connessione Socket.io non attiva.');
+            showCaptainError('Errore: Connessione Socket.io non attiva.');
         }
       }
     }
