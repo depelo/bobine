@@ -1459,7 +1459,13 @@ function openBarcodeScanner(targetFieldId) {
   };
 
   barcodeScannerInstance = new Html5Qrcode('scannerContainer');
-  const config = { fps: 10, qrbox: { width: 260, height: 120 } };
+  
+  // Ottimizzazione: Mirino quadrato e restrizione della decodifica al solo formato QR Code
+  const config = { 
+      fps: 10, 
+      qrbox: { width: 250, height: 250 },
+      formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+  };
 
   barcodeScannerInstance
     .start({ facingMode: 'environment' }, config, onSuccess)
