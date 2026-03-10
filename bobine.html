@@ -22,7 +22,7 @@
         <button type="button" class="menu-drawer-close" id="menuDrawerClose" aria-label="Chiudi menu">×</button>
       </div>
       <div class="menu-drawer-actions">
-        <button type="button" class="menu-drawer-btn" data-menu-action="placeholder1">Opzione 1</button>
+        <button type="button" class="menu-drawer-btn is-hidden" id="menuOpenCaptain" data-menu-action="open-captain">🛠️ Captain Console</button>
         <button type="button" class="menu-drawer-btn" data-menu-action="open-profile">👤 Il Mio Profilo</button>
         <button type="button" class="menu-drawer-btn menu-drawer-btn-primary" id="menuAddToHome" data-menu-action="add-to-home">Aggiungi a Home</button>
       </div>
@@ -211,6 +211,46 @@
         <p class="scanner-title">Seleziona Macchina</p>
         <ul class="list" id="mpMachineList" style="max-height: 40vh; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: var(--radius);"></ul>
         <button type="button" class="scanner-cancel" id="mpCancelBtn">Annulla</button>
+      </div>
+    </div>
+
+    <div class="scanner-modal" id="profileModal" aria-hidden="true">
+      <div class="scanner-modal-inner" style="width: 400px; max-width: 95%;">
+        <p class="scanner-title">Il Mio Profilo</p>
+        
+        <div style="background: var(--bg); padding: 12px; border-radius: var(--radius); margin-bottom: 20px;">
+          <p style="margin: 0 0 4px 0; font-size: 0.9rem; color: var(--text-muted);">Nome Operatore</p>
+          <p style="margin: 0 0 12px 0; font-weight: bold; font-size: 1.1rem;" id="profileNameDisplay">-</p>
+          
+          <div style="display: flex; gap: 16px;">
+            <div>
+              <p style="margin: 0 0 4px 0; font-size: 0.9rem; color: var(--text-muted);">Ruolo</p>
+              <p style="margin: 0; font-weight: bold;" id="profileRoleDisplay">-</p>
+            </div>
+            <div>
+              <p style="margin: 0 0 4px 0; font-size: 0.9rem; color: var(--text-muted);">Inizio Turno</p>
+              <p style="margin: 0; font-weight: bold;" id="profileTimeDisplay">-</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="profilePwdSection" style="display: none; border-top: 1px solid var(--border); padding-top: 16px;">
+          <p style="font-weight: 600; margin-bottom: 12px;">Cambio Password</p>
+          <div class="login-field">
+            <label>Password Attuale</label>
+            <input type="password" id="profileOldPwd" class="control" autocomplete="current-password">
+          </div>
+          <div class="login-field">
+            <label>Nuova Password</label>
+            <input type="password" id="profileNewPwd" class="control" autocomplete="new-password">
+          </div>
+          <p id="profilePwdMsg" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 12px;"></p>
+          <button type="button" class="action-btn" id="profileSavePwdBtn" style="width: 100%; background: var(--primary); color: white; border: none; font-size: 1rem; padding: 10px;">Aggiorna Password</button>
+        </div>
+
+        <div class="login-actions" style="margin-top: 24px;">
+          <button type="button" class="scanner-cancel" id="profileCloseBtn" style="width: 100%;">Chiudi</button>
+        </div>
       </div>
     </div>
 

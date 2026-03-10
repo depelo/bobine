@@ -515,6 +515,7 @@ const ADMIN_ONLY_ACTIONS = ['add-operator', 'add-machine'];
 function applyPermissions() {
   const isAdmin = state.currentOperator?.isAdmin === true;
   const hasOperator = state.currentOperator != null;
+  const isSuperuser = state.currentOperator?.isSuperuser === true;
 
   const lastLogByID = state.logs.length > 0
     ? state.logs.reduce((a, b) => (Number(a.uniqueRecordId) > Number(b.uniqueRecordId) ? a : b))
@@ -540,6 +541,11 @@ function applyPermissions() {
       return;
     }
   });
+
+  const btnCaptain = document.getElementById('menuOpenCaptain');
+  if (btnCaptain) {
+    btnCaptain.classList.toggle('is-hidden', !isSuperuser);
+  }
 }
 
 function createActionButtons(leftActions, rightActions) {
@@ -1279,10 +1285,19 @@ function openMenuDrawer() {
 }
 
 function closeMenuDrawer() {
-  document.getElementById('menuDrawer').classList.remove('is-open');
-  document.getElementById('menuDrawer').setAttribute('aria-hidden', 'true');
-  document.getElementById('menuDrawerBackdrop').classList.remove('is-open');
-  document.getElementById('menuDrawerBackdrop').setAttribute('aria-hidden', 'true');
+  const drawer = document.getElementById('menuDrawer');
+  const backdrop = document.getElementById('menuDrawerBackdrop');
+  if (document.activeElement && drawer && drawer.contains(document.activeElement)) {
+    document.activeElement.blur();
+  }
+  if (drawer) {
+    drawer.classList.remove('is-open');
+    drawer.setAttribute('aria-hidden', 'true');
+  }
+  if (backdrop) {
+    backdrop.classList.remove('is-open');
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
 }
 
 document.getElementById('menuBtn').addEventListener('click', openMenuDrawer);
