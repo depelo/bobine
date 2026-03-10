@@ -609,27 +609,47 @@ app.post('/api/login', async (req, res) => {
             console.error('Errore lettura AdminPwdExpiryDays:', cfgErr);
         }
 
-        // --- CALCOLO MODULI AUTORIZZATI / META-APP ---
-        const modulesRes = await pool.request().query('SELECT IDModule, ModuleName, TargetTable FROM [CMP].[dbo].[Modules]');
+        // --- CALCOLO MODULI AUTORIZZATI E LIVELLO DI SICUREZZA (HIGH WATERMARK) ---
+        const modulesRes = await pool.request().query('SELECT IDModule, ModuleName, TargetTable, RoleDefinition FROM [CMP].[dbo].[Modules]');
         const authorizedApps = [];
+        let globalRequiresPassword = isSuperuser; // Il Superuser richiede sempre la password di default
 
         for (let mod of modulesRes.recordset) {
             let hasAccess = false;
+            let localRoleKey = 'Base';
+
             if (mod.TargetTable === 'Operators') {
                 const checkRes = await pool.request()
                     .input('idUserMod', sql.Int, row.IDUser)
-                    .query(`SELECT 1 FROM [CMP].[Bobine].[Operators] WHERE IDUser = @idUserMod AND IsActive = 1`);
-                if (checkRes.recordset.length > 0) hasAccess = true;
+                    .query(`SELECT Admin FROM [CMP].[Bobine].[Operators] WHERE IDUser = @idUserMod AND IsActive = 1`);
+                if (checkRes.recordset.length > 0) {
+                    hasAccess = true;
+                    localRoleKey = checkRes.recordset[0].Admin ? 'Admin' : 'Base';
+                }
             } 
             // Futuri moduli verranno aggiunti qui
 
             if (hasAccess) {
-                authorizedApps.push({ id: mod.IDModule, name: mod.ModuleName, target: mod.TargetTable });
+                authorizedApps.push({ id: mod.IDModule, name: mod.ModuleName, target: mod.TargetTable, roleKey: localRoleKey });
+                
+                // Valutazione High Watermark: leggiamo il RoleDefinition per questo ruolo
+                if (mod.RoleDefinition) {
+                    try {
+                        const rDef = JSON.parse(mod.RoleDefinition);
+                        if (rDef[localRoleKey] && rDef[localRoleKey].requiresPassword) {
+                            globalRequiresPassword = true;
+                        }
+                    } catch (e) {
+                        console.error('Errore parsing RoleDefinition per modulo', mod.IDModule);
+                    }
+                }
             }
         }
 
         let needsPasswordChange = false;
-        if (isAdmin || isSuperuser) {
+
+        // Eseguiamo i controlli di sicurezza SOLO se l'High Watermark richiede la password
+        if (globalRequiresPassword) {
             const overrideDays = row.PwdExpiryDaysOverride != null ? parseInt(row.PwdExpiryDaysOverride, 10) : null;
             const expiryDays = !Number.isNaN(overrideDays) && overrideDays > 0 ? overrideDays : globalExpiryDays;
 
@@ -646,13 +666,24 @@ app.post('/api/login', async (req, res) => {
 
             const forceFlag = row.ForcePwdChange === true || row.ForcePwdChange === 1;
             needsPasswordChange = forceFlag || expired;
+
+            // Verifica presenza e correttezza della password
+            if (!password) {
+                return res.status(401).json({ requiresPassword: true, message: 'Password richiesta per il tuo livello di accesso' });
+            }
+
+            const passwordOk = await bcrypt.compare(password, row.PasswordHash || '');
+            if (!passwordOk) {
+                return res.status(401).json({ message: 'Credenziali non valide' });
+            }
         }
 
+        // Creazione del payload JWT comune a tutti
         const payload = {
             id: row.IDOperator,
             globalId: row.IDUser,
             name: row.Operator,
-            isAdmin,
+            isAdmin, // Mantenuto per retrocompatibilità temporanea con bobine.js
             isSuperuser,
             barcode: row.Barcode,
             startTime: row.StartTime ? row.StartTime.toISOString().substring(11, 16) : null,
@@ -661,26 +692,6 @@ app.post('/api/login', async (req, res) => {
             authorizedApps: authorizedApps
         };
 
-        if (!isAdmin && !isSuperuser) {
-            const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
-            res.cookie('jwt_token', token, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'strict',
-                maxAge: 12 * 60 * 60 * 1000
-            });
-            return res.json({ user: payload });
-        }
-
-        if (!password) {
-            return res.status(401).json({ requiresPassword: true, message: 'Password richiesta' });
-        }
-
-        const passwordOk = await bcrypt.compare(password, row.PasswordHash || '');
-        if (!passwordOk) {
-            return res.status(401).json({ message: 'Credenziali non valide' });
-        }
-
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
         res.cookie('jwt_token', token, {
             httpOnly: true,
@@ -688,6 +699,7 @@ app.post('/api/login', async (req, res) => {
             sameSite: 'strict',
             maxAge: 12 * 60 * 60 * 1000
         });
+        
         return res.json({ user: payload });
     } catch (err) {
         res.status(500).send(err.message);
