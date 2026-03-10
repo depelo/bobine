@@ -648,6 +648,7 @@ app.post('/api/login', async (req, res) => {
 
         const payload = {
             id: row.IDOperator,
+            globalId: row.IDUser,
             name: row.Operator,
             isAdmin,
             isSuperuser,

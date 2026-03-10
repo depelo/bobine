@@ -97,7 +97,12 @@
           <h2 style="margin: 0; font-size: 1.4rem;" id="umpUserName">Nome Utente</h2>
           <span style="font-family: monospace; color: var(--text-muted);" id="umpUserBarcode">Barcode</span>
         </div>
-        <button class="scanner-cancel" id="umpCloseBtn" style="width: auto; padding: 8px 16px;">Chiudi</button>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <button type="button" id="umpKickBtn" style="background: var(--danger); color: white; border: none; padding: 8px 16px; border-radius: var(--radius); font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" title="Espelli forzatamente l'utente">
+            <span style="font-size: 1.2rem;">⚡</span> Kick
+          </button>
+          <button class="scanner-cancel" id="umpCloseBtn" style="width: auto; padding: 8px 16px; margin: 0;">Chiudi</button>
+        </div>
       </div>
 
       <div style="display: flex; flex: 1; overflow: hidden;">
@@ -131,12 +136,9 @@
               </div>
             </div>
 
-            <div id="pwdManagementSection" style="margin-top: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius);">
+              <div id="pwdManagementSection" style="margin-top: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h4 style="margin:0; color: #856404;">Gestione Credenziali & Accesso</h4>
-                <button type="button" id="umpKickBtn" style="background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" title="Espelli immediatamente l'utente">
-                  <span style="font-size: 1.2rem;">🦵</span> Kick Utente
-                </button>
               </div>
 
               <div class="login-field">
@@ -218,6 +220,13 @@
       <div class="login-actions" style="margin-top: 24px;">
         <button type="button" class="scanner-cancel" id="emSaveBtn" style="width: 100%; background: var(--success); color: white; border: none;">Salva Configurazione App</button>
       </div>
+    </div>
+  </div>
+
+  <div class="scanner-modal" id="captainSuccessModal" aria-hidden="true">
+    <div class="scanner-modal-inner" style="text-align: center;">
+      <h2 class="scanner-title" id="captainSuccessTitle" style="color: var(--success); font-size: 1.6rem; margin-bottom: 24px;">Operazione completata!</h2>
+      <button type="button" class="scanner-cancel" id="captainSuccessBtnClose" style="background-color: var(--primary); color: white; border: none;">OK</button>
     </div>
   </div>
 
@@ -633,7 +642,26 @@
       });
     });
 
+    function showCaptainSuccess(msg) {
+      document.getElementById('captainSuccessTitle').textContent = msg;
+      const modal = document.getElementById('captainSuccessModal');
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    document.getElementById('captainSuccessBtnClose').addEventListener('click', () => {
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+      const modal = document.getElementById('captainSuccessModal');
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    });
+
     document.getElementById('umpCloseBtn').addEventListener('click', () => {
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
       const panel = document.getElementById('userManagePanel');
       panel.classList.remove('is-open');
       panel.setAttribute('aria-hidden', 'true');
@@ -687,7 +715,7 @@
           throw new Error(await res.text());
         }
         await loadData();
-        alert('Impostazioni di sicurezza aggiornate con successo.');
+        showCaptainSuccess('Impostazioni aggiornate.');
         document.getElementById('userManagePanel').classList.remove('is-open');
         document.getElementById('userManagePanel').setAttribute('aria-hidden', 'true');
       } catch (err) {
@@ -717,7 +745,7 @@
             if (typeof io !== 'undefined') {
                 if (!captainSocket) captainSocket = io();
                 captainSocket.emit('kick_user', { targetUserId: targetId });
-                alert('Segnale di espulsione inviato con successo.');
+                showCaptainSuccess('Segnale di espulsione inviato.');
             } else {
                 alert('Errore: Connessione Socket.io non attiva.');
             }
@@ -846,7 +874,7 @@
         document.getElementById('editModuleModal').classList.remove('is-open');
         document.getElementById('editModuleModal').setAttribute('aria-hidden', 'true');
         await loadData();
-        alert('Configurazione App salvata con successo.');
+        showCaptainSuccess('Configurazione salvata.');
       } catch (err) {
         alert('Errore salvataggio modulo: ' + err.message);
       }
@@ -858,7 +886,7 @@
         if (typeof io !== 'undefined') {
             if (!captainSocket) captainSocket = io();
             captainSocket.emit('kick_user', { targetUserId: userId });
-            alert(`Segnale di espulsione inviato alla rete per ${userName}.`);
+            showCaptainSuccess(`Segnale inviato per ${userName}.`);
         } else {
             alert('Errore: Connessione Socket.io non attiva.');
         }

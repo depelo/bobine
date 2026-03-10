@@ -48,7 +48,7 @@ async function initSecurity() {
       // --- REAL-TIME SECURITY (WEBSOCKETS) ---
       if (typeof io !== 'undefined') {
           const socket = io();
-          const userId = user.id || user.IDUser || user.IDOperator;
+          const userId = user.globalId || user.IDUser || user.id || user.IDOperator;
           
           if (userId) {
               socket.emit('register', userId);
