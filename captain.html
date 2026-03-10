@@ -226,6 +226,7 @@
     let globalUsers = [];
     let globalModules = [];
     let allModules = [];
+    let captainSocket = null;
 
     // Utility per chiamate API protette
     async function apiFetch(endpoint, options = {}) {
@@ -707,25 +708,18 @@
       });
     });
 
-    let captainSocket = null;
-
+    // Listener per l'espulsione dal Pannello Gestione Utente
     document.getElementById('umpKickBtn').addEventListener('click', () => {
         const targetId = document.getElementById('umpUserId').value;
-        
-        if (!targetId) {
-            alert('Nessun utente selezionato.');
-            return;
-        }
+        if (!targetId) return;
         
         if (confirm('Sei sicuro di voler espellere forzatamente questo utente da tutti i suoi dispositivi attivi?')) {
             if (typeof io !== 'undefined') {
-                if (!captainSocket) {
-                    captainSocket = io(); // Inizializza il socket per il captain solo se necessario
-                }
+                if (!captainSocket) captainSocket = io();
                 captainSocket.emit('kick_user', { targetUserId: targetId });
-                alert('Segnale di espulsione (Kick) inviato con successo alla rete.');
+                alert('Segnale di espulsione inviato con successo.');
             } else {
-                alert('Errore: Connessione di rete (Socket.io) non attiva.');
+                alert('Errore: Connessione Socket.io non attiva.');
             }
         }
     });
@@ -858,11 +852,16 @@
       }
     });
 
-    // Funzione per l'espulsione rapida dell'utente
+    // Funzione per l'espulsione rapida dell'utente (Tabella)
     function kickUser(userId, userName) {
       if (confirm(`Sei sicuro di voler interrompere immediatamente la sessione attiva di ${userName}?`)) {
-        // TODO: Collegare alla futura API /api/admin/users/:id/kick che aggiornerà SessionValidFrom
-        alert(`Simulazione: L'utente ${userName} è stato disconnesso con successo.\n(Il backend reale è in fase di implementazione)`);
+        if (typeof io !== 'undefined') {
+            if (!captainSocket) captainSocket = io();
+            captainSocket.emit('kick_user', { targetUserId: userId });
+            alert(`Segnale di espulsione inviato alla rete per ${userName}.`);
+        } else {
+            alert('Errore: Connessione Socket.io non attiva.');
+        }
       }
     }
 
