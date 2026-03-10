@@ -456,7 +456,7 @@ app.put('/api/admin/config', authenticateCaptain, async (req, res) => {
 
 // 4. Creazione utente con transazione (Passaporto + Visti)
 app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
-    const { name, barcode, password, roles } = req.body;
+    const { name, barcode, password, forcePwdChange, defaultModuleId, roles } = req.body;
     try {
         let pool = await sql.connect(dbConfig);
         const transaction = new sql.Transaction(pool);
@@ -468,11 +468,13 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
             userReq.input('name', sql.NVarChar, name);
             userReq.input('barcode', sql.NVarChar, barcode);
             userReq.input('pwd', sql.NVarChar, hash);
+            userReq.input('forcePwdChange', sql.Bit, forcePwdChange ? 1 : 0);
+            userReq.input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null);
 
             const userRes = await userReq.query(`
-                INSERT INTO [CMP].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive)
+                INSERT INTO [CMP].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive, ForcePwdChange, DefaultModuleID)
                 OUTPUT INSERTED.IDUser
-                VALUES (@name, @barcode, @pwd, 1)
+                VALUES (@name, @barcode, @pwd, 1, @forcePwdChange, @defaultModuleId)
             `);
             const newUserId = userRes.recordset[0].IDUser;
 

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="captain.css" />
   <script src="/socket.io/socket.io.js"></script>
   <script src="sicurezza.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     .ump-tab.active {
       background: var(--bg-content);
@@ -61,30 +62,49 @@
   </main>
 
   <div class="scanner-modal" id="adminUserModal" aria-hidden="true">
-    <div class="scanner-modal-inner" style="width: 400px; max-width: 90%;">
+    <div class="scanner-modal-inner" style="width: 450px; max-width: 95%;">
       <p class="scanner-title">Nuovo Utente (Passaporto & Visti)</p>
 
       <div class="login-field">
         <label>Nome Completo</label>
         <input type="text" id="adminNewName" class="control" style="width:100%" autocomplete="off" />
       </div>
-      <div class="login-field">
-        <label>Barcode Login</label>
-        <input type="text" id="adminNewBarcode" class="control" style="width:100%" autocomplete="off" />
-      </div>
-      <div class="login-field">
-        <label>Password (Opzionale)</label>
-        <input type="password" id="adminNewPassword" class="control" style="width:100%" autocomplete="new-password" placeholder="Default: 123456" />
+
+      <div class="login-field" style="display: flex; gap: 16px; align-items: flex-start; background: var(--bg); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);">
+        <div style="flex: 1;">
+          <label style="font-weight: bold; color: var(--primary-dark);">QR Code Login</label>
+          <input type="text" id="adminNewBarcode" class="control" readonly style="width:100%; font-family: monospace; background: var(--bg-content); color: var(--text-muted); margin-bottom: 8px;" />
+          <button type="button" class="action-btn" id="adminRegenerateQRBtn" style="font-size: 0.9rem; padding: 6px 12px; min-height: 0; min-width: 0; background: var(--border); color: var(--text);">🔄 Rigenera</button>
+          <button type="button" class="action-btn" id="adminPrintQRBtn" style="font-size: 0.9rem; padding: 6px 12px; min-height: 0; min-width: 0; background: var(--primary); color: white;">🖨️ Stampa</button>
+        </div>
+        <div id="adminNewQRCodeContainer" style="background: white; padding: 8px; border-radius: 8px; border: 1px solid var(--border);"></div>
       </div>
 
-      <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 10px;">
+      <div style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px;">
         <p style="font-weight: 600; margin-bottom: 10px;">Assegna Accessi (Visti):</p>
-        <div id="dynamicRolesContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        <div id="dynamicRolesContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; background: var(--bg); padding: 8px; border-radius: var(--radius);"></div>
+      </div>
+
+      <div class="login-field" style="margin-top: 16px;">
+        <label id="adminNewPwdLabel">Password (Opzionale)</label>
+        <input type="password" id="adminNewPassword" class="control" style="width:100%" autocomplete="new-password" placeholder="Default: 123456" />
+      </div>
+      
+      <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+        <input type="checkbox" id="adminNewForcePwd" style="width: 16px; height: 16px;" checked>
+        <label for="adminNewForcePwd" style="margin: 0; font-size: 0.9rem; cursor: pointer;">Forza reset password al primo login</label>
+      </div>
+
+      <div class="login-field" style="margin-top: 16px;">
+        <label>App di Destinazione Principale</label>
+        <select id="adminNewDefaultModule" class="control" style="width:100%">
+          <option value="">-- Seleziona prima i Visti --</option>
+        </select>
       </div>
 
       <div class="login-actions" style="margin-top: 24px; gap: 12px; display: flex;">
         <button type="button" class="scanner-cancel" id="adminUserCancelBtn" style="flex:1;">Annulla</button>
-        <button type="button" class="scanner-cancel" id="adminUserSaveBtn" style="flex:1; background: var(--success); color: white; border: none;">Salva</button>
+        <button type="button" class="scanner-cancel" id="adminUserSaveBtn" style="flex:1; background: var(--success); color: white; border: none;">Crea Utente</button>
       </div>
     </div>
   </div>
@@ -579,11 +599,91 @@
       });
     });
 
+    let newAdminQRCode = null;
+
+    function generateNewUserQR() {
+      // Genera una stringa casuale sicura: prefisso UJ- + 8 caratteri alfanumerici
+      const randomStr = 'UJ-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+      document.getElementById('adminNewBarcode').value = randomStr;
+      
+      const qrContainer = document.getElementById('adminNewQRCodeContainer');
+      qrContainer.innerHTML = '';
+      if (typeof QRCode !== 'undefined') {
+        newAdminQRCode = new QRCode(qrContainer, {
+            text: randomStr,
+            width: 100,
+            height: 100,
+            colorDark : "#000000",
+            colorLight : "#ffffff",
+            correctLevel : QRCode.CorrectLevel.H
+        });
+      } else {
+        qrContainer.textContent = 'Libreria QR non caricata';
+      }
+    }
+
+    // Listener per i pulsanti QR
+    document.getElementById('adminRegenerateQRBtn').addEventListener('click', generateNewUserQR);
+    document.getElementById('adminPrintQRBtn').addEventListener('click', () => {
+      const qrImg = document.querySelector('#adminNewQRCodeContainer img');
+      if (!qrImg) return;
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`<html><body style="text-align:center; font-family:sans-serif; margin-top: 50px;">
+          <h2>Badge Login Operatore</h2>
+          <img src="${qrImg.src}" style="width:200px; height:200px; margin: 20px 0;">
+          <p style="font-size: 1.2rem; font-weight: bold; letter-spacing: 2px;">${document.getElementById('adminNewBarcode').value}</p>
+          <script>window.onload = function() { window.print(); window.close(); }<\/script>
+      </body></html>`);
+    });
+
+    // Funzione per l'High Watermark e Popolamento Select in tempo reale
+    function updateNewUserDynamicFields() {
+        let needsPwd = false;
+        let selectedModules = new Map();
+
+        document.querySelectorAll('.role-checkbox:checked').forEach(cb => {
+            const mod = globalModules.find(m => m.targetTable === cb.dataset.targetTable);
+            if (mod) {
+                selectedModules.set(mod.id, mod.name);
+                if (mod.roleDefinition && mod.roleDefinition[cb.dataset.roleKey] && mod.roleDefinition[cb.dataset.roleKey].requiresPassword) {
+                    needsPwd = true;
+                }
+            }
+        });
+
+        const pwdLabel = document.getElementById('adminNewPwdLabel');
+        if (needsPwd) {
+            pwdLabel.innerHTML = 'Password (<span style="color: var(--danger); font-weight: bold;">OBBLIGATORIA</span>)';
+        } else {
+            pwdLabel.innerHTML = 'Password (Opzionale)';
+        }
+
+        const defModSelect = document.getElementById('adminNewDefaultModule');
+        const currentVal = defModSelect.value;
+        defModSelect.innerHTML = '<option value="">-- Seleziona App --</option>';
+        selectedModules.forEach((name, id) => {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = name;
+            defModSelect.appendChild(opt);
+        });
+        
+        if (selectedModules.has(parseInt(currentVal, 10))) {
+            defModSelect.value = currentVal;
+        } else if (selectedModules.size > 0) {
+            defModSelect.selectedIndex = 1; // Auto-seleziona la prima app disponibile
+        }
+    }
+
     // Modal Nuovo Utente (Passaporto & Visti)
     function openNewUserModal() {
       document.getElementById('adminNewName').value = '';
-      document.getElementById('adminNewBarcode').value = '';
       document.getElementById('adminNewPassword').value = '';
+      document.getElementById('adminNewForcePwd').checked = true;
+      document.getElementById('adminNewDefaultModule').innerHTML = '<option value="">-- Seleziona prima i Visti --</option>';
+      document.getElementById('adminNewPwdLabel').innerHTML = 'Password (Opzionale)';
+
+      generateNewUserQR();
 
       const container = document.getElementById('dynamicRolesContainer');
       container.innerHTML = '';
@@ -605,10 +705,15 @@
           lbl.style.marginTop = '4px';
           lbl.style.cursor = 'pointer';
 
-          lbl.innerHTML = `
-                <input type="checkbox" class="role-checkbox" data-target-table="${mod.targetTable}" data-role-key="${roleKey}">
-                ${roleInfo.label}
-            `;
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.className = 'role-checkbox';
+          cb.dataset.targetTable = mod.targetTable;
+          cb.dataset.roleKey = roleKey;
+          cb.addEventListener('change', updateNewUserDynamicFields);
+
+          lbl.appendChild(cb);
+          lbl.appendChild(document.createTextNode(roleInfo.label));
           modGroup.appendChild(lbl);
         }
         container.appendChild(modGroup);
@@ -633,10 +738,19 @@
       const name = document.getElementById('adminNewName').value.trim();
       const barcode = document.getElementById('adminNewBarcode').value.trim();
       const password = document.getElementById('adminNewPassword').value;
+      const forcePwdChange = document.getElementById('adminNewForcePwd').checked;
+      const defaultModuleId = document.getElementById('adminNewDefaultModule').value;
 
-      if (!name || !barcode) {
-        showCaptainError('Nome e Barcode sono obbligatori.');
+      if (!name) {
+        showCaptainError('Il nome è obbligatorio.');
         return;
+      }
+
+      // Validazione High Watermark
+      const isPwdRequired = document.getElementById('adminNewPwdLabel').textContent.includes('OBBLIGATORIA');
+      if (isPwdRequired && !password) {
+         showCaptainError('Hai assegnato un ruolo che richiede alta sicurezza. La password iniziale è obbligatoria.');
+         return;
       }
 
       const selectedRoles = Array.from(document.querySelectorAll('.role-checkbox:checked')).map(cb => ({
@@ -644,15 +758,28 @@
         roleKey: cb.dataset.roleKey
       }));
 
+      if (selectedRoles.length > 0 && !defaultModuleId) {
+         showCaptainError('Seleziona un\'App di Destinazione Principale.');
+         return;
+      }
+
       try {
         await apiFetch('/admin/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, barcode, password, roles: selectedRoles })
+          body: JSON.stringify({ 
+            name, 
+            barcode, 
+            password, 
+            forcePwdChange, 
+            defaultModuleId, 
+            roles: selectedRoles 
+          })
         });
         document.getElementById('adminUserModal').classList.remove('is-open');
         document.getElementById('adminUserModal').setAttribute('aria-hidden', 'true');
         loadData();
+        showCaptainSuccess('Utente creato con successo!');
       } catch (err) {
         showCaptainError('Errore salvataggio: ' + err.message);
       }
