@@ -469,7 +469,16 @@
     }
 
     // Pannello Gestione Utente (Passaporto / Sessioni / Accessi)
-    function openUserManager(id) {
+    async function openUserManager(id) {
+      // 1. Fetch "Just-In-Time": aggiorna i dati in modo silente prima di aprire il modale
+      try {
+        const freshUsers = await apiFetch('/admin/users');
+        globalUsers = freshUsers;
+        renderUsersTable(); // Aggiorna visivamente anche la tabella sullo sfondo
+      } catch (err) {
+        console.warn('Impossibile aggiornare i dati utenti prima di aprire il modale:', err);
+      }
+
       const u = globalUsers.find(x => x.id === id);
       if (!u) return;
       document.getElementById('umpUserName').textContent = u.name;
@@ -792,7 +801,17 @@
     });
 
     // Modale Modifica App (RoleDefinition)
-    function openEditModuleModal(id) {
+    async function openEditModuleModal(id) {
+      // 1. Fetch "Just-In-Time": aggiorna i moduli prima di aprire il modale
+      try {
+        const freshModules = await apiFetch('/admin/modules');
+        globalModules = freshModules;
+        allModules = freshModules;
+        renderModulesCards(); // Aggiorna visivamente le card sullo sfondo
+      } catch (err) {
+        console.warn('Impossibile aggiornare i dati dei moduli prima di aprire il modale:', err);
+      }
+
       const mod = globalModules.find(m => m.id === id);
       if (!mod) return;
 
