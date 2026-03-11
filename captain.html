@@ -116,14 +116,21 @@
   <div class="scanner-modal" id="userManagePanel" aria-hidden="true">
     <div class="scanner-modal-inner" style="width: 800px; max-width: 95%; height: 80vh; display: flex; flex-direction: column; padding: 0;">
       
-      <div style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--bg); border-radius: var(--radius) var(--radius) 0 0; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <h2 style="margin: 0; font-size: 1.4rem;" id="umpUserName">Nome Utente</h2>
-          <span style="font-family: monospace; color: var(--text-muted);" id="umpUserBarcode">QR Code</span>
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--border); padding: 16px 20px; margin-bottom: 20px; background: var(--bg); border-radius: var(--radius) var(--radius) 0 0;">
+        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+          <div style="display: flex; flex-direction: column;">
+            <p class="scanner-title" style="margin: 0; border: none; padding: 0;">Gestisci Utente</p>
+            <div style="font-size: 0.9rem; color: var(--text-muted); margin-top: 4px;">
+              <span id="umpUserName">Nome Utente</span>
+              <span style="font-family: monospace; margin-left: 8px;" id="umpUserBarcode">QR Code</span>
+            </div>
+          </div>
+          <div style="font-size: 0.9rem; background: var(--bg-content); padding: 4px 12px; border-radius: 12px; border: 1px solid var(--border); display: flex; align-items: center; gap: 6px;">
+            <span style="color: var(--text-muted);">Ultimo Accesso:</span>
+            <span id="umpLastLoginDisplay" style="font-weight: bold;">-</span>
+          </div>
         </div>
-        <div style="display: flex; gap: 12px; align-items: center;">
-          <button class="scanner-cancel" id="umpCloseBtn" style="width: auto; padding: 8px 16px; margin: 0;">Chiudi</button>
-        </div>
+        <button type="button" class="scanner-cancel" id="umpCloseBtn" style="margin: 0; width: auto; padding: 8px 16px;">Chiudi</button>
       </div>
 
       <div style="display: flex; flex: 1; overflow: hidden;">
@@ -141,17 +148,6 @@
 
             <input type="hidden" id="umpUserId">
 
-            <div id="umpHealthSection" style="display: flex; gap: 16px; margin-bottom: 24px; padding: 12px; background: var(--bg-content); border: 1px solid var(--border); border-radius: var(--radius);">
-               <div style="flex: 1;">
-                 <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Ultimo Accesso</div>
-                 <div id="umpLastLoginDisplay" style="font-weight: bold; font-size: 1rem;">-</div>
-               </div>
-               <div style="flex: 1;">
-                 <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Età QR Code Login</div>
-                 <div id="umpQRHealthDisplay" style="font-weight: bold; font-size: 1rem;">-</div>
-               </div>
-            </div>
-
             <div class="login-field">
               <label>Nome Completo</label>
               <div style="display: flex; gap: 8px;">
@@ -167,13 +163,17 @@
                 <button type="button" class="action-btn" id="umpRegenerateQRBtn" style="font-size: 0.9rem; padding: 6px 12px; min-height: 0; min-width: 0; background: var(--border); color: var(--text);">🔄 Rigenera</button>
                 <button type="button" class="action-btn" id="umpPrintQRBtn" style="font-size: 0.9rem; padding: 6px 12px; min-height: 0; min-width: 0; background: var(--primary); color: white;">🖨️ Stampa</button>
               </div>
-              <div id="umpQRCodeContainer" style="background: white; padding: 8px; border-radius: 8px; border: 1px solid var(--border); min-width: 100px; min-height: 100px; display: flex; align-items: center; justify-content: center;"></div>
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                <div id="umpQRCodeContainer" style="background: white; padding: 8px; border-radius: 8px; border: 1px solid var(--border); min-width: 100px; min-height: 100px; display: flex; align-items: center; justify-content: center;"></div>
+                <div id="umpQRHealthDisplay" style="font-size: 0.85rem; font-weight: bold; text-align: center;">-</div>
+              </div>
             </div>
 
               <div id="pwdManagementSection" style="margin-top: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h4 style="margin:0; color: #856404;">Gestione Credenziali & Accesso</h4>
               </div>
+              <div id="umpPwdHealthDisplay" style="font-size: 0.85rem; margin-top: 6px; font-weight: 600; color: #664d03;">-</div>
 
               <div class="login-field">
                 <label>Nuova Password (lascia vuoto per non modificare)</label>
@@ -312,7 +312,7 @@
       return res.json();
     }
 
-    function calculateHealthIndicators(lastLoginStr, lastBarcodeStr) {
+    function calculateHealthIndicators(lastLoginStr, lastBarcodeStr, lastPwdStr) {
         const now = new Date();
         
         let loginText = 'Mai effettuato';
@@ -336,7 +336,22 @@
             else if (diffDaysQR > 90) { qrColor = '🟡'; qrText += ' (Consigliata rotazione)'; }
         }
 
-        return { loginHtml: `${loginColor} ${loginText}`, qrHtml: `${qrColor} ${qrText}` };
+        let pwdText = 'Mai impostata / Default';
+        let pwdColor = '🔴';
+        if (lastPwdStr) {
+            const pwdDate = new Date(lastPwdStr);
+            const diffDaysPwd = Math.floor((now - pwdDate) / (1000 * 60 * 60 * 24));
+            pwdText = `Modificata ${diffDaysPwd} giorni fa`;
+            if (diffDaysPwd > 180) { pwdColor = '🔴'; pwdText += ' (Molto vecchia)'; }
+            else if (diffDaysPwd > 90) { pwdColor = '🟡'; pwdText += ' (In invecchiamento)'; }
+            else { pwdColor = '🟢'; }
+        }
+
+        return { 
+            loginHtml: `${loginColor} ${loginText}`, 
+            qrHtml: `${qrColor} Età QR: ${qrText}`,
+            pwdHtml: `${pwdColor} ${pwdText}`
+        };
     }
 
     // Inizializzazione della Console
@@ -609,9 +624,13 @@
       document.getElementById('umpUserName').textContent = u.name;
       document.getElementById('umpUserBarcode').textContent = u.barcode;
       document.getElementById('umpUserId').value = u.id;
-      const health = calculateHealthIndicators(u.lastLogin, u.lastBarcodeChange);
-      document.getElementById('umpLastLoginDisplay').textContent = health.loginHtml;
-      document.getElementById('umpQRHealthDisplay').textContent = health.qrHtml;
+      const health = calculateHealthIndicators(u.lastLogin, u.lastBarcodeChange, u.lastPasswordChange);
+      const lastLoginEl = document.getElementById('umpLastLoginDisplay');
+      if (lastLoginEl) lastLoginEl.textContent = health.loginHtml;
+      const qrDisplay = document.getElementById('umpQRHealthDisplay');
+      if (qrDisplay) qrDisplay.textContent = health.qrHtml;
+      const pwdDisplay = document.getElementById('umpPwdHealthDisplay');
+      if (pwdDisplay) pwdDisplay.textContent = health.pwdHtml;
       document.getElementById('umpInputName').value = u.name || '';
       originalEditBarcode = u.barcode || '';
       document.getElementById('umpInputBarcode').value = originalEditBarcode;

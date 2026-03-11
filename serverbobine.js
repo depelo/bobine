@@ -240,8 +240,10 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
         const usersRes = await pool.request().query(`
             SELECT IDUser as id, Name as name, Barcode as barcode, IsActive as isActive,
                    SessionHoursOverride as sessionHoursOverride, ForcePwdChange as forcePwdChange,
-                   PwdExpiryDaysOverride as pwdExpiryDaysOverride, LastPasswordChange as lastPasswordChange,
-                   LastLogin as LastLogin, LastBarcodeChange as LastBarcodeChange,
+                   PwdExpiryDaysOverride as pwdExpiryDaysOverride,
+                   LastPasswordChange as LastPasswordChange,
+                   LastLogin as LastLogin,
+                   LastBarcodeChange as LastBarcodeChange,
                    DefaultModuleID
             FROM [CMP].[dbo].[Users]
             WHERE IsActive = 1
@@ -252,7 +254,8 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
             forcePwdChange: !!u.forcePwdChange && u.forcePwdChange !== 0 && u.forcePwdChange !== '0',
             defaultModuleId: u.DefaultModuleID,
             lastLogin: u.LastLogin,
-            lastBarcodeChange: u.LastBarcodeChange
+            lastBarcodeChange: u.LastBarcodeChange,
+            lastPasswordChange: u.LastPasswordChange
         }));
 
         // 2. Recupera i moduli (Visti disponibili)
