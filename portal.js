@@ -76,7 +76,7 @@ async function performLogin() {
   const barcode = loginBarcodeInput ? loginBarcodeInput.value.trim() : '';
   const password = loginPasswordInput ? loginPasswordInput.value : '';
   if (!barcode) {
-    if (loginMessageEl) loginMessageEl.textContent = 'Inserisci il barcode operatore.';
+    if (loginMessageEl) loginMessageEl.textContent = 'Inserisci il QR Code operatore.';
     return;
   }
   try {
@@ -137,6 +137,95 @@ async function performLogin() {
     }
   }
 }
+
+// --- MOTORE SCANNER QR CODE (Indipendente per il Gateway) ---
+let barcodeScannerInstance = null;
+let isScannerRunning = false;
+
+function playBarcodeBeep() {
+  const audio = document.getElementById('barcodeBeepSound');
+  if (!audio) return;
+  audio.currentTime = 0;
+  audio.play().catch((error) => console.warn("Impossibile riprodurre il beep:", error));
+}
+
+function closeBarcodeScanner() {
+  const modal = document.getElementById('scannerModal');
+  if (modal) {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  if (barcodeScannerInstance) {
+    if (isScannerRunning) {
+      try { barcodeScannerInstance.stop().catch(() => {}); } catch (e) {}
+    }
+    barcodeScannerInstance = null;
+    isScannerRunning = false;
+  }
+  const container = document.getElementById('scannerContainer');
+  if (container) container.innerHTML = '';
+}
+
+function openBarcodeScanner() {
+  const modal = document.getElementById('scannerModal');
+  const container = document.getElementById('scannerContainer');
+  if (!modal || !container) return;
+
+  if (typeof Html5Qrcode === 'undefined') {
+    alert('Libreria scanner non disponibile. Controlla la connessione.');
+    return;
+  }
+
+  modal.classList.add('is-open');
+  modal.setAttribute('aria-hidden', 'false');
+  container.innerHTML = '';
+
+  const onSuccess = (decodedText) => {
+    playBarcodeBeep();
+    const field = document.getElementById('loginBarcode');
+    if (field) {
+      field.value = decodedText;
+      // Avvia il login automaticamente dopo la scansione
+      void performLogin();
+    }
+    closeBarcodeScanner();
+  };
+
+  barcodeScannerInstance = new Html5Qrcode('scannerContainer');
+  
+  // Ottimizzazione mirata solo per QR Code
+  const config = { 
+      fps: 10, 
+      qrbox: { width: 250, height: 250 },
+      formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+  };
+
+  barcodeScannerInstance
+    .start({ facingMode: 'environment' }, config, onSuccess)
+    .then(() => { isScannerRunning = true; })
+    .catch((err) => {
+      isScannerRunning = false;
+      closeBarcodeScanner();
+      alert('Impossibile accedere alla fotocamera. Verifica i permessi.');
+    });
+}
+
+// Intercetta il click sul pulsante della fotocamera nel login
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action="login-scan-operator"]');
+  if (btn) {
+    openBarcodeScanner();
+  }
+});
+
+// Chiusura del modale scanner
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'scannerCancel' || e.target.closest('#scannerCancel') || e.target.id === 'scannerModal') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeBarcodeScanner();
+  }
+});
 
 if (loginSubmitBtn) {
   loginSubmitBtn.addEventListener('click', () => {

@@ -1175,7 +1175,7 @@ async function handleTopbarAction(action) {
   if (action === 'add-operator') {
     const name = prompt('Nome operatore');
     if (name == null || name.trim() === '') return;
-    const barcode = prompt('Barcode');
+    const barcode = prompt('QR Code');
     if (barcode == null) return;
     const isAdmin = window.confirm("L'operatore è un Amministratore?\n\nPremi 'OK' per Sì\nPremi 'Annulla' per No");
     try {
@@ -1215,7 +1215,7 @@ async function handleTopbarAction(action) {
   if (action === 'add-machine') {
     const name = prompt('Nome macchina');
     if (name == null || name.trim() === '') return;
-    const barcode = prompt('Barcode');
+    const barcode = prompt('QR Code');
     if (barcode == null) return;
     try {
       const res = await fetch(`${API_URL}/machines`, {
@@ -1542,7 +1542,7 @@ document.addEventListener('click', (event) => {
     return;
   }
   if (action === 'manual-machine-barcode') {
-    const code = window.prompt("Inserisci o scansiona il codice a barre della macchina:");
+    const code = window.prompt("Inserisci o scansiona il QR Code della macchina:");
     if (code) loginByBarcode(code, 'machine');
     return;
   }

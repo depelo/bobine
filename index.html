@@ -26,7 +26,7 @@
       <div class="scanner-modal-inner">
         <p class="scanner-title">Login operatore</p>
         <div class="login-field">
-          <label for="loginBarcode">Barcode operatore</label>
+          <label for="loginBarcode">QR Code operatore</label>
           <div class="control with-icon-btn">
             <input id="loginBarcode" type="text" autocomplete="off" />
             <button type="button" class="icon-btn" data-action="login-scan-operator" title="Scansiona con fotocamera">
@@ -87,6 +87,19 @@
       </div>
     </div>
 
+    <audio id="barcodeBeepSound" preload="auto">
+      <source src="beep.mp3" type="audio/mpeg" />
+    </audio>
+
+    <div class="scanner-modal" id="scannerModal" aria-hidden="true" aria-label="Scansione QR Code">
+      <div class="scanner-modal-inner">
+        <p class="scanner-title">Inquadra il QR Code</p>
+        <div id="scannerContainer"></div>
+        <button type="button" class="scanner-cancel" id="scannerCancel">Annulla</button>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="portal.js"></script>
   </body>
 </html>

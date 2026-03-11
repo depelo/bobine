@@ -555,7 +555,7 @@ app.post('/api/machines', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { barcode, password } = req.body || {};
     if (!barcode) {
-        return res.status(400).json({ message: 'Barcode richiesto' });
+        return res.status(400).json({ message: 'QR Code richiesto' });
     }
     try {
         let pool = await sql.connect(dbConfig);
