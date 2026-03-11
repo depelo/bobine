@@ -16,6 +16,9 @@ Il sistema ospita molteplici app dipartimentali mantenendo una singola base di i
 - **Overrides di Sicurezza (Eccezioni per utente):**
   - `SessionHoursOverride` / `PwdExpiryDaysOverride`: Sovrascrivono i valori globali di SystemConfig.
   - `ForcePwdChange` (BIT): Se 1, blocca l'utente al login finché non cambia password (usato per le password temporanee del Captain).
+**Tracciamento di Salute Credenziali:**
+  - `LastLogin` (DATETIME): Timestamp dell'ultimo login effettivo dell'utente (aggiornato da `POST /api/login`).
+  - `LastBarcodeChange` (DATETIME): Timestamp dell'ultima rigenerazione del Barcode/QR Code di login (aggiornato in creazione utente e in modifica solo se il QR viene cambiato).
 
 ### 1.2 Tabella [dbo].[Modules] (L'Autodefinizione)
 È il "Libretto di Istruzioni" per la Captain Console. Permette alla UI di autoconfigurarsi.

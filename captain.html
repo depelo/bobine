@@ -122,9 +122,6 @@
           <span style="font-family: monospace; color: var(--text-muted);" id="umpUserBarcode">QR Code</span>
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
-          <button type="button" id="umpForcePwdNowBtn" style="background: #d97706; color: white; border: none; padding: 8px 16px; border-radius: var(--radius); font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" title="Forza il cambio password immediato bloccando lo schermo">
-            <span style="font-size: 1.2rem;">🔐</span> Forza Pwd Ora
-          </button>
           <button class="scanner-cancel" id="umpCloseBtn" style="width: auto; padding: 8px 16px; margin: 0;">Chiudi</button>
         </div>
       </div>
@@ -143,6 +140,17 @@
             <h3 style="margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Impostazioni Passaporto</h3>
 
             <input type="hidden" id="umpUserId">
+
+            <div id="umpHealthSection" style="display: flex; gap: 16px; margin-bottom: 24px; padding: 12px; background: var(--bg-content); border: 1px solid var(--border); border-radius: var(--radius);">
+               <div style="flex: 1;">
+                 <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Ultimo Accesso</div>
+                 <div id="umpLastLoginDisplay" style="font-weight: bold; font-size: 1rem;">-</div>
+               </div>
+               <div style="flex: 1;">
+                 <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Età QR Code Login</div>
+                 <div id="umpQRHealthDisplay" style="font-weight: bold; font-size: 1rem;">-</div>
+               </div>
+            </div>
 
             <div class="login-field">
               <label>Nome Completo</label>
@@ -178,6 +186,11 @@
               <div class="login-field" style="margin-top: 12px;">
                 <label>Scadenza Password (giorni, vuoto = default di sistema)</label>
                 <input type="number" id="umpPwdExpiry" class="control" min="0">
+              </div>
+              <div style="margin-top: 20px; border-top: 1px solid #ffe69c; padding-top: 16px;">
+                <button type="button" id="umpForcePwdNowBtn" style="background: #d97706; color: white; border: none; padding: 10px 16px; border-radius: var(--radius); font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; transition: 0.2s;" title="Forza il cambio password immediato bloccando lo schermo" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">
+                  <img src="images/cambio.png" alt="Cambio" style="width: 22px; height: 22px; filter: brightness(0) invert(1);"> Forza Pwd Ora e Blocca Schermo
+                </button>
               </div>
             </div>
 
@@ -296,6 +309,33 @@
       }
       if (!res.ok) throw new Error(await res.text());
       return res.json();
+    }
+
+    function calculateHealthIndicators(lastLoginStr, lastBarcodeStr) {
+        const now = new Date();
+        
+        let loginText = 'Mai effettuato';
+        let loginColor = '🔴';
+        if (lastLoginStr) {
+            const loginDate = new Date(lastLoginStr);
+            const diffHours = Math.floor((now - loginDate) / (1000 * 60 * 60));
+            const diffDays = Math.floor(diffHours / 24);
+            if (diffDays > 30) { loginColor = '🟡'; loginText = `${diffDays} giorni fa`; }
+            else if (diffDays > 0) { loginColor = '🟢'; loginText = `${diffDays} giorni fa`; }
+            else { loginColor = '🟢'; loginText = diffHours === 0 ? 'Poco fa' : `${diffHours} ore fa`; }
+        }
+
+        let qrText = 'Sconosciuta';
+        let qrColor = '🟢';
+        if (lastBarcodeStr) {
+            const qrDate = new Date(lastBarcodeStr);
+            const diffDaysQR = Math.floor((now - qrDate) / (1000 * 60 * 60 * 24));
+            qrText = `${diffDaysQR} giorni`;
+            if (diffDaysQR > 180) { qrColor = '🔴'; qrText += ' (Cambio urgente)'; }
+            else if (diffDaysQR > 90) { qrColor = '🟡'; qrText += ' (Consigliata rotazione)'; }
+        }
+
+        return { loginHtml: `${loginColor} ${loginText}`, qrHtml: `${qrColor} ${qrText}` };
     }
 
     // Inizializzazione della Console
@@ -568,6 +608,9 @@
       document.getElementById('umpUserName').textContent = u.name;
       document.getElementById('umpUserBarcode').textContent = u.barcode;
       document.getElementById('umpUserId').value = u.id;
+      const health = calculateHealthIndicators(u.lastLogin, u.lastBarcodeChange);
+      document.getElementById('umpLastLoginDisplay').textContent = health.loginHtml;
+      document.getElementById('umpQRHealthDisplay').textContent = health.qrHtml;
       document.getElementById('umpInputName').value = u.name || '';
       originalEditBarcode = u.barcode || '';
       document.getElementById('umpInputBarcode').value = originalEditBarcode;

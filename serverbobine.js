@@ -241,6 +241,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
             SELECT IDUser as id, Name as name, Barcode as barcode, IsActive as isActive,
                    SessionHoursOverride as sessionHoursOverride, ForcePwdChange as forcePwdChange,
                    PwdExpiryDaysOverride as pwdExpiryDaysOverride, LastPasswordChange as lastPasswordChange,
+                   LastLogin as LastLogin, LastBarcodeChange as LastBarcodeChange,
                    DefaultModuleID
             FROM [CMP].[dbo].[Users]
             WHERE IsActive = 1
@@ -249,7 +250,9 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
         let users = usersRes.recordset.map(u => ({
             ...u,
             forcePwdChange: !!u.forcePwdChange && u.forcePwdChange !== 0 && u.forcePwdChange !== '0',
-            defaultModuleId: u.DefaultModuleID
+            defaultModuleId: u.DefaultModuleID,
+            lastLogin: u.LastLogin,
+            lastBarcodeChange: u.LastBarcodeChange
         }));
 
         // 2. Recupera i moduli (Visti disponibili)
@@ -302,36 +305,52 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
 
 // 2. Aggiorna utente (identità e sicurezza - Passaporto)
 app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
-    const idUser = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id, 10);
     const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride, defaultModuleId } = req.body;
 
     try {
         let pool = await sql.connect(dbConfig);
+
+        // Controlla se il barcode è cambiato
+        const oldUserRes = await pool.request()
+            .input('id', sql.Int, id)
+            .query(`SELECT Barcode FROM [CMP].[dbo].[Users] WHERE IDUser = @id`);
+            
+        let barcodeChanged = false;
+        if (oldUserRes.recordset.length > 0 && oldUserRes.recordset[0].Barcode !== barcode) {
+            barcodeChanged = true;
+        }
+
         const request = pool.request();
-        request.input('idUser', sql.Int, idUser);
+        request.input('id', sql.Int, id);
         request.input('name', sql.NVarChar, name);
         request.input('barcode', sql.NVarChar, barcode);
         request.input('forcePwdChange', sql.Bit, forcePwdChange ? 1 : 0);
         request.input('pwdExpiry', sql.Int, pwdExpiryDaysOverride ? parseInt(pwdExpiryDaysOverride, 10) : null);
         request.input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null);
 
-        let pwdQuery = '';
-        if (password && password.trim() !== '') {
-            const hash = await bcrypt.hash(password, 10);
-            request.input('pwd', sql.NVarChar, hash);
-            pwdQuery = ', PasswordHash = @pwd, LastPasswordChange = GETDATE()';
-        }
-
-        await request.query(`
+        let updateQuery = `
             UPDATE [CMP].[dbo].[Users] 
             SET Name = @name, 
                 Barcode = @barcode,
                 ForcePwdChange = @forcePwdChange,
                 PwdExpiryDaysOverride = @pwdExpiry,
                 DefaultModuleID = @defaultModuleId
-                ${pwdQuery}
-            WHERE IDUser = @idUser
-        `);
+        `;
+
+        if (password && password.trim() !== '') {
+            const hash = await bcrypt.hash(password, 10);
+            request.input('pwd', sql.NVarChar, hash);
+            updateQuery += `, PasswordHash = @pwd, LastPasswordChange = GETDATE() `;
+        }
+        
+        if (barcodeChanged) {
+            updateQuery += `, LastBarcodeChange = GETDATE() `;
+        }
+
+        updateQuery += ` WHERE IDUser = @id`;
+
+        await request.query(updateQuery);
 
         res.status(200).json({ message: 'Impostazioni di sicurezza aggiornate con successo.' });
     } catch (err) {
@@ -499,9 +518,9 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
             userReq.input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null);
 
             const userRes = await userReq.query(`
-                INSERT INTO [CMP].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive, ForcePwdChange, DefaultModuleID)
+                INSERT INTO [CMP].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive, ForcePwdChange, DefaultModuleID, LastBarcodeChange)
                 OUTPUT INSERTED.IDUser
-                VALUES (@name, @barcode, @pwd, 1, @forcePwdChange, @defaultModuleId)
+                VALUES (@name, @barcode, @pwd, 1, @forcePwdChange, @defaultModuleId, GETDATE())
             `);
             const newUserId = userRes.recordset[0].IDUser;
 
@@ -705,6 +724,16 @@ app.post('/api/login', async (req, res) => {
             if (!passwordOk) {
                 return res.status(401).json({ message: 'Credenziali non valide' });
             }
+        }
+
+        // Aggiorna LastLogin
+        try {
+            const pool = await sql.connect(dbConfig);
+            await pool.request()
+                .input('idUser', sql.Int, row.IDUser)
+                .query(`UPDATE [CMP].[dbo].[Users] SET LastLogin = GETDATE() WHERE IDUser = @idUser`);
+        } catch (dbErr) {
+            console.error('Errore aggiornamento LastLogin:', dbErr);
         }
 
         // Creazione del payload JWT comune a tutti
