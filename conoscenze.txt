@@ -3,9 +3,10 @@ Motore Database: Microsoft SQL Server. Nome Database: CMP.
 Paradigma di Sicurezza: "Zero-Trust". I controlli sui permessi non sono demandati solo al codice, ma sono blindati a livello di database.
 
 ## 1. Architettura Identità: "Passaporto e Visto"
-Il sistema ospita molteplici app dipartimentali mantenendo una singola base di identità.
-- **Passaporto (Auth Centralizzata):** La tabella `Users` gestisce le credenziali e l'identità fisica della persona.
-- **Visto (Silos Dipartimentali):** Tabelle dedicate per ogni reparto (es. `Operators` per Bobine, `Operators_Man` per Manutenzione).
+Il sistema ospita molteplici app dipartimentali mantenendo una singola base di identità, fondata sul rigoroso paradigma architetturale **"1 App = 1 Schema = 1 Visto"** (Bounded Context).
+
+- **Passaporto (Auth Centralizzata):** Gestito nella tabella `[dbo].[Users]`. Lo schema `[dbo]` è "sacro" e riservato ESCLUSIVAMENTE alle tabelle di sistema (`Users`, `Modules`, `SystemConfig`). Nessuna tabella operativa deve risiedere qui.
+- **Visto (Silos Dipartimentali):** Ogni App ha un proprio Schema dedicato nel database (es. schema `[Bobine]`, schema `[Captain]`). All'interno dello schema dell'app risiede la tabella dei permessi locali (es. `[Bobine].[Operators]`, `[Captain].[Captains]`).
 
 ### 1.1 Tabella [dbo].[Users] (Il Passaporto)
 - `IDUser` (INT, PK): Identificativo assoluto.
@@ -36,6 +37,12 @@ Contiene solo attributi lavorativi locali.
 - `IDUser` (INT, FK): Relazione con Users.
 - `Admin` (BIT): Ruolo locale nel reparto.
 - `StartTime` (VARCHAR): Orario turno specifico.
+
+### 1.4 Regole per le Tabelle delle App (I Visti) e Routing Dinamico
+Per garantire che il backend (`serverbobine.js`) sia 100% dinamico e non richieda hardcoding quando si aggiungono nuove app, vanno rispettate queste tre regole d'oro:
+1. **Creazione Schema:** Creare uno Schema dedicato per la nuova app (es. `[Magazzino]`).
+2. **Struttura Visto:** Creare una tabella Visti che DEVE contenere sempre: la Foreign Key verso `IDUser`, la colonna del Ruolo (es. `Admin` o `Role`), e la colonna `IsActive` (BIT, fondamentale per il soft-revoke dei permessi).
+3. **Registrazione (Catalogo App):** Registrare la nuova App nella tabella `[dbo].[Modules]`, specificando obbligatoriamente `TargetSchema` (es. 'Magazzino') e `TargetTable` (es. 'OperatoriMagazzino'). Il backend usa l'interpolazione `[CMP].[${mod.TargetSchema}].[${mod.TargetTable}]` per leggere e scrivere i permessi in automatico.
 
 ## 2. Struttura delle Tabelle di Business
 

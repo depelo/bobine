@@ -259,7 +259,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
         }));
 
         // 2. Recupera i moduli (Visti disponibili)
-        const modRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetTable, RoleDefinition FROM [CMP].[dbo].[Modules]`);
+        const modRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetSchema, TargetTable, RoleDefinition FROM [CMP].[dbo].[Modules]`);
         const modules = modRes.recordset;
 
         // Inizializza gli array per ogni utente
@@ -271,30 +271,46 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
             u.hasActiveSession = activeUserSockets.has(u.id);
         }
 
-        // 3. Popola le autorizzazioni interrogando le tabelle dipartimentali
-        const validTables = ['Operators', 'Operators_Man']; // Whitelist anti SQL-Injection
-
+        // 3. Popola le autorizzazioni sfruttando TargetSchema
         for (let mod of modules) {
-            if (!mod.TargetTable || !validTables.includes(mod.TargetTable)) continue;
+            if (!mod.TargetSchema || !mod.TargetTable) continue;
 
             let roleDef = {};
             try { roleDef = JSON.parse(mod.RoleDefinition); } catch (e) {}
 
-                const roleRes = await pool.request().query(`SELECT IDUser, Admin FROM [CMP].[Bobine].[${mod.TargetTable}]`);
+            const fullTableName = `[CMP].[${mod.TargetSchema}].[${mod.TargetTable}]`;
+            let roleRes;
 
-            for (let row of roleRes.recordset) {
-                let user = users.find(x => x.id === row.IDUser);
-                if (user) {
-                    let rKey = row.Admin ? 'Admin' : 'Base';
-                    let rLabel = roleDef[rKey] ? roleDef[rKey].label : rKey;
-                    user.apps.push({
-                        moduleId: mod.IDModule,
-                        moduleName: mod.ModuleName,
-                        roleKey: rKey,
-                        roleLabel: rLabel
-                    });
-                    if (!user.authorizedModuleIds.includes(mod.IDModule)) {
-                        user.authorizedModuleIds.push(mod.IDModule);
+            try {
+                if (mod.TargetTable === 'Operators') {
+                    roleRes = await pool.request().query(`SELECT IDUser, Admin FROM ${fullTableName} WHERE IsActive = 1`);
+                } else if (mod.TargetTable === 'Captains') {
+                    roleRes = await pool.request().query(`SELECT IDUser, 1 as Admin FROM ${fullTableName} WHERE IsActive = 1`);
+                } else {
+                    continue;
+                }
+            } catch (err) {
+                console.error(`Errore su ${fullTableName}:`, err.message);
+                continue;
+            }
+
+            if (roleRes && roleRes.recordset) {
+                for (let row of roleRes.recordset) {
+                    let user = users.find(x => x.id === row.IDUser);
+                    if (user) {
+                        let rKey = mod.TargetTable === 'Operators'
+                            ? (row.Admin ? 'Admin' : 'Base')
+                            : 'Master';
+                        let rLabel = roleDef[rKey] ? roleDef[rKey].label : rKey;
+                        user.apps.push({
+                            moduleId: mod.IDModule,
+                            moduleName: mod.ModuleName,
+                            roleKey: rKey,
+                            roleLabel: rLabel
+                        });
+                        if (!user.authorizedModuleIds.includes(mod.IDModule)) {
+                            user.authorizedModuleIds.push(mod.IDModule);
+                        }
                     }
                 }
             }
@@ -370,42 +386,46 @@ app.put('/api/admin/users/:id/roles', authenticateCaptain, async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
 
-        // Upsert nelle tabelle dipartimentali (Visti)
-        const validTables = ['Operators', 'Operators_Man']; // Whitelist anti-SQL Injection
+        // 2. Upsert nelle tabelle dipartimentali 100% Dinamico
+        const modulesRes = await pool.request().query(`SELECT TargetSchema, TargetTable FROM [CMP].[dbo].[Modules]`);
+        const validModules = modulesRes.recordset;
         const submittedRoles = roles || [];
 
-        for (const table of validTables) {
+        for (const mod of validModules) {
+            const table = mod.TargetTable;
+            const schema = mod.TargetSchema;
+            if (!schema || !table) continue;
+
             const assignedRole = submittedRoles.find(r => r.targetTable === table);
-            
+            const fullTable = `[CMP].[${schema}].[${table}]`;
+
+            // Adattamento dinamico alle differenze di PK e colonna Ruolo tra le App
+            let idCol = table === 'Captains' ? 'IDCaptain' : 'IDOperator';
+            let roleCol = table === 'Captains' ? 'Role' : 'Admin';
+
             if (assignedRole) {
-                // L'utente DEVE avere accesso a questo reparto. Calcoliamo il ruolo.
-                const isAdmin = assignedRole.roleKey === 'Admin' ? 1 : 0;
-                
                 await pool.request()
                     .input('id', sql.Int, idUser)
-                    .input('admin', sql.Bit, isAdmin)
+                    .input('adminVal', sql.Int, assignedRole.roleKey === 'Admin' ? 1 : 0)
                     .query(`
-                        IF EXISTS (SELECT 1 FROM [CMP].[Bobine].[${table}] WHERE IDUser = @id)
-                        BEGIN
-                            UPDATE [CMP].[Bobine].[${table}] SET IsActive = 1, Admin = @admin WHERE IDUser = @id
-                        END
-                        ELSE
-                        BEGIN
-                            DECLARE @newId INT = ISNULL((SELECT MAX(IDOperator) FROM [CMP].[Bobine].[${table}]), 0) + 1;
-                            INSERT INTO [CMP].[Bobine].[${table}] (IDOperator, IDUser, Admin, IsActive) 
-                            VALUES (@newId, @id, @admin, 1)
-                        END
-                    `);
+                    IF EXISTS (SELECT 1 FROM ${fullTable} WHERE IDUser = @id)
+                    BEGIN
+                        UPDATE ${fullTable} SET IsActive = 1, ${roleCol} = ${table === 'Captains' ? "'Master'" : '@adminVal'} WHERE IDUser = @id
+                    END
+                    ELSE
+                    BEGIN
+                        DECLARE @newId INT = ISNULL((SELECT MAX(${idCol}) FROM ${fullTable}), 0) + 1;
+                        INSERT INTO ${fullTable} (${idCol}, IDUser, ${roleCol}, IsActive) 
+                        VALUES (@newId, @id, ${table === 'Captains' ? "'Master'" : '@adminVal'}, 1)
+                    END
+                `);
             } else {
-                // L'utente NON DEVE avere accesso. Soft-Revoke.
+                // Nessun ruolo inviato = Revoca (IsActive = 0)
                 await pool.request()
                     .input('id', sql.Int, idUser)
                     .query(`
-                        IF EXISTS (SELECT 1 FROM [CMP].[Bobine].[${table}] WHERE IDUser = @id)
-                        BEGIN
-                            UPDATE [CMP].[Bobine].[${table}] SET IsActive = 0 WHERE IDUser = @id
-                        END
-                    `);
+                    UPDATE ${fullTable} SET IsActive = 0 WHERE IDUser = @id
+                `);
             }
         }
 
@@ -528,21 +548,43 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
             const newUserId = userRes.recordset[0].IDUser;
 
             if (roles && roles.length > 0) {
-                const validTables = ['Operators', 'Operators_Man'];
+                const modReq = new sql.Request(transaction);
+                const modRes = await modReq.query(`SELECT TargetSchema, TargetTable FROM [CMP].[dbo].[Modules]`);
+                const modules = modRes.recordset || [];
+
                 for (const role of roles) {
-                    if (!validTables.includes(role.targetTable)) continue;
+                    const modDef = modules.find(m => m.TargetTable === role.targetTable);
+                    if (!modDef || !modDef.TargetSchema || !modDef.TargetTable) continue;
 
-                    const roleReq = new sql.Request(transaction);
-                    roleReq.input('idUser', sql.Int, newUserId);
+                    const schema = modDef.TargetSchema;
+                    const table = modDef.TargetTable;
+                    const fullTable = `[CMP].[${schema}].[${table}]`;
 
-                    if (role.targetTable === 'Operators') {
-                        const isAdmin = role.roleKey === 'Admin' ? 1 : 0;
-                        roleReq.input('admin', sql.Bit, isAdmin);
-                        await roleReq.query(`
-                            DECLARE @newId INT = ISNULL((SELECT MAX(IDOperator) FROM [CMP].[Bobine].[Operators]), 0) + 1;
-                            INSERT INTO [CMP].[Bobine].[Operators] (IDOperator, IDUser, Admin, IsActive)
-                            VALUES (@newId, @idUser, @admin, 1)
-                        `);
+                    const isAdmin = role.roleKey === 'Admin' ? 1 : 0;
+                    const idCol = table === 'Captains' ? 'IDCaptain' : 'IDOperator';
+                    const roleCol = table === 'Captains' ? 'Role' : 'Admin';
+
+                    try {
+                        if (table === 'Captains') {
+                            const insReq = new sql.Request(transaction);
+                            insReq.input('idUser', sql.Int, newUserId);
+                            await insReq.query(`
+                                DECLARE @newId INT = ISNULL((SELECT MAX(${idCol}) FROM ${fullTable}), 0) + 1;
+                                INSERT INTO ${fullTable} (${idCol}, IDUser, ${roleCol}, IsActive)
+                                VALUES (@newId, @idUser, 'Master', 1)
+                            `);
+                        } else {
+                            const insReq = new sql.Request(transaction);
+                            insReq.input('idUser', sql.Int, newUserId);
+                            insReq.input('admin', sql.Bit, isAdmin);
+                            await insReq.query(`
+                                DECLARE @newId INT = ISNULL((SELECT MAX(${idCol}) FROM ${fullTable}), 0) + 1;
+                                INSERT INTO ${fullTable} (${idCol}, IDUser, ${roleCol}, IsActive)
+                                VALUES (@newId, @idUser, @admin, 1)
+                            `);
+                        }
+                    } catch (e) {
+                        console.error('Errore creazione visto per', fullTable, e.message);
                     }
                 }
             }
@@ -623,11 +665,9 @@ app.post('/api/login', async (req, res) => {
                     U.DefaultModuleID,
                     O.IDOperator,
                     O.Admin,
-                    O.StartTime,
-                    CASE WHEN C.IDCaptain IS NOT NULL THEN 1 ELSE 0 END AS IsSuperuser
+                    O.StartTime
                 FROM [CMP].[dbo].[Users] U
                 LEFT JOIN [CMP].[Bobine].[Operators] O ON U.IDUser = O.IDUser
-                LEFT JOIN [CMP].[dbo].[Captains] C ON U.IDUser = C.IDUser
                 WHERE U.Barcode = @barcode AND U.IsActive = 1
             `);
 
@@ -637,7 +677,12 @@ app.post('/api/login', async (req, res) => {
 
         const row = result.recordset[0];
         const isAdmin = row.Admin === true || row.Admin === 1;
-        const isSuperuser = row.IsSuperuser === true || row.IsSuperuser === 1;
+
+        // Controllo Superuser (usando il nuovo schema e IsActive)
+        const captainRes = await pool.request()
+            .input('idUser', sql.Int, row.IDUser)
+            .query(`SELECT 1 FROM [CMP].[Captain].[Captains] WHERE IDUser = @idUser AND IsActive = 1`);
+        const isSuperuser = captainRes.recordset.length > 0;
 
         // Calcolo scadenza password / cambio forzato
         let globalExpiryDays = 90;
@@ -661,32 +706,31 @@ app.post('/api/login', async (req, res) => {
         }
 
         // --- CALCOLO MODULI AUTORIZZATI E LIVELLO DI SICUREZZA (HIGH WATERMARK) ---
-        const modulesRes = await pool.request().query('SELECT IDModule, ModuleName, TargetTable, RoleDefinition FROM [CMP].[dbo].[Modules]');
+        const modulesRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetSchema, TargetTable, RoleDefinition, AppSettings FROM [CMP].[dbo].[Modules]`);
         const authorizedApps = [];
         let globalRequiresPassword = isSuperuser; // Il Superuser richiede sempre la password di default
 
         for (let mod of modulesRes.recordset) {
+            if (!mod.TargetSchema || !mod.TargetTable) continue;
+
             let hasAccess = false;
             let localRoleKey = 'Base';
+            const fullTableName = `[CMP].[${mod.TargetSchema}].[${mod.TargetTable}]`;
 
             if (mod.TargetTable === 'Operators') {
-                const checkRes = await pool.request()
-                    .input('idUserMod', sql.Int, row.IDUser)
-                    .query(`SELECT Admin FROM [CMP].[Bobine].[Operators] WHERE IDUser = @idUserMod AND IsActive = 1`);
-                if (checkRes.recordset.length > 0) {
+                const roleRes = await pool.request()
+                    .input('id', sql.Int, row.IDUser)
+                    .query(`SELECT Admin FROM ${fullTableName} WHERE IDUser = @id AND IsActive = 1`);
+                if (roleRes.recordset.length > 0) {
                     hasAccess = true;
-                    localRoleKey = checkRes.recordset[0].Admin ? 'Admin' : 'Base';
+                    localRoleKey = roleRes.recordset[0].Admin ? 'Admin' : 'Base';
                 }
-            }
-
-            if (mod.TargetTable === 'Captains') {
-                // isSuperuser è già calcolato dalla JOIN con la tabella Captains
+            } else if (mod.TargetTable === 'Captains') {
                 if (isSuperuser) {
                     hasAccess = true;
                     localRoleKey = 'Master';
                 }
             }
-            // Futuri moduli verranno aggiunti qui
 
             if (hasAccess) {
                 authorizedApps.push({ id: mod.IDModule, name: mod.ModuleName, target: mod.TargetTable, roleKey: localRoleKey });
