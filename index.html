@@ -2,53 +2,50 @@
 <html lang="it">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>UJet Gateway</title>
-    <link rel="stylesheet" href="styles.css" />
-    <style>
-      body {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--bg, #0f172a);
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#2563a8" />
+    <title>UJet Gateway - Login</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="index.css" />
   </head>
   <body>
-    <div id="gatewayRoot">
-      <div class="scanner-modal-inner">
-        <!-- Il contenuto del login verrà gestito dal markup sottostante -->
-      </div>
-    </div>
+    
+    <div class="login-wrapper">
+      <div id="loginModal" aria-label="Login operatore" class="login-box">
+        
+        <div class="gateway-brand">
+          <h1>U.Jet</h1>
+          <p>Gateway di Accesso</p>
+        </div>
 
-    <div id="loginModal" aria-label="Login operatore" style="display:flex; align-items:center; justify-content:center;">
-      <div class="scanner-modal-inner">
-        <p class="scanner-title">Login operatore</p>
         <div class="login-field">
-          <label for="loginBarcode">QR Code operatore</label>
+          <label for="loginBarcode">QR Code Operatore</label>
           <div class="control with-icon-btn">
-            <input id="loginBarcode" type="text" autocomplete="off" />
+            <input id="loginBarcode" type="text" autocomplete="off" placeholder="Scansiona o digita..." />
             <button type="button" class="icon-btn" data-action="login-scan-operator" title="Scansiona con fotocamera">
               <svg class="icon-camera" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </button>
           </div>
         </div>
-        <div class="login-field is-hidden" id="loginPasswordField">
-          <label for="loginPassword">Password</label>
+
+        <div class="login-field is-hidden" id="loginPasswordField" style="margin-top: 20px;">
+          <label for="loginPassword">Password di Sicurezza</label>
           <div class="control">
-            <input id="loginPassword" type="password" autocomplete="off" />
+            <input id="loginPassword" type="password" autocomplete="off" placeholder="Inserisci password..." />
           </div>
         </div>
+
         <div id="loginMessage" class="login-message"></div>
-        <div class="login-actions">
-          <button type="button" class="scanner-cancel" id="loginSubmitBtn">Login</button>
+
+        <div class="login-actions" style="margin-top: 24px;">
+          <button type="button" id="loginSubmitBtn" class="action-btn">Accedi al Sistema</button>
         </div>
+
       </div>
     </div>
 
     <div class="scanner-modal" id="profileModal" aria-hidden="true">
-      <div class="scanner-modal-inner" style="width: 400px; max-width: 95%;">
+      <div class="scanner-modal-inner">
         <p class="scanner-title">Il Mio Profilo</p>
         
         <div style="background: var(--bg); padding: 12px; border-radius: var(--radius); margin-bottom: 20px;">
@@ -78,11 +75,11 @@
             <input type="password" id="profileNewPwd" class="control" autocomplete="new-password">
           </div>
           <p id="profilePwdMsg" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 12px;"></p>
-          <button type="button" class="action-btn" id="profileSavePwdBtn" style="width: 100%; background: var(--primary); color: white; border: none; font-size: 1rem; padding: 10px;">Aggiorna Password</button>
+          <button type="button" class="action-btn" id="profileSavePwdBtn" style="background: var(--primary); color: white;">Aggiorna Password</button>
         </div>
 
         <div class="login-actions" style="margin-top: 24px;">
-          <button type="button" class="scanner-cancel" id="profileCloseBtn" style="width: 100%;">Chiudi</button>
+          <button type="button" class="scanner-cancel" id="profileCloseBtn">Chiudi</button>
         </div>
       </div>
     </div>

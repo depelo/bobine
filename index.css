@@ -1,0 +1,88 @@
+:root {
+  --primary: #2563a8;
+  --primary-dark: #1a4d82;
+  --bg: #f0f2f5;
+  --bg-content: #fff;
+  --text: #0d0d0d;
+  --text-muted: #404040;
+  --border: #c5cdd4;
+  --danger: #c41e1e;
+  --radius: 8px;
+  --font-family: "Segoe UI", system-ui, Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { font-size: 17px; }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--font-family);
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* --- Layout del Gateway --- */
+.login-wrapper {
+  display: flex;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-box {
+  background: var(--bg-content);
+  border-radius: var(--radius);
+  padding: 40px 32px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.gateway-brand { text-align: center; margin-bottom: 32px; }
+.gateway-brand h1 { color: var(--primary); margin: 0; font-size: 2.5rem; letter-spacing: 1px; }
+.gateway-brand p { color: var(--text-muted); margin: 8px 0 0 0; font-size: 1rem; }
+
+/* --- Form e Controlli --- */
+.login-field { margin-bottom: 16px; }
+.login-field label { display: block; margin-bottom: 6px; font-size: 0.95rem; font-weight: 600; color: var(--text); }
+
+.control { 
+  width: 100%; 
+  padding: 12px 14px; 
+  border: 1px solid var(--border); 
+  border-radius: var(--radius); 
+  font-size: 1rem; 
+  font-family: inherit; 
+}
+.control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,168,0.15); }
+
+.with-icon-btn { display: flex; }
+.with-icon-btn input { border-radius: var(--radius) 0 0 var(--radius); border-right: none; flex: 1; min-width: 0; }
+.icon-btn { 
+  display: flex; align-items: center; justify-content: center; width: 54px; 
+  border: 2px solid var(--primary); background: #e3eef8; color: var(--primary-dark); 
+  cursor: pointer; border-radius: 0 var(--radius) var(--radius) 0; transition: 0.2s;
+}
+.icon-btn:hover { background: #cce0f5; }
+.icon-camera { width: 1.5rem; height: 1.5rem; }
+
+.login-message { min-height: 1.2em; font-size: 0.9rem; color: var(--danger); text-align: center; margin-top: 12px; }
+
+.action-btn { width: 100%; padding: 12px; font-size: 1.1rem; border-radius: var(--radius); cursor: pointer; font-weight: bold; border: none; }
+
+#loginSubmitBtn { background: var(--primary); color: white; transition: 0.2s; width: 100%; }
+#loginSubmitBtn:hover { background: var(--primary-dark); }
+
+/* --- Modali (Scanner & Profilo) --- */
+.scanner-modal { position: fixed; inset: 0; z-index: 300; align-items: center; justify-content: center; padding: 24px; display: none; background: rgba(0, 0, 0, 0.85); }
+.scanner-modal.is-open { display: flex; }
+.scanner-modal-inner { background: var(--bg-content); border-radius: var(--radius); padding: 24px; max-width: 100%; width: 400px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+.scanner-title { margin: 0 0 16px; font-size: 1.3rem; font-weight: bold; border-bottom: 1px solid var(--border); padding-bottom: 8px; color: var(--primary-dark); }
+
+.scanner-cancel { width: 100%; padding: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 1rem; font-weight: 600; cursor: pointer; border-radius: var(--radius); margin-top: 10px; transition: 0.2s; }
+.scanner-cancel:hover { background: #e2e6ea; }
+
+#scannerContainer { min-height: 250px; border-radius: var(--radius); overflow: hidden; margin-bottom: 16px; background: #000; }
+#scannerContainer video { width: 100%; display: block; }
+.is-hidden { display: none !important; }
