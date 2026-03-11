@@ -187,9 +187,10 @@
                 <label>Scadenza Password (giorni, vuoto = default di sistema)</label>
                 <input type="number" id="umpPwdExpiry" class="control" min="0">
               </div>
-              <div style="margin-top: 20px; border-top: 1px solid #ffe69c; padding-top: 16px;">
-                <button type="button" id="umpForcePwdNowBtn" style="background: #d97706; color: white; border: none; padding: 10px 16px; border-radius: var(--radius); font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; transition: 0.2s;" title="Forza il cambio password immediato bloccando lo schermo" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">
-                  <img src="images/cambio.png" alt="Cambio" style="width: 22px; height: 22px; filter: brightness(0) invert(1);"> Forza Pwd Ora e Blocca Schermo
+              <div style="margin-top: 24px; border-top: 1px solid #ffe69c; padding-top: 20px; display: flex; justify-content: center;">
+                <button type="button" id="umpForcePwdNowBtn" style="background: rgb(217, 119, 6); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(217, 119, 6, 0.25);" title="Forza il cambio password immediato bloccando lo schermo" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(217, 119, 6, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(217, 119, 6, 0.25)';">
+                  <img src="images/cambio.png" alt="Cambio" style="width: 64px; height: 64px; object-fit: contain;"> 
+                  <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Forza Pwd<br>Ora</span>
                 </button>
               </div>
             </div>
