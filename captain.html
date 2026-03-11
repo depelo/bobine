@@ -187,11 +187,18 @@
                 <label>Scadenza Password (giorni, vuoto = default di sistema)</label>
                 <input type="number" id="umpPwdExpiry" class="control" min="0">
               </div>
-              <div style="margin-top: 24px; border-top: 1px solid #ffe69c; padding-top: 20px; display: flex; justify-content: center;">
+              <div style="margin-top: 24px; border-top: 1px solid #ffe69c; padding-top: 20px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+                
                 <button type="button" id="umpForcePwdNowBtn" style="background: rgb(217, 119, 6); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(217, 119, 6, 0.25);" title="Forza il cambio password immediato bloccando lo schermo" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(217, 119, 6, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(217, 119, 6, 0.25)';">
-                  <img src="images/cambio.png" alt="Cambio" style="width: 64px; height: 64px; object-fit: contain;"> 
+                  <img src="images/cambio.png" alt="Cambio" style="width: 84px; height: 84px; object-fit: contain;"> 
                   <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Forza Pwd<br>Ora</span>
                 </button>
+
+                <button type="button" id="umpKickUserBtn" style="background: var(--danger); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(196, 30, 30, 0.25);" title="Espelli immediatamente l'utente" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(196, 30, 30, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(196, 30, 30, 0.25)';">
+                  <img src="images/kick.png" alt="Kick" style="width: 84px; height: 84px; object-fit: contain; filter: brightness(0) invert(1);"> 
+                  <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Kick<br>Off</span>
+                </button>
+
               </div>
             </div>
 
@@ -1177,6 +1184,15 @@
                 showCaptainError('Errore: Connessione Socket.io non attiva.');
             }
         }
+    });
+
+    document.getElementById('umpKickUserBtn').addEventListener('click', async () => {
+      const userId = document.getElementById('umpUserId').value;
+      const userName = document.getElementById('umpInputName').value || 'questo utente';
+      
+      if (!userId) return;
+      
+      await kickUser(userId, userName);
     });
 
     // Modale Modifica App (RoleDefinition)
