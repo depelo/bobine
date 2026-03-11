@@ -5,6 +5,7 @@ const loginPasswordField = document.getElementById('loginPasswordField');
 const loginPasswordInput = document.getElementById('loginPassword');
 const loginMessageEl = document.getElementById('loginMessage');
 const loginSubmitBtn = document.getElementById('loginSubmitBtn');
+const forgotPwdLink = document.getElementById('forgotPwdLink');
 
 let currentUser = null;
 
@@ -50,6 +51,7 @@ async function performLogin() {
           loginPasswordField.classList.remove('is-hidden');
         }
         if (loginMessageEl) {
+          loginMessageEl.style.color = 'var(--danger)';
           loginMessageEl.textContent = data.message || 'Password richiesta per questo utente.';
         }
         if (loginPasswordInput) {
@@ -58,6 +60,7 @@ async function performLogin() {
         return;
       }
       if (loginMessageEl) {
+        loginMessageEl.style.color = 'var(--danger)';
         loginMessageEl.textContent = data.message || 'Credenziali non valide.';
       }
       return;
@@ -65,6 +68,7 @@ async function performLogin() {
     if (!res.ok) {
       const text = await res.text();
       if (loginMessageEl) {
+        loginMessageEl.style.color = 'var(--danger)';
         loginMessageEl.textContent = text || `Errore HTTP ${res.status}`;
       }
       return;
@@ -84,6 +88,7 @@ async function performLogin() {
   } catch (err) {
     console.error(err);
     if (loginMessageEl) {
+      loginMessageEl.style.color = 'var(--danger)';
       loginMessageEl.textContent = 'Errore di rete durante il login.';
     }
   }
@@ -198,6 +203,47 @@ if (loginPasswordInput) {
     if (e.key === 'Enter') {
       e.preventDefault();
       void performLogin();
+    }
+  });
+}
+
+if (forgotPwdLink) {
+  forgotPwdLink.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const barcode = loginBarcodeInput ? loginBarcodeInput.value.trim() : '';
+
+    if (!barcode) {
+      if (loginMessageEl) {
+        loginMessageEl.style.color = 'var(--danger)';
+        loginMessageEl.textContent = 'Inserisci prima il tuo QR Code Operatore per richiedere il reset.';
+      }
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/users/recover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barcode })
+      });
+
+      if (res.ok) {
+        if (loginMessageEl) {
+          loginMessageEl.style.color = 'var(--success)';
+          loginMessageEl.textContent = 'Richiesta inviata in amministrazione. Recati in ufficio per la password temporanea.';
+        }
+      } else {
+        const data = await res.json();
+        if (loginMessageEl) {
+          loginMessageEl.style.color = 'var(--danger)';
+          loginMessageEl.textContent = data.message || 'Errore nella richiesta di recupero.';
+        }
+      }
+    } catch (err) {
+      if (loginMessageEl) {
+        loginMessageEl.style.color = 'var(--danger)';
+        loginMessageEl.textContent = 'Errore di rete durante la richiesta di recupero.';
+      }
     }
   });
 }
