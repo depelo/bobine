@@ -45,9 +45,19 @@ async function initSecurity() {
         }
       }
 
+      // Allinea lo stato globale di sicurezza
+      window.SecurityData = { user: user };
+
+      // Registra il socket per lo stato "Online"
+      if (typeof io !== 'undefined' && window.SecurityData && window.SecurityData.user) {
+          if (!window.appSocket) window.appSocket = io();
+          window.appSocket.emit('register', { userId: window.SecurityData.user.globalId });
+      }
+
       // --- REAL-TIME SECURITY (WEBSOCKETS) ---
       if (typeof io !== 'undefined') {
-          const socket = io();
+          const socket = window.appSocket || io();
+          if (!window.appSocket) window.appSocket = socket;
           const userId = user.globalId || user.IDUser || user.id || user.IDOperator;
           
           if (userId) {
@@ -82,7 +92,6 @@ async function initSecurity() {
           console.warn("Socket.io non rilevato. Sicurezza real-time disabilitata.");
       }
 
-      window.SecurityData = { user: user };
       document.dispatchEvent(new Event('securityReady')); // Avvisa il Layer 2
       return true;
     }

@@ -261,8 +261,8 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
             u.apps = [];
             // IDs dei moduli autorizzati (Meta-App)
             u.authorizedModuleIds = [];
-            // TODO: Sostituire con vero controllo su SessionValidFrom. Per ora simuliamo che tutti abbiano una sessione attiva per testare la UI.
-            u.hasActiveSession = true;
+            // Stato di sessione calcolato in RAM tramite Socket.io
+            u.hasActiveSession = activeUserSockets.has(u.id);
         }
 
         // 3. Popola le autorizzazioni interrogando le tabelle dipartimentali
@@ -1061,32 +1061,54 @@ const io = new Server(server, {
     }
 });
 
+// Mappa per tracciare gli utenti online. Chiave: userId, Valore: Set di socket.id (per gestire multi-tab)
+const activeUserSockets = new Map();
+
 io.on('connection', (socket) => {
-    // L'utente si registra nella sua stanza personale
-    socket.on('register', (userId) => {
-        if (userId) {
-            socket.join(`user_${userId}`);
-            console.log(`[Socket] Dispositivo collegato alla stanza: user_${userId}`);
+    let currentUserId = null;
+
+    // Registrazione
+    socket.on('register', (data) => {
+        if (!data || !data.userId) return;
+        currentUserId = data.userId;
+        
+        // FONDAMENTALE: L'utente entra nella sua stanza privata per ricevere Kick/Sipario mirati
+        socket.join('user_' + currentUserId);
+
+        if (!activeUserSockets.has(currentUserId)) {
+            activeUserSockets.set(currentUserId, new Set());
+            io.to('captains_room').emit('user_status_changed', { userId: currentUserId, isOnline: true });
         }
+        activeUserSockets.get(currentUserId).add(socket.id);
     });
 
-    // Il Captain emette l'ordine di kick
-    socket.on('kick_user', (data) => {
-        if (data && data.targetUserId) {
-            io.to(`user_${data.targetUserId}`).emit('force_logout', { 
-                message: "La tua sessione è stata interrotta forzatamente dall'Amministratore." 
-            });
-            console.log(`[Socket] Inviato force_logout all'utente ${data.targetUserId}`);
-        }
+    // Registrazione console Captain
+    socket.on('register_captain', () => {
+        socket.join('captains_room');
     });
 
-    // Il Captain ordina di abbassare il sipario per il cambio password
+    // Eventi mirati (Sipario, Kick) - DEVONO USARE io.to() E I NOMI ORIGINALI
     socket.on('force_pwd_curtain', (data) => {
         if (data && data.targetUserId) {
-            io.to(`user_${data.targetUserId}`).emit('show_pwd_curtain', { 
-                message: "L'Amministratore ha richiesto un aggiornamento di sicurezza immediato. Cambia la password per continuare a lavorare senza perdere i dati correnti." 
-            });
-            console.log(`[Socket] Inviato show_pwd_curtain all'utente ${data.targetUserId}`);
+            io.to('user_' + data.targetUserId).emit('show_pwd_curtain', data);
+        }
+    });
+    
+    socket.on('kick_user', (data) => {
+        if (data && data.targetUserId) {
+            io.to('user_' + data.targetUserId).emit('force_logout', data);
+        }
+    });
+
+    // Disconnessione
+    socket.on('disconnect', () => {
+        if (currentUserId && activeUserSockets.has(currentUserId)) {
+            const sockets = activeUserSockets.get(currentUserId);
+            sockets.delete(socket.id);
+            if (sockets.size === 0) {
+                activeUserSockets.delete(currentUserId);
+                io.to('captains_room').emit('user_status_changed', { userId: currentUserId, isOnline: false });
+            }
         }
     });
 });
