@@ -19,6 +19,25 @@ const profileCloseBtn = document.getElementById('profileCloseBtn');
 
 let currentUser = null;
 
+// --- ROUTER DINAMICO POST-LOGIN ---
+function routeUserAfterLogin(user) {
+    if (user.defaultModuleId === 2) {
+        window.location.href = '/captain.html';
+        return;
+    }
+    if (user.defaultModuleId === 1) {
+        window.location.href = '/bobine.html';
+        return;
+    }
+    
+    // Fallback se il modulo non è 1 o 2
+    if (user.isSuperuser) {
+        window.location.href = '/captain.html';
+    } else {
+        window.location.href = '/bobine.html';
+    }
+}
+
 function openProfileModal(isForced = false) {
   if (!currentUser) {
     alert('Effettua il login per visualizzare il profilo.');
@@ -122,14 +141,8 @@ async function performLogin() {
       return;
     }
     
-    // Routing basato sui permessi
-    if (data.user.defaultModuleId) {
-      window.location.href = '/bobine.html';
-    } else if (data.user.isSuperuser) {
-      window.location.href = '/captain.html';
-    } else {
-      alert('Nessuna app predefinita. Contatta il Captain.');
-    }
+    // Routing dinamico basato sul modulo di default
+    routeUserAfterLogin(data.user);
   } catch (err) {
     console.error(err);
     if (loginMessageEl) {
@@ -373,15 +386,8 @@ function showGatewayPasswordCurtain(user, customMessage) {
     if (res.ok) {
       document.body.removeChild(curtain);
       
-      // Routing automatico basato sui permessi post-aggiornamento password
-      if (user.defaultModuleId) {
-        window.location.href = '/bobine.html';
-      } else if (user.isSuperuser) {
-        window.location.href = '/captain.html';
-      } else {
-        alert('Nessuna app predefinita configurata. Contatta il Captain.');
-        window.location.href = '/';
-      }
+      // Routing dinamico post-aggiornamento password
+      routeUserAfterLogin(user);
     } else {
       const errData = await res.clone().json().catch(() => ({}));
       msg.textContent = errData.message || 'Errore durante l\'aggiornamento.';

@@ -677,7 +677,15 @@ app.post('/api/login', async (req, res) => {
                     hasAccess = true;
                     localRoleKey = checkRes.recordset[0].Admin ? 'Admin' : 'Base';
                 }
-            } 
+            }
+
+            if (mod.TargetTable === 'Captains') {
+                // isSuperuser è già calcolato dalla JOIN con la tabella Captains
+                if (isSuperuser) {
+                    hasAccess = true;
+                    localRoleKey = 'Master';
+                }
+            }
             // Futuri moduli verranno aggiunti qui
 
             if (hasAccess) {
