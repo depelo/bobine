@@ -1148,6 +1148,41 @@ const io = new Server(server, {
 // Mappa per tracciare gli utenti online. Chiave: userId, Valore: Set di socket.id (per gestire multi-tab)
 const activeUserSockets = new Map();
 
+// Endpoint per richiesta di recupero password (invia notifica al Captain)
+app.post('/api/users/recover', async (req, res) => {
+    const { barcode } = req.body;
+    if (!barcode) return res.status(400).json({ message: 'Barcode obbligatorio' });
+
+    try {
+        let pool = await sql.connect(dbConfig);
+        
+        // Verifica se l'utente esiste ed è attivo
+        let userRes = await pool.request()
+            .input('barcode', sql.NVarChar, barcode)
+            .query(`SELECT IDUser, Name FROM [CMP].[dbo].[Users] WHERE Barcode = @barcode AND IsActive = 1`);
+
+        if (userRes.recordset.length === 0) {
+            return res.status(404).json({ message: 'Badge non riconosciuto o utente disattivato' });
+        }
+
+        const userName = userRes.recordset[0].Name;
+
+        // Emette l'avviso in tempo reale alla stanza dei Captain
+        if (typeof io !== 'undefined') {
+            io.to('captains_room').emit('pwd_reset_request', { 
+                userName: userName, 
+                barcode: barcode,
+                time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+            });
+        }
+
+        res.status(200).json({ message: 'Richiesta inviata con successo.' });
+    } catch (err) {
+        console.error('Errore recupero password:', err);
+        res.status(500).json({ message: 'Errore interno del server' });
+    }
+});
+
 io.on('connection', (socket) => {
     let currentUserId = null;
 

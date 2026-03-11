@@ -6,17 +6,6 @@ const loginPasswordInput = document.getElementById('loginPassword');
 const loginMessageEl = document.getElementById('loginMessage');
 const loginSubmitBtn = document.getElementById('loginSubmitBtn');
 
-const profileModal = document.getElementById('profileModal');
-const profileNameDisplay = document.getElementById('profileNameDisplay');
-const profileRoleDisplay = document.getElementById('profileRoleDisplay');
-const profileTimeDisplay = document.getElementById('profileTimeDisplay');
-const profilePwdSection = document.getElementById('profilePwdSection');
-const profileOldPwdInput = document.getElementById('profileOldPwd');
-const profileNewPwdInput = document.getElementById('profileNewPwd');
-const profilePwdMsg = document.getElementById('profilePwdMsg');
-const profileSavePwdBtn = document.getElementById('profileSavePwdBtn');
-const profileCloseBtn = document.getElementById('profileCloseBtn');
-
 let currentUser = null;
 
 // --- ROUTER DINAMICO POST-LOGIN ---
@@ -38,58 +27,7 @@ function routeUserAfterLogin(user) {
     }
 }
 
-function openProfileModal(isForced = false) {
-  if (!currentUser) {
-    alert('Effettua il login per visualizzare il profilo.');
-    return;
-  }
-  if (!profileModal) return;
-
-  const name = currentUser.name || '-';
-  const roleLabel = currentUser.isSuperuser
-    ? 'Superuser'
-    : currentUser.isAdmin
-      ? 'Admin'
-      : 'Operatore';
-  const startTime = currentUser.startTime || '-';
-
-  if (profileNameDisplay) profileNameDisplay.textContent = name;
-  if (profileRoleDisplay) profileRoleDisplay.textContent = roleLabel;
-  if (profileTimeDisplay) profileTimeDisplay.textContent = startTime;
-
-  const isForcedMode = !!isForced || currentUser.forcePwdChange === true;
-
-  const isAdmin = currentUser.isAdmin === true || currentUser.isAdmin === 1;
-  if (profilePwdSection) {
-    profilePwdSection.style.display = isAdmin ? '' : 'none';
-  }
-  if (profileOldPwdInput) profileOldPwdInput.value = '';
-  if (profileNewPwdInput) profileNewPwdInput.value = '';
-  if (profilePwdMsg) {
-    profilePwdMsg.textContent = isForcedMode
-      ? '⚠️ Password scaduta o reset forzato dall\'amministratore. Inserisci una nuova password per continuare.'
-      : '';
-  }
-
-  if (profileCloseBtn) {
-    if (isForcedMode) {
-      profileCloseBtn.style.display = 'none';
-      profileCloseBtn.disabled = true;
-    } else {
-      profileCloseBtn.style.display = '';
-      profileCloseBtn.disabled = false;
-    }
-  }
-
-  profileModal.classList.add('is-open');
-  profileModal.setAttribute('aria-hidden', 'false');
-}
-
-function closeProfileModal() {
-  if (!profileModal) return;
-  profileModal.classList.remove('is-open');
-  profileModal.setAttribute('aria-hidden', 'true');
-}
+// La gestione del profilo è demandata alla pagina standalone profile.html; il gateway non mostra più il vecchio modale inline.
 
 async function performLogin() {
   const barcode = loginBarcodeInput ? loginBarcodeInput.value.trim() : '';
@@ -264,88 +202,7 @@ if (loginPasswordInput) {
   });
 }
 
-if (profileCloseBtn) {
-  profileCloseBtn.addEventListener('click', () => {
-    document.activeElement?.blur();
-    if (currentUser?.forcePwdChange) return;
-    closeProfileModal();
-  });
-}
-
-if (profileModal && profileModal.addEventListener) {
-  profileModal.addEventListener('click', (e) => {
-    if (e.target.id === 'profileModal') {
-      if (currentUser?.forcePwdChange) return;
-      closeProfileModal();
-    }
-  });
-}
-
-if (profileSavePwdBtn) {
-  profileSavePwdBtn.addEventListener('click', async () => {
-    if (!currentUser) {
-      alert('Sessione scaduta. Effettua nuovamente il login.');
-      closeProfileModal();
-      return;
-    }
-    if (!profileOldPwdInput || !profileNewPwdInput) return;
-    const oldPassword = profileOldPwdInput.value;
-    const newPassword = profileNewPwdInput.value;
-
-    if (!newPassword) {
-      if (profilePwdMsg) profilePwdMsg.textContent = 'Inserisci la nuova password.';
-      return;
-    }
-
-    if (profilePwdMsg) profilePwdMsg.textContent = '';
-
-    try {
-      const res = await fetch(`${API_URL}/users/me/password`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ oldPassword, newPassword })
-      });
-
-      if (!res.ok) {
-        let message = 'Errore durante l\'aggiornamento della password.';
-        try {
-          const data = await res.clone().json();
-          if (data && data.message) message = data.message;
-        } catch {
-          const text = await res.text();
-          if (text) message = text;
-        }
-        if (profilePwdMsg) profilePwdMsg.textContent = message;
-        return;
-      }
-
-      let data = null;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
-
-      if (data && data.user) {
-        currentUser = data.user;
-      }
-      if (currentUser) {
-        currentUser.forcePwdChange = false;
-      }
-
-      if (profileOldPwdInput) profileOldPwdInput.value = '';
-      if (profileNewPwdInput) profileNewPwdInput.value = '';
-      if (profilePwdMsg) profilePwdMsg.textContent = '';
-
-      closeProfileModal();
-      alert('Password aggiornata con successo. Effettua nuovamente il login se necessario.');
-    } catch (err) {
-      console.error(err);
-      if (profilePwdMsg) profilePwdMsg.textContent = 'Errore di rete durante l\'aggiornamento della password.';
-    }
-  });
-}
+// Event listener del vecchio modale profilo rimossi
 
 // --- SIPARIO DI SICUREZZA PER IL GATEWAY ---
 function showGatewayPasswordCurtain(user, customMessage) {

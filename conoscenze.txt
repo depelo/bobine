@@ -25,7 +25,8 @@ Il sistema ospita molteplici app dipartimentali mantenendo una singola base di i
 È il "Libretto di Istruzioni" per la Captain Console. Permette alla UI di autoconfigurarsi.
 - `IDModule` (INT, PK).
 - `ModuleName`: Nome app (es. "App Bobine").
-- `TargetTable`: Tabella fisica del reparto (es. "Operators").
+- `TargetSchema`: Nome dello Schema nel database che contiene le tabelle operative dell'app (es. "Bobine", "Captain").
+- `TargetTable`: Tabella fisica del Visto dipartimentale (es. "Operators").
 - `RoleDefinition` (JSON): Definisce i ruoli e se richiedono password. 
   *Esempio:* `{"Admin": {"label": "Caporeparto", "requiresPassword": true}, "Base": {"label": "Operatore Base", "requiresPassword": false}}`.
 - `AppSettings` (NVARCHAR MAX, JSON): Definisce in modo indipendente le impostazioni specifiche e i limiti operativi dell'app (es. OpDeleteMaxRecords, OpDeleteMaxHours) senza hardcoding nel frontend.
@@ -73,7 +74,7 @@ Se tutte le condizioni sono soddisfatte, esegue `UPDATE ... SET Eliminato = 1`.
 
 ---
 
-## ARCHITETTURA META-APP
+## 4. Architettura Meta-App e Sicurezza Frontend
 
 Il sistema è diviso in due Layer principali:
 
@@ -81,7 +82,7 @@ Il sistema è diviso in due Layer principali:
   Punto di ingresso unico (futuro `index.html`) che gestisce login, routing iniziale verso le app dipartimentali e orchestrazione globale.
 
 - **Layer 2 – App operative**  
-  Applicazioni pure (es. `bobine.html`) focalizzate sul dominio di reparto. Non gestiscono direttamente login e permessi globali, ma consumano le decisioni prese a monte.
+  Applicazioni pure (es. `bobine.html`) focalizzate sul dominio di reparto. Non gestiscono direttamente login e permessi globali, ma consumano le decisioni prese a monte, reagendo ai dati di sicurezza aggregati (es. oggetto globale `window.SecurityData`).
 
 ### Sicurezza Globale e Script `sicurezza.js`
 
@@ -109,10 +110,3 @@ Combinando `DefaultModuleID` con la lista di moduli autorizzati, `sicurezza.js` 
 - Calcolare il redirect iniziale post-login.
 - Validare la navigazione cross-modulo nella Meta-App.
 - Applicare in modo coerente le politiche di sicurezza globali su tutte le app operative.
-
-4. ARCHITETTURA META-APP
-
-L'ecosistema usa un approccio a livelli:
-- Layer 1: Gateway (`index.html`, `portal.js`). Esegue l'autenticazione. Valuta `DefaultModuleID` e le app autorizzate per instradare l'utente.
-- Layer 2: App operative (es. `bobine.html`, `bobine.js`). Svuotate dalla logica di auth. Reagiscono all'oggetto globale `window.SecurityData` per autoconfigurare la UI (es. menu).
-- Guardiano: `sicurezza.js`. Caricato in `<head>` di ogni app di Layer 2. Controlla la sessione via `/api/me`. Se l'utente non è loggato -> redirect al Layer 1. Se riceve 403 (Password Scaduta) a sessione in corso -> inietta un 'Sipario' (DOM Overlay z-index:99999) con il form di reset, bloccando la UI sottostante senza far ricaricare la pagina per non perdere i dati in compilazione.

@@ -220,10 +220,8 @@ async function fetchData(endpoint) {
       // ignore JSON parse errors
     }
     if (data && data.requiresPasswordChange) {
-      if (!state.currentOperator) state.currentOperator = {};
-      state.currentOperator.forcePwdChange = true;
-      updateCurrentOperatorUI();
-      openProfileModal(true);
+      // Reindirizza al nuovo modulo profilo standalone per la gestione del cambio password
+      window.location.href = '/profile.html';
       throw new Error('HTTP 403: cambio password obbligatorio');
     }
     window.location.href = '/';
@@ -274,16 +272,7 @@ const machineListEl = document.getElementById('machineListView');
 const machineSelect = document.getElementById('machineSelect');
 const currentOperatorDisplay = document.getElementById('currentOperatorDisplay');
 const logoutBtn = document.getElementById('logoutBtn');
-const profileModal = document.getElementById('profileModal');
-const profileNameDisplay = document.getElementById('profileNameDisplay');
-const profileRoleDisplay = document.getElementById('profileRoleDisplay');
-const profileTimeDisplay = document.getElementById('profileTimeDisplay');
-const profilePwdSection = document.getElementById('profilePwdSection');
-const profileOldPwdInput = document.getElementById('profileOldPwd');
-const profileNewPwdInput = document.getElementById('profileNewPwd');
-const profilePwdMsg = document.getElementById('profilePwdMsg');
-const profileSavePwdBtn = document.getElementById('profileSavePwdBtn');
-const profileCloseBtn = document.getElementById('profileCloseBtn');
+// Vecchi riferimenti al modale profilo non più utilizzati (gestione spostata su profile.html)
 
 function updateCurrentOperatorUI() {
   if (!currentOperatorDisplay) return;
@@ -315,59 +304,7 @@ function updateCurrentOperatorUI() {
   }
 }
 
-function openProfileModal(isForced = false) {
-  if (!state.currentOperator) {
-    alert('Sessione scaduta. Effettua nuovamente il login dal gateway.');
-    window.location.href = '/';
-    return;
-  }
-  if (!profileModal) return;
-
-  const name = state.currentOperator.name || '-';
-  const roleLabel = state.currentOperator.isSuperuser
-    ? 'Superuser'
-    : state.currentOperator.isAdmin
-      ? 'Admin'
-      : 'Operatore';
-  const startTime = state.currentOperator.startTime || '-';
-
-  if (profileNameDisplay) profileNameDisplay.textContent = name;
-  if (profileRoleDisplay) profileRoleDisplay.textContent = roleLabel;
-  if (profileTimeDisplay) profileTimeDisplay.textContent = startTime;
-
-  const isForcedMode = !!isForced || state.currentOperator.forcePwdChange === true;
-
-  const isAdmin = state.currentOperator.isAdmin === true || state.currentOperator.isAdmin === 1;
-  if (profilePwdSection) {
-    profilePwdSection.style.display = isAdmin ? '' : 'none';
-  }
-  if (profileOldPwdInput) profileOldPwdInput.value = '';
-  if (profileNewPwdInput) profileNewPwdInput.value = '';
-  if (profilePwdMsg) {
-    profilePwdMsg.textContent = isForcedMode
-      ? '⚠️ Password scaduta o reset forzato dall\'amministratore. Inserisci una nuova password per continuare.'
-      : '';
-  }
-
-  if (profileCloseBtn) {
-    if (isForcedMode) {
-      profileCloseBtn.style.display = 'none';
-      profileCloseBtn.disabled = true;
-    } else {
-      profileCloseBtn.style.display = '';
-      profileCloseBtn.disabled = false;
-    }
-  }
-
-  profileModal.classList.add('is-open');
-  profileModal.setAttribute('aria-hidden', 'false');
-}
-
-function closeProfileModal() {
-  if (!profileModal) return;
-  profileModal.classList.remove('is-open');
-  profileModal.setAttribute('aria-hidden', 'true');
-}
+// openProfileModal / closeProfileModal rimossi: il profilo è ora gestito tramite la pagina standalone profile.html
 
 function toDateInputValue(dateString) {
   const datePart = dateString.split(' ')[0];
@@ -1311,7 +1248,7 @@ document.getElementById('menuDrawer').addEventListener('click', (e) => {
   if (action === 'placeholder1') return;
   if (action === 'open-profile') {
     closeMenuDrawer();
-    openProfileModal();
+    window.location.href = '/profile.html';
     return;
   }
   if (action === 'open-captain') {

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gestione Profilo - UJet</title>
+    <link rel="stylesheet" href="index.css" /> <style>
+      .profile-container { max-width: 500px; margin: 40px auto; background: var(--bg-content); padding: 32px; border-radius: var(--radius); box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+      .section-title { font-size: 1.2rem; font-weight: bold; border-bottom: 2px solid var(--border); padding-bottom: 8px; margin-bottom: 16px; margin-top: 32px; }
+      .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; background: var(--bg-gradient); padding: 16px; border-radius: var(--radius-sm); }
+    </style>
+  </head>
+  <body>
+    <div class="profile-container">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="margin: 0; color: var(--primary);">Il Mio Profilo</h1>
+      </div>
+
+      <div class="info-grid">
+        <div>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Nome</span>
+          <div id="profName" style="font-weight: bold; font-size: 1.1rem;">-</div>
+        </div>
+        <div>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Ruolo Primario</span>
+          <div id="profRole" style="font-weight: bold;">-</div>
+        </div>
+      </div>
+
+      <div class="section-title">Cambia Password</div>
+      <form id="changePwdForm">
+        <div class="login-field">
+          <label>Password Attuale</label>
+          <input type="password" id="oldPwd" class="control" required />
+        </div>
+        <div class="login-field">
+          <label>Nuova Password</label>
+          <input type="password" id="newPwd" class="control" required />
+        </div>
+        <div id="pwdMsg" class="login-message"></div>
+        <button type="submit" class="action-btn" id="loginSubmitBtn">Aggiorna Password</button>
+      </form>
+
+      <div class="section-title" style="color: var(--danger);">Recupero Password</div>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">Inserisci il tuo Barcode per richiedere il reset all'amministratore (o via email, se configurata).</p>
+      <form id="recoverPwdForm">
+        <div class="login-field">
+          <label>QR Code / Barcode</label>
+          <input type="text" id="recoverBarcode" class="control" required />
+        </div>
+        <div id="recoverMsg" class="login-message" style="color: var(--primary);"></div>
+        <button type="submit" class="action-btn" style="background: var(--text-muted);">Richiedi Reset</button>
+      </form>
+
+      <div style="margin-top: 32px; text-align: center;">
+        <button type="button" class="action-btn" style="background: transparent; color: var(--text); border: 1px solid var(--border);" onclick="window.history.back()">Indietro</button>
+      </div>
+    </div>
+
+    <script src="profile.js"></script>
+  </body>
+</html>

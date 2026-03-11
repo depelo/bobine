@@ -426,6 +426,24 @@
                     kickBtn.style.display = isOnline ? 'flex' : 'none';
                 }
             });
+
+            // Ascolta le richieste di reset password dagli operatori
+            captainSocket.on('pwd_reset_request', (data) => {
+                showCaptainError(`L'operatore ${data.userName} (Badge: ${data.barcode}) ha appena richiesto un reset della password alle ore ${data.time}. Cercalo nell'anagrafica, imposta una password temporanea e spunta "Forza reset".`);
+                // Cambiamo il colore e il titolo del modale di errore per farlo sembrare un Alert di sistema
+                document.querySelector('#captainErrorModal .scanner-title').textContent = '🔔 Richiesta Reset Password';
+                document.querySelector('#captainErrorModal .scanner-title').style.color = '#d97706';
+                document.getElementById('captainErrorBtnClose').style.backgroundColor = '#d97706';
+            });
+
+            // Ascolta le richieste di reset password dagli operatori
+            captainSocket.on('pwd_reset_request', (data) => {
+                showCaptainError(`L'operatore ${data.userName} (Badge: ${data.barcode}) ha appena richiesto un reset della password alle ore ${data.time}. Cercalo nell'anagrafica, imposta una password temporanea e spunta "Forza reset".`);
+                // Cambiamo il colore e il titolo del modale di errore per farlo sembrare un Alert di sistema
+                document.querySelector('#captainErrorModal .scanner-title').textContent = '🔔 Richiesta Reset Password';
+                document.querySelector('#captainErrorModal .scanner-title').style.color = '#d97706';
+                document.getElementById('captainErrorBtnClose').style.backgroundColor = '#d97706';
+            });
         }
       } catch (err) {
         console.error('Errore inizializzazione:', err);
