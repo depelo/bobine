@@ -303,7 +303,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
 // 2. Aggiorna utente (identità e sicurezza - Passaporto)
 app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
     const idUser = parseInt(req.params.id, 10);
-    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride, defaultModuleId, authorizedModuleIds } = req.body;
+    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride } = req.body;
 
     try {
         let pool = await sql.connect(dbConfig);
@@ -313,7 +313,6 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
         request.input('barcode', sql.NVarChar, barcode);
         request.input('forcePwdChange', sql.Bit, forcePwdChange ? 1 : 0);
         request.input('pwdExpiry', sql.Int, pwdExpiryDaysOverride ? parseInt(pwdExpiryDaysOverride, 10) : null);
-        request.input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null);
 
         let pwdQuery = '';
         if (password && password.trim() !== '') {
@@ -327,42 +326,74 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
             SET Name = @name, 
                 Barcode = @barcode,
                 ForcePwdChange = @forcePwdChange,
-                PwdExpiryDaysOverride = @pwdExpiry,
-                DefaultModuleID = @defaultModuleId
+                PwdExpiryDaysOverride = @pwdExpiry
                 ${pwdQuery}
             WHERE IDUser = @idUser
         `);
 
-        // Gestione accesso modulo Bobine (Soft Revoke e Safe Insert)
-        const authorizedModuleIds = req.body.authorizedModuleIds || [];
-        const hasBobineAccess = authorizedModuleIds.includes(1); // Modifica l'1 con l'ID reale del modulo Bobine se diverso
-
-        if (hasBobineAccess) {
-            // Se l'utente deve avere accesso: se esiste lo riattiviamo, altrimenti lo inseriamo calcolando l'ID
-            await pool.request()
-                .input('id', sql.Int, req.params.id)
-                .query(`
-                    IF EXISTS (SELECT 1 FROM [CMP].[Bobine].[Operators] WHERE IDUser = @id)
-                    BEGIN
-                        UPDATE [CMP].[Bobine].[Operators] SET IsActive = 1 WHERE IDUser = @id
-                    END
-                    ELSE
-                    BEGIN
-                        DECLARE @newId INT = ISNULL((SELECT MAX(IDOperator) FROM [CMP].[Bobine].[Operators]), 0) + 1;
-                        INSERT INTO [CMP].[Bobine].[Operators] (IDOperator, IDUser, Admin, IsActive) 
-                        VALUES (@newId, @id, 0, 1)
-                    END
-                `);
-        } else {
-            // Soft Revoke: disattiviamo l'operatore senza distruggere i log
-            await pool.request()
-                .input('id', sql.Int, req.params.id)
-                .query(`UPDATE [CMP].[Bobine].[Operators] SET IsActive = 0 WHERE IDUser = @id`);
-        }
-
         res.status(200).json({ message: 'Impostazioni di sicurezza aggiornate con successo.' });
     } catch (err) {
         console.error('Errore PUT /api/admin/users/:id:', err);
+        res.status(500).send(err.message);
+    }
+});
+
+// 2b. Upsert Permessi e Ruoli (Tab 3 - Visti)
+app.put('/api/admin/users/:id/roles', authenticateCaptain, async (req, res) => {
+    const idUser = parseInt(req.params.id, 10);
+    const { defaultModuleId, roles } = req.body;
+
+    try {
+        let pool = await sql.connect(dbConfig);
+        
+        // 1. Aggiorna il DefaultModuleID nel Passaporto (Users)
+        await pool.request()
+            .input('idUser', sql.Int, idUser)
+            .input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null)
+            .query(`UPDATE [CMP].[dbo].[Users] SET DefaultModuleID = @defaultModuleId WHERE IDUser = @idUser`);
+
+        // 2. Upsert nelle tabelle dipartimentali (Visti)
+        const validTables = ['Operators', 'Operators_Man']; // Whitelist anti-SQL Injection
+        const submittedRoles = roles || [];
+
+        for (const table of validTables) {
+            const assignedRole = submittedRoles.find(r => r.targetTable === table);
+            
+            if (assignedRole) {
+                // L'utente DEVE avere accesso a questo reparto. Calcoliamo il ruolo.
+                const isAdmin = assignedRole.roleKey === 'Admin' ? 1 : 0;
+                
+                await pool.request()
+                    .input('id', sql.Int, idUser)
+                    .input('admin', sql.Bit, isAdmin)
+                    .query(`
+                        IF EXISTS (SELECT 1 FROM [CMP].[Bobine].[${table}] WHERE IDUser = @id)
+                        BEGIN
+                            UPDATE [CMP].[Bobine].[${table}] SET IsActive = 1, Admin = @admin WHERE IDUser = @id
+                        END
+                        ELSE
+                        BEGIN
+                            DECLARE @newId INT = ISNULL((SELECT MAX(IDOperator) FROM [CMP].[Bobine].[${table}]), 0) + 1;
+                            INSERT INTO [CMP].[Bobine].[${table}] (IDOperator, IDUser, Admin, IsActive) 
+                            VALUES (@newId, @id, @admin, 1)
+                        END
+                    `);
+            } else {
+                // L'utente NON DEVE avere accesso. Soft-Revoke.
+                await pool.request()
+                    .input('id', sql.Int, idUser)
+                    .query(`
+                        IF EXISTS (SELECT 1 FROM [CMP].[Bobine].[${table}] WHERE IDUser = @id)
+                        BEGIN
+                            UPDATE [CMP].[Bobine].[${table}] SET IsActive = 0 WHERE IDUser = @id
+                        END
+                    `);
+            }
+        }
+
+        res.status(200).json({ message: 'Permessi aggiornati con successo.' });
+    } catch (err) {
+        console.error('Errore PUT /api/admin/users/:id/roles:', err);
         res.status(500).send(err.message);
     }
 });

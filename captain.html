@@ -18,12 +18,16 @@
 <body class="captain-body">
 
   <aside class="sidebar">
-    <div class="sidebar-header">UJet Captain</div>
+        <div class="sidebar-header">UJet Captain</div>
     <nav class="sidebar-nav">
       <div class="nav-item active" data-target="utenti"><span style="font-size: 1.3rem; margin-bottom: 2px;">👥</span><span>Utenti</span></div>
       <div class="nav-item" data-target="moduli"><span style="font-size: 1.3rem; margin-bottom: 2px;">🧩</span><span>Accessi</span></div>
       <div class="nav-item" data-target="audit"><span style="font-size: 1.3rem; margin-bottom: 2px;">🛡️</span><span>Audit</span></div>
     </nav>
+    <div id="captainAppSwitcher" style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 16px; flex-shrink: 0;">
+        <div style="padding: 0 24px; font-size: 0.75rem; color: rgba(255,255,255,0.5); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px;">Le tue App</div>
+        <div id="captainAppLinks"></div>
+    </div>
     <div class="nav-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: auto;" id="backToAppBtn">
       <span style="font-size: 1.3rem; margin-bottom: 2px;">🔙</span><span>Esci</span>
     </div>
@@ -130,7 +134,7 @@
         <div style="width: 220px; background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column;">
           <button class="ump-tab active" data-tab="ump-sec" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border); font-weight: bold;">🔐 1. Sicurezza (Passaporto)</button>
           <button class="ump-tab" data-tab="ump-ses" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">📡 2. Sessioni (Radar)</button>
-          <button class="ump-tab" data-tab="ump-acc" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">🛂 3. Accessi (Visti)</button>
+          <button class="ump-tab" data-tab="ump-acc" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">🛂 3. Permessi (Visti)</button>
         </div>
 
         <div style="flex: 1; padding: 24px; overflow-y: auto; background: var(--bg-content);">
@@ -175,16 +179,6 @@
               </div>
             </div>
 
-            <div class="form-group" style="margin-top: 15px;">
-              <label>App Autorizzate</label>
-              <div id="umpAuthorizedApps" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
-              </div>
-              <label for="umpDefaultModule">App di Destinazione Principale</label>
-              <select id="umpDefaultModule" class="control">
-                <option value="">-- Seleziona automaticamente dopo il login --</option>
-              </select>
-            </div>
-
             <button id="umpSaveSecBtn" style="margin-top: 24px; padding: 12px 24px; background: var(--primary); color: white; border: none; border-radius: var(--radius); font-weight: bold; cursor: pointer;">Salva Sicurezza</button>
           </div>
 
@@ -194,8 +188,21 @@
           </div>
 
           <div id="ump-acc" class="ump-content-section" style="display: none;">
-            <h3>Gestione Visti e App di Destinazione</h3>
-            <p>Funzionalità in arrivo...</p>
+            <h3 style="margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Permessi Dipartimentali (Visti)</h3>
+            
+            <div style="margin-top: 16px;">
+              <p style="font-weight: 600; margin-bottom: 10px;">Riassegna Accessi e Ruoli:</p>
+              <div id="umpEditRolesContainer" style="display: flex; flex-direction: column; gap: 8px; background: var(--bg); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);"></div>
+            </div>
+
+            <div class="login-field" style="margin-top: 24px;">
+              <label>App di Destinazione Principale</label>
+              <select id="umpEditDefaultModule" class="control" style="width:100%">
+                <option value="">-- Seleziona prima i Visti --</option>
+              </select>
+            </div>
+
+            <button id="umpSaveAccBtn" style="margin-top: 24px; padding: 12px 24px; background: var(--success); color: white; border: none; border-radius: var(--radius); font-weight: bold; cursor: pointer;">Salva Permessi</button>
           </div>
 
         </div>
@@ -303,6 +310,24 @@
 
         // 2. Carica i dati base
         await loadData();
+
+        // 3. Popola App Switcher
+        const appLinksContainer = document.getElementById('captainAppLinks');
+        if (appLinksContainer && me.authorizedApps) {
+            me.authorizedApps.forEach(app => {
+                let url = '';
+                if (app.target === 'Operators') url = 'bobine.html';
+                // (Future app verranno mappate qui)
+                
+                if (url) {
+                    const btn = document.createElement('div');
+                    btn.className = 'nav-item';
+                    btn.innerHTML = `<span style="font-size: 1.2rem; margin-bottom: 2px;">🚀</span><span>${app.name}</span>`;
+                    btn.onclick = () => window.location.href = url;
+                    appLinksContainer.appendChild(btn);
+                }
+            });
+        }
       } catch (err) {
         console.error('Errore inizializzazione:', err);
       }
@@ -554,19 +579,67 @@
       panel.classList.add('is-open');
       panel.setAttribute('aria-hidden', 'false');
 
-      // Gestione App autorizzate e modulo di default
-      const appsContainer = document.getElementById('umpAuthorizedApps');
-      const defaultSelect = document.getElementById('umpDefaultModule');
-      if (appsContainer && defaultSelect) {
-        const checkboxes = appsContainer.querySelectorAll('input[type="checkbox"]');
-        const authorizedIds = Array.isArray(u.authorizedModuleIds) ? u.authorizedModuleIds : (u.apps || []).map(a => a.moduleId);
+      // Generazione Dinamica Tab 3 (Permessi)
+      const rolesContainer = document.getElementById('umpEditRolesContainer');
+      const defModSelect = document.getElementById('umpEditDefaultModule');
+      if (rolesContainer && defModSelect) {
+        rolesContainer.innerHTML = '';
+        defModSelect.innerHTML = '<option value="">-- Seleziona --</option>';
 
-        checkboxes.forEach(cb => {
-          const idVal = parseInt(cb.value, 10);
-          cb.checked = !Number.isNaN(idVal) && authorizedIds.includes(idVal);
+        // Popoliamo tutte le app disponibili nella select di default
+        globalModules.forEach(mod => {
+            const opt = document.createElement('option');
+            opt.value = mod.id;
+            opt.textContent = mod.name;
+            defModSelect.appendChild(opt);
         });
+        defModSelect.value = u.defaultModuleId != null ? String(u.defaultModuleId) : '';
 
-        defaultSelect.value = u.defaultModuleId != null ? String(u.defaultModuleId) : '';
+        // Costruiamo i checkbox dei ruoli basandoci su RoleDefinition
+        globalModules.forEach(mod => {
+          const roles = mod.roleDefinition;
+          if (!roles) return;
+
+          const modGroup = document.createElement('div');
+          modGroup.style.marginBottom = '8px';
+          modGroup.innerHTML = `<strong style="font-size:0.9rem; color: var(--primary);">${mod.name}</strong>`;
+
+          for (const [roleKey, roleInfo] of Object.entries(roles)) {
+            const lbl = document.createElement('label');
+            lbl.style.display = 'flex';
+            lbl.style.alignItems = 'center';
+            lbl.style.gap = '8px';
+            lbl.style.fontSize = '0.9rem';
+            lbl.style.marginTop = '4px';
+            lbl.style.cursor = 'pointer';
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'edit-role-checkbox';
+            cb.dataset.targetTable = mod.targetTable;
+            cb.dataset.roleKey = roleKey;
+            
+            // Pre-check se l'utente ha già questo ruolo in questo modulo
+            if (u.apps && u.apps.some(a => a.moduleId === mod.id && a.roleKey === roleKey)) {
+                cb.checked = true;
+            }
+
+            // Logica mutua esclusione: se spunto un ruolo, deseleziono gli altri dello stesso modulo
+            cb.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    const siblings = modGroup.querySelectorAll('.edit-role-checkbox');
+                    siblings.forEach(sib => {
+                        if (sib !== e.target) sib.checked = false;
+                    });
+                }
+            });
+
+            lbl.appendChild(cb);
+            lbl.appendChild(document.createTextNode(roleInfo.label));
+            modGroup.appendChild(lbl);
+          }
+          rolesContainer.appendChild(modGroup);
+        });
       }
     }
 
@@ -869,21 +942,6 @@
       const pwdExpiryVal = document.getElementById('umpPwdExpiry').value.trim();
       const pwdExpiryDaysOverride = pwdExpiryVal === '' ? null : parseInt(pwdExpiryVal, 10);
 
-      const appsContainer = document.getElementById('umpAuthorizedApps');
-      const defaultSelect = document.getElementById('umpDefaultModule');
-      let authorizedModuleIds = [];
-      let defaultModuleId = null;
-
-      if (appsContainer) {
-        authorizedModuleIds = Array.from(appsContainer.querySelectorAll('input[type="checkbox"]:checked'))
-          .map(cb => parseInt(cb.value, 10))
-          .filter(v => !Number.isNaN(v));
-      }
-      if (defaultSelect) {
-        const raw = defaultSelect.value;
-        defaultModuleId = raw ? parseInt(raw, 10) : null;
-      }
-
       try {
         const res = await fetch(`${API_URL}/admin/users/${id}`, {
           method: 'PUT',
@@ -894,9 +952,7 @@
             barcode,
             password: password || undefined,
             forcePwdChange,
-            pwdExpiryDaysOverride,
-            authorizedModuleIds,
-            defaultModuleId
+            pwdExpiryDaysOverride
           })
         });
         if (res.status === 401 || res.status === 403) {
@@ -913,6 +969,37 @@
         document.getElementById('userManagePanel').setAttribute('aria-hidden', 'true');
       } catch (err) {
         showCaptainError('Errore salvataggio: ' + err.message);
+      }
+    });
+
+    document.getElementById('umpSaveAccBtn').addEventListener('click', async () => {
+      const id = document.getElementById('umpUserId').value;
+      const defaultModuleId = document.getElementById('umpEditDefaultModule').value;
+      
+      const selectedRoles = Array.from(document.querySelectorAll('.edit-role-checkbox:checked')).map(cb => ({
+        targetTable: cb.dataset.targetTable,
+        roleKey: cb.dataset.roleKey
+      }));
+
+      try {
+        const res = await fetch(`${API_URL}/admin/users/${id}/roles`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+              defaultModuleId: defaultModuleId ? parseInt(defaultModuleId, 10) : null,
+              roles: selectedRoles 
+          })
+        });
+        
+        if (!res.ok) throw new Error(await res.text());
+        
+        await loadData();
+        showCaptainSuccess('Permessi e Visti aggiornati con successo.');
+        document.getElementById('userManagePanel').classList.remove('is-open');
+        document.getElementById('userManagePanel').setAttribute('aria-hidden', 'true');
+      } catch (err) {
+        showCaptainError('Errore salvataggio permessi: ' + err.message);
       }
     });
 
