@@ -35,25 +35,31 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentUser = await res.json();
             document.getElementById('profName').textContent = currentUser.name || '-';
 
-            // Estrazione Nome Visibile e Flag Password dall'app principale
-            let primaryRoleLabel = '-';
-            let needsPassword = false;
+            // Generazione dinamica dei ruoli e controllo password
+            let needsPassword = currentUser.isSuperuser; // Il superuser di base richiede sempre password
+            const rolesContainer = document.getElementById('profRolesContainer');
+            rolesContainer.innerHTML = '';
 
-            if (currentUser.isSuperuser) {
-                primaryRoleLabel = 'Superuser (Master)';
-                needsPassword = true;
-            } else if (currentUser.authorizedApps && currentUser.authorizedApps.length > 0) {
-                // Prendi l'app di default o la prima disponibile
-                const mainApp = currentUser.authorizedApps.find(a => a.id === currentUser.defaultModuleId) || currentUser.authorizedApps[0];
-                primaryRoleLabel = mainApp.roleLabel || mainApp.roleKey;
+            if (currentUser.authorizedApps && currentUser.authorizedApps.length > 0) {
+                currentUser.authorizedApps.forEach(app => {
+                    // Controlla il requisito password per l'app corrente
+                    if (app.requiresPassword) needsPassword = true;
 
-                // Se ALMENO UNA delle app autorizzate richiede la password, mostriamo la sezione
-                needsPassword = currentUser.authorizedApps.some(a => a.requiresPassword);
+                    // Crea il badge visivo per l'app
+                    const badge = document.createElement('div');
+                    badge.style.cssText = 'font-size: 0.85rem; padding: 6px 10px; border-radius: 6px; background: var(--bg-content); border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0,0,0,0.05);';
+
+                    // Mostra Nome App e Nome Ruolo Visibile
+                    const appLabel = app.roleLabel || app.roleKey;
+                    badge.innerHTML = `<span style="color: var(--primary); font-weight: bold;">${app.name}</span> <span style="color: var(--text-muted); margin: 0 4px;">&rarr;</span> <span style="font-weight: 600;">${appLabel}</span>`;
+
+                    rolesContainer.appendChild(badge);
+                });
+            } else {
+                rolesContainer.innerHTML = '<span style="font-weight: bold; color: var(--text-muted); font-size: 0.9rem;">Nessun accesso</span>';
             }
 
-            document.getElementById('profRole').textContent = primaryRoleLabel;
-
-            // Nascondi il blocco password se non necessaria
+            // Nascondi il blocco password se nessun ruolo in nessuna app lo richiede
             if (!needsPassword) {
                 document.getElementById('passwordSectionWrapper').style.display = 'none';
             }
