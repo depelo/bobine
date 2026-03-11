@@ -284,7 +284,7 @@ function updateCurrentOperatorUI() {
       state.currentOperator.isAdmin === true ||
       state.currentOperator.isAdmin === 1;
 
-    currentOperatorDisplay.value = name;
+    currentOperatorDisplay.textContent = name;
 
     if (isAdmin) {
       currentOperatorDisplay.style.backgroundColor = '#d4edda';
@@ -296,8 +296,7 @@ function updateCurrentOperatorUI() {
       currentOperatorDisplay.style.borderColor = '#ced4da';
     }
   } else {
-    currentOperatorDisplay.value = '';
-    currentOperatorDisplay.placeholder = 'Nessun operatore loggato';
+    currentOperatorDisplay.textContent = 'Nessun operatore loggato';
     currentOperatorDisplay.style.backgroundColor = '#e9ecef';
     currentOperatorDisplay.style.color = 'var(--text-muted)';
     currentOperatorDisplay.style.borderColor = 'var(--border)';
@@ -1494,97 +1493,7 @@ document.addEventListener('click', (event) => {
   }
 });
 
-if (profileCloseBtn) {
-  profileCloseBtn.addEventListener('click', () => {
-    document.activeElement?.blur();
-    if (state.currentOperator?.forcePwdChange) return;
-    closeProfileModal();
-  });
-}
-
-if (profileModal && profileModal.addEventListener) {
-  profileModal.addEventListener('click', (e) => {
-    if (e.target.id === 'profileModal') {
-      if (state.currentOperator?.forcePwdChange) return;
-      closeProfileModal();
-    }
-  });
-}
-
-if (profileSavePwdBtn) {
-  profileSavePwdBtn.addEventListener('click', async () => {
-    if (!state.currentOperator) {
-      alert('Sessione scaduta. Effettua nuovamente il login.');
-      closeProfileModal();
-      window.location.href = '/';
-      return;
-    }
-    if (!profileOldPwdInput || !profileNewPwdInput) return;
-    const oldPassword = profileOldPwdInput.value;
-    const newPassword = profileNewPwdInput.value;
-
-    if (!newPassword) {
-      if (profilePwdMsg) profilePwdMsg.textContent = 'Inserisci la nuova password.';
-      return;
-    }
-
-    if (profilePwdMsg) profilePwdMsg.textContent = '';
-
-    try {
-      const res = await fetch(`${API_URL}/users/me/password`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ oldPassword, newPassword })
-      });
-
-      if (!res.ok) {
-        let message = 'Errore durante l\'aggiornamento della password.';
-        try {
-          // Usiamo clone() così se fallisce il parsing JSON, lo stream originale non si brucia
-          const data = await res.clone().json();
-          if (data && data.message) message = data.message;
-        } catch {
-          const text = await res.text();
-          if (text) message = text;
-        }
-        if (profilePwdMsg) profilePwdMsg.textContent = message;
-        return;
-      }
-
-      let data = null;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
-
-      if (data && data.user) {
-        state.currentOperator = data.user;
-      }
-      if (state.currentOperator) {
-        state.currentOperator.forcePwdChange = false;
-      }
-      updateCurrentOperatorUI();
-      applyPermissions();
-
-      if (profileOldPwdInput) profileOldPwdInput.value = '';
-      if (profileNewPwdInput) profileNewPwdInput.value = '';
-      if (profilePwdMsg) profilePwdMsg.textContent = '';
-
-      closeProfileModal();
-      try {
-        await loadInitialData();
-      } catch (err) {
-        console.error(err);
-      }
-      setScreen('log-edit');
-    } catch (err) {
-      console.error(err);
-      if (profilePwdMsg) profilePwdMsg.textContent = 'Errore di rete durante l\'aggiornamento della password.';
-    }
-  });
-}
+// Listener legacy del vecchio modale profilo rimossi: la gestione password è ora centralizzata su profile.html/profile.js
 
 document.getElementById('rawCode').addEventListener('input', updateDynamicRollId);
 document.getElementById('rawCode').addEventListener('change', updateDynamicRollId);
