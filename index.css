@@ -1,88 +1,191 @@
 :root {
+  /* Colori del Brand e UI */
   --primary: #2563a8;
   --primary-dark: #1a4d82;
-  --bg: #f0f2f5;
-  --bg-content: #fff;
-  --text: #0d0d0d;
-  --text-muted: #404040;
-  --border: #c5cdd4;
-  --danger: #c41e1e;
-  --radius: 8px;
-  --font-family: "Segoe UI", system-ui, Roboto, sans-serif;
+  --primary-light: #e3eef8;
+  --bg-gradient: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);
+  --bg-content: #ffffff;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #cbd5e1;
+  --input-bg: #f8fafc;
+  --danger: #e11d48;
+  --radius: 16px; /* Arrotondamento più moderno */
+  --radius-sm: 8px;
+  --font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
-html { font-size: 17px; }
+html { font-size: 16px; }
+
 body {
   margin: 0;
   min-height: 100dvh;
   font-family: var(--font-family);
   color: var(--text);
-  background: var(--bg);
+  background: var(--bg-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- Animazioni --- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* --- Layout del Gateway --- */
 .login-wrapper {
-  display: flex;
-  min-height: 100dvh;
-  align-items: center;
-  justify-content: center;
+  width: 100%;
   padding: 24px;
+  display: flex;
+  justify-content: center;
 }
 
 .login-box {
   background: var(--bg-content);
   border-radius: var(--radius);
-  padding: 40px 32px;
+  padding: 48px 40px;
   width: 100%;
-  max-width: 420px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  max-width: 440px;
+  /* Ombra stratificata per effetto "Soft UI" */
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 20px 40px -10px rgba(0, 0, 0, 0.1);
+  animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.gateway-brand { text-align: center; margin-bottom: 32px; }
-.gateway-brand h1 { color: var(--primary); margin: 0; font-size: 2.5rem; letter-spacing: 1px; }
-.gateway-brand p { color: var(--text-muted); margin: 8px 0 0 0; font-size: 1rem; }
+.gateway-brand {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.brand-logo {
+  max-width: 240px;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.gateway-brand p {
+  color: var(--text-muted);
+  margin: 12px 0 0 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
 
 /* --- Form e Controlli --- */
-.login-field { margin-bottom: 16px; }
-.login-field label { display: block; margin-bottom: 6px; font-size: 0.95rem; font-weight: 600; color: var(--text); }
+.login-field { margin-bottom: 20px; }
+.login-field label { 
+  display: block; 
+  margin-bottom: 8px; 
+  font-size: 0.9rem; 
+  font-weight: 600; 
+  color: var(--text); 
+}
 
 .control { 
   width: 100%; 
-  padding: 12px 14px; 
+  padding: 14px 16px; 
+  background-color: var(--input-bg);
   border: 1px solid var(--border); 
-  border-radius: var(--radius); 
+  border-radius: var(--radius-sm); 
   font-size: 1rem; 
   font-family: inherit; 
+  color: var(--text);
+  transition: all 0.25s ease;
 }
-.control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,168,0.15); }
+
+.control::placeholder { color: #94a3b8; }
+
+.control:focus { 
+  outline: none; 
+  background-color: #fff;
+  border-color: var(--primary); 
+  box-shadow: 0 0 0 4px rgba(37, 99, 168, 0.15); 
+}
 
 .with-icon-btn { display: flex; }
-.with-icon-btn input { border-radius: var(--radius) 0 0 var(--radius); border-right: none; flex: 1; min-width: 0; }
-.icon-btn { 
-  display: flex; align-items: center; justify-content: center; width: 54px; 
-  border: 2px solid var(--primary); background: #e3eef8; color: var(--primary-dark); 
-  cursor: pointer; border-radius: 0 var(--radius) var(--radius) 0; transition: 0.2s;
+.with-icon-btn input { 
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm); 
+  border-right: none; 
+  flex: 1; 
+  min-width: 0; 
 }
-.icon-btn:hover { background: #cce0f5; }
-.icon-camera { width: 1.5rem; height: 1.5rem; }
+.icon-btn { 
+  display: flex; align-items: center; justify-content: center; 
+  width: 56px; 
+  border: 1px solid var(--border); 
+  border-left: none;
+  background: var(--input-bg); 
+  color: var(--primary); 
+  cursor: pointer; 
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0; 
+  transition: all 0.25s ease;
+}
+.with-icon-btn:focus-within .icon-btn {
+  background: #fff;
+  border-color: var(--primary);
+  border-top: 1px solid var(--primary);
+  border-bottom: 1px solid var(--primary);
+  border-right: 1px solid var(--primary);
+  box-shadow: 4px 0 0 0 rgba(37, 99, 168, 0.15) inset, 0 0 0 4px rgba(37, 99, 168, 0.15);
+}
+.icon-btn:hover { background: var(--primary-light); color: var(--primary-dark); }
+.icon-camera { width: 1.4rem; height: 1.4rem; }
 
-.login-message { min-height: 1.2em; font-size: 0.9rem; color: var(--danger); text-align: center; margin-top: 12px; }
+.login-message { 
+  min-height: 1.2em; 
+  font-size: 0.9rem; 
+  color: var(--danger); 
+  text-align: center; 
+  margin-top: 16px; 
+  font-weight: 500;
+}
 
-.action-btn { width: 100%; padding: 12px; font-size: 1.1rem; border-radius: var(--radius); cursor: pointer; font-weight: bold; border: none; }
+/* --- Bottoni --- */
+.action-btn { 
+  width: 100%; 
+  padding: 14px; 
+  font-size: 1.05rem; 
+  border-radius: var(--radius-sm); 
+  cursor: pointer; 
+  font-weight: 600; 
+  border: none; 
+  transition: all 0.3s ease;
+}
 
-#loginSubmitBtn { background: var(--primary); color: white; transition: 0.2s; width: 100%; }
-#loginSubmitBtn:hover { background: var(--primary-dark); }
+#loginSubmitBtn { 
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: white; 
+  box-shadow: 0 4px 12px rgba(37, 99, 168, 0.2);
+  margin-top: 8px;
+}
+
+#loginSubmitBtn:hover { 
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(37, 99, 168, 0.3);
+}
+#loginSubmitBtn:active {
+  transform: translateY(0);
+}
 
 /* --- Modali (Scanner & Profilo) --- */
-.scanner-modal { position: fixed; inset: 0; z-index: 300; align-items: center; justify-content: center; padding: 24px; display: none; background: rgba(0, 0, 0, 0.85); }
-.scanner-modal.is-open { display: flex; }
-.scanner-modal-inner { background: var(--bg-content); border-radius: var(--radius); padding: 24px; max-width: 100%; width: 400px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
-.scanner-title { margin: 0 0 16px; font-size: 1.3rem; font-weight: bold; border-bottom: 1px solid var(--border); padding-bottom: 8px; color: var(--primary-dark); }
+.scanner-modal { position: fixed; inset: 0; z-index: 300; align-items: center; justify-content: center; padding: 24px; display: none; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); }
+.scanner-modal.is-open { display: flex; animation: fadeUp 0.3s ease-out forwards; }
+.scanner-modal-inner { background: var(--bg-content); border-radius: var(--radius); padding: 32px; max-width: 100%; width: 420px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3); }
+.scanner-title { margin: 0 0 24px; font-size: 1.25rem; font-weight: bold; border-bottom: 2px solid var(--input-bg); padding-bottom: 12px; color: var(--text); }
 
-.scanner-cancel { width: 100%; padding: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 1rem; font-weight: 600; cursor: pointer; border-radius: var(--radius); margin-top: 10px; transition: 0.2s; }
-.scanner-cancel:hover { background: #e2e6ea; }
+.scanner-cancel { width: 100%; padding: 14px; border: 1px solid var(--border); background: var(--bg-content); color: var(--text-muted); font-size: 1rem; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm); margin-top: 16px; transition: all 0.2s; }
+.scanner-cancel:hover { background: var(--input-bg); color: var(--text); }
 
-#scannerContainer { min-height: 250px; border-radius: var(--radius); overflow: hidden; margin-bottom: 16px; background: #000; }
+#scannerContainer { min-height: 250px; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 20px; background: #000; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1); }
 #scannerContainer video { width: 100%; display: block; }
 .is-hidden { display: none !important; }
+
+/* Adattamenti Mobile */
+@media (max-width: 480px) {
+  .login-box { padding: 32px 24px; }
+  .brand-logo { max-width: 200px; }
+}
