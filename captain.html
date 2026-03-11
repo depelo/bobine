@@ -152,12 +152,14 @@
               </div>
             </div>
 
-            <div class="login-field">
-              <label>QR Code Login</label>
-              <div style="display: flex; gap: 8px;">
-                <input type="text" id="umpInputBarcode" class="control" readonly style="background-color: var(--bg); color: var(--text-muted); font-family: monospace; flex: 1;">
-                <button type="button" class="icon-btn edit-toggle-btn" data-target="umpInputBarcode" title="Sblocca modifica" style="border-radius: var(--radius); min-width: 44px; font-size: 1.2rem;">✏️</button>
+            <div class="login-field" style="display: flex; gap: 16px; align-items: flex-start; background: var(--bg); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);">
+              <div style="flex: 1;">
+                <label style="font-weight: bold; color: var(--primary-dark);">QR Code Login</label>
+                <input type="text" id="umpInputBarcode" class="control" readonly style="width:100%; font-family: monospace; background: var(--bg-content); color: var(--text-muted); margin-bottom: 8px;" />
+                <button type="button" class="action-btn" id="umpRegenerateQRBtn" style="font-size: 0.9rem; padding: 6px 12px; min-height: 0; min-width: 0; background: var(--border); color: var(--text);">🔄 Rigenera</button>
+                <button type="button" class="action-btn" id="umpPrintQRBtn" style="font-size: 0.9rem; padding: 6px 12px; min-height: 0; min-width: 0; background: var(--primary); color: white;">🖨️ Stampa</button>
               </div>
+              <div id="umpQRCodeContainer" style="background: white; padding: 8px; border-radius: 8px; border: 1px solid var(--border); min-width: 100px; min-height: 100px; display: flex; align-items: center; justify-content: center;"></div>
             </div>
 
               <div id="pwdManagementSection" style="margin-top: 24px; padding: 16px; background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius);">
@@ -179,6 +181,13 @@
               </div>
             </div>
 
+            <div class="login-field" style="margin-top: 16px;">
+              <label for="umpDefaultModule">App di Destinazione Principale</label>
+              <select id="umpDefaultModule" class="control">
+                <option value="">-- Seleziona --</option>
+              </select>
+            </div>
+
             <button id="umpSaveSecBtn" style="margin-top: 24px; padding: 12px 24px; background: var(--primary); color: white; border: none; border-radius: var(--radius); font-weight: bold; cursor: pointer;">Salva Sicurezza</button>
           </div>
 
@@ -193,13 +202,6 @@
             <div style="margin-top: 16px;">
               <p style="font-weight: 600; margin-bottom: 10px;">Riassegna Accessi e Ruoli:</p>
               <div id="umpEditRolesContainer" style="display: flex; flex-direction: column; gap: 8px; background: var(--bg); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);"></div>
-            </div>
-
-            <div class="login-field" style="margin-top: 24px;">
-              <label>App di Destinazione Principale</label>
-              <select id="umpEditDefaultModule" class="control" style="width:100%">
-                <option value="">-- Seleziona prima i Visti --</option>
-              </select>
             </div>
 
             <button id="umpSaveAccBtn" style="margin-top: 24px; padding: 12px 24px; background: var(--success); color: white; border: none; border-radius: var(--radius); font-weight: bold; cursor: pointer;">Salva Permessi</button>
@@ -538,7 +540,9 @@
       document.getElementById('umpUserBarcode').textContent = u.barcode;
       document.getElementById('umpUserId').value = u.id;
       document.getElementById('umpInputName').value = u.name || '';
-      document.getElementById('umpInputBarcode').value = u.barcode || '';
+      originalEditBarcode = u.barcode || '';
+      document.getElementById('umpInputBarcode').value = originalEditBarcode;
+      drawEditUserQR(originalEditBarcode);
       // Blocca nuovamente i campi anagrafici per prevenire modifiche accidentali
       ['umpInputName', 'umpInputBarcode'].forEach(idField => {
         const el = document.getElementById(idField);
@@ -570,6 +574,17 @@
         document.getElementById('umpForcePwdChange').checked = false;
         document.getElementById('umpPwdExpiry').value = '';
       }
+      const defaultSelect = document.getElementById('umpDefaultModule');
+      if (defaultSelect) {
+          defaultSelect.innerHTML = '<option value="">-- Seleziona --</option>';
+          globalModules.forEach(mod => {
+              const opt = document.createElement('option');
+              opt.value = mod.id;
+              opt.textContent = mod.name;
+              defaultSelect.appendChild(opt);
+          });
+          defaultSelect.value = u.defaultModuleId != null ? String(u.defaultModuleId) : '';
+      }
       // Ripristina tab Sicurezza
       document.querySelectorAll('.ump-tab').forEach(t => t.classList.remove('active'));
       document.querySelector('.ump-tab[data-tab="ump-sec"]').classList.add('active');
@@ -581,19 +596,8 @@
 
       // Generazione Dinamica Tab 3 (Permessi)
       const rolesContainer = document.getElementById('umpEditRolesContainer');
-      const defModSelect = document.getElementById('umpEditDefaultModule');
-      if (rolesContainer && defModSelect) {
+      if (rolesContainer) {
         rolesContainer.innerHTML = '';
-        defModSelect.innerHTML = '<option value="">-- Seleziona --</option>';
-
-        // Popoliamo tutte le app disponibili nella select di default
-        globalModules.forEach(mod => {
-            const opt = document.createElement('option');
-            opt.value = mod.id;
-            opt.textContent = mod.name;
-            defModSelect.appendChild(opt);
-        });
-        defModSelect.value = u.defaultModuleId != null ? String(u.defaultModuleId) : '';
 
         // Costruiamo i checkbox dei ruoli basandoci su RoleDefinition
         globalModules.forEach(mod => {
@@ -694,6 +698,43 @@
         qrContainer.textContent = 'Libreria QR non caricata';
       }
     }
+
+    let editUserQRCode = null;
+    let originalEditBarcode = '';
+
+    function drawEditUserQR(text) {
+      const qrContainer = document.getElementById('umpQRCodeContainer');
+      if (!qrContainer) return;
+      qrContainer.innerHTML = '';
+      if (typeof QRCode !== 'undefined' && text) {
+        editUserQRCode = new QRCode(qrContainer, {
+            text: text,
+            width: 100,
+            height: 100,
+            colorDark : "#000000",
+            colorLight : "#ffffff",
+            correctLevel : QRCode.CorrectLevel.H
+        });
+      }
+    }
+
+    document.getElementById('umpRegenerateQRBtn').addEventListener('click', () => {
+      const randomStr = 'UJ-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+      document.getElementById('umpInputBarcode').value = randomStr;
+      drawEditUserQR(randomStr);
+    });
+
+    document.getElementById('umpPrintQRBtn').addEventListener('click', () => {
+      const qrImg = document.querySelector('#umpQRCodeContainer img');
+      if (!qrImg) return;
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`<html><body style="text-align:center; font-family:sans-serif; margin-top: 50px;">
+          <h2>Badge Login Operatore</h2>
+          <img src="${qrImg.src}" style="width:200px; height:200px; margin: 20px 0;">
+          <p style="font-size: 1.2rem; font-weight: bold; letter-spacing: 2px;">${document.getElementById('umpInputBarcode').value}</p>
+          <script>window.onload = function() { window.print(); window.close(); }<\/script>
+      </body></html>`);
+    });
 
     // Listener per i pulsanti QR
     document.getElementById('adminRegenerateQRBtn').addEventListener('click', generateNewUserQR);
@@ -942,6 +983,15 @@
       const pwdExpiryVal = document.getElementById('umpPwdExpiry').value.trim();
       const pwdExpiryDaysOverride = pwdExpiryVal === '' ? null : parseInt(pwdExpiryVal, 10);
 
+      const currentBarcode = document.getElementById('umpInputBarcode').value.trim();
+      if (currentBarcode !== originalEditBarcode) {
+          const isConfirmed = await askCaptainConfirm('Hai rigenerato il QR Code per questo utente. Il vecchio badge smetterà di funzionare immediatamente. Vuoi procedere con il salvataggio?');
+          if (!isConfirmed) return;
+      }
+
+      const defaultSelectVal = document.getElementById('umpDefaultModule').value;
+      const defaultModuleId = defaultSelectVal ? parseInt(defaultSelectVal, 10) : null;
+
       try {
         const res = await fetch(`${API_URL}/admin/users/${id}`, {
           method: 'PUT',
@@ -952,7 +1002,8 @@
             barcode,
             password: password || undefined,
             forcePwdChange,
-            pwdExpiryDaysOverride
+            pwdExpiryDaysOverride,
+            defaultModuleId
           })
         });
         if (res.status === 401 || res.status === 403) {
@@ -974,7 +1025,6 @@
 
     document.getElementById('umpSaveAccBtn').addEventListener('click', async () => {
       const id = document.getElementById('umpUserId').value;
-      const defaultModuleId = document.getElementById('umpEditDefaultModule').value;
       
       const selectedRoles = Array.from(document.querySelectorAll('.edit-role-checkbox:checked')).map(cb => ({
         targetTable: cb.dataset.targetTable,
@@ -987,7 +1037,6 @@
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-              defaultModuleId: defaultModuleId ? parseInt(defaultModuleId, 10) : null,
               roles: selectedRoles 
           })
         });

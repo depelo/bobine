@@ -303,7 +303,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
 // 2. Aggiorna utente (identità e sicurezza - Passaporto)
 app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
     const idUser = parseInt(req.params.id, 10);
-    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride } = req.body;
+    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride, defaultModuleId } = req.body;
 
     try {
         let pool = await sql.connect(dbConfig);
@@ -313,6 +313,7 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
         request.input('barcode', sql.NVarChar, barcode);
         request.input('forcePwdChange', sql.Bit, forcePwdChange ? 1 : 0);
         request.input('pwdExpiry', sql.Int, pwdExpiryDaysOverride ? parseInt(pwdExpiryDaysOverride, 10) : null);
+        request.input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null);
 
         let pwdQuery = '';
         if (password && password.trim() !== '') {
@@ -326,7 +327,8 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
             SET Name = @name, 
                 Barcode = @barcode,
                 ForcePwdChange = @forcePwdChange,
-                PwdExpiryDaysOverride = @pwdExpiry
+                PwdExpiryDaysOverride = @pwdExpiry,
+                DefaultModuleID = @defaultModuleId
                 ${pwdQuery}
             WHERE IDUser = @idUser
         `);
@@ -341,18 +343,12 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
 // 2b. Upsert Permessi e Ruoli (Tab 3 - Visti)
 app.put('/api/admin/users/:id/roles', authenticateCaptain, async (req, res) => {
     const idUser = parseInt(req.params.id, 10);
-    const { defaultModuleId, roles } = req.body;
+    const { roles } = req.body;
 
     try {
         let pool = await sql.connect(dbConfig);
-        
-        // 1. Aggiorna il DefaultModuleID nel Passaporto (Users)
-        await pool.request()
-            .input('idUser', sql.Int, idUser)
-            .input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null)
-            .query(`UPDATE [CMP].[dbo].[Users] SET DefaultModuleID = @defaultModuleId WHERE IDUser = @idUser`);
 
-        // 2. Upsert nelle tabelle dipartimentali (Visti)
+        // Upsert nelle tabelle dipartimentali (Visti)
         const validTables = ['Operators', 'Operators_Man']; // Whitelist anti-SQL Injection
         const submittedRoles = roles || [];
 
