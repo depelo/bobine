@@ -4,14 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gestione Profilo - UJet</title>
-    <link rel="stylesheet" href="index.css" /> <style>
-      .profile-container { max-width: 500px; margin: 40px auto; background: var(--bg-content); padding: 32px; border-radius: var(--radius); box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    <link rel="stylesheet" href="index.css" />
+    <style>
+      .profile-container { max-width: 500px; margin: 40px auto; background: var(--bg-content); padding: 32px; border-radius: var(--radius); box-shadow: 0 4px 20px rgba(0,0,0,0.1); position: relative; }
       .section-title { font-size: 1.2rem; font-weight: bold; border-bottom: 2px solid var(--border); padding-bottom: 8px; margin-bottom: 16px; margin-top: 32px; }
       .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; background: var(--bg-gradient); padding: 16px; border-radius: var(--radius-sm); }
+      .back-btn-top { position: absolute; top: 24px; left: 24px; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 12px; cursor: pointer; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 6px; transition: 0.2s; }
+      .back-btn-top:hover { background: var(--border); color: var(--text); }
+
+      /* CSS Isolato per i Modali del Profilo (Nessun incrocio con bobine.css) */
+      .prof-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 9999; }
+      .prof-modal-overlay.is-active { display: flex; }
+      .prof-modal-box { background: var(--bg-content); border-radius: var(--radius); padding: 32px; max-width: 90%; width: 400px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+      .prof-modal-title { font-size: 1.5rem; margin-bottom: 16px; font-weight: bold; }
+      .prof-modal-text { font-size: 1rem; color: var(--text-muted); margin-bottom: 24px; }
+      .prof-modal-btn { width: 100%; padding: 12px; border: none; border-radius: var(--radius-sm); font-weight: bold; font-size: 1.1rem; cursor: pointer; color: white; }
     </style>
   </head>
   <body>
     <div class="profile-container">
+      <button class="back-btn-top" id="btnGoBack">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        Indietro
+      </button>
       <div style="text-align: center; margin-bottom: 24px;">
         <h1 style="margin: 0; color: var(--primary);">Il Mio Profilo</h1>
       </div>
@@ -27,33 +42,46 @@
         </div>
       </div>
 
-      <div class="section-title">Cambia Password</div>
-      <form id="changePwdForm">
-        <div class="login-field">
-          <label>Password Attuale</label>
-          <input type="password" id="oldPwd" class="control" required />
-        </div>
-        <div class="login-field">
-          <label>Nuova Password</label>
-          <input type="password" id="newPwd" class="control" required />
-        </div>
-        <div id="pwdMsg" class="login-message"></div>
-        <button type="submit" class="action-btn" id="loginSubmitBtn">Aggiorna Password</button>
-      </form>
+      <div id="passwordSectionWrapper">
+        <div class="section-title">Cambia Password</div>
+        <form id="changePwdForm">
+          <div class="login-field">
+            <label>Password Attuale</label>
+            <input type="password" id="oldPwd" class="control" required />
+          </div>
+          <div class="login-field">
+            <label>Nuova Password</label>
+            <input type="password" id="newPwd" class="control" required />
+          </div>
+          <div id="pwdMsg" class="login-message"></div>
+          <button type="submit" class="action-btn" id="loginSubmitBtn">Aggiorna Password</button>
+        </form>
 
-      <div class="section-title" style="color: var(--danger);">Recupero Password</div>
-      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">Inserisci il tuo Barcode per richiedere il reset all'amministratore (o via email, se configurata).</p>
-      <form id="recoverPwdForm">
-        <div class="login-field">
-          <label>QR Code / Barcode</label>
-          <input type="text" id="recoverBarcode" class="control" required />
-        </div>
-        <div id="recoverMsg" class="login-message" style="color: var(--primary);"></div>
-        <button type="submit" class="action-btn" style="background: var(--text-muted);">Richiedi Reset</button>
-      </form>
+        <div class="section-title" style="color: var(--danger);">Recupero Password</div>
+        <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">Inserisci il tuo Barcode per richiedere il reset all'amministratore (o via email, se configurata).</p>
+        <form id="recoverPwdForm">
+          <div class="login-field">
+            <label>QR Code / Barcode</label>
+            <input type="text" id="recoverBarcode" class="control" required />
+          </div>
+          <div id="recoverMsg" class="login-message" style="color: var(--primary);"></div>
+          <button type="submit" class="action-btn" style="background: var(--text-muted);">Richiedi Reset</button>
+        </form>
+      </div>
+    </div>
 
-      <div style="margin-top: 32px; text-align: center;">
-        <button type="button" class="action-btn" style="background: transparent; color: var(--text); border: 1px solid var(--border);" onclick="window.history.back()">Indietro</button>
+    <div class="prof-modal-overlay" id="profSuccessModal">
+      <div class="prof-modal-box">
+        <div class="prof-modal-title" style="color: var(--success);">Operazione Completata</div>
+        <div class="prof-modal-text" id="profSuccessMsg"></div>
+        <button class="prof-modal-btn" style="background: var(--success);" onclick="closeProfModals()">OK</button>
+      </div>
+    </div>
+    <div class="prof-modal-overlay" id="profErrorModal">
+      <div class="prof-modal-box">
+        <div class="prof-modal-title" style="color: var(--danger);">Errore</div>
+        <div class="prof-modal-text" id="profErrorMsg"></div>
+        <button class="prof-modal-btn" style="background: var(--danger);" onclick="closeProfModals()">Chiudi</button>
       </div>
     </div>
 

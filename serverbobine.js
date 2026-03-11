@@ -733,19 +733,32 @@ app.post('/api/login', async (req, res) => {
             }
 
             if (hasAccess) {
-                authorizedApps.push({ id: mod.IDModule, name: mod.ModuleName, target: mod.TargetTable, roleKey: localRoleKey });
-                
-                // Valutazione High Watermark: leggiamo il RoleDefinition per questo ruolo
+                let roleLabel = localRoleKey;
+                let requiresPassword = false;
+
+                // Valutazione High Watermark e recupero Label dal RoleDefinition
                 if (mod.RoleDefinition) {
                     try {
                         const rDef = JSON.parse(mod.RoleDefinition);
-                        if (rDef[localRoleKey] && rDef[localRoleKey].requiresPassword) {
-                            globalRequiresPassword = true;
+                        if (rDef[localRoleKey]) {
+                            roleLabel = rDef[localRoleKey].label || localRoleKey;
+                            if (rDef[localRoleKey].requiresPassword) {
+                                requiresPassword = true;
+                                globalRequiresPassword = true;
+                            }
                         }
                     } catch (e) {
                         console.error('Errore parsing RoleDefinition per modulo', mod.IDModule);
                     }
                 }
+                authorizedApps.push({
+                    id: mod.IDModule,
+                    name: mod.ModuleName,
+                    target: mod.TargetTable,
+                    roleKey: localRoleKey,
+                    roleLabel: roleLabel,
+                    requiresPassword: requiresPassword
+                });
             }
         }
 
