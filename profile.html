@@ -54,17 +54,30 @@
             <label>Nuova Password</label>
             <input type="password" id="newPwd" class="control" required />
           </div>
-          <div id="pwdMsg" class="login-message"></div>
-          <button type="submit" class="action-btn" id="loginSubmitBtn">Aggiorna Password</button>
+          <div class="login-field">
+            <label>Conferma Nuova Password</label>
+            <input type="password" id="confirmPwd" class="control" required />
+          </div>
+          
+          <ul style="list-style: none; padding: 0; margin: 0 0 20px 0; font-size: 0.95rem; color: var(--text-muted);" id="profPwdChecklist">
+            </ul>
+
+          <div id="pwdMsg" class="login-message" style="min-height: 1.2em; text-align: left; margin-bottom: 12px;"></div>
+          <button type="submit" class="action-btn" id="profSubmitPwdBtn" disabled style="background: var(--border); color: var(--text-muted); cursor: not-allowed; transition: all 0.3s;">Aggiorna Password</button>
         </form>
       </div>
     </div>
 
     <div class="prof-modal-overlay" id="profSuccessModal">
-      <div class="prof-modal-box">
-        <div class="prof-modal-title" style="color: var(--success);">Operazione Completata</div>
-        <div class="prof-modal-text" id="profSuccessMsg"></div>
-        <button class="prof-modal-btn" style="background: var(--success);" onclick="closeProfModals()">OK</button>
+      <div class="prof-modal-box" style="text-align: center; padding: 40px 24px;">
+        <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+            <div style="width: 64px; height: 64px; border-radius: 50%; background: #e6f4ea; display: flex; align-items: center; justify-content: center;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+        </div>
+        <div class="prof-modal-title" style="color: var(--success); font-size: 1.5rem; margin-bottom: 12px;">Operazione Completata</div>
+        <div class="prof-modal-text" id="profSuccessMsg" style="color: var(--text); font-size: 1.05rem; margin-bottom: 24px; line-height: 1.4;"></div>
+        <button class="action-btn" style="background: var(--success); color: white; width: 100%; font-weight: bold; padding: 14px;" onclick="closeProfModals()">ACCETTA E CHIUDI</button>
       </div>
     </div>
     <div class="prof-modal-overlay" id="profErrorModal">
