@@ -49,11 +49,40 @@
 
     <div class="content-area">
       <div class="data-card console-view" id="view-utenti" style="display: block;">
-        <div class="data-card-header">
-          <h3 style="margin: 0;">Anagrafica Globale (Passaporti)</h3>
-          <button class="action-btn" style="background: var(--primary); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">+ Nuovo Utente</button>
+        <div class="data-card-header" style="flex-direction: column; align-items: stretch; gap: 16px; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0;">Anagrafica Globale (Passaporti)</h3>
+            <button class="action-btn" onclick="openNewUserModal()" style="background: var(--primary); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">+ Nuovo Utente</button>
+          </div>
+          
+          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <div style="flex: 1; min-width: 150px; background: var(--bg); padding: 12px; border-radius: 8px; border: 1px solid var(--border); display: flex; align-items: center; gap: 12px;">
+                  <span style="font-size: 2rem;">👥</span>
+                  <div><div style="font-size: 0.85rem; color: var(--text-muted);">Totale Utenti</div><div id="statTotalUsers" style="font-size: 1.5rem; font-weight: bold;">0</div></div>
+              </div>
+              <div style="flex: 1; min-width: 150px; background: #ecfdf5; padding: 12px; border-radius: 8px; border: 1px solid #a7f3d0; display: flex; align-items: center; gap: 12px;">
+                  <span style="font-size: 2rem;">🟢</span>
+                  <div><div style="font-size: 0.85rem; color: #065f46;">Attivi Ora</div><div id="statOnlineUsers" style="font-size: 1.5rem; font-weight: bold; color: #047857;">0</div></div>
+              </div>
+              <div style="flex: 1; min-width: 150px; background: #fff1f2; padding: 12px; border-radius: 8px; border: 1px solid #fecdd3; display: flex; align-items: center; gap: 12px;">
+                  <span style="font-size: 2rem;">🔔</span>
+                  <div><div style="font-size: 0.85rem; color: #9f1239;">Allarmi Password</div><div id="statAlarmUsers" style="font-size: 1.5rem; font-weight: bold; color: #be123c;">0</div></div>
+              </div>
+          </div>
+
+          <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <input type="text" id="globalSearchInput" placeholder="🔍 Cerca per nome o barcode..." class="control" style="flex: 2; min-width: 200px;">
+              <select id="filterAppSelect" class="control" style="flex: 1; min-width: 150px;">
+                  <option value="ALL">Tutte le App</option>
+              </select>
+              <select id="filterStatusSelect" class="control" style="flex: 1; min-width: 150px;">
+                  <option value="ALL">Tutti gli stati</option>
+                  <option value="ONLINE">🟢 Solo Online</option>
+                  <option value="OFFLINE">⚪ Solo Offline</option>
+                  <option value="ALARM">🔔 Richieste Reset</option>
+              </select>
+          </div>
         </div>
-        <p style="color: var(--text-muted);">L'interfaccia di gestione verrà caricata qui.</p>
       </div>
 
       <div class="data-card console-view" id="view-moduli" style="display: none;">
@@ -409,6 +438,19 @@
                 checkUmpDirtyState();
             });
         }
+
+        const globalSearchInput = document.getElementById('globalSearchInput');
+        if (globalSearchInput) {
+            globalSearchInput.addEventListener('input', renderUsersTable);
+        }
+        const filterAppSelect = document.getElementById('filterAppSelect');
+        if (filterAppSelect) {
+            filterAppSelect.addEventListener('change', renderUsersTable);
+        }
+        const filterStatusSelect = document.getElementById('filterStatusSelect');
+        if (filterStatusSelect) {
+            filterStatusSelect.addEventListener('change', renderUsersTable);
+        }
     });
 
     function populateGlobalConfigView() {
@@ -706,12 +748,49 @@
 
     function renderUsersTable() {
       const container = document.getElementById('view-utenti');
+      if (!container) return;
+
+      // 1. Aggiorna Contatori
+      const totalEl = document.getElementById('statTotalUsers');
+      const onlineEl = document.getElementById('statOnlineUsers');
+      const alarmEl = document.getElementById('statAlarmUsers');
+      if (totalEl) totalEl.textContent = globalUsers.length;
+      if (onlineEl) onlineEl.textContent = globalUsers.filter(u => u.hasActiveSession).length;
+      if (alarmEl) alarmEl.textContent = globalUsers.filter(u => u.resetRequested).length;
+
+      // 2. Leggi i filtri
+      const searchInput = document.getElementById('globalSearchInput');
+      const appSelect = document.getElementById('filterAppSelect');
+      const statusSelect = document.getElementById('filterStatusSelect');
+
+      const searchQ = (searchInput && searchInput.value ? searchInput.value : '').toLowerCase();
+      const appFilt = appSelect && appSelect.value ? appSelect.value : 'ALL';
+      const statFilt = statusSelect && statusSelect.value ? statusSelect.value : 'ALL';
+
+      // 3. Applica i filtri
+      const filteredUsers = globalUsers.filter(u => {
+        const name = (u.name || '').toLowerCase();
+        const barcode = (u.barcode || '').toLowerCase();
+        const matchSearch = !searchQ || name.includes(searchQ) || barcode.includes(searchQ);
+        if (!matchSearch) return false;
+
+        if (appFilt !== 'ALL') {
+          const hasApp = u.apps && u.apps.some(a => a.moduleId == appFilt);
+          if (!hasApp) return false;
+        }
+
+        if (statFilt === 'ONLINE' && !u.hasActiveSession) return false;
+        if (statFilt === 'OFFLINE' && u.hasActiveSession) return false;
+        if (statFilt === 'ALARM' && !u.resetRequested) return false;
+
+        return true;
+      });
+
+      // 4. Salva la struttura dell'Header (senza ricrearlo per non perdere il focus)
+      const tableWrapper = document.getElementById('usersTableWrapper');
+
       let html = `
-        <div class="data-card-header">
-          <h3 style="margin: 0;">Anagrafica Globale (Passaporti)</h3>
-          <button class="action-btn" style="background: var(--primary); color: white; padding: 8px 16px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer;">+ Nuovo Utente</button>
-        </div>
-        <div style="overflow-x: auto;">
+        <div id="usersTableWrapper" style="overflow-x: auto;">
           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
             <thead>
               <tr style="border-bottom: 2px solid var(--border);">
@@ -725,10 +804,10 @@
             <tbody id="usersTableBody">
       `;
 
-      if (globalUsers.length === 0) {
-        html += `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--text-muted);">Nessun utente trovato.</td></tr>`;
+      if (filteredUsers.length === 0) {
+        html += `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--text-muted);">Nessun utente corrisponde ai filtri di ricerca.</td></tr>`;
       } else {
-        globalUsers.forEach(u => {
+        filteredUsers.forEach(u => {
           let appsHtml = '';
           let rolesHtml = '';
 
@@ -782,7 +861,13 @@
       }
 
       html += `</tbody></table></div>`;
-      container.innerHTML = html;
+
+      let wrapper = document.getElementById('usersTableWrapper');
+      if (wrapper) {
+          wrapper.outerHTML = html;
+      } else {
+          container.insertAdjacentHTML('beforeend', html);
+      }
 
       // Inizializza SortableJS sul body della tabella
       const tbody = document.getElementById('usersTableBody');
@@ -935,6 +1020,20 @@
           opt.textContent = mod.name;
           defaultSelect.appendChild(opt);
         });
+
+        // Popola la tendina filtro App dell'Anagrafica
+        const filterAppSelect = document.getElementById('filterAppSelect');
+        if (filterAppSelect) {
+            const currentFilter = filterAppSelect.value;
+            filterAppSelect.innerHTML = '<option value="ALL">Tutte le App</option>';
+            modules.forEach(mod => {
+                const opt = document.createElement('option');
+                opt.value = mod.id;
+                opt.textContent = mod.name;
+                filterAppSelect.appendChild(opt);
+            });
+            filterAppSelect.value = currentFilter || 'ALL';
+        }
       } catch (err) {
         console.error('Errore caricamento moduli per pannello utente:', err);
       }
