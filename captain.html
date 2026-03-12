@@ -788,16 +788,24 @@
 
       // 4. Salva la struttura dell'Header (senza ricrearlo per non perdere il focus)
       const tableWrapper = document.getElementById('usersTableWrapper');
+      
+      // Funzione per generare la freccia di ordinamento sottile ed elegante
+      const getSortIcon = (col) => {
+        if (currentSortCol !== col) return '<span style="font-size: 0.9rem; margin-left: 6px; color: var(--border);">↓</span>';
+        return currentSortAsc 
+          ? '<span style="font-size: 0.9rem; margin-left: 6px; color: var(--text); font-weight: bold;">↓</span>' 
+          : '<span style="font-size: 0.9rem; margin-left: 6px; color: var(--text); font-weight: bold;">↑</span>';
+      };
 
       let html = `
         <div id="usersTableWrapper" style="overflow-x: auto;">
           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
             <thead>
               <tr style="border-bottom: 2px solid var(--border);">
-                <th style="padding: 12px; color: var(--text-muted); cursor: pointer; user-select: none;" onclick="sortTableBy('name')" title="Ordina per Nome">Cognome Nome <span style="font-size: 0.8rem; margin-left: 4px;">↕️</span></th>
-                <th style="padding: 12px; color: var(--text-muted);">App</th>
-                <th style="padding: 12px; color: var(--text-muted);">Ruolo</th>
-                <th style="padding: 12px; color: var(--text-muted); cursor: pointer; user-select: none;" onclick="sortTableBy('status')" title="Ordina per Stato">Stato Sessione <span style="font-size: 0.8rem; margin-left: 4px;">↕️</span></th>
+                <th style="padding: 12px; color: var(--text-muted); cursor: pointer; user-select: none;" onclick="sortTableBy('name')" title="Ordina per Nome">Cognome Nome ${getSortIcon('name')}</th>
+                <th style="padding: 12px; color: var(--text-muted); cursor: pointer; user-select: none;" onclick="sortTableBy('app')" title="Ordina per App">App ${getSortIcon('app')}</th>
+                <th style="padding: 12px; color: var(--text-muted); cursor: pointer; user-select: none;" onclick="sortTableBy('role')" title="Ordina per Ruolo">Ruolo ${getSortIcon('role')}</th>
+                <th style="padding: 12px; color: var(--text-muted); cursor: pointer; user-select: none;" onclick="sortTableBy('status')" title="Ordina per Stato">Stato Sessione ${getSortIcon('status')}</th>
                 <th style="padding: 12px; color: var(--text-muted); text-align: right;">Azioni</th>
               </tr>
             </thead>
@@ -907,13 +915,20 @@
         }
 
         globalUsers.sort((a, b) => {
-            let valA, valB;
+            let valA = '', valB = '';
+            
             if (col === 'name') {
                 valA = (a.name || '').toLowerCase();
                 valB = (b.name || '').toLowerCase();
             } else if (col === 'status') {
                 valA = a.hasActiveSession ? 1 : 0;
                 valB = b.hasActiveSession ? 1 : 0;
+            } else if (col === 'app') {
+                valA = a.apps && a.apps.length > 0 ? a.apps.map(x => x.moduleName).sort().join(', ').toLowerCase() : 'zzzz';
+                valB = b.apps && b.apps.length > 0 ? b.apps.map(x => x.moduleName).sort().join(', ').toLowerCase() : 'zzzz';
+            } else if (col === 'role') {
+                valA = a.apps && a.apps.length > 0 ? a.apps.map(x => x.roleLabel).sort().join(', ').toLowerCase() : 'zzzz';
+                valB = b.apps && b.apps.length > 0 ? b.apps.map(x => x.roleLabel).sort().join(', ').toLowerCase() : 'zzzz';
             }
             
             if (valA < valB) return currentSortAsc ? -1 : 1;
@@ -921,10 +936,10 @@
             return 0;
         });
 
-        // Ridisegna la tabella con il nuovo ordine in RAM
+        // Ridisegna la tabella con il nuovo ordine
         renderUsersTable();
 
-        // Logica Auto-Save a 10 secondi
+        // Salva in DB in modo silente (Senza alert success)
         if (sortSaveTimer) clearTimeout(sortSaveTimer);
         
         sortSaveTimer = setTimeout(async () => {
@@ -939,7 +954,6 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ orderedIds })
                 });
-                showCaptainSuccess("Il nuovo ordinamento della tabella è stato salvato come predefinito.");
             } catch (err) {
                 console.error("Errore auto-salvataggio ordinamento:", err);
             }
@@ -985,41 +999,17 @@
         // Usa i moduli già caricati se disponibili
         const modules = allModules && allModules.length > 0 ? allModules : await apiFetch('/admin/modules');
         allModules = modules;
-
-        const appsContainer = document.getElementById('umpAuthorizedApps');
+        
         const defaultSelect = document.getElementById('umpDefaultModule');
-        if (!appsContainer || !defaultSelect) return;
-
-        appsContainer.innerHTML = '';
-        defaultSelect.innerHTML = '<option value=\"\">-- Seleziona automaticamente dopo il login --</option>';
-
-        modules.forEach(mod => {
-          // Checkbox per app autorizzate
-          const wrapper = document.createElement('label');
-          wrapper.style.display = 'flex';
-          wrapper.style.alignItems = 'center';
-          wrapper.style.gap = '6px';
-          wrapper.style.fontSize = '0.85rem';
-
-          const cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.value = mod.id;
-          cb.style.width = '16px';
-          cb.style.height = '16px';
-
-          const span = document.createElement('span');
-          span.textContent = mod.name;
-
-          wrapper.appendChild(cb);
-          wrapper.appendChild(span);
-          appsContainer.appendChild(wrapper);
-
-          // Option per default module
-          const opt = document.createElement('option');
-          opt.value = mod.id;
-          opt.textContent = mod.name;
-          defaultSelect.appendChild(opt);
-        });
+        if (defaultSelect) {
+            defaultSelect.innerHTML = '<option value=\"\">-- Seleziona --</option>';
+            modules.forEach(mod => {
+                const opt = document.createElement('option');
+                opt.value = mod.id;
+                opt.textContent = mod.name;
+                defaultSelect.appendChild(opt);
+            });
+        }
 
         // Popola la tendina filtro App dell'Anagrafica
         const filterAppSelect = document.getElementById('filterAppSelect');
