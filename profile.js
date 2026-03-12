@@ -9,15 +9,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const backBtn = document.getElementById('profBackBtn');
         if (backBtn) backBtn.style.display = 'none';
 
-        // Rimuovi ombre e margini dal contenitore per farlo sembrare un div nativo
+        // Adatta il contenitore per fonderlo nello stile della Captain Console (stile "Data Card")
         const container = document.getElementById('profMainContainer');
         if (container) {
-            container.style.boxShadow = 'none';
-            container.style.margin = '0';
-            container.style.padding = '0';
-            container.style.maxWidth = '100%';
+            container.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.05)'; // Ombra delicata come le altre card
+            container.style.margin = '0'; // Allineato a sinistra
+            container.style.padding = '32px'; // Ripristina il respiro interno
+            container.style.maxWidth = '750px'; // Largo, ma non infinito
             container.style.width = '100%';
-            container.style.border = 'none';
+            container.style.border = '1px solid var(--border)'; // Bordo standard Captain
+            container.style.borderRadius = 'var(--radius)';
         }
         
         // Rendi lo sfondo trasparente e pulisci il body per ereditare quello del Captain
