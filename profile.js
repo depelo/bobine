@@ -100,31 +100,4 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
     }
-
-    // 3. Recupero Password (Notifica al Captain)
-    const recoverPwdForm = document.getElementById('recoverPwdForm');
-    if (recoverPwdForm) {
-        recoverPwdForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const barcode = document.getElementById('recoverBarcode').value;
-
-            try {
-                const res = await fetch(`${API_URL}/users/recover`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ barcode })
-                });
-
-                if (res.ok) {
-                    recoverPwdForm.reset();
-                    showProfSuccess('Richiesta inviata in amministrazione. Recati in ufficio per ricevere la tua password temporanea.');
-                } else {
-                    const data = await res.json();
-                    showProfError(data.message || 'Errore nella richiesta di recupero.');
-                }
-            } catch (err) {
-                showProfError('Errore di rete di connessione al server.');
-            }
-        });
-    }
 });

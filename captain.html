@@ -382,6 +382,29 @@
         // 2. Carica i dati base
         await loadData();
 
+        // --- Listener per la Campanella delle Notifiche ---
+        const bellEl = document.getElementById('pwdAlertBell');
+        if (bellEl) {
+          bellEl.addEventListener('click', () => {
+            const pendingUsers = globalUsers.filter(u => u.resetRequested);
+            if (pendingUsers.length > 0) {
+              const names = pendingUsers.map(u => u.name).join(', ');
+              showCaptainError(`Ci sono ${pendingUsers.length} richieste di reset password in sospeso da:\n\n👉 ${names}\n\nCercali nell'anagrafica (sono evidenziati in rosso che pulsa), clicca su \"Gestisci\" e assegna un PIN temporaneo per sbloccarli.`);
+              
+              // Applica stile personalizzato arancione al modale di errore
+              const modalTitle = document.querySelector('#captainErrorModal .scanner-title');
+              if (modalTitle) {
+                modalTitle.textContent = '🔔 Richieste in Sospeso';
+                modalTitle.style.color = '#d97706';
+              }
+              const closeBtn = document.getElementById('captainErrorBtnClose');
+              if (closeBtn) {
+                closeBtn.style.backgroundColor = '#d97706';
+              }
+            }
+          });
+        }
+
         // 3. Popola App Switcher
         const appLinksContainer = document.getElementById('captainAppLinks');
         if (appLinksContainer && me.authorizedApps) {
