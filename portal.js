@@ -208,7 +208,7 @@ if (loginPasswordInput) {
 }
 
 if (forgotPwdLink) {
-  forgotPwdLink.addEventListener('click', async (e) => {
+  forgotPwdLink.addEventListener('click', (e) => {
     e.preventDefault();
     const barcode = loginBarcodeInput ? loginBarcodeInput.value.trim() : '';
 
@@ -220,31 +220,56 @@ if (forgotPwdLink) {
       return;
     }
 
-    try {
-      const res = await fetch('/api/users/recover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ barcode })
-      });
+    const confirmCurtain = document.createElement('div');
+    confirmCurtain.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.95); z-index:99999; display:flex; flex-direction:column; justify-content:center; align-items:center; color:white; font-family:sans-serif; text-align:center; padding: 20px;';
+    
+    confirmCurtain.innerHTML = `
+        <div style="background:#222; padding:30px; border-radius:8px; max-width:400px; border: 2px solid #e11d48; box-shadow: 0 10px 30px rgba(225, 29, 72, 0.3);">
+            <h2 style="color: #e11d48; margin-top:0; font-size: 1.8rem;">⚠️ ATTENZIONE ⚠️</h2>
+            <p style="font-size:1.1rem; color:#ccc; margin-bottom:24px; line-height: 1.5;">
+                Stai per invalidare la tua password attuale.<br><br>
+                Se procedi, verrà inviato un allarme al Captain e <b>DOVRAI RECARTI FISICAMENTE IN UFFICIO</b> per farti sbloccare il profilo e ricevere un PIN temporaneo.
+            </p>
+            <div style="display: flex; gap: 12px;">
+                <button id="cancelResetBtn" style="flex:1; padding:12px; background:#444; color:white; border:none; border-radius:4px; cursor:pointer; font-weight: bold;">ANNULLA</button>
+                <button id="confirmResetBtn" style="flex:1; padding:12px; background:#e11d48; color:white; border:none; border-radius:4px; cursor:pointer; font-weight: bold;">PROCEDI</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(confirmCurtain);
 
-      if (res.ok) {
-        if (loginMessageEl) {
-          loginMessageEl.style.color = 'var(--success)';
-          loginMessageEl.textContent = 'Richiesta inviata in amministrazione. Recati in ufficio per la password temporanea.';
+    document.getElementById('cancelResetBtn').addEventListener('click', () => {
+        document.body.removeChild(confirmCurtain);
+    });
+
+    document.getElementById('confirmResetBtn').addEventListener('click', async () => {
+        document.body.removeChild(confirmCurtain);
+        try {
+          const res = await fetch('/api/users/recover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ barcode })
+          });
+
+          if (res.ok) {
+            if (loginMessageEl) {
+              loginMessageEl.style.color = 'var(--success)';
+              loginMessageEl.innerHTML = '<b>Allarme inviato.</b><br>Recati ORA in amministrazione per il nuovo PIN.';
+            }
+          } else {
+            const data = await res.json();
+            if (loginMessageEl) {
+              loginMessageEl.style.color = 'var(--danger)';
+              loginMessageEl.textContent = data.message || 'Errore nella richiesta di recupero.';
+            }
+          }
+        } catch (err) {
+          if (loginMessageEl) {
+            loginMessageEl.style.color = 'var(--danger)';
+            loginMessageEl.textContent = 'Errore di rete durante la richiesta di recupero.';
+          }
         }
-      } else {
-        const data = await res.json();
-        if (loginMessageEl) {
-          loginMessageEl.style.color = 'var(--danger)';
-          loginMessageEl.textContent = data.message || 'Errore nella richiesta di recupero.';
-        }
-      }
-    } catch (err) {
-      if (loginMessageEl) {
-        loginMessageEl.style.color = 'var(--danger)';
-        loginMessageEl.textContent = 'Errore di rete durante la richiesta di recupero.';
-      }
-    }
+    });
   });
 }
 

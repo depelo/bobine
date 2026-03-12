@@ -36,7 +36,13 @@
   <main class="main-content">
     <header class="topbar-console">
       <h2 style="margin: 0; color: var(--text);" id="consolePageTitle">Gestione Utenti</h2>
-      <div style="font-weight: bold; color: var(--primary);">Admin: <span id="captainNameDisplay">Caricamento...</span></div>
+      <div style="display: flex; align-items: center; gap: 20px;">
+        <div id="pwdAlertBell" style="position: relative; display: none; cursor: pointer; font-size: 1.5rem;" title="Richieste di reset password pendenti">
+            🔔
+            <span id="pwdAlertCount" style="position: absolute; top: -5px; right: -10px; background: var(--danger); color: white; border-radius: 50%; padding: 2px 6px; font-size: 0.75rem; font-weight: bold;">0</span>
+        </div>
+        <div style="font-weight: bold; color: var(--primary);">Admin: <span id="captainNameDisplay">Caricamento...</span></div>
+      </div>
     </header>
     
     <div class="content-area">
@@ -434,15 +440,7 @@
                 document.querySelector('#captainErrorModal .scanner-title').textContent = '🔔 Richiesta Reset Password';
                 document.querySelector('#captainErrorModal .scanner-title').style.color = '#d97706';
                 document.getElementById('captainErrorBtnClose').style.backgroundColor = '#d97706';
-            });
-
-            // Ascolta le richieste di reset password dagli operatori
-            captainSocket.on('pwd_reset_request', (data) => {
-                showCaptainError(`L'operatore ${data.userName} (Badge: ${data.barcode}) ha appena richiesto un reset della password alle ore ${data.time}. Cercalo nell'anagrafica, imposta una password temporanea e spunta "Forza reset".`);
-                // Cambiamo il colore e il titolo del modale di errore per farlo sembrare un Alert di sistema
-                document.querySelector('#captainErrorModal .scanner-title').textContent = '🔔 Richiesta Reset Password';
-                document.querySelector('#captainErrorModal .scanner-title').style.color = '#d97706';
-                document.getElementById('captainErrorBtnClose').style.backgroundColor = '#d97706';
+                loadData();
             });
         }
       } catch (err) {
@@ -459,6 +457,16 @@
         globalUsers = users;
         globalModules = modules;
         allModules = modules;
+
+        const requestsCount = globalUsers.filter(u => u.resetRequested).length;
+        const bell = document.getElementById('pwdAlertBell');
+        const bellCount = document.getElementById('pwdAlertCount');
+        if (requestsCount > 0) {
+            bell.style.display = 'block';
+            bellCount.textContent = requestsCount;
+        } else {
+            bell.style.display = 'none';
+        }
 
         renderUsersTable();
         renderModulesCards();
@@ -533,10 +541,13 @@
             </div>
           `;
 
+          let rowAlertStyle = u.resetRequested ? 'background-color: #fff1f2; border-left: 4px solid var(--danger);' : '';
+          let alertIcon = u.resetRequested ? '<span style="color: var(--danger); margin-left: 8px;" title="Richiesta Reset Password">🔔</span>' : '';
+
           html += `
-        <tr style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+        <tr style="border-bottom: 1px solid var(--border); transition: background 0.2s; ${rowAlertStyle}" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
           <td style="padding: 12px; font-weight: bold;">
-            ${u.name}
+            ${u.name} ${alertIcon}
             <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">${u.barcode}</div>
           </td>
           <td style="padding: 12px;">${appsHtml}</td>
@@ -685,8 +696,17 @@
       const pwdSection = document.getElementById('pwdManagementSection');
       if (needsPassword) {
         pwdSection.style.display = 'block';
+        if (u.resetRequested) {
+            pwdSection.classList.add('blinking-pwd-alert');
+            document.getElementById('umpForcePwdChange').checked = true;
+            setTimeout(() => pwdSection.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+        } else {
+            pwdSection.classList.remove('blinking-pwd-alert');
+            document.getElementById('umpForcePwdChange').checked = !!u.forcePwdChange;
+        }
       } else {
         pwdSection.style.display = 'none';
+        pwdSection.classList.remove('blinking-pwd-alert');
         document.getElementById('umpInputPwd').value = '';
         document.getElementById('umpForcePwdChange').checked = false;
         document.getElementById('umpPwdExpiry').value = '';

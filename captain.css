@@ -242,3 +242,14 @@ html {
   color: var(--text); font-weight: 600; cursor: pointer; border-radius: var(--radius);
 }
 .scanner-cancel:hover { background: var(--border); }
+
+@keyframes pulse-red {
+  0% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.7); border-color: #e11d48; }
+  70% { box-shadow: 0 0 0 10px rgba(225, 29, 72, 0); border-color: #fca5a5; }
+  100% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0); border-color: #e11d48; }
+}
+.blinking-pwd-alert {
+  border: 2px solid #e11d48 !important;
+  background-color: #fff1f2 !important;
+  animation: pulse-red 1.5s infinite;
+}

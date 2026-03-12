@@ -14,6 +14,7 @@ Il sistema ospita molteplici app dipartimentali mantenendo una singola base di i
 - `PasswordHash`: Hash bcrypt.
 - `IsActive`: Soft-delete globale.
 - `DefaultModuleID` (INT, FK verso [dbo].[Modules]): Definisce l'app predefinita dell'utente al login (Meta-App Layer 2).
+- `ResetRequested` (BIT): Flag (0/1) che indica se l'utente ha richiesto un reset della password dal gateway. Usato per persistere l'allarme nella Captain Console fino a risoluzione.
 - **Overrides di Sicurezza (Eccezioni per utente):**
   - `SessionHoursOverride` / `PwdExpiryDaysOverride`: Sovrascrivono i valori globali di SystemConfig.
   - `ForcePwdChange` (BIT): Se 1, blocca l'utente al login finché non cambia password (usato per le password temporanee del Captain).

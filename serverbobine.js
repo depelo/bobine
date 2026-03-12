@@ -244,7 +244,8 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
                    LastPasswordChange as LastPasswordChange,
                    LastLogin as LastLogin,
                    LastBarcodeChange as LastBarcodeChange,
-                   DefaultModuleID
+                   DefaultModuleID,
+                   ResetRequested as resetRequested
             FROM [CMP].[dbo].[Users]
             WHERE IsActive = 1
             ORDER BY Name ASC
@@ -252,6 +253,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
         let users = usersRes.recordset.map(u => ({
             ...u,
             forcePwdChange: !!u.forcePwdChange && u.forcePwdChange !== 0 && u.forcePwdChange !== '0',
+            resetRequested: !!u.resetRequested && u.resetRequested !== 0 && u.resetRequested !== '0',
             defaultModuleId: u.DefaultModuleID,
             lastLogin: u.LastLogin,
             lastBarcodeChange: u.LastBarcodeChange,
@@ -354,7 +356,8 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
                 Barcode = @barcode,
                 ForcePwdChange = @forcePwdChange,
                 PwdExpiryDaysOverride = @pwdExpiry,
-                DefaultModuleID = @defaultModuleId
+                DefaultModuleID = @defaultModuleId,
+                ResetRequested = 0
         `;
 
         if (password && password.trim() !== '') {
@@ -1172,7 +1175,10 @@ app.post('/api/users/recover', async (req, res) => {
         // Verifica se l'utente esiste ed è attivo
         let userRes = await pool.request()
             .input('barcode', sql.NVarChar, barcode)
-            .query(`SELECT IDUser, Name FROM [CMP].[dbo].[Users] WHERE Barcode = @barcode AND IsActive = 1`);
+            .query(`
+                UPDATE [CMP].[dbo].[Users] SET ResetRequested = 1 WHERE Barcode = @barcode AND IsActive = 1;
+                SELECT IDUser, Name FROM [CMP].[dbo].[Users] WHERE Barcode = @barcode AND IsActive = 1;
+            `);
 
         if (userRes.recordset.length === 0) {
             return res.status(404).json({ message: 'Badge non riconosciuto o utente disattivato' });
