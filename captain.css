@@ -253,3 +253,15 @@ html {
   background-color: #fff1f2 !important;
   animation: pulse-red 1.5s infinite;
 }
+
+@keyframes pulse-shadow-red {
+  0% { box-shadow: inset 0 0 0 2px #e11d48, 0 0 5px 0px rgba(225, 29, 72, 0.3); background-color: #fff1f2; }
+  50% { box-shadow: inset 0 0 0 2px #e11d48, 0 0 20px 8px rgba(225, 29, 72, 0.6); background-color: #ffe4e6; }
+  100% { box-shadow: inset 0 0 0 2px #e11d48, 0 0 5px 0px rgba(225, 29, 72, 0.3); background-color: #fff1f2; }
+}
+
+.row-pulse-alert {
+  animation: pulse-shadow-red 2s infinite ease-in-out !important;
+  position: relative;
+  z-index: 10;
+}

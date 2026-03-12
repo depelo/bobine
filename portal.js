@@ -243,7 +243,6 @@ if (forgotPwdLink) {
     });
 
     document.getElementById('confirmResetBtn').addEventListener('click', async () => {
-        document.body.removeChild(confirmCurtain);
         try {
           const res = await fetch('/api/users/recover', {
             method: 'POST',
@@ -252,10 +251,46 @@ if (forgotPwdLink) {
           });
 
           if (res.ok) {
-            if (loginMessageEl) {
-              loginMessageEl.style.color = 'var(--success)';
-              loginMessageEl.innerHTML = '<b>Allarme inviato.</b><br>Recati ORA in amministrazione per il nuovo PIN.';
-            }
+            // Trasforma il sipario in una schermata di attesa e inserimento PIN
+            confirmCurtain.innerHTML = `
+                <div style="background:#222; padding:30px; border-radius:8px; max-width:400px; border: 2px solid #2563a8; box-shadow: 0 10px 30px rgba(37, 99, 168, 0.3); width: 90%;">
+                    <h2 style="color: #2563a8; margin-top:0; font-size: 1.5rem;">🔐 Attesa PIN Temporaneo</h2>
+                    <p style="font-size:1.05rem; color:#ccc; margin-bottom:24px; line-height: 1.4;">
+                        La richiesta è stata inviata al Captain.<br><br>
+                        Quando l'ufficio ti comunica il PIN temporaneo, inseriscilo qui sotto per sbloccare il tuo profilo e scegliere la tua nuova password.
+                    </p>
+                    <input type="password" id="tempPinInput" placeholder="Inserisci PIN Temporaneo" style="width:100%; margin-bottom:20px; padding:15px; border-radius: 4px; border: 1px solid #444; background: #333; color: white; font-size: 1.2rem; text-align: center; letter-spacing: 2px;" autocomplete="off" />
+                    <div style="display: flex; gap: 12px;">
+                        <button id="cancelPinBtn" style="flex:1; padding:12px; background:#444; color:white; border:none; border-radius:4px; cursor:pointer; font-weight: bold;">ESCI</button>
+                        <button id="submitPinBtn" style="flex:1; padding:12px; background:#2563a8; color:white; border:none; border-radius:4px; cursor:pointer; font-weight: bold;">ACCEDI</button>
+                    </div>
+                </div>
+            `;
+            
+            // Focus automatico sull'input del PIN
+            setTimeout(() => {
+                const pinInput = document.getElementById('tempPinInput');
+                if (pinInput) pinInput.focus();
+            }, 100);
+
+            // Tasto Esci: chiude il sipario e annulla
+            document.getElementById('cancelPinBtn').addEventListener('click', () => {
+                document.body.removeChild(confirmCurtain);
+            });
+
+            // Tasto Accedi: inietta il PIN nel form originale e lancia performLogin()
+            document.getElementById('submitPinBtn').addEventListener('click', () => {
+                const pin = document.getElementById('tempPinInput').value;
+                if (!pin) return;
+                
+                if (loginPasswordInput) {
+                    loginPasswordInput.value = pin;
+                }
+                document.body.removeChild(confirmCurtain);
+                // Avvia il login normale. Dato che ForcePwdChange = 1, il sistema mostrerà poi il sipario del cambio password definitivo.
+                performLogin();
+            });
+
           } else {
             const data = await res.json();
             if (loginMessageEl) {
