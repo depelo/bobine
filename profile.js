@@ -1,5 +1,28 @@
 const API_URL = '/api';
 
+// --- MODALITÀ SEAMLESS IFRAME ---
+// Se la pagina è caricata dentro la Captain Console, adatta l'interfaccia per fondersi perfettamente.
+document.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('embedded') === 'true') {
+        // Nascondi il pulsante Indietro (ci pensa la sidebar del Captain)
+        const backBtn = document.getElementById('profBackBtn');
+        if (backBtn) backBtn.style.display = 'none';
+
+        // Rimuovi ombre e margini dal contenitore per farlo sembrare un div nativo
+        const container = document.getElementById('profMainContainer');
+        if (container) {
+            container.style.boxShadow = 'none';
+            container.style.margin = '0 auto';
+            container.style.paddingTop = '16px';
+        }
+        
+        // Rendi lo sfondo trasparente per ereditare quello del Captain
+        document.body.style.background = 'transparent';
+    }
+});
+// --------------------------------
+
 // Funzioni per i modali isolati
 function showProfSuccess(msg) {
     document.getElementById('profSuccessMsg').textContent = msg;
