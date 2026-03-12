@@ -153,8 +153,8 @@
           <div style="display: flex; flex-direction: column;">
             <p class="scanner-title" style="margin: 0; border: none; padding: 0;">Gestisci Utente</p>
             <div style="font-size: 0.9rem; color: var(--text-muted); margin-top: 4px;">
-              <span id="umpUserName">Nome Utente</span>
-              <span style="font-family: monospace; margin-left: 8px;" id="umpUserBarcode">QR Code</span>
+              <span id="umpUserName">Nome</span>
+              <span style="font-family: monospace; margin-left: 8px;" id="umpUserBarcode">Barcode</span>
             </div>
           </div>
           <div style="font-size: 0.9rem; background: var(--bg-content); padding: 4px 12px; border-radius: 12px; border: 1px solid var(--border); display: flex; align-items: center; gap: 6px;">
@@ -162,7 +162,10 @@
             <span id="umpLastLoginDisplay" style="font-weight: bold;">-</span>
           </div>
         </div>
-        <button type="button" class="scanner-cancel" id="umpCloseBtn" style="margin: 0; width: auto; padding: 8px 16px;">Chiudi</button>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <button type="button" class="action-btn" id="umpSaveBtn" style="margin: 0; width: auto; padding: 8px 16px; background: var(--success); color: white; display: none; font-weight: bold;">Salva Modifiche</button>
+            <button type="button" class="scanner-cancel" id="umpCloseBtn" style="margin: 0; width: auto; padding: 8px 16px;">Chiudi</button>
+        </div>
       </div>
 
       <div style="display: flex; flex: 1; overflow: hidden;">
@@ -240,8 +243,6 @@
                 <option value="">-- Seleziona --</option>
               </select>
             </div>
-
-            <button id="umpSaveSecBtn" style="margin-top: 24px; padding: 12px 24px; background: var(--primary); color: white; border: none; border-radius: var(--radius); font-weight: bold; cursor: pointer;">Salva Sicurezza</button>
           </div>
 
           <div id="ump-ses" class="ump-content-section" style="display: none;">
@@ -280,8 +281,6 @@
               <p style="font-weight: 600; margin-bottom: 10px;">Riassegna Accessi e Ruoli:</p>
               <div id="umpEditRolesContainer" style="display: flex; flex-direction: column; gap: 8px; background: var(--bg); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);"></div>
             </div>
-
-            <button id="umpSaveAccBtn" style="margin-top: 24px; padding: 12px 24px; background: var(--success); color: white; border: none; border-radius: var(--radius); font-weight: bold; cursor: pointer;">Salva Permessi</button>
           </div>
 
         </div>
@@ -362,6 +361,8 @@
     let allModules = [];
     let globalConfig = [];
     let captainSocket = null;
+    let currentUmpOriginalState = {};
+    let currentUmpEditingId = null;
 
     // Utility per chiamate API protette
     async function apiFetch(endpoint, options = {}) {
@@ -377,10 +378,23 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        const umpPanel = document.getElementById('userManagePanel');
+        if (umpPanel) {
+            const umpInputs = umpPanel.querySelectorAll('input, select');
+            umpInputs.forEach(input => {
+                input.addEventListener('input', checkUmpDirtyState);
+                input.addEventListener('change', checkUmpDirtyState);
+            });
+        }
+
         const useGlobalCheck = document.getElementById('umpUseGlobalPwd');
-        if(useGlobalCheck) {
+        if (useGlobalCheck) {
             useGlobalCheck.addEventListener('change', (e) => {
-                document.getElementById('umpOverrideSettings').style.display = e.target.checked ? 'none' : 'block';
+                const overrideBox = document.getElementById('umpOverrideSettings');
+                if (overrideBox) {
+                    overrideBox.style.display = e.target.checked ? 'none' : 'block';
+                }
+                checkUmpDirtyState();
             });
         }
     });
@@ -465,6 +479,62 @@
             qrHtml: `${qrColor} Età QR: ${qrText}`,
             pwdHtml: `${pwdColor} ${pwdText}`
         };
+    }
+
+    function getUmpCurrentState() {
+        const nameEl = document.getElementById('umpInputName');
+        const barcodeEl = document.getElementById('umpInputBarcode');
+        const pwdEl = document.getElementById('umpInputPwd');
+        const forcePwdEl = document.getElementById('umpForcePwdChange');
+        const pwdExpiryEl = document.getElementById('umpPwdExpiry');
+        const defaultModuleEl = document.getElementById('umpDefaultModule');
+        const useGlobalEl = document.getElementById('umpUseGlobalPwd');
+        const minLenEl = document.getElementById('umpPwdMinLen');
+        const reqNumEl = document.getElementById('umpPwdReqNum');
+        const reqUppEl = document.getElementById('umpPwdReqUpp');
+        const reqSpecEl = document.getElementById('umpPwdReqSpec');
+
+        return {
+            name: nameEl ? nameEl.value : '',
+            barcode: barcodeEl ? barcodeEl.value : '',
+            password: pwdEl ? pwdEl.value : '',
+            forcePwdChange: forcePwdEl ? forcePwdEl.checked : false,
+            pwdExpiry: pwdExpiryEl ? pwdExpiryEl.value : '',
+            defaultModule: defaultModuleEl ? defaultModuleEl.value : '',
+            useGlobalPwd: useGlobalEl ? useGlobalEl.checked : true,
+            pwdMinLen: minLenEl ? minLenEl.value : '',
+            pwdReqNum: reqNumEl ? reqNumEl.checked : false,
+            pwdReqUpp: reqUppEl ? reqUppEl.checked : false,
+            pwdReqSpec: reqSpecEl ? reqSpecEl.checked : false
+        };
+    }
+
+    function checkUmpDirtyState() {
+        if (!currentUmpEditingId) {
+            const saveBtn = document.getElementById('umpSaveBtn');
+            if (saveBtn) saveBtn.style.display = 'none';
+            return;
+        }
+
+        const currentState = getUmpCurrentState();
+        let isDirty = false;
+
+        for (const key in currentState) {
+            if (!Object.prototype.hasOwnProperty.call(currentState, key)) continue;
+            if (key === 'password' && currentState[key] !== '') {
+                isDirty = true;
+                break;
+            }
+            if (key !== 'password' && currentState[key] !== currentUmpOriginalState[key]) {
+                isDirty = true;
+                break;
+            }
+        }
+
+        const saveBtn = document.getElementById('umpSaveBtn');
+        if (saveBtn) {
+            saveBtn.style.display = isDirty ? 'block' : 'none';
+        }
     }
 
     // Inizializzazione della Console
@@ -787,23 +857,28 @@
       const u = globalUsers.find(x => x.id === id);
       if (!u) return;
 
+      const getGlobalVal = (key, def) => {
+          const row = globalConfig.find(c => c.ConfigKey === key);
+          return row && row.ConfigValue !== null ? row.ConfigValue : def;
+      };
+
       const hasOverride = u.pwdMinLengthOverride !== null || u.pwdRequireNumberOverride !== null || u.pwdRequireUpperOverride !== null || u.pwdRequireSpecialOverride !== null;
-      
+
       const useGlobalEl = document.getElementById('umpUseGlobalPwd');
       const overrideBoxEl = document.getElementById('umpOverrideSettings');
       if (useGlobalEl && overrideBoxEl) {
         useGlobalEl.checked = !hasOverride;
         overrideBoxEl.style.display = hasOverride ? 'block' : 'none';
       }
-      
+
       const minLenEl = document.getElementById('umpPwdMinLen');
       const reqNumEl = document.getElementById('umpPwdReqNum');
       const reqUppEl = document.getElementById('umpPwdReqUpp');
       const reqSpecEl = document.getElementById('umpPwdReqSpec');
-      if (minLenEl) minLenEl.value = u.pwdMinLengthOverride !== null ? u.pwdMinLengthOverride : '';
-      if (reqNumEl) reqNumEl.checked = u.pwdRequireNumberOverride === true;
-      if (reqUppEl) reqUppEl.checked = u.pwdRequireUpperOverride === true;
-      if (reqSpecEl) reqSpecEl.checked = u.pwdRequireSpecialOverride === true;
+      if (minLenEl) minLenEl.value = hasOverride && u.pwdMinLengthOverride !== null ? u.pwdMinLengthOverride : getGlobalVal('PwdMinLength', '6');
+      if (reqNumEl) reqNumEl.checked = hasOverride ? u.pwdRequireNumberOverride === true : getGlobalVal('PwdRequireNumber', '1') === '1';
+      if (reqUppEl) reqUppEl.checked = hasOverride ? u.pwdRequireUpperOverride === true : getGlobalVal('PwdRequireUpper', '0') === '1';
+      if (reqSpecEl) reqSpecEl.checked = hasOverride ? u.pwdRequireSpecialOverride === true : getGlobalVal('PwdRequireSpecial', '0') === '1';
 
       document.getElementById('umpUserName').textContent = u.name;
       document.getElementById('umpUserBarcode').textContent = u.barcode;
@@ -875,6 +950,11 @@
       document.querySelector('.ump-tab[data-tab="ump-sec"]').classList.add('active');
       document.querySelectorAll('.ump-content-section').forEach(s => { s.style.display = 'none'; });
       document.getElementById('ump-sec').style.display = 'block';
+
+      document.getElementById('umpInputPwd').value = '';
+      const saveBtn = document.getElementById('umpSaveBtn');
+      if (saveBtn) saveBtn.style.display = 'none';
+      currentUmpEditingId = id;
       const panel = document.getElementById('userManagePanel');
       panel.classList.add('is-open');
       panel.setAttribute('aria-hidden', 'false');
@@ -930,6 +1010,11 @@
           rolesContainer.appendChild(modGroup);
         });
       }
+
+      setTimeout(() => {
+          currentUmpOriginalState = getUmpCurrentState();
+          checkUmpDirtyState();
+      }, 50);
     }
 
     // Navigazione Sidebar
@@ -1259,87 +1344,86 @@
       panel.setAttribute('aria-hidden', 'true');
     });
 
-    document.getElementById('umpSaveSecBtn').addEventListener('click', async () => {
-      const id = document.getElementById('umpUserId').value;
-      const name = document.getElementById('umpInputName').value.trim();
-      const barcode = document.getElementById('umpInputBarcode').value.trim();
-      const password = document.getElementById('umpInputPwd').value.trim();
-      const forcePwdChange = document.getElementById('umpForcePwdChange').checked;
-      const pwdExpiryVal = document.getElementById('umpPwdExpiry').value.trim();
-      const pwdExpiryDaysOverride = pwdExpiryVal === '' ? null : parseInt(pwdExpiryVal, 10);
-      const useGlobal = document.getElementById('umpUseGlobalPwd') ? document.getElementById('umpUseGlobalPwd').checked : true;
+    document.getElementById('umpSaveBtn').addEventListener('click', async () => {
+        if (!currentUmpEditingId) return;
 
-      const currentBarcode = document.getElementById('umpInputBarcode').value.trim();
-      if (currentBarcode !== originalEditBarcode) {
-          const isConfirmed = await askCaptainConfirm('Hai rigenerato il QR Code per questo utente. Il vecchio badge smetterà di funzionare immediatamente. Vuoi procedere con il salvataggio?');
-          if (!isConfirmed) return;
-      }
+        const state = getUmpCurrentState();
+        const btn = document.getElementById('umpSaveBtn');
+        if (!btn) return;
 
-      const defaultSelectVal = document.getElementById('umpDefaultModule').value;
-      const defaultModuleId = defaultSelectVal ? parseInt(defaultSelectVal, 10) : null;
+        btn.textContent = 'Salvataggio...';
+        btn.disabled = true;
 
-      try {
-        const res = await fetch(`${API_URL}/admin/users/${id}`, {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name,
-            barcode,
-            password: password || undefined,
-            forcePwdChange,
-            pwdExpiryDaysOverride,
-            defaultModuleId,
-            pwdMinLengthOverride: useGlobal ? null : document.getElementById('umpPwdMinLen').value,
-            pwdRequireNumberOverride: useGlobal ? null : document.getElementById('umpPwdReqNum').checked,
-            pwdRequireUpperOverride: useGlobal ? null : document.getElementById('umpPwdReqUpp').checked,
-            pwdRequireSpecialOverride: useGlobal ? null : document.getElementById('umpPwdReqSpec').checked
-          })
-        });
-        if (res.status === 401 || res.status === 403) {
-          alert('Sessione scaduta o privilegi insufficienti.');
-          window.location.href = 'index.html';
-          return;
+        try {
+            const currentBarcode = document.getElementById('umpInputBarcode').value.trim();
+            if (currentBarcode !== originalEditBarcode) {
+                const isConfirmed = await askCaptainConfirm('Hai rigenerato il QR Code per questo utente. Il vecchio badge smetterà di funzionare immediatamente. Vuoi procedere con il salvataggio?');
+                if (!isConfirmed) return;
+            }
+
+            const name = (state.name || '').trim();
+            const barcode = (state.barcode || '').trim();
+            const pwdExpiryVal = (state.pwdExpiry || '').toString().trim();
+            const pwdExpiryDaysOverride = pwdExpiryVal === '' ? null : parseInt(pwdExpiryVal, 10);
+            const defaultModuleId = state.defaultModule ? parseInt(state.defaultModule, 10) : null;
+
+            const payload = {
+                name,
+                barcode,
+                password: state.password ? state.password : undefined,
+                forcePwdChange: state.forcePwdChange,
+                pwdExpiryDaysOverride,
+                defaultModuleId,
+                pwdMinLengthOverride: state.useGlobalPwd ? null : (state.pwdMinLen !== '' ? parseInt(state.pwdMinLen, 10) : null),
+                pwdRequireNumberOverride: state.useGlobalPwd ? null : state.pwdReqNum,
+                pwdRequireUpperOverride: state.useGlobalPwd ? null : state.pwdReqUpp,
+                pwdRequireSpecialOverride: state.useGlobalPwd ? null : state.pwdReqSpec
+            };
+
+            const res = await fetch(`${API_URL}/admin/users/${currentUmpEditingId}`, {
+                method: 'PUT',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.status === 401 || res.status === 403) {
+                alert('Sessione scaduta o privilegi insufficienti.');
+                window.location.href = 'index.html';
+                return;
+            }
+            if (!res.ok) {
+                throw new Error(await res.text());
+            }
+
+            const selectedRoles = Array.from(document.querySelectorAll('.edit-role-checkbox:checked')).map(cb => ({
+                targetTable: cb.dataset.targetTable,
+                roleKey: cb.dataset.roleKey
+            }));
+
+            const resRoles = await fetch(`${API_URL}/admin/users/${currentUmpEditingId}/roles`, {
+                method: 'PUT',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roles: selectedRoles })
+            });
+
+            if (!resRoles.ok) {
+                throw new Error(await resRoles.text());
+            }
+
+            await loadData();
+            showCaptainSuccess('Utente aggiornato con successo.');
+
+            document.getElementById('umpInputPwd').value = '';
+            currentUmpOriginalState = getUmpCurrentState();
+            checkUmpDirtyState();
+        } catch (err) {
+            showCaptainError('Errore salvataggio: ' + err.message);
+        } finally {
+            btn.textContent = 'Salva Modifiche';
+            btn.disabled = false;
         }
-        if (!res.ok) {
-          throw new Error(await res.text());
-        }
-        await loadData();
-        showCaptainSuccess('Impostazioni aggiornate.');
-        document.getElementById('userManagePanel').classList.remove('is-open');
-        document.getElementById('userManagePanel').setAttribute('aria-hidden', 'true');
-      } catch (err) {
-        showCaptainError('Errore salvataggio: ' + err.message);
-      }
-    });
-
-    document.getElementById('umpSaveAccBtn').addEventListener('click', async () => {
-      const id = document.getElementById('umpUserId').value;
-      
-      const selectedRoles = Array.from(document.querySelectorAll('.edit-role-checkbox:checked')).map(cb => ({
-        targetTable: cb.dataset.targetTable,
-        roleKey: cb.dataset.roleKey
-      }));
-
-      try {
-        const res = await fetch(`${API_URL}/admin/users/${id}/roles`, {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-              roles: selectedRoles 
-          })
-        });
-        
-        if (!res.ok) throw new Error(await res.text());
-        
-        await loadData();
-        showCaptainSuccess('Permessi e Visti aggiornati con successo.');
-        document.getElementById('userManagePanel').classList.remove('is-open');
-        document.getElementById('userManagePanel').setAttribute('aria-hidden', 'true');
-      } catch (err) {
-        showCaptainError('Errore salvataggio permessi: ' + err.message);
-      }
     });
 
     document.querySelectorAll('.edit-toggle-btn').forEach(btn => {
@@ -1365,7 +1449,8 @@
         if (isConfirmed) {
             // Salva lo stato ForcePwdChange a 1 sul DB per evitare bypass via ricaricamento pagina
             document.getElementById('umpForcePwdChange').checked = true;
-            document.getElementById('umpSaveSecBtn').click(); 
+            checkUmpDirtyState();
+            document.getElementById('umpSaveBtn').click(); 
 
             if (typeof io !== 'undefined') {
                 if (!captainSocket) captainSocket = io();
