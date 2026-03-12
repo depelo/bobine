@@ -25,7 +25,7 @@
       <div class="nav-item" data-target="moduli"><span style="font-size: 1.3rem; margin-bottom: 2px;">🧩</span><span>Accessi</span></div>
       <div class="nav-item" data-target="impostazioni"><span style="font-size: 1.3rem; margin-bottom: 2px;">⚙️</span><span>Impostazioni</span></div>
       <div class="nav-item" onclick="window.location.href='/profile.html'"><span style="font-size: 1.3rem; margin-bottom: 2px;">👤</span><span>Profilo</span></div>
-      <div class="nav-item" data-target="archivio"><span style="font-size: 1.3rem; margin-bottom: 2px;">⚰️</span><span>Archivio</span></div>
+      <div class="nav-item" data-target="archivio"><span style="font-size: 1.3rem; margin-bottom: 2px;">⚰️</span><span>Ossario</span></div>
     </nav>
     <div id="captainAppSwitcher" style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 16px; flex-shrink: 0;">
         <div style="padding: 0 24px; font-size: 0.75rem; color: rgba(255,255,255,0.5); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px;">Le tue App</div>
@@ -130,7 +130,7 @@
 
       <div class="data-card console-view" id="view-archivio" style="display: none;">
         <div class="data-card-header" style="margin-bottom: 16px;">
-          <h3 style="margin: 0; color: var(--text-muted);">⚰️ Archivio Utenti Disattivati</h3>
+          <h3 style="margin: 0; color: var(--text-muted);">⚰️ Ossario Utenti Disattivati</h3>
           <p style="margin: 8px 0 0 0; font-size: 0.9rem; color: var(--text-muted);">Questi utenti non hanno accesso al sistema. Ripristinali per mantenere intatto il loro storico produttivo in caso di riassunzione.</p>
         </div>
         <div id="deletedUsersWrapper" style="overflow-x: auto;">
@@ -753,7 +753,7 @@
             const wrapper = document.getElementById('deletedUsersWrapper');
             if (!wrapper) return;
             if (deleted.length === 0) {
-                wrapper.innerHTML = '<p style="padding: 16px; color: var(--text-muted);">Il cestino è vuoto.</p>';
+                wrapper.innerHTML = '<p style="padding: 16px; color: var(--text-muted);">L\'ossario è vuoto.</p>';
                 return;
             }
             let html = `
@@ -774,7 +774,7 @@
                     <td style="padding: 12px; font-weight: bold; color: var(--text-muted);">${u.name}</td>
                     <td style="padding: 12px; color: var(--text-muted);">${u.barcode}</td>
                     <td style="padding: 12px; text-align: right;">
-                      <button class="action-btn" onclick="restoreUser(${u.id}, '${safeName}')" style="background: var(--success); color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">🪄 Ripristina</button>
+                      <button class="action-btn" onclick="restoreUser(${u.id}, '${safeName}')" style="background: var(--success); color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">🪄 Resuscita</button>
                     </td>
                   </tr>
                 `;
@@ -787,11 +787,11 @@
     }
 
     async function restoreUser(id, name) {
-        const isConfirmed = await askCaptainConfirm(`Sei sicuro di voler ripristinare ${name}?\n\nIl suo stato tornerà attivo e al primo login il sistema lo obbligherà a impostare una nuova password per sicurezza.`);
+        const isConfirmed = await askCaptainConfirm(`Sei sicuro di voler resuscitare ${name}?\n\nIl suo stato tornerà attivo e al primo login il sistema lo obbligherà a impostare una nuova password per sicurezza.`);
         if (isConfirmed) {
             try {
                 await apiFetch(`/admin/users/${id}/restore`, { method: 'PUT' });
-                showCaptainSuccess(`${name} è stato ripristinato.`);
+                showCaptainSuccess(`${name} è stato resuscitato.`);
                 await loadDeletedUsers();
                 await loadData(); 
             } catch (err) {
@@ -1512,12 +1512,12 @@
           
           if (duplicates.length > 0) {
               const dup = duplicates[0];
-              const msg = `ATTENZIONE: Abbiamo trovato un utente disattivato nel Cestino che si chiama "${dup.name}".\n\nVuoi ANNULLARE la creazione e RIPRISTINARE l'utente esistente per mantenere intatto il suo storico produttivo (fortemente consigliato)?\n\n- Premi CONFERMA per Ripristinare ${dup.name}.\n- Premi ANNULLA per ignorare e creare un NUOVO utente.`;
+              const msg = `⚠️ ATTENZIONE: Abbiamo trovato un utente disattivato nell'Ossario che si chiama "${dup.name}".\n\nVuoi ANNULLARE la creazione e RESUSCITARE l'utente esistente per mantenere intatto il suo storico produttivo (fortemente consigliato)?\n\n- Premi CONFERMA per Resuscitare ${dup.name}.\n- Premi ANNULLA per ignorare e creare un NUOVO utente.`;
               
               const isConfirmed = await askCaptainConfirm(msg);
               if (isConfirmed) {
                   await apiFetch(`/admin/users/${dup.id}/restore`, { method: 'PUT' });
-                  showCaptainSuccess(`${dup.name} ripristinato con successo!`);
+                  showCaptainSuccess(`${dup.name} resuscitato con successo!`);
                   document.getElementById('adminUserModal').classList.remove('is-open');
                   document.getElementById('adminUserModal').setAttribute('aria-hidden', 'true');
                   await loadData();

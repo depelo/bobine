@@ -721,7 +721,7 @@ app.put('/api/admin/users/:id/restore', authenticateCaptain, async (req, res) =>
         await pool.request()
             .input('id', sql.Int, req.params.id)
             .query(`UPDATE [CMP].[dbo].[Users] SET IsActive = 1, ForcePwdChange = 1 WHERE IDUser = @id`);
-        res.status(200).send('OK');
+        res.status(200).json({ message: 'OK' });
     } catch (err) {
         res.status(500).send(err.message);
     }
