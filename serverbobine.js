@@ -697,6 +697,70 @@ app.delete('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
     }
 });
 
+// --- INIZIO ROTTE ARCHIVIO E RIPRISTINO ---
+// A. Recupera tutti gli utenti disattivati (Cestino)
+app.get('/api/admin/users/deleted', authenticateCaptain, async (req, res) => {
+    try {
+        let pool = await sql.connect(dbConfig);
+        const result = await pool.request().query(`
+            SELECT IDUser as id, Name as name, Barcode as barcode
+            FROM [CMP].[dbo].[Users]
+            WHERE IsActive = 0
+            ORDER BY Name ASC
+        `);
+        res.json(result.recordset);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// B. Ripristina un utente (Forzando il cambio password per sicurezza)
+app.put('/api/admin/users/:id/restore', authenticateCaptain, async (req, res) => {
+    try {
+        let pool = await sql.connect(dbConfig);
+        await pool.request()
+            .input('id', sql.Int, req.params.id)
+            .query(`UPDATE [CMP].[dbo].[Users] SET IsActive = 1, ForcePwdChange = 1 WHERE IDUser = @id`);
+        res.status(200).send('OK');
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// C. Fuzzy Check Anti-Doppione
+app.post('/api/admin/users/check-duplicate', authenticateCaptain, async (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name) return res.json([]);
+        
+        // Divide il nome in parole chiave (ignorando singole lettere)
+        const words = name.trim().split(/\s+/).filter(w => w.length > 1);
+        if (words.length === 0) return res.json([]);
+
+        let pool = await sql.connect(dbConfig);
+        let reqSql = pool.request();
+        
+        let conditions = [];
+        words.forEach((w, i) => {
+            reqSql.input(`w${i}`, sql.NVarChar, `%${w}%`);
+            conditions.push(`Name LIKE @w${i}`);
+        });
+
+        // Cerca utenti disattivati che contengono TUTTE le parole cercate (in qualsiasi ordine)
+        const query = `
+            SELECT TOP 5 IDUser as id, Name as name, Barcode as barcode 
+            FROM [CMP].[dbo].[Users] 
+            WHERE IsActive = 0 AND ${conditions.join(' AND ')}
+        `;
+        
+        const result = await reqSql.query(query);
+        res.json(result.recordset);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+// --- FINE ROTTE ARCHIVIO E RIPRISTINO ---
+
 // --- API MACCHINE ---
 
 // Recupera todas las máquinas, incluyendo el código de barras
