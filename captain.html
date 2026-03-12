@@ -403,6 +403,7 @@
     let sortSaveTimer = null;
     let currentSortCol = null;
     let currentSortAsc = true;
+    let currentEditingModule = null;
 
     // Utility per chiamate API protette
     async function apiFetch(endpoint, options = {}) {
@@ -1693,6 +1694,7 @@
 
       const mod = globalModules.find(m => m.id === id);
       if (!mod) return;
+      currentEditingModule = mod;
 
       document.getElementById('emModuleId').value = mod.id;
       document.getElementById('emModalTitle').innerText = 'Modifica App: ' + mod.name;
@@ -1724,20 +1726,23 @@
       const settings = mod.appSettings || {};
       if (Object.keys(settings).length > 0) {
         appSetWrapper.style.display = 'block';
-        const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        for (const [sKey, sConfig] of Object.entries(settings)) {
-          const fieldDiv = document.createElement('div');
-          fieldDiv.className = 'login-field';
-          const inputType = sConfig.type || 'text';
-          const safeKey = esc(sKey);
-          const safeLabel = esc(sConfig.label || sKey);
-          fieldDiv.innerHTML = `
-            <label style="font-size:0.85rem;">${safeLabel}</label>
-            <input type="${inputType}" class="control dyn-app-setting" data-key="${safeKey}" data-type="${inputType}" data-label="${safeLabel}" style="width:100%;">
-          `;
-          const input = fieldDiv.querySelector('.dyn-app-setting');
-          input.value = sConfig.value != null && sConfig.value !== '' ? sConfig.value : '';
-          appSetContainer.appendChild(fieldDiv);
+        for (const [key, setting] of Object.entries(settings)) {
+          const labelStr = setting.label || key;
+          const descStr = setting.description
+            ? `<p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--text-muted); line-height: 1.3;">${setting.description}</p>`
+            : '';
+          const typeStr = setting.type || 'text';
+          const valStr = setting.value !== undefined && setting.value !== null ? setting.value : '';
+
+          const setDiv = document.createElement('div');
+          setDiv.className = 'login-field';
+          setDiv.style.marginBottom = '16px';
+          setDiv.innerHTML = `
+                <label style="font-weight: bold; color: var(--text);">${labelStr}</label>
+                <input type="${typeStr === 'number' ? 'number' : 'text'}" id="appset-${key}" class="control" value="${valStr}" />
+                ${descStr}
+            `;
+          appSetContainer.appendChild(setDiv);
         }
       } else {
         appSetWrapper.style.display = 'none';
@@ -1779,20 +1784,24 @@
         };
       });
 
+      // 2. Raccogli App Settings in modo sicuro (Merge profondo)
       const newAppSet = {};
-      const settingInputs = document.querySelectorAll('.dyn-app-setting');
-      settingInputs.forEach(inp => {
-        const sKey = inp.dataset.key;
-        const sType = inp.dataset.type || 'text';
-        const sLabel = inp.dataset.label;
-        let sVal = inp.value;
-        if (sType === 'number') sVal = sVal !== '' ? Number(sVal) : null;
-        newAppSet[sKey] = {
-          label: sLabel,
-          type: sType,
-          value: sVal
-        };
-      });
+      // currentEditingModule.appSettings contiene il JSON originale caricato all'apertura del modale
+      if (currentEditingModule && currentEditingModule.appSettings) {
+          for (const [key, originalSetting] of Object.entries(currentEditingModule.appSettings)) {
+              const inputEl = document.getElementById('appset-' + key);
+              if (inputEl) {
+                  // Clona l'oggetto originale (label, description, type, group, ecc.)
+                  newAppSet[key] = { ...originalSetting };
+                  // Aggiorna solo il valore, convertendolo se è un numero
+                  if (originalSetting.type === 'number') {
+                      newAppSet[key].value = inputEl.value ? Number(inputEl.value) : 0;
+                  } else {
+                      newAppSet[key].value = inputEl.value;
+                  }
+              }
+          }
+      }
 
       try {
         const res = await fetch(`${API_URL}/admin/modules/${id}`, {
