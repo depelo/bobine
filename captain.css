@@ -269,16 +269,26 @@ html {
 .row-pulse-alert > td {
   background-color: #fff1f2 !important;
   animation: pulse-red 1.5s infinite !important;
-  outline: 2px solid #e11d48;
-  outline-offset: -2px;
+  /* Disegna solo i bordi esterni (niente linee verticali interne) */
+  box-shadow:
+    inset 0 2px 0 0 #e11d48,
+    inset 0 -2px 0 0 #e11d48;
 }
 
 .row-pulse-alert > td:first-child {
+  box-shadow:
+    inset 2px 0 0 0 #e11d48,
+    inset 0 2px 0 0 #e11d48,
+    inset 0 -2px 0 0 #e11d48;
   border-top-left-radius: 6px;
   border-bottom-left-radius: 6px;
 }
 
 .row-pulse-alert > td:last-child {
+  box-shadow:
+    inset -2px 0 0 0 #e11d48,
+    inset 0 2px 0 0 #e11d48,
+    inset 0 -2px 0 0 #e11d48;
   border-top-right-radius: 6px;
   border-bottom-right-radius: 6px;
 }
