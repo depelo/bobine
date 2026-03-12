@@ -30,6 +30,50 @@ const dbConfig = {
     }
 };
 
+// Funzione Helper per calcolare le "Regole Effettive" della password (Globali vs Override)
+async function getEffectivePwdRules(pool, userId) {
+    // 1. Legge le regole globali
+    const confRes = await pool.request().query(
+        "SELECT ConfigKey, ConfigValue FROM [CMP].[dbo].[SystemConfig] WHERE ConfigKey IN ('PwdMinLength', 'PwdRequireNumber', 'PwdRequireUpper', 'PwdRequireSpecial')"
+    );
+    let globals = { PwdMinLength: 6, PwdRequireNumber: true, PwdRequireUpper: false, PwdRequireSpecial: false };
+    confRes.recordset.forEach(r => {
+        if (r.ConfigKey === 'PwdMinLength') {
+            const parsed = parseInt(r.ConfigValue, 10);
+            if (!Number.isNaN(parsed) && parsed > 0) {
+                globals.PwdMinLength = parsed;
+            }
+        } else if (r.ConfigKey in globals) {
+            globals[r.ConfigKey] = r.ConfigValue === '1';
+        }
+    });
+
+    // 2. Legge gli override dell'utente
+    const userRes = await pool.request()
+        .input('id', sql.Int, userId)
+        .query(`
+            SELECT PwdMinLengthOverride, PwdRequireNumberOverride, PwdRequireUpperOverride, PwdRequireSpecialOverride
+            FROM [CMP].[dbo].[Users]
+            WHERE IDUser = @id
+        `);
+    const overrides = userRes.recordset[0] || {};
+
+    const numOverride = (val, fallback) =>
+        val !== null && val !== undefined && !Number.isNaN(parseInt(val, 10)) ? parseInt(val, 10) : fallback;
+    const boolOverride = (val, fallback) =>
+        val !== null && val !== undefined
+            ? (val === true || val === 1 || val === '1')
+            : fallback;
+
+    // 3. Fonde i risultati (vince l'override se non è NULL)
+    return {
+        minLength: numOverride(overrides.PwdMinLengthOverride, globals.PwdMinLength),
+        requireNum: boolOverride(overrides.PwdRequireNumberOverride, globals.PwdRequireNumber),
+        requireUpp: boolOverride(overrides.PwdRequireUpperOverride, globals.PwdRequireUpper),
+        requireSpec: boolOverride(overrides.PwdRequireSpecialOverride, globals.PwdRequireSpecial)
+    };
+}
+
 function authenticateToken(req, res, next) {
     const token = req.cookies && req.cookies.jwt_token;
     if (!token) {
@@ -812,10 +856,13 @@ app.post('/api/login', async (req, res) => {
             }
         }
 
+        // Calcola le regole password effettive per il frontend
+        const pwdRules = await getEffectivePwdRules(pool, row.IDUser);
+
         // Aggiorna LastLogin
         try {
-            const pool = await sql.connect(dbConfig);
-            await pool.request()
+            const pool2 = await sql.connect(dbConfig);
+            await pool2.request()
                 .input('idUser', sql.Int, row.IDUser)
                 .query(`UPDATE [CMP].[dbo].[Users] SET LastLogin = GETDATE() WHERE IDUser = @idUser`);
         } catch (dbErr) {
@@ -844,7 +891,7 @@ app.post('/api/login', async (req, res) => {
             maxAge: 12 * 60 * 60 * 1000
         });
         
-        return res.json({ user: payload });
+        return res.json({ user: payload, pwdRules });
     } catch (err) {
         res.status(500).send(err.message);
     }
@@ -882,8 +929,9 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.put('/api/users/me/password', authenticateToken, async (req, res) => {
-    const { oldPassword, newPassword } = req.body;
-    if (!newPassword) return res.status(400).json({ message: 'Nuova password mancante' });
+    const { oldPassword, newPassword, currentPassword } = req.body;
+    const effectiveOldPassword = currentPassword !== undefined ? currentPassword : oldPassword;
+    if (!newPassword) return res.status(400).json({ message: 'La nuova password è obbligatoria.' });
 
     try {
         let pool = await sql.connect(dbConfig);
@@ -901,8 +949,23 @@ app.put('/api/users/me/password', authenticateToken, async (req, res) => {
         const dbUser = userRes.recordset[0];
 
         // Verifica vecchia password
-        const passwordOk = await bcrypt.compare(oldPassword, dbUser.PasswordHash || '');
+        const passwordOk = await bcrypt.compare(effectiveOldPassword, dbUser.PasswordHash || '');
         if (!passwordOk) return res.status(401).json({ message: 'Vecchia password errata' });
+
+        // Calcola regole e valida rigorosamente la nuova password
+        const rules = await getEffectivePwdRules(pool, dbUser.IDUser);
+        if (newPassword.length < rules.minLength) {
+            return res.status(400).json({ message: `La password deve essere lunga almeno ${rules.minLength} caratteri.` });
+        }
+        if (rules.requireNum && !/\d/.test(newPassword)) {
+            return res.status(400).json({ message: 'La password deve contenere almeno un numero.' });
+        }
+        if (rules.requireUpp && !/[A-Z]/.test(newPassword)) {
+            return res.status(400).json({ message: 'La password deve contenere almeno una lettera maiuscola.' });
+        }
+        if (rules.requireSpec && !/[!@#$%^&*(),.?":{}|<>]/.test(newPassword)) {
+            return res.status(400).json({ message: 'La password deve contenere almeno un carattere speciale (!@#...).' });
+        }
 
         // Salva nuova password
         const hash = await bcrypt.hash(newPassword, 10);
