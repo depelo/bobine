@@ -910,14 +910,17 @@ app.get('/api/me', authenticateToken, async (req, res) => {
             return res.status(401).send('Utente disattivato o inesistente');
         }
 
+        // Calcola le regole effettive fresche dal DB
+        const pwdRules = await getEffectivePwdRules(pool, req.user.globalId);
+
         const isForcePwdDB = (userRes.recordset[0].ForcePwdChange === true || userRes.recordset[0].ForcePwdChange === 1);
 
         // Se il DB impone il cambio password, ma il JWT attuale dell'utente non lo sa (es. post-F5)
         if (isForcePwdDB && !req.user.forcePwdChange) {
-            return res.status(403).json({ requiresPasswordChange: true, message: 'Cambio password obbligatorio innescato dall\'amministratore' });
+            return res.status(403).json({ requiresPasswordChange: true, message: 'Cambio password obbligatorio innescato dall\'amministratore', pwdRules: pwdRules });
         }
 
-        res.json(req.user);
+        res.json({ ...req.user, pwdRules });
     } catch (err) {
         res.status(500).send(err.message);
     }

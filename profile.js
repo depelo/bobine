@@ -16,6 +16,109 @@ function closeProfModals() {
     document.getElementById('profErrorModal').classList.remove('is-active');
 }
 
+function setupPasswordForm(rules) {
+    const changePwdForm = document.getElementById('changePwdForm');
+    if (!changePwdForm) return;
+
+    // Costruisci la checklist visiva iniziale
+    const checklistEl = document.getElementById('profPwdChecklist');
+    let rulesHtml = `<li id="prof-rule-len" style="margin-bottom: 6px; transition: color 0.3s;">❌ Almeno ${rules.minLength} caratteri</li>`;
+    if (rules.requireNum) rulesHtml += `<li id="prof-rule-num" style="margin-bottom: 6px; transition: color 0.3s;">❌ Almeno un numero (0-9)</li>`;
+    if (rules.requireUpp) rulesHtml += `<li id="prof-rule-upp" style="margin-bottom: 6px; transition: color 0.3s;">❌ Almeno una lettera maiuscola (A-Z)</li>`;
+    if (rules.requireSpec) rulesHtml += `<li id="prof-rule-spec" style="margin-bottom: 6px; transition: color 0.3s;">❌ Almeno un carattere speciale (!@#...)</li>`;
+    checklistEl.innerHTML = rulesHtml;
+
+    const oldInput = document.getElementById('oldPwd');
+    const pwdInput = document.getElementById('newPwd');
+    const confirmInput = document.getElementById('confirmPwd');
+    const submitBtn = document.getElementById('profSubmitPwdBtn');
+    const errorDiv = document.getElementById('pwdMsg');
+
+    // Funzione di validazione in tempo reale
+    const validateRules = () => {
+        const val = pwdInput.value;
+        let isValid = true;
+
+        const setRuleUI = (id, condition) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (condition) {
+                el.innerHTML = el.innerHTML.replace('❌', '✅');
+                el.style.color = 'var(--success)';
+            } else {
+                el.innerHTML = el.innerHTML.replace('✅', '❌');
+                el.style.color = 'var(--text-muted)';
+                isValid = false;
+            }
+        };
+
+        setRuleUI('prof-rule-len', val.length >= rules.minLength);
+        if (rules.requireNum) setRuleUI('prof-rule-num', /\d/.test(val));
+        if (rules.requireUpp) setRuleUI('prof-rule-upp', /[A-Z]/.test(val));
+        if (rules.requireSpec) setRuleUI('prof-rule-spec', /[!@#$%^&*(),.?":{}|<>]/.test(val));
+
+        const match = val !== '' && val === confirmInput.value;
+        
+        // Abilita il bottone solo se tutte le regole sono rispettate, le password coincidono, e la vecchia password è inserita
+        if (isValid && match && oldInput.value !== '') {
+            submitBtn.disabled = false;
+            submitBtn.style.background = 'var(--primary)';
+            submitBtn.style.color = 'white';
+            submitBtn.style.cursor = 'pointer';
+            errorDiv.textContent = '';
+        } else {
+            submitBtn.disabled = true;
+            submitBtn.style.background = 'var(--border)';
+            submitBtn.style.color = 'var(--text-muted)';
+            submitBtn.style.cursor = 'not-allowed';
+            if (isValid && !match && confirmInput.value !== '') {
+                errorDiv.textContent = 'Le nuove password non coincidono.';
+            } else {
+                errorDiv.textContent = '';
+            }
+        }
+    };
+
+    // Aggancia i listener di input
+    oldInput.addEventListener('input', validateRules);
+    pwdInput.addEventListener('input', validateRules);
+    confirmInput.addEventListener('input', validateRules);
+
+    // Gestione Invio
+    changePwdForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const oldPassword = oldInput.value;
+        const newPassword = pwdInput.value;
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Salvataggio...';
+
+        try {
+            const res = await fetch(`${API_URL}/users/me/password`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ oldPassword, newPassword })
+            });
+
+            if (res.ok) {
+                changePwdForm.reset();
+                validateRules(); // Ricalcola per spegnere il semaforo
+                showProfSuccess('Password aggiornata con successo! La tua nuova chiave di sicurezza è ora attiva.');
+            } else {
+                const data = await res.json();
+                showProfError(data.message || 'Errore durante l\'aggiornamento.');
+            }
+        } catch (err) {
+            showProfError('Errore di rete di connessione al server.');
+        } finally {
+            submitBtn.textContent = 'Aggiorna Password';
+            validateRules(); // Ripristina lo stato corretto del bottone
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     let currentUser = null;
 
@@ -64,116 +167,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 document.getElementById('passwordSectionWrapper').style.display = 'none';
             }
 
+            // Estrae le regole fresche dalla risposta
+            const fetchedRules = currentUser.pwdRules || (currentUser.user && currentUser.user.pwdRules);
+            if (fetchedRules) {
+                localStorage.setItem('pwdRules', JSON.stringify(fetchedRules));
+                setupPasswordForm(fetchedRules);
+            } else {
+                // Fallback di sicurezza
+                const fallbackRules = JSON.parse(localStorage.getItem('pwdRules') || '{"minLength":6,"requireNum":true,"requireUpp":false,"requireSpec":false}');
+                setupPasswordForm(fallbackRules);
+            }
+
         } else {
             document.getElementById('profName').textContent = 'Utente non autenticato';
         }
     } catch (e) {
         console.error('Errore fetch profilo', e);
         showProfError('Impossibile caricare i dati del profilo.');
-    }
-
-    // 2. Cambio Password (con Semaforo e Validazione Live)
-    const changePwdForm = document.getElementById('changePwdForm');
-    if (changePwdForm) {
-        // Recupera le regole salvate al login, altrimenti usa i default di sicurezza
-        const rules = JSON.parse(localStorage.getItem('pwdRules') || '{"minLength":6,"requireNum":true,"requireUpp":false,"requireSpec":false}');
-        
-        // Costruisci la checklist visiva iniziale
-        const checklistEl = document.getElementById('profPwdChecklist');
-        let rulesHtml = `<li id="prof-rule-len" style="margin-bottom: 6px; transition: color 0.3s;">❌ Almeno ${rules.minLength} caratteri</li>`;
-        if (rules.requireNum) rulesHtml += `<li id="prof-rule-num" style="margin-bottom: 6px; transition: color 0.3s;">❌ Almeno un numero (0-9)</li>`;
-        if (rules.requireUpp) rulesHtml += `<li id="prof-rule-upp" style="margin-bottom: 6px; transition: color 0.3s;">❌ Almeno una lettera maiuscola (A-Z)</li>`;
-        if (rules.requireSpec) rulesHtml += `<li id="prof-rule-spec" style="margin-bottom: 6px; transition: color 0.3s;">❌ Almeno un carattere speciale (!@#...)</li>`;
-        checklistEl.innerHTML = rulesHtml;
-
-        const oldInput = document.getElementById('oldPwd');
-        const pwdInput = document.getElementById('newPwd');
-        const confirmInput = document.getElementById('confirmPwd');
-        const submitBtn = document.getElementById('profSubmitPwdBtn');
-        const errorDiv = document.getElementById('pwdMsg');
-
-        // Funzione di validazione in tempo reale
-        const validateRules = () => {
-            const val = pwdInput.value;
-            let isValid = true;
-
-            const setRuleUI = (id, condition) => {
-                const el = document.getElementById(id);
-                if (!el) return;
-                if (condition) {
-                    el.innerHTML = el.innerHTML.replace('❌', '✅');
-                    el.style.color = 'var(--success)';
-                } else {
-                    el.innerHTML = el.innerHTML.replace('✅', '❌');
-                    el.style.color = 'var(--text-muted)';
-                    isValid = false;
-                }
-            };
-
-            setRuleUI('prof-rule-len', val.length >= rules.minLength);
-            if (rules.requireNum) setRuleUI('prof-rule-num', /\d/.test(val));
-            if (rules.requireUpp) setRuleUI('prof-rule-upp', /[A-Z]/.test(val));
-            if (rules.requireSpec) setRuleUI('prof-rule-spec', /[!@#$%^&*(),.?":{}|<>]/.test(val));
-
-            const match = val !== '' && val === confirmInput.value;
-            
-            // Abilita il bottone solo se tutte le regole sono rispettate, le password coincidono, e la vecchia password è inserita
-            if (isValid && match && oldInput.value !== '') {
-                submitBtn.disabled = false;
-                submitBtn.style.background = 'var(--primary)';
-                submitBtn.style.color = 'white';
-                submitBtn.style.cursor = 'pointer';
-                errorDiv.textContent = '';
-            } else {
-                submitBtn.disabled = true;
-                submitBtn.style.background = 'var(--border)';
-                submitBtn.style.color = 'var(--text-muted)';
-                submitBtn.style.cursor = 'not-allowed';
-                if (isValid && !match && confirmInput.value !== '') {
-                    errorDiv.textContent = 'Le nuove password non coincidono.';
-                } else {
-                    errorDiv.textContent = '';
-                }
-            }
-        };
-
-        // Aggancia i listener di input
-        oldInput.addEventListener('input', validateRules);
-        pwdInput.addEventListener('input', validateRules);
-        confirmInput.addEventListener('input', validateRules);
-
-        // Gestione Invio
-        changePwdForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const oldPassword = oldInput.value;
-            const newPassword = pwdInput.value;
-
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Salvataggio...';
-
-            try {
-                const res = await fetch(`${API_URL}/users/me/password`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ oldPassword, newPassword })
-                });
-
-                if (res.ok) {
-                    changePwdForm.reset();
-                    validateRules(); // Ricalcola per spegnere il semaforo
-                    showProfSuccess('Password aggiornata con successo! La tua nuova chiave di sicurezza è ora attiva.');
-                } else {
-                    const data = await res.json();
-                    showProfError(data.message || 'Errore durante l\'aggiornamento.');
-                }
-            } catch (err) {
-                showProfError('Errore di rete di connessione al server.');
-            } finally {
-                submitBtn.textContent = 'Aggiorna Password';
-                validateRules(); // Ripristina lo stato corretto del bottone
-            }
-        });
     }
 });

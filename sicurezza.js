@@ -10,6 +10,11 @@ async function initSecurity() {
     
     const data = await res.json();
     
+    // Aggiorna la memoria locale con le regole fresche appena ricevute dal server
+    if (data.pwdRules) {
+        localStorage.setItem('pwdRules', JSON.stringify(data.pwdRules));
+    }
+
     if (res.status === 403 && data.requiresPasswordChange) {
       showPasswordCurtain();
       return false; // Ferma l'inizializzazione dell'app
