@@ -530,29 +530,32 @@
             // Unisciti alla stanza dei Captain
             captainSocket.emit('register_captain');
             
-            // Ascolta i cambiamenti di stato
+            // Ricezione della lista iniziale degli utenti online
+            captainSocket.on('initial_online_users', (onlineUserIds) => {
+                let statusChanged = false;
+                if (Array.isArray(globalUsers)) {
+                    globalUsers.forEach(u => {
+                        const isNowOnline = onlineUserIds.includes(u.id);
+                        if (u.hasActiveSession !== isNowOnline || u.isOnline !== isNowOnline) {
+                            u.hasActiveSession = isNowOnline;
+                            u.isOnline = isNowOnline;
+                            statusChanged = true;
+                        }
+                    });
+                }
+                if (statusChanged) {
+                    renderUsersTable();
+                }
+            });
+            
+            // Ascolta i cambiamenti di stato in tempo reale
             captainSocket.on('user_status_changed', (data) => {
                 const { userId, isOnline } = data;
-                
-                // Aggiorna l'array globale
                 const user = globalUsers.find(u => u.id === userId);
-                if (user) user.hasActiveSession = isOnline;
-
-                // Aggiorna direttamente il DOM senza ricaricare tutta la tabella
-                const dot = document.getElementById(`status-dot-${userId}`);
-                const text = document.getElementById(`status-text-${userId}`);
-                const kickBtn = document.getElementById(`kick-btn-${userId}`);
-                
-                if (dot && text) {
-                    dot.style.backgroundColor = isOnline ? 'var(--success)' : 'var(--border)';
-                    dot.title = isOnline ? 'Online' : 'Offline';
-                    text.style.fontWeight = isOnline ? 'bold' : 'normal';
-                    text.style.color = isOnline ? 'var(--success)' : 'var(--text-muted)';
-                    text.textContent = isOnline ? 'Attivo' : 'Inattivo';
-                }
-                
-                if (kickBtn) {
-                    kickBtn.style.display = isOnline ? 'flex' : 'none';
+                if (user) {
+                    user.hasActiveSession = isOnline;
+                    user.isOnline = isOnline;
+                    renderUsersTable();
                 }
             });
 
@@ -669,11 +672,12 @@
 
           let rowAlertClass = u.resetRequested ? 'row-pulse-alert' : '';
           let alertIcon = u.resetRequested ? '<span style="color: var(--danger); margin-left: 8px;" title="Richiesta Reset Password">🔔</span>' : '';
+          let onlineIndicator = u.isOnline ? '<span style="color: var(--success); font-size: 0.8rem; margin-left: 8px;" title="Utente Online">🟢</span>' : '<span style="color: var(--text-muted); font-size: 0.8rem; margin-left: 8px;" title="Utente Offline">⚪</span>';
 
           html += `
         <tr class="${rowAlertClass}" style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
           <td style="padding: 12px; font-weight: bold;">
-            ${u.name} ${alertIcon}
+            ${u.name} ${alertIcon} ${onlineIndicator}
             <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">${u.barcode}</div>
           </td>
           <td style="padding: 12px;">${appsHtml}</td>

@@ -1301,6 +1301,9 @@ io.on('connection', (socket) => {
     // Registrazione console Captain
     socket.on('register_captain', () => {
         socket.join('captains_room');
+        // Invia immediatamente al Captain appena connesso la lista di chi è già online
+        const onlineUsers = Array.from(activeUserSockets.keys());
+        socket.emit('initial_online_users', onlineUsers);
     });
 
     // Eventi mirati (Sipario, Kick) - DEVONO USARE io.to() E I NOMI ORIGINALI
