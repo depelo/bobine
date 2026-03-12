@@ -46,7 +46,7 @@
         <div style="font-weight: bold; color: var(--primary);">Admin: <span id="captainNameDisplay">Caricamento...</span></div>
       </div>
     </header>
-    
+
     <div class="content-area">
       <div class="data-card console-view" id="view-utenti" style="display: block;">
         <div class="data-card-header">
@@ -69,7 +69,7 @@
         <div class="card" style="max-width: 600px;">
           <h2 style="margin-top: 0; margin-bottom: 16px;">Regole Globali Password</h2>
           <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 24px;">Queste regole si applicheranno a tutti gli utenti che non hanno un'eccezione configurata nel loro profilo.</p>
-          
+
           <div class="login-field">
             <label>Lunghezza Minima Password</label>
             <input type="number" id="globalPwdMinLength" class="control" min="4" value="6" />
@@ -126,7 +126,7 @@
         <label id="adminNewPwdLabel">Password (Opzionale)</label>
         <input type="password" id="adminNewPassword" class="control" style="width:100%" autocomplete="new-password" placeholder="Default: 123456" />
       </div>
-      
+
       <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
         <input type="checkbox" id="adminNewForcePwd" style="width: 16px; height: 16px;" checked>
         <label for="adminNewForcePwd" style="margin: 0; font-size: 0.9rem; cursor: pointer;">Forza reset password al primo login</label>
@@ -148,7 +148,7 @@
 
   <div class="scanner-modal" id="userManagePanel" aria-hidden="true">
     <div class="scanner-modal-inner" style="width: 800px; max-width: 95%; height: 80vh; display: flex; flex-direction: column; padding: 0;">
-      
+
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--border); padding: 16px 20px; margin-bottom: 20px; background: var(--bg); border-radius: var(--radius) var(--radius) 0 0;">
         <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
           <div style="display: flex; flex-direction: column;">
@@ -170,7 +170,7 @@
       </div>
 
       <div style="display: flex; flex: 1; overflow: hidden;">
-        
+
         <div style="width: 220px; background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column;">
           <button class="ump-tab active" data-tab="ump-sec" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border); font-weight: bold;">🔐 1. Sicurezza (Passaporto)</button>
           <button class="ump-tab" data-tab="ump-ses" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">📡 2. Regole Password</button>
@@ -178,7 +178,7 @@
         </div>
 
         <div style="flex: 1; padding: 24px; overflow-y: auto; background: var(--bg-content);">
-          
+
           <div id="ump-sec" class="ump-content-section">
             <h3 style="margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Impostazioni Passaporto</h3>
 
@@ -224,19 +224,19 @@
                 <input type="number" id="umpPwdExpiry" class="control" min="0">
               </div>
               <div style="margin-top: 24px; border-top: 1px solid #ffe69c; padding-top: 20px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
-                
+
                 <button type="button" id="umpForcePwdNowBtn" style="background: rgb(217, 119, 6); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(217, 119, 6, 0.25);" title="Forza il cambio password immediato bloccando lo schermo" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(217, 119, 6, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(217, 119, 6, 0.25)';">
-                  <img src="images/cambio.png" alt="Cambio" style="width: 84px; height: 84px; object-fit: contain;"> 
+                  <img src="images/cambio.png" alt="Cambio" style="width: 84px; height: 84px; object-fit: contain;">
                   <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Forza Pwd<br>Ora</span>
                 </button>
 
                 <button type="button" id="umpKickUserBtn" style="background: var(--danger); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(196, 30, 30, 0.25);" title="Espelli immediatamente l'utente" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(196, 30, 30, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(196, 30, 30, 0.25)';">
-                  <img src="images/kick.png" alt="Kick" style="width: 84px; height: 84px; object-fit: contain;"> 
+                  <img src="images/kick.png" alt="Kick" style="width: 84px; height: 84px; object-fit: contain;">
                   <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Kick<br>Off</span>
                 </button>
 
                 <button type="button" id="umpDeleteUserBtn" style="background: var(--danger); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(196, 30, 30, 0.25);" title="Elimina questo utente (Soft Delete)" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(196, 30, 30, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(196, 30, 30, 0.25)';">
-                  <span style="font-size: 3rem;">🗑️</span> 
+                  <span style="font-size: 3rem;">🗑️</span>
                   <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Elimina<br>Utente</span>
                 </button>
 
@@ -253,7 +253,7 @@
 
           <div id="ump-ses" class="ump-content-section" style="display: none;">
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">Configura le eccezioni di sicurezza specifiche per questo utente.</p>
-            
+
             <div style="display: flex; align-items: center; justify-content: space-between; background: #e3eef8; padding: 12px; border-radius: 6px; border: 1px solid var(--primary); margin-bottom: 16px;">
               <label style="margin: 0; font-weight: bold; color: var(--primary-dark);">Usa Regole Globali</label>
               <input type="checkbox" id="umpUseGlobalPwd" style="transform: scale(1.3);" checked />
@@ -282,7 +282,7 @@
 
           <div id="ump-acc" class="ump-content-section" style="display: none;">
             <h3 style="margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Permessi Dipartimentali (Visti)</h3>
-            
+
             <div style="margin-top: 16px;">
               <p style="font-weight: 600; margin-bottom: 10px;">Riassegna Accessi e Ruoli:</p>
               <div id="umpEditRolesContainer" style="display: flex; flex-direction: column; gap: 8px; background: var(--bg); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);"></div>
@@ -447,7 +447,7 @@
 
     function calculateHealthIndicators(lastLoginStr, lastBarcodeStr, lastPwdStr) {
         const now = new Date();
-        
+
         let loginText = 'Mai effettuato';
         let loginColor = '🔴';
         if (lastLoginStr) {
@@ -480,8 +480,8 @@
             else { pwdColor = '🟢'; }
         }
 
-        return { 
-            loginHtml: `${loginColor} ${loginText}`, 
+        return {
+            loginHtml: `${loginColor} ${loginText}`,
             qrHtml: `${qrColor} Età QR: ${qrText}`,
             pwdHtml: `${pwdColor} ${pwdText}`
         };
@@ -571,7 +571,7 @@
             if (pendingUsers.length > 0) {
               const names = pendingUsers.map(u => u.name).join(', ');
               showCaptainError(`Ci sono ${pendingUsers.length} richieste di reset password in sospeso da:\n\n👉 ${names}\n\nCercali nell'anagrafica (sono evidenziati in rosso che pulsa), clicca su \"Gestisci\" e assegna un PIN temporaneo per sbloccarli.`);
-              
+
               // Applica stile personalizzato arancione al modale di errore
               const modalTitle = document.querySelector('#captainErrorModal .scanner-title');
               if (modalTitle) {
@@ -593,7 +593,7 @@
                 let url = '';
                 if (app.target === 'Operators') url = 'bobine.html';
                 // (Future app verranno mappate qui)
-                
+
                 if (url) {
                     const btn = document.createElement('div');
                     btn.className = 'nav-item';
@@ -607,10 +607,10 @@
         // 4. Inizializza Socket per aggiornamenti di stato in tempo reale
         if (typeof io !== 'undefined') {
             if (!captainSocket) captainSocket = io();
-            
+
             // Unisciti alla stanza dei Captain
             captainSocket.emit('register_captain');
-            
+
             // Ricezione della lista iniziale degli utenti online
             captainSocket.on('initial_online_users', (onlineUserIds) => {
                 let statusChanged = false;
@@ -628,7 +628,7 @@
                     renderUsersTable();
                 }
             });
-            
+
             // Ascolta i cambiamenti di stato in tempo reale
             captainSocket.on('user_status_changed', (data) => {
                 const { userId, isOnline } = data;
@@ -743,7 +743,7 @@
               <button id="kick-btn-${u.id}" onclick="kickUser(${u.id}, '${safeName}')" style="background:transparent; border:none; padding:0; cursor:pointer; display: ${u.hasActiveSession ? 'flex' : 'none'}; align-items:center; justify-content:center; transition: transform 0.2s;" title="Espelli Utente" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
                 <img src="images/kick.png" alt="Kick" style="width: 28px; height: 28px; border-radius: 4px;">
               </button>
-              
+
               <div style="display: flex; align-items: center; gap: 8px;">
                   <div id="status-dot-${u.id}" style="width:10px; height:10px; border-radius:50%; background-color:${u.hasActiveSession ? 'var(--success)' : 'var(--border)'};" title="${u.hasActiveSession ? 'Online' : 'Offline'}"></div>
                   <span id="status-text-${u.id}" style="font-size: 0.9rem; font-weight: ${u.hasActiveSession ? 'bold' : 'normal'}; color: ${u.hasActiveSession ? 'var(--success)' : 'var(--text-muted)'};">${u.hasActiveSession ? 'Attivo' : 'Inattivo'}</span>
@@ -778,7 +778,7 @@
 
       html += `</tbody></table></div>`;
       container.innerHTML = html;
-      
+
       // Inizializza SortableJS sul body della tabella
       const tbody = document.getElementById('usersTableBody');
       if (tbody && typeof Sortable !== 'undefined') {
@@ -1031,7 +1031,7 @@
             cb.className = 'edit-role-checkbox';
             cb.dataset.targetTable = mod.targetTable;
             cb.dataset.roleKey = roleKey;
-            
+
             // Pre-check se l'utente ha già questo ruolo in questo modulo
             if (u.apps && u.apps.some(a => a.moduleId === mod.id && a.roleKey === roleKey)) {
                 cb.checked = true;
@@ -1072,7 +1072,7 @@
         // 1. Aggiorna lo stato visivo del menu laterale
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         e.currentTarget.classList.add('active');
-        
+
         // 2. Estrai il target e aggiorna il titolo della pagina
         const target = e.currentTarget.dataset.target;
         const spans = e.currentTarget.querySelectorAll('span');
@@ -1083,7 +1083,7 @@
         document.querySelectorAll('.console-view').forEach(view => {
           view.style.display = 'none';
         });
-        
+
         const targetView = document.getElementById('view-' + target);
         if (targetView) {
           targetView.style.display = 'block';
@@ -1097,7 +1097,7 @@
       // Genera una stringa casuale sicura: prefisso UJ- + 8 caratteri alfanumerici
       const randomStr = 'UJ-' + Math.random().toString(36).substring(2, 10).toUpperCase();
       document.getElementById('adminNewBarcode').value = randomStr;
-      
+
       const qrContainer = document.getElementById('adminNewQRCodeContainer');
       qrContainer.innerHTML = '';
       if (typeof QRCode !== 'undefined') {
@@ -1197,7 +1197,7 @@
             opt.textContent = name;
             defModSelect.appendChild(opt);
         });
-        
+
         if (selectedModules.has(parseInt(currentVal, 10))) {
             defModSelect.value = currentVal;
         } else if (selectedModules.size > 0) {
@@ -1297,13 +1297,13 @@
         await apiFetch('/admin/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            name, 
-            barcode, 
-            password, 
-            forcePwdChange, 
-            defaultModuleId, 
-            roles: selectedRoles 
+          body: JSON.stringify({
+            name,
+            barcode,
+            password,
+            forcePwdChange,
+            defaultModuleId,
+            roles: selectedRoles
           })
         });
         document.getElementById('adminUserModal').classList.remove('is-open');
@@ -1489,14 +1489,14 @@
     document.getElementById('umpForcePwdNowBtn').addEventListener('click', async () => {
         const targetId = document.getElementById('umpUserId').value;
         if (!targetId) return;
-        
+
         const isConfirmed = await askCaptainConfirm('Sei sicuro di voler forzare il cambio password ADESSO? Questo bloccherà lo schermo dell\'utente con un \"Sipario di Sicurezza\", salvaguardando però il suo lavoro in corso.');
-        
+
         if (isConfirmed) {
             // Salva lo stato ForcePwdChange a 1 sul DB per evitare bypass via ricaricamento pagina
             document.getElementById('umpForcePwdChange').checked = true;
             checkUmpDirtyState();
-            document.getElementById('umpSaveBtn').click(); 
+            document.getElementById('umpSaveBtn').click();
 
             if (typeof io !== 'undefined') {
                 if (!captainSocket) captainSocket = io();
@@ -1511,9 +1511,9 @@
     document.getElementById('umpKickUserBtn').addEventListener('click', async () => {
       const userId = document.getElementById('umpUserId').value;
       const userName = document.getElementById('umpInputName').value || 'questo utente';
-      
+
       if (!userId) return;
-      
+
       await kickUser(userId, userName);
     });
 
@@ -1523,7 +1523,7 @@
         if (!userId) return;
 
         const isConfirmed = await askCaptainConfirm(`Sei sicuro di voler eliminare l'utente ${userName}?\n\nL'operazione disattiverà l'utente revocandogli gli accessi (Soft Delete), ma non distruggerà i suoi log storici.`);
-        
+
         if (isConfirmed) {
             try {
                 await apiFetch(`/admin/users/${userId}`, { method: 'DELETE' });
@@ -1531,7 +1531,7 @@
                 document.getElementById('umpCloseBtn').click(); // Chiude il modale
                 await loadData(); // Ricarica la tabella
             } catch (err) {
-                showCaptainError('Errore durante l\\'eliminazione: ' + err.message);
+                showCaptainError("Errore durante l'eliminazione: " + err.message);
             }
         }
     });
@@ -1693,4 +1693,3 @@
   </script>
 </body>
 </html>
-
