@@ -261,7 +261,24 @@ html {
 }
 
 .row-pulse-alert {
-  animation: pulse-shadow-red 2s infinite ease-in-out !important;
   position: relative;
   z-index: 10;
+}
+
+/* Opzione B: rendi l'effetto riga IDENTICO al box pwdManagementSection */
+.row-pulse-alert > td {
+  background-color: #fff1f2 !important;
+  animation: pulse-red 1.5s infinite !important;
+  outline: 2px solid #e11d48;
+  outline-offset: -2px;
+}
+
+.row-pulse-alert > td:first-child {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+
+.row-pulse-alert > td:last-child {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
 }
