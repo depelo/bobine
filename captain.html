@@ -401,6 +401,19 @@
     </div>
   </div>
 
+  <div class="scanner-modal" id="fuzzyMatchModal" aria-hidden="true">
+    <div class="scanner-modal-inner" style="width: 600px; max-width: 95%;">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px;">
+        <span style="font-size: 2rem;">⚠️</span>
+        <h2 class="scanner-title" style="color: #d97706; font-size: 1.4rem; border: none; padding: 0; margin: 0;">Utenti compatibili nell'Ossario</h2>
+      </div>
+      <div id="fuzzyMatchContainer" style="margin-bottom: 24px; font-size: 1.05rem;">
+        </div>
+      <div id="fuzzyMatchFooter" style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
+        </div>
+    </div>
+  </div>
+
   <script>
     const API_URL = '/api';
     let globalUsers = [];
@@ -1511,19 +1524,25 @@
           });
           
           if (duplicates.length > 0) {
-              const dup = duplicates[0];
-              const msg = `⚠️ ATTENZIONE: Abbiamo trovato un utente disattivato nell'Ossario che si chiama "${dup.name}".\n\nVuoi ANNULLARE la creazione e RESUSCITARE l'utente esistente per mantenere intatto il suo storico produttivo (fortemente consigliato)?\n\n- Premi CONFERMA per Resuscitare ${dup.name}.\n- Premi ANNULLA per ignorare e creare un NUOVO utente.`;
+              const choice = await askFuzzyAction(duplicates);
               
-              const isConfirmed = await askCaptainConfirm(msg);
-              if (isConfirmed) {
-                  await apiFetch(`/admin/users/${dup.id}/restore`, { method: 'PUT' });
-                  showCaptainSuccess(`${dup.name} resuscitato con successo!`);
+              if (choice === 'abort') {
+                  // Il Captain ha annullato, fermiamo la creazione senza chiudere il modale utente
+                  return; 
+              }
+              
+              if (choice && choice.action === 'restore') {
+                  // Il Captain ha scelto di resuscitare (uno o uno tra i tanti)
+                  await apiFetch(`/admin/users/${choice.id}/restore`, { method: 'PUT' });
+                  showCaptainSuccess(`${choice.name} resuscitato con successo!`);
                   document.getElementById('adminUserModal').classList.remove('is-open');
                   document.getElementById('adminUserModal').setAttribute('aria-hidden', 'true');
                   await loadData();
                   await loadDeletedUsers();
-                  return; // Interrompe la creazione del nuovo utente
+                  return; // Interrompe la creazione
               }
+              
+              // Se choice === 'create_new', non facciamo nulla e lasciamo proseguire il codice verso la POST
           }
       } catch (e) {
           console.warn('Errore durante il fuzzy check:', e);
@@ -1606,6 +1625,79 @@
 
         btnYes.addEventListener('click', () => { cleanup(); resolve(true); });
         btnNo.addEventListener('click', () => { cleanup(); resolve(false); });
+      });
+    }
+
+    function askFuzzyAction(duplicates) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('fuzzyMatchModal');
+        const container = document.getElementById('fuzzyMatchContainer');
+        const footer = document.getElementById('fuzzyMatchFooter');
+        
+        const cleanup = () => {
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+        };
+
+        if (duplicates.length === 1) {
+            const dup = duplicates[0];
+            container.innerHTML = `
+                <p>Abbiamo trovato un utente disattivato nell'Ossario che si chiama <b>"${dup.name}"</b> (Barcode: <span style="font-family:monospace;">${dup.barcode}</span>).</p>
+                <p>Vuoi resuscitare l'utente esistente per mantenere intatto il suo storico produttivo (fortemente consigliato) o creare un omonimo da zero?</p>
+            `;
+            footer.innerHTML = `
+                <button class="scanner-cancel" id="fzAbortBtn" style="margin-right: auto; background: var(--bg);">Annulla Tutto</button>
+                <button class="scanner-cancel" id="fzCreateBtn" style="background: var(--border);">Ignora e Crea Nuovo</button>
+                <button class="scanner-cancel" id="fzRestoreBtn" style="background: var(--success); color: white; border: none;">🪄 Resuscita</button>
+            `;
+            document.getElementById('fzAbortBtn').onclick = () => { cleanup(); resolve('abort'); };
+            document.getElementById('fzCreateBtn').onclick = () => { cleanup(); resolve('create_new'); };
+            document.getElementById('fzRestoreBtn').onclick = () => { cleanup(); resolve({ action: 'restore', id: dup.id, name: dup.name }); };
+        } else {
+            let tableHtml = `
+                <p>Abbiamo trovato <b>${duplicates.length}</b> utenti nell'Ossario compatibili con il nome inserito. Scegli quale resuscitare:</p>
+                <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 12px;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
+                    <thead style="background: var(--bg); position: sticky; top: 0;">
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <th style="padding: 10px;">Cognome Nome</th>
+                            <th style="padding: 10px;">Barcode</th>
+                            <th style="padding: 10px; text-align: right;">Azione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            duplicates.forEach(d => {
+                tableHtml += `
+                    <tr style="border-bottom: 1px solid #eaeaea;">
+                        <td style="padding: 10px; font-weight: bold;">${d.name}</td>
+                        <td style="padding: 10px; font-family: monospace; color: var(--text-muted);">${d.barcode}</td>
+                        <td style="padding: 10px; text-align: right;">
+                            <button type="button" class="action-btn fz-table-restore" data-id="${d.id}" data-name="${d.name}" style="background: var(--success); color: white; padding: 6px 12px; border: none; border-radius: 4px; font-size: 0.85rem;">🪄 Resuscita</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            tableHtml += `</tbody></table></div>`;
+            container.innerHTML = tableHtml;
+            
+            footer.innerHTML = `
+                <button class="scanner-cancel" id="fzAbortBtn" style="margin-right: auto; background: var(--bg);">Annulla Tutto</button>
+                <button class="scanner-cancel" id="fzCreateBtn" style="background: var(--border);">Ignora e Crea Nuovo</button>
+            `;
+            document.getElementById('fzAbortBtn').onclick = () => { cleanup(); resolve('abort'); };
+            document.getElementById('fzCreateBtn').onclick = () => { cleanup(); resolve('create_new'); };
+            
+            modal.querySelectorAll('.fz-table-restore').forEach(btn => {
+                btn.onclick = () => {
+                    cleanup();
+                    resolve({ action: 'restore', id: btn.dataset.id, name: btn.dataset.name });
+                };
+            });
+        }
+        
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
       });
     }
 
