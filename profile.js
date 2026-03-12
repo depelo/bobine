@@ -13,12 +13,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const container = document.getElementById('profMainContainer');
         if (container) {
             container.style.boxShadow = 'none';
-            container.style.margin = '0 auto';
-            container.style.paddingTop = '16px';
+            container.style.margin = '0';
+            container.style.padding = '0';
+            container.style.maxWidth = '100%';
+            container.style.width = '100%';
+            container.style.border = 'none';
         }
         
-        // Rendi lo sfondo trasparente per ereditare quello del Captain
+        // Rendi lo sfondo trasparente e pulisci il body per ereditare quello del Captain
         document.body.style.background = 'transparent';
+        document.body.style.padding = '0';
+        document.body.style.margin = '0';
     }
 });
 // --------------------------------
@@ -146,13 +151,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentUser = null;
 
     // Gestione tasto Indietro
-    document.getElementById('btnGoBack').addEventListener('click', () => {
-        if (currentUser && currentUser.defaultModuleId === 2) {
-            window.location.href = '/captain.html';
-        } else {
-            window.location.href = '/bobine.html';
-        }
-    });
+    const goBackBtn = document.getElementById('profBackBtn');
+    if (goBackBtn) {
+        goBackBtn.addEventListener('click', () => {
+            if (currentUser && currentUser.defaultModuleId === 2) {
+                window.location.href = '/captain.html';
+            } else {
+                window.location.href = '/bobine.html';
+            }
+        });
+    }
 
     // 1. Caricamento dati utente
     try {
