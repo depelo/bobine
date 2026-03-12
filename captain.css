@@ -2,6 +2,7 @@
 :root {
   --primary: #2563a8;
   --primary-dark: #1a4d82;
+  --primary-light: #dbeafe;
   --bg: #f0f2f5;
   --bg-content: #fff;
   --text: #0d0d0d;
@@ -291,4 +292,15 @@ html {
     inset 0 -2px 0 0 #e11d48;
   border-top-right-radius: 6px;
   border-bottom-right-radius: 6px;
+}
+
+/* Effetto Drag & Drop Tabella Utenti */
+.sortable-ghost {
+  opacity: 0.4;
+  background-color: var(--primary-light) !important;
+}
+
+.drag-handle:active {
+  cursor: grabbing !important;
+  color: var(--primary) !important;
 }

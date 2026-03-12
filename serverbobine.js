@@ -293,10 +293,11 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
                    PwdMinLengthOverride as pwdMinLengthOverride,
                    PwdRequireNumberOverride as pwdRequireNumberOverride,
                    PwdRequireUpperOverride as pwdRequireUpperOverride,
-                   PwdRequireSpecialOverride as pwdRequireSpecialOverride
+                   PwdRequireSpecialOverride as pwdRequireSpecialOverride,
+                   SortOrder as sortOrder
             FROM [CMP].[dbo].[Users]
             WHERE IsActive = 1
-            ORDER BY Name ASC
+            ORDER BY SortOrder ASC, Name ASC
         `);
         let users = usersRes.recordset.map(u => ({
             ...u,
@@ -672,6 +673,32 @@ app.delete('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
             .input('idUser', sql.Int, idUser)
             .query(`UPDATE [CMP].[dbo].[Users] SET IsActive = 0 WHERE IDUser = @idUser`);
         res.status(200).json({ message: 'Utente disattivato logicamente.' });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// 6. Salvataggio ordine personalizzato utenti (Drag & Drop)
+app.put('/api/admin/users/reorder', authenticateCaptain, async (req, res) => {
+    const { orderedIds } = req.body; // Array di ID in ordine
+    if (!orderedIds || !Array.isArray(orderedIds)) return res.status(400).send('Array orderedIds non valido');
+    try {
+        let pool = await sql.connect(dbConfig);
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        try {
+            for (let i = 0; i < orderedIds.length; i++) {
+                const reqSort = new sql.Request(transaction);
+                reqSort.input('id', sql.Int, orderedIds[i]);
+                reqSort.input('sort', sql.Int, i);
+                await reqSort.query(`UPDATE [CMP].[dbo].[Users] SET SortOrder = @sort WHERE IDUser = @id`);
+            }
+            await transaction.commit();
+            res.status(200).json({ message: 'Ordine aggiornato' });
+        } catch (txErr) {
+            await transaction.rollback();
+            throw txErr;
+        }
     } catch (err) {
         res.status(500).send(err.message);
     }

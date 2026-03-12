@@ -8,6 +8,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="sicurezza.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
   <style>
     .ump-tab.active {
       background: var(--bg-content);
@@ -705,7 +706,7 @@
                 <th style="padding: 12px; color: var(--text-muted); text-align: right;">Azioni</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="usersTableBody">
       `;
 
       if (globalUsers.length === 0) {
@@ -742,12 +743,17 @@
 
           let rowAlertClass = u.resetRequested ? 'row-pulse-alert' : '';
           let alertIcon = u.resetRequested ? '<span style="color: var(--danger); margin-left: 8px;" title="Richiesta Reset Password">🔔</span>' : '';
+          const hasPwdOverride = u.pwdMinLengthOverride !== null || u.pwdRequireNumberOverride !== null || u.pwdRequireUpperOverride !== null || u.pwdRequireSpecialOverride !== null;
+          let keyIcon = hasPwdOverride ? '<span style="font-size: 1rem; margin-left: 8px; cursor: help;" title="Questo utente ha eccezioni personalizzate per le regole della password">🔑</span>' : '';
 
           html += `
-        <tr class="${rowAlertClass}" style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
-          <td style="padding: 12px; font-weight: bold;">
-            ${u.name} ${alertIcon}
-            <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">${u.barcode}</div>
+        <tr class="${rowAlertClass}" data-id="${u.id}" style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+          <td style="padding: 12px; font-weight: bold; display: flex; align-items: center; gap: 12px;">
+            <span class="drag-handle" style="cursor: grab; color: var(--text-muted); font-size: 1.4rem; line-height: 1;" title="Trascina per riordinare">☰</span>
+            <div>
+              ${u.name} ${alertIcon} ${keyIcon}
+              <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">${u.barcode}</div>
+            </div>
           </td>
           <td style="padding: 12px;">${appsHtml}</td>
           <td style="padding: 12px;">${rolesHtml}</td>
@@ -762,6 +768,31 @@
 
       html += `</tbody></table></div>`;
       container.innerHTML = html;
+      
+      // Inizializza SortableJS sul body della tabella
+      const tbody = document.getElementById('usersTableBody');
+      if (tbody && typeof Sortable !== 'undefined') {
+          new Sortable(tbody, {
+              handle: '.drag-handle',
+              animation: 150,
+              ghostClass: 'sortable-ghost',
+              onEnd: async function () {
+                  const rows = tbody.querySelectorAll('tr[data-id]');
+                  const orderedIds = Array.from(rows).map(r => parseInt(r.getAttribute('data-id'), 10));
+
+                  try {
+                      await apiFetch('/admin/users/reorder', {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ orderedIds })
+                      });
+                  } catch (err) {
+                      showCaptainError('Errore durante il salvataggio del nuovo ordine.');
+                      loadData();
+                  }
+              }
+          });
+      }
     }
 
     function renderModulesCards() {
