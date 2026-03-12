@@ -22,6 +22,7 @@
     <nav class="sidebar-nav">
       <div class="nav-item active" data-target="utenti"><span style="font-size: 1.3rem; margin-bottom: 2px;">👥</span><span>Utenti</span></div>
       <div class="nav-item" data-target="moduli"><span style="font-size: 1.3rem; margin-bottom: 2px;">🧩</span><span>Accessi</span></div>
+      <div class="nav-item" data-target="impostazioni"><span style="font-size: 1.3rem; margin-bottom: 2px;">⚙️</span><span>Impostazioni</span></div>
       <div class="nav-item" onclick="window.location.href='/profile.html'"><span style="font-size: 1.3rem; margin-bottom: 2px;">👤</span><span>Profilo</span></div>
     </nav>
     <div id="captainAppSwitcher" style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 16px; flex-shrink: 0;">
@@ -60,6 +61,31 @@
           <p style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">Gestisci le App attive e i ruoli interni disponibili per l'assegnazione.</p>
         </div>
         <div id="modulesContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+        </div>
+      </div>
+
+      <div class="console-view" id="view-impostazioni" style="display: none;">
+        <div class="card" style="max-width: 600px;">
+          <h2 style="margin-top: 0; margin-bottom: 16px;">Regole Globali Password</h2>
+          <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 24px;">Queste regole si applicheranno a tutti gli utenti che non hanno un'eccezione configurata nel loro profilo.</p>
+          
+          <div class="login-field">
+            <label>Lunghezza Minima Password</label>
+            <input type="number" id="globalPwdMinLength" class="control" min="4" value="6" />
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
+            <label style="margin: 0;">Richiedi almeno un Numero (0-9)</label>
+            <input type="checkbox" id="globalPwdReqNum" style="transform: scale(1.2);" />
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
+            <label style="margin: 0;">Richiedi almeno una Lettera Maiuscola</label>
+            <input type="checkbox" id="globalPwdReqUpp" style="transform: scale(1.2);" />
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+            <label style="margin: 0;">Richiedi almeno un Carattere Speciale (!@#$)</label>
+            <input type="checkbox" id="globalPwdReqSpec" style="transform: scale(1.2);" />
+          </div>
+          <button class="action-btn" id="saveGlobalConfigBtn" style="background: var(--primary); width: 100%;">Salva Impostazioni Globali</button>
         </div>
       </div>
 
@@ -143,7 +169,7 @@
         
         <div style="width: 220px; background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column;">
           <button class="ump-tab active" data-tab="ump-sec" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border); font-weight: bold;">🔐 1. Sicurezza (Passaporto)</button>
-          <button class="ump-tab" data-tab="ump-ses" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">📡 2. Sessioni (Radar)</button>
+          <button class="ump-tab" data-tab="ump-ses" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">📡 2. Regole Password</button>
           <button class="ump-tab" data-tab="ump-acc" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">🛂 3. Permessi (Visti)</button>
         </div>
 
@@ -219,8 +245,32 @@
           </div>
 
           <div id="ump-ses" class="ump-content-section" style="display: none;">
-            <h3>Controllo Sessioni Attive</h3>
-            <p>Funzionalità in arrivo...</p>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">Configura le eccezioni di sicurezza specifiche per questo utente.</p>
+            
+            <div style="display: flex; align-items: center; justify-content: space-between; background: #e3eef8; padding: 12px; border-radius: 6px; border: 1px solid var(--primary); margin-bottom: 16px;">
+              <label style="margin: 0; font-weight: bold; color: var(--primary-dark);">Usa Regole Globali</label>
+              <input type="checkbox" id="umpUseGlobalPwd" style="transform: scale(1.3);" checked />
+            </div>
+
+            <div id="umpOverrideSettings" style="display: none; background: #fff1f2; padding: 16px; border-radius: 6px; border: 1px solid var(--danger);">
+              <div style="color: var(--danger); font-size: 0.85rem; font-weight: bold; margin-bottom: 12px;">⚠️ Eccezione Attiva</div>
+              <div class="login-field">
+                <label>Lunghezza Minima</label>
+                <input type="number" id="umpPwdMinLen" class="control" min="1" placeholder="Es. 4" />
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <label style="margin: 0;">Richiedi Numero</label>
+                <input type="checkbox" id="umpPwdReqNum" />
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <label style="margin: 0;">Richiedi Maiuscola</label>
+                <input type="checkbox" id="umpPwdReqUpp" />
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <label style="margin: 0;">Richiedi C. Speciale</label>
+                <input type="checkbox" id="umpPwdReqSpec" />
+              </div>
+            </div>
           </div>
 
           <div id="ump-acc" class="ump-content-section" style="display: none;">
@@ -310,6 +360,7 @@
     let globalUsers = [];
     let globalModules = [];
     let allModules = [];
+    let globalConfig = [];
     let captainSocket = null;
 
     // Utility per chiamate API protette
@@ -323,6 +374,55 @@
       }
       if (!res.ok) throw new Error(await res.text());
       return res.json();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const useGlobalCheck = document.getElementById('umpUseGlobalPwd');
+        if(useGlobalCheck) {
+            useGlobalCheck.addEventListener('change', (e) => {
+                document.getElementById('umpOverrideSettings').style.display = e.target.checked ? 'none' : 'block';
+            });
+        }
+    });
+
+    function populateGlobalConfigView() {
+        const getVal = (key, def) => {
+            const row = globalConfig.find(c => c.ConfigKey === key);
+            return row && row.ConfigValue !== null ? row.ConfigValue : def;
+        };
+        const minLenEl = document.getElementById('globalPwdMinLength');
+        const reqNumEl = document.getElementById('globalPwdReqNum');
+        const reqUppEl = document.getElementById('globalPwdReqUpp');
+        const reqSpecEl = document.getElementById('globalPwdReqSpec');
+        if (!minLenEl || !reqNumEl || !reqUppEl || !reqSpecEl) return;
+
+        minLenEl.value = getVal('PwdMinLength', '6');
+        reqNumEl.checked = getVal('PwdRequireNumber', '1') === '1';
+        reqUppEl.checked = getVal('PwdRequireUpper', '0') === '1';
+        reqSpecEl.checked = getVal('PwdRequireSpecial', '0') === '1';
+    }
+
+    const saveGlobalBtn = document.getElementById('saveGlobalConfigBtn');
+    if (saveGlobalBtn) {
+      saveGlobalBtn.addEventListener('click', async () => {
+          const payload = [
+              { key: 'PwdMinLength', value: document.getElementById('globalPwdMinLength').value },
+              { key: 'PwdRequireNumber', value: document.getElementById('globalPwdReqNum').checked ? '1' : '0' },
+              { key: 'PwdRequireUpper', value: document.getElementById('globalPwdReqUpp').checked ? '1' : '0' },
+              { key: 'PwdRequireSpecial', value: document.getElementById('globalPwdReqSpec').checked ? '1' : '0' }
+          ];
+          try {
+              await apiFetch('/admin/config', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+              });
+              showCaptainSuccess('Impostazioni globali salvate con successo.');
+              await loadData();
+          } catch(e) {
+              showCaptainError('Errore salvataggio: ' + e.message);
+          }
+      });
     }
 
     function calculateHealthIndicators(lastLoginStr, lastBarcodeStr, lastPwdStr) {
@@ -494,6 +594,9 @@
         renderUsersTable();
         renderModulesCards();
         await loadModules();
+
+        globalConfig = await apiFetch('/admin/config');
+        populateGlobalConfigView();
       } catch (err) {
         console.error('Errore nel caricamento dei dati Admin:', err);
       }
@@ -680,6 +783,25 @@
 
       const u = globalUsers.find(x => x.id === id);
       if (!u) return;
+
+      const hasOverride = u.pwdMinLengthOverride !== null || u.pwdRequireNumberOverride !== null || u.pwdRequireUpperOverride !== null || u.pwdRequireSpecialOverride !== null;
+      
+      const useGlobalEl = document.getElementById('umpUseGlobalPwd');
+      const overrideBoxEl = document.getElementById('umpOverrideSettings');
+      if (useGlobalEl && overrideBoxEl) {
+        useGlobalEl.checked = !hasOverride;
+        overrideBoxEl.style.display = hasOverride ? 'block' : 'none';
+      }
+      
+      const minLenEl = document.getElementById('umpPwdMinLen');
+      const reqNumEl = document.getElementById('umpPwdReqNum');
+      const reqUppEl = document.getElementById('umpPwdReqUpp');
+      const reqSpecEl = document.getElementById('umpPwdReqSpec');
+      if (minLenEl) minLenEl.value = u.pwdMinLengthOverride !== null ? u.pwdMinLengthOverride : '';
+      if (reqNumEl) reqNumEl.checked = u.pwdRequireNumberOverride === true;
+      if (reqUppEl) reqUppEl.checked = u.pwdRequireUpperOverride === true;
+      if (reqSpecEl) reqSpecEl.checked = u.pwdRequireSpecialOverride === true;
+
       document.getElementById('umpUserName').textContent = u.name;
       document.getElementById('umpUserBarcode').textContent = u.barcode;
       document.getElementById('umpUserId').value = u.id;
@@ -1142,6 +1264,7 @@
       const forcePwdChange = document.getElementById('umpForcePwdChange').checked;
       const pwdExpiryVal = document.getElementById('umpPwdExpiry').value.trim();
       const pwdExpiryDaysOverride = pwdExpiryVal === '' ? null : parseInt(pwdExpiryVal, 10);
+      const useGlobal = document.getElementById('umpUseGlobalPwd') ? document.getElementById('umpUseGlobalPwd').checked : true;
 
       const currentBarcode = document.getElementById('umpInputBarcode').value.trim();
       if (currentBarcode !== originalEditBarcode) {
@@ -1163,7 +1286,11 @@
             password: password || undefined,
             forcePwdChange,
             pwdExpiryDaysOverride,
-            defaultModuleId
+            defaultModuleId,
+            pwdMinLengthOverride: useGlobal ? null : document.getElementById('umpPwdMinLen').value,
+            pwdRequireNumberOverride: useGlobal ? null : document.getElementById('umpPwdReqNum').checked,
+            pwdRequireUpperOverride: useGlobal ? null : document.getElementById('umpPwdReqUpp').checked,
+            pwdRequireSpecialOverride: useGlobal ? null : document.getElementById('umpPwdReqSpec').checked
           })
         });
         if (res.status === 401 || res.status === 403) {

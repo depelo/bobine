@@ -245,7 +245,11 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
                    LastLogin as LastLogin,
                    LastBarcodeChange as LastBarcodeChange,
                    DefaultModuleID,
-                   ResetRequested as resetRequested
+                   ResetRequested as resetRequested,
+                   PwdMinLengthOverride as pwdMinLengthOverride,
+                   PwdRequireNumberOverride as pwdRequireNumberOverride,
+                   PwdRequireUpperOverride as pwdRequireUpperOverride,
+                   PwdRequireSpecialOverride as pwdRequireSpecialOverride
             FROM [CMP].[dbo].[Users]
             WHERE IsActive = 1
             ORDER BY Name ASC
@@ -254,6 +258,9 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
             ...u,
             forcePwdChange: !!u.forcePwdChange && u.forcePwdChange !== 0 && u.forcePwdChange !== '0',
             resetRequested: !!u.resetRequested && u.resetRequested !== 0 && u.resetRequested !== '0',
+            pwdRequireNumberOverride: u.pwdRequireNumberOverride === null || u.pwdRequireNumberOverride === undefined ? null : (!!u.pwdRequireNumberOverride && u.pwdRequireNumberOverride !== 0 && u.pwdRequireNumberOverride !== '0'),
+            pwdRequireUpperOverride: u.pwdRequireUpperOverride === null || u.pwdRequireUpperOverride === undefined ? null : (!!u.pwdRequireUpperOverride && u.pwdRequireUpperOverride !== 0 && u.pwdRequireUpperOverride !== '0'),
+            pwdRequireSpecialOverride: u.pwdRequireSpecialOverride === null || u.pwdRequireSpecialOverride === undefined ? null : (!!u.pwdRequireSpecialOverride && u.pwdRequireSpecialOverride !== 0 && u.pwdRequireSpecialOverride !== '0'),
             defaultModuleId: u.DefaultModuleID,
             lastLogin: u.LastLogin,
             lastBarcodeChange: u.LastBarcodeChange,
@@ -327,7 +334,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
 // 2. Aggiorna utente (identità e sicurezza - Passaporto)
 app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
     const id = parseInt(req.params.id, 10);
-    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride, defaultModuleId } = req.body;
+    const { name, barcode, password, forcePwdChange, pwdExpiryDaysOverride, defaultModuleId, pwdMinLengthOverride, pwdRequireNumberOverride, pwdRequireUpperOverride, pwdRequireSpecialOverride } = req.body;
 
     try {
         let pool = await sql.connect(dbConfig);
@@ -349,6 +356,10 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
         request.input('forcePwdChange', sql.Bit, forcePwdChange ? 1 : 0);
         request.input('pwdExpiry', sql.Int, pwdExpiryDaysOverride ? parseInt(pwdExpiryDaysOverride, 10) : null);
         request.input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null);
+        request.input('pwdMinLength', sql.Int, pwdMinLengthOverride !== '' && pwdMinLengthOverride !== null && pwdMinLengthOverride !== undefined ? parseInt(pwdMinLengthOverride, 10) : null);
+        request.input('pwdReqNum', sql.Bit, pwdRequireNumberOverride !== null && pwdRequireNumberOverride !== undefined ? (pwdRequireNumberOverride ? 1 : 0) : null);
+        request.input('pwdReqUpp', sql.Bit, pwdRequireUpperOverride !== null && pwdRequireUpperOverride !== undefined ? (pwdRequireUpperOverride ? 1 : 0) : null);
+        request.input('pwdReqSpec', sql.Bit, pwdRequireSpecialOverride !== null && pwdRequireSpecialOverride !== undefined ? (pwdRequireSpecialOverride ? 1 : 0) : null);
 
         let updateQuery = `
             UPDATE [CMP].[dbo].[Users] 
@@ -357,7 +368,11 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
                 ForcePwdChange = @forcePwdChange,
                 PwdExpiryDaysOverride = @pwdExpiry,
                 DefaultModuleID = @defaultModuleId,
-                ResetRequested = 0
+                ResetRequested = 0,
+                PwdMinLengthOverride = @pwdMinLength,
+                PwdRequireNumberOverride = @pwdReqNum,
+                PwdRequireUpperOverride = @pwdReqUpp,
+                PwdRequireSpecialOverride = @pwdReqSpec
         `;
 
         if (password && password.trim() !== '') {

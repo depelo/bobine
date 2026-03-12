@@ -18,6 +18,7 @@ Il sistema ospita molteplici app dipartimentali mantenendo una singola base di i
 - **Overrides di Sicurezza (Eccezioni per utente):**
   - `SessionHoursOverride` / `PwdExpiryDaysOverride`: Sovrascrivono i valori globali di SystemConfig.
   - `ForcePwdChange` (BIT): Se 1, blocca l'utente al login finché non cambia password (usato per le password temporanee del Captain).
+- **Eccezioni Regole Password (Overrides):** `PwdMinLengthOverride` (INT), `PwdRequireNumberOverride` (BIT), `PwdRequireUpperOverride` (BIT), `PwdRequireSpecialOverride` (BIT). Se NULL, il sistema applica le regole globali di SystemConfig. Se valorizzati, sovrascrivono i requisiti di complessità della password per il singolo utente.
 **Tracciamento di Salute Credenziali:**
   - `LastLogin` (DATETIME): Timestamp dell'ultimo login effettivo dell'utente (aggiornato da `POST /api/login`).
   - `LastBarcodeChange` (DATETIME): Timestamp dell'ultima rigenerazione del Barcode/QR Code di login (aggiornato in creazione utente e in modifica solo se il QR viene cambiato).
@@ -59,7 +60,7 @@ Anagrafica dei macchinari di produzione. `IDMachine`, `Machine`, `Barcode` (per 
 
 ### 2.3 Tabella [dbo].[SystemConfig]
 Dizionario Key/Value per le configurazioni dinamiche (modificabili dal Captain a runtime). 
-Valori: `AdminPwdExpiryDays`, `AdminSessionHours`, `OpDeleteMaxRecords`, `OpDeleteMaxHours`.
+Valori: `AdminPwdExpiryDays`, `AdminSessionHours`, `OpDeleteMaxRecords`, `OpDeleteMaxHours`. Nuove regole password: PwdMinLength, PwdRequireNumber, PwdRequireUpper, PwdRequireSpecial.
 *(Per aggiungere parametri, si inserisce una nuova riga, non una nuova colonna).*
 
 ## 3. Logica di Business e Stored Procedures
