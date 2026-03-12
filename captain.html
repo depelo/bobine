@@ -103,7 +103,7 @@
       <p class="scanner-title">Nuovo Utente (Passaporto & Visti)</p>
 
       <div class="login-field">
-        <label>Nome Completo</label>
+        <label>Cognome Nome</label>
         <input type="text" id="adminNewName" class="control" style="width:100%" autocomplete="off" />
       </div>
 
@@ -185,7 +185,7 @@
             <input type="hidden" id="umpUserId">
 
             <div class="login-field">
-              <label>Nome Completo</label>
+              <label>Cognome Nome</label>
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="umpInputName" class="control" readonly style="background-color: var(--bg); color: var(--text-muted); flex: 1;">
                 <button type="button" class="icon-btn edit-toggle-btn" data-target="umpInputName" title="Sblocca modifica" style="border-radius: var(--radius); min-width: 44px; font-size: 1.2rem;">✏️</button>
@@ -233,6 +233,11 @@
                 <button type="button" id="umpKickUserBtn" style="background: var(--danger); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(196, 30, 30, 0.25);" title="Espelli immediatamente l'utente" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(196, 30, 30, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(196, 30, 30, 0.25)';">
                   <img src="images/kick.png" alt="Kick" style="width: 84px; height: 84px; object-fit: contain;"> 
                   <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Kick<br>Off</span>
+                </button>
+
+                <button type="button" id="umpDeleteUserBtn" style="background: var(--danger); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(196, 30, 30, 0.25);" title="Elimina questo utente (Soft Delete)" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(196, 30, 30, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(196, 30, 30, 0.25)';">
+                  <span style="font-size: 3rem;">🗑️</span> 
+                  <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Elimina<br>Utente</span>
                 </button>
 
               </div>
@@ -506,7 +511,12 @@
             pwdMinLen: minLenEl ? minLenEl.value : '',
             pwdReqNum: reqNumEl ? reqNumEl.checked : false,
             pwdReqUpp: reqUppEl ? reqUppEl.checked : false,
-            pwdReqSpec: reqSpecEl ? reqSpecEl.checked : false
+            pwdReqSpec: reqSpecEl ? reqSpecEl.checked : false,
+            // Traccia i ruoli spuntati per intercettare i cambi di permessi
+            roles: Array.from(document.querySelectorAll('.edit-role-checkbox:checked'))
+                .map(cb => cb.dataset.targetTable + '-' + cb.dataset.roleKey)
+                .sort()
+                .join(',')
         };
     }
 
@@ -699,7 +709,7 @@
           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
             <thead>
               <tr style="border-bottom: 2px solid var(--border);">
-                <th style="padding: 12px; color: var(--text-muted);">Nome</th>
+                <th style="padding: 12px; color: var(--text-muted);">Cognome Nome</th>
                 <th style="padding: 12px; color: var(--text-muted);">App</th>
                 <th style="padding: 12px; color: var(--text-muted);">Ruolo</th>
                 <th style="padding: 12px; color: var(--text-muted);">Stato Sessione</th>
@@ -786,9 +796,11 @@
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ orderedIds })
                       });
+                      // Fondamentale: Ricarica i dati per allineare l'array globalUsers in RAM col DB
+                      await loadData();
                   } catch (err) {
-                      showCaptainError('Errore durante il salvataggio del nuovo ordine.');
-                      loadData();
+                      showCaptainError('Errore durante il salvataggio del nuovo ordine: ' + err.message);
+                      await loadData(); // Ricarica per annullare lo spostamento visivo errato
                   }
               }
           });
@@ -1125,6 +1137,7 @@
       const randomStr = 'UJ-' + Math.random().toString(36).substring(2, 10).toUpperCase();
       document.getElementById('umpInputBarcode').value = randomStr;
       drawEditUserQR(randomStr);
+      checkUmpDirtyState(); // Attiva il tasto Salva
     });
 
     document.getElementById('umpPrintQRBtn').addEventListener('click', () => {
@@ -1502,6 +1515,25 @@
       if (!userId) return;
       
       await kickUser(userId, userName);
+    });
+
+    document.getElementById('umpDeleteUserBtn').addEventListener('click', async () => {
+        const userId = document.getElementById('umpUserId').value;
+        const userName = document.getElementById('umpInputName').value;
+        if (!userId) return;
+
+        const isConfirmed = await askCaptainConfirm(`Sei sicuro di voler eliminare l'utente ${userName}?\n\nL'operazione disattiverà l'utente revocandogli gli accessi (Soft Delete), ma non distruggerà i suoi log storici.`);
+        
+        if (isConfirmed) {
+            try {
+                await apiFetch(`/admin/users/${userId}`, { method: 'DELETE' });
+                showCaptainSuccess(`L'utente ${userName} è stato eliminato.`);
+                document.getElementById('umpCloseBtn').click(); // Chiude il modale
+                await loadData(); // Ricarica la tabella
+            } catch (err) {
+                showCaptainError('Errore durante l\\'eliminazione: ' + err.message);
+            }
+        }
     });
 
     // Modale Modifica App (RoleDefinition)

@@ -112,3 +112,9 @@ Combinando `DefaultModuleID` con la lista di moduli autorizzati, `sicurezza.js` 
 - Calcolare il redirect iniziale post-login.
 - Validare la navigazione cross-modulo nella Meta-App.
 - Applicare in modo coerente le politiche di sicurezza globali su tutte le app operative.
+
+## 5. Architettura Primary Keys e Database
+**Gestione Primary Keys (IDENTITY):**
+Tutte le tabelle principali del sistema (`[dbo].[Users]`, `[Bobine].[Operators]`, `[Captain].[Captains]`, `[Bobine].[Log]`, `[Bobine].[Machines]`) utilizzano la proprietà `IDENTITY (1,1)` di SQL Server per l'auto-incremento nativo delle chiavi primarie. 
+
+**Regola di Sviluppo Inviolabile:** Il codice backend (Node.js) NON DEVE MAI calcolare gli ID manualmente (assolutamente vietato l'uso di pattern come `MAX(ID) + 1`) e NON DEVE MAI includere le colonne identificative (es. `IDUser`, `IDLog`) nelle query di `INSERT`. Il database gestisce l'assegnazione atomica degli ID in totale autonomia, garantendo l'assenza di race-conditions.
