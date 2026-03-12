@@ -1704,6 +1704,17 @@
       tbody.innerHTML = '';
 
       const roles = mod.roleDefinition || {};
+
+      // Recupero i valori globali per mostrarli nei placeholder dei ruoli
+      const globSession = (() => {
+        const row = globalConfig.find(c => c.ConfigKey === 'SessionHours');
+        return row && row.ConfigValue !== null ? row.ConfigValue : '12';
+      })();
+      const globExpiry = (() => {
+        const row = globalConfig.find(c => c.ConfigKey === 'PwdExpiryDays');
+        return row && row.ConfigValue !== null ? row.ConfigValue : '90';
+      })();
+
       for (const [key, config] of Object.entries(roles)) {
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px solid var(--bg)';
@@ -1713,8 +1724,8 @@
             <td style="padding: 8px; font-family: monospace; color: var(--text-muted);">${esc(key)}</td>
             <td style="padding: 8px;"><input type="text" class="control role-label" data-key="${esc(key)}" value="${labelVal}" style="padding: 4px;"></td>
             <td style="padding: 8px; text-align: center;"><input type="checkbox" class="role-reqpwd" data-key="${esc(key)}" ${config.requiresPassword ? 'checked' : ''} style="width:18px; height:18px;"></td>
-            <td style="padding: 8px;"><input type="number" class="control role-ses" data-key="${esc(key)}" value="${config.sessionHours ?? ''}" min="1" placeholder="Global" style="padding: 4px;"></td>
-            <td style="padding: 8px;"><input type="number" class="control role-pwd" data-key="${esc(key)}" value="${config.pwdExpiryDays ?? ''}" min="1" placeholder="Global" style="padding: 4px;"></td>
+            <td style="padding: 8px;"><input type="number" class="control role-ses" data-key="${esc(key)}" value="${config.sessionHours ?? ''}" min="1" placeholder="🌐 ${globSession}" title="Valore globale predefinito: ${globSession} ore" style="padding: 4px; width: 100px;"></td>
+            <td style="padding: 8px;"><input type="number" class="control role-pwd" data-key="${esc(key)}" value="${config.pwdExpiryDays ?? ''}" min="1" placeholder="🌐 ${globExpiry}" title="Valore globale predefinito: ${globExpiry} giorni" style="padding: 4px; width: 100px;"></td>
         `;
         tbody.appendChild(tr);
       }
