@@ -672,12 +672,11 @@
 
           let rowAlertClass = u.resetRequested ? 'row-pulse-alert' : '';
           let alertIcon = u.resetRequested ? '<span style="color: var(--danger); margin-left: 8px;" title="Richiesta Reset Password">🔔</span>' : '';
-          let onlineIndicator = u.isOnline ? '<span style="color: var(--success); font-size: 0.8rem; margin-left: 8px;" title="Utente Online">🟢</span>' : '';
 
           html += `
         <tr class="${rowAlertClass}" style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
           <td style="padding: 12px; font-weight: bold;">
-            ${u.name} ${alertIcon} ${onlineIndicator}
+            ${u.name} ${alertIcon}
             <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">${u.barcode}</div>
           </td>
           <td style="padding: 12px;">${appsHtml}</td>
