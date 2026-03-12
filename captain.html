@@ -71,19 +71,19 @@
           <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 24px;">Queste regole si applicheranno a tutti gli utenti che non hanno un'eccezione configurata nel loro profilo.</p>
 
           <div class="login-field">
-            <label>Lunghezza Minima Password</label>
+            <label for="globalPwdMinLength">Lunghezza Minima Password</label>
             <input type="number" id="globalPwdMinLength" class="control" min="4" value="6" />
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
-            <label style="margin: 0;">Richiedi almeno un Numero (0-9)</label>
+            <label for="globalPwdReqNum" style="margin: 0;">Richiedi almeno un Numero (0-9)</label>
             <input type="checkbox" id="globalPwdReqNum" style="transform: scale(1.2);" />
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
-            <label style="margin: 0;">Richiedi almeno una Lettera Maiuscola</label>
+            <label for="globalPwdReqUpp" style="margin: 0;">Richiedi almeno una Lettera Maiuscola</label>
             <input type="checkbox" id="globalPwdReqUpp" style="transform: scale(1.2);" />
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
-            <label style="margin: 0;">Richiedi almeno un Carattere Speciale (!@#$)</label>
+            <label for="globalPwdReqSpec" style="margin: 0;">Richiedi almeno un Carattere Speciale (!@#$)</label>
             <input type="checkbox" id="globalPwdReqSpec" style="transform: scale(1.2);" />
           </div>
           <button class="action-btn" id="saveGlobalConfigBtn" style="background: var(--primary); width: 100%;">Salva Impostazioni Globali</button>
@@ -103,7 +103,7 @@
       <p class="scanner-title">Nuovo Utente (Passaporto & Visti)</p>
 
       <div class="login-field">
-        <label>Cognome Nome</label>
+        <label for="adminNewName">Cognome Nome</label>
         <input type="text" id="adminNewName" class="control" style="width:100%" autocomplete="off" />
       </div>
 
@@ -185,7 +185,7 @@
             <input type="hidden" id="umpUserId">
 
             <div class="login-field">
-              <label>Cognome Nome</label>
+              <label for="umpInputName">Cognome Nome</label>
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="umpInputName" class="control" readonly style="background-color: var(--bg); color: var(--text-muted); flex: 1;">
                 <button type="button" class="icon-btn edit-toggle-btn" data-target="umpInputName" title="Sblocca modifica" style="border-radius: var(--radius); min-width: 44px; font-size: 1.2rem;">✏️</button>
@@ -212,7 +212,7 @@
               <div id="umpPwdHealthDisplay" style="font-size: 0.85rem; margin-top: 6px; font-weight: 600; color: #664d03;">-</div>
 
               <div class="login-field">
-                <label>Nuova Password (lascia vuoto per non modificare)</label>
+              <label for="umpInputPwd">Nuova Password (lascia vuoto per non modificare)</label>
                 <input type="password" id="umpInputPwd" class="control" autocomplete="new-password">
               </div>
               <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
@@ -220,7 +220,7 @@
                 <label for="umpForcePwdChange" style="margin: 0; font-weight: bold; cursor: pointer;">Forza reset password al prossimo login</label>
               </div>
               <div class="login-field" style="margin-top: 12px;">
-                <label>Scadenza Password (giorni, vuoto = default di sistema)</label>
+                <label for="umpPwdExpiry">Scadenza Password (giorni, vuoto = default di sistema)</label>
                 <input type="number" id="umpPwdExpiry" class="control" min="0">
               </div>
               <div style="margin-top: 24px; border-top: 1px solid #ffe69c; padding-top: 20px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
@@ -262,19 +262,19 @@
             <div id="umpOverrideSettings" style="display: none; background: #fff1f2; padding: 16px; border-radius: 6px; border: 1px solid var(--danger);">
               <div style="color: var(--danger); font-size: 0.85rem; font-weight: bold; margin-bottom: 12px;">⚠️ Eccezione Attiva</div>
               <div class="login-field">
-                <label>Lunghezza Minima</label>
+                <label for="umpPwdMinLen">Lunghezza Minima</label>
                 <input type="number" id="umpPwdMinLen" class="control" min="1" placeholder="Es. 4" />
               </div>
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                <label style="margin: 0;">Richiedi Numero</label>
+                <label for="umpPwdReqNum" style="margin: 0;">Richiedi Numero</label>
                 <input type="checkbox" id="umpPwdReqNum" />
               </div>
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                <label style="margin: 0;">Richiedi Maiuscola</label>
+                <label for="umpPwdReqUpp" style="margin: 0;">Richiedi Maiuscola</label>
                 <input type="checkbox" id="umpPwdReqUpp" />
               </div>
               <div style="display: flex; align-items: center; justify-content: space-between;">
-                <label style="margin: 0;">Richiedi C. Speciale</label>
+                <label for="umpPwdReqSpec" style="margin: 0;">Richiedi C. Speciale</label>
                 <input type="checkbox" id="umpPwdReqSpec" />
               </div>
             </div>
@@ -373,6 +373,7 @@
     // Utility per chiamate API protette
     async function apiFetch(endpoint, options = {}) {
       options.credentials = 'include';
+      options.cache = 'no-store'; // EVITA IL CACHING DEL BROWSER
       const res = await fetch(`${API_URL}${endpoint}`, options);
       if (res.status === 401 || res.status === 403) {
         alert('Sessione scaduta o privilegi insufficienti. Ritorno al login.');
@@ -786,8 +787,9 @@
               handle: '.drag-handle',
               animation: 150,
               ghostClass: 'sortable-ghost',
-              onEnd: async function () {
-                  const rows = tbody.querySelectorAll('tr[data-id]');
+              onEnd: async function (evt) {
+                  // Usa evt.to per referenziare il contenitore esatto aggiornato dal DOM
+                  const rows = evt.to.querySelectorAll('tr[data-id]');
                   const orderedIds = Array.from(rows).map(r => parseInt(r.getAttribute('data-id'), 10));
 
                   try {
@@ -796,11 +798,10 @@
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ orderedIds })
                       });
-                      // Fondamentale: Ricarica i dati per allineare l'array globalUsers in RAM col DB
                       await loadData();
                   } catch (err) {
-                      showCaptainError('Errore durante il salvataggio del nuovo ordine: ' + err.message);
-                      await loadData(); // Ricarica per annullare lo spostamento visivo errato
+                      showCaptainError("Errore durante il salvataggio del nuovo ordine: " + err.message);
+                      await loadData();
                   }
               }
           });
