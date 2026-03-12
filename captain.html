@@ -175,6 +175,10 @@
           <button class="ump-tab active" data-tab="ump-sec" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border); font-weight: bold;">🔐 1. Sicurezza (Passaporto)</button>
           <button class="ump-tab" data-tab="ump-ses" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">📡 2. Regole Password</button>
           <button class="ump-tab" data-tab="ump-acc" style="padding: 16px; text-align: left; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border);">🛂 3. Permessi (Visti)</button>
+          
+          <button type="button" id="umpDeleteUserBtn" style="margin-top: auto; padding: 16px; text-align: left; border: none; background: transparent; color: var(--danger); cursor: pointer; border-top: 1px solid var(--border); font-weight: bold; transition: background 0.2s;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='transparent'" title="Disattiva utente (Soft Delete)">
+            🗑️ Elimina Utente
+          </button>
         </div>
 
         <div style="flex: 1; padding: 24px; overflow-y: auto; background: var(--bg-content);">
@@ -235,10 +239,6 @@
                   <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Kick<br>Off</span>
                 </button>
 
-                <button type="button" id="umpDeleteUserBtn" style="background: var(--danger); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 160px; height: 160px; transition: all 0.2s; box-shadow: 0 6px 12px rgba(196, 30, 30, 0.25);" title="Elimina questo utente (Soft Delete)" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 10px 20px rgba(196, 30, 30, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 12px rgba(196, 30, 30, 0.25)';">
-                  <span style="font-size: 3rem;">🗑️</span>
-                  <span style="font-size: 1.05rem; text-align: center; line-height: 1.2; letter-spacing: 0.5px;">Elimina<br>Utente</span>
-                </button>
 
               </div>
             </div>
