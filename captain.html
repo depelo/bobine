@@ -381,7 +381,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         const umpPanel = document.getElementById('userManagePanel');
         if (umpPanel) {
-            const umpInputs = umpPanel.querySelectorAll('input, select');
+            const umpInputs = umpPanel.querySelectorAll('input, select, textarea');
             umpInputs.forEach(input => {
                 input.addEventListener('input', checkUmpDirtyState);
                 input.addEventListener('change', checkUmpDirtyState);
@@ -893,11 +893,10 @@
           return row && row.ConfigValue !== null ? row.ConfigValue : def;
       };
 
-      const hasOverride = u.pwdMinLengthOverride !== null || u.pwdRequireNumberOverride !== null || u.pwdRequireUpperOverride !== null || u.pwdRequireSpecialOverride !== null;
-
       const useGlobalEl = document.getElementById('umpUseGlobalPwd');
       const overrideBoxEl = document.getElementById('umpOverrideSettings');
       if (useGlobalEl && overrideBoxEl) {
+        const hasOverride = u.pwdMinLengthOverride !== null || u.pwdRequireNumberOverride !== null || u.pwdRequireUpperOverride !== null || u.pwdRequireSpecialOverride !== null;
         useGlobalEl.checked = !hasOverride;
         overrideBoxEl.style.display = hasOverride ? 'block' : 'none';
       }
@@ -906,10 +905,12 @@
       const reqNumEl = document.getElementById('umpPwdReqNum');
       const reqUppEl = document.getElementById('umpPwdReqUpp');
       const reqSpecEl = document.getElementById('umpPwdReqSpec');
-      if (minLenEl) minLenEl.value = hasOverride && u.pwdMinLengthOverride !== null ? u.pwdMinLengthOverride : getGlobalVal('PwdMinLength', '6');
-      if (reqNumEl) reqNumEl.checked = hasOverride ? u.pwdRequireNumberOverride === true : getGlobalVal('PwdRequireNumber', '1') === '1';
-      if (reqUppEl) reqUppEl.checked = hasOverride ? u.pwdRequireUpperOverride === true : getGlobalVal('PwdRequireUpper', '0') === '1';
-      if (reqSpecEl) reqSpecEl.checked = hasOverride ? u.pwdRequireSpecialOverride === true : getGlobalVal('PwdRequireSpecial', '0') === '1';
+      // Imposta i valori. Se ha override usa i suoi, ALTRIMENTI inserisce i default globali
+      // così se toglie la spunta "Usa Globali", i campi sono già pronti da modificare.
+      if (minLenEl) minLenEl.value = u.pwdMinLengthOverride !== null ? u.pwdMinLengthOverride : getGlobalVal('PwdMinLength', '6');
+      if (reqNumEl) reqNumEl.checked = u.pwdRequireNumberOverride !== null ? u.pwdRequireNumberOverride === true : getGlobalVal('PwdRequireNumber', '1') === '1';
+      if (reqUppEl) reqUppEl.checked = u.pwdRequireUpperOverride !== null ? u.pwdRequireUpperOverride === true : getGlobalVal('PwdRequireUpper', '0') === '1';
+      if (reqSpecEl) reqSpecEl.checked = u.pwdRequireSpecialOverride !== null ? u.pwdRequireSpecialOverride === true : getGlobalVal('PwdRequireSpecial', '0') === '1';
 
       document.getElementById('umpUserName').textContent = u.name;
       document.getElementById('umpUserBarcode').textContent = u.barcode;
@@ -1032,6 +1033,7 @@
                         if (sib !== e.target) sib.checked = false;
                     });
                 }
+                checkUmpDirtyState();
             });
 
             lbl.appendChild(cb);

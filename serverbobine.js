@@ -178,9 +178,8 @@ app.post('/api/operators', async (req, res) => {
             opReq.input('admin', sql.Bit, admin);
             opReq.input('startTime', sql.VarChar, startTime);
             await opReq.query(`
-                DECLARE @newId INT = ISNULL((SELECT MAX(IDOperator) FROM [CMP].[Bobine].[Operators]), 0) + 1;
-                INSERT INTO [CMP].[Bobine].[Operators] (IDOperator, IDUser, Admin, StartTime, IsActive)
-                VALUES (@newId, @idUser, @admin, @startTime, 1)
+                INSERT INTO [CMP].[Bobine].[Operators] (IDUser, Admin, StartTime, IsActive)
+                VALUES (@idUser, @admin, @startTime, 1)
             `);
 
             await transaction.commit();
@@ -462,8 +461,7 @@ app.put('/api/admin/users/:id/roles', authenticateCaptain, async (req, res) => {
             const assignedRole = submittedRoles.find(r => r.targetTable === table);
             const fullTable = `[CMP].[${schema}].[${table}]`;
 
-            // Adattamento dinamico alle differenze di PK e colonna Ruolo tra le App
-            let idCol = table === 'Captains' ? 'IDCaptain' : 'IDOperator';
+            // Adattamento dinamico alla colonna Ruolo tra le App
             let roleCol = table === 'Captains' ? 'Role' : 'Admin';
 
             if (assignedRole) {
@@ -477,9 +475,8 @@ app.put('/api/admin/users/:id/roles', authenticateCaptain, async (req, res) => {
                     END
                     ELSE
                     BEGIN
-                        DECLARE @newId INT = ISNULL((SELECT MAX(${idCol}) FROM ${fullTable}), 0) + 1;
-                        INSERT INTO ${fullTable} (${idCol}, IDUser, ${roleCol}, IsActive) 
-                        VALUES (@newId, @id, ${table === 'Captains' ? "'Master'" : '@adminVal'}, 1)
+                        INSERT INTO ${fullTable} (IDUser, ${roleCol}, IsActive) 
+                        VALUES (@id, ${table === 'Captains' ? "'Master'" : '@adminVal'}, 1)
                     END
                 `);
             } else {
@@ -624,26 +621,22 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
                     const fullTable = `[CMP].[${schema}].[${table}]`;
 
                     const isAdmin = role.roleKey === 'Admin' ? 1 : 0;
-                    const idCol = table === 'Captains' ? 'IDCaptain' : 'IDOperator';
                     const roleCol = table === 'Captains' ? 'Role' : 'Admin';
 
                     try {
+                        const insReq = new sql.Request(transaction);
+                        insReq.input('idUser', sql.Int, newUserId);
+                        
                         if (table === 'Captains') {
-                            const insReq = new sql.Request(transaction);
-                            insReq.input('idUser', sql.Int, newUserId);
                             await insReq.query(`
-                                DECLARE @newId INT = ISNULL((SELECT MAX(${idCol}) FROM ${fullTable}), 0) + 1;
-                                INSERT INTO ${fullTable} (${idCol}, IDUser, ${roleCol}, IsActive)
-                                VALUES (@newId, @idUser, 'Master', 1)
+                                INSERT INTO ${fullTable} (IDUser, ${roleCol}, IsActive)
+                                VALUES (@idUser, 'Master', 1)
                             `);
                         } else {
-                            const insReq = new sql.Request(transaction);
-                            insReq.input('idUser', sql.Int, newUserId);
                             insReq.input('admin', sql.Bit, isAdmin);
                             await insReq.query(`
-                                DECLARE @newId INT = ISNULL((SELECT MAX(${idCol}) FROM ${fullTable}), 0) + 1;
-                                INSERT INTO ${fullTable} (${idCol}, IDUser, ${roleCol}, IsActive)
-                                VALUES (@newId, @idUser, @admin, 1)
+                                INSERT INTO ${fullTable} (IDUser, ${roleCol}, IsActive)
+                                VALUES (@idUser, @admin, 1)
                             `);
                         }
                     } catch (e) {
@@ -1170,9 +1163,9 @@ app.post('/api/logs', authenticateToken, async (req, res) => {
             .input('IDRoll', sql.NVarChar, rollId)
             .query(`
                 INSERT INTO [CMP].[Bobine].[Log]
-                (IDLog, Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll, bobina_finita)
+                (Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll, bobina_finita)
                 VALUES
-                ((SELECT ISNULL(MAX(IDLog), 0) + 1 FROM [CMP].[Bobine].[Log]), @Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll, NULL)
+                (@Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll, NULL)
             `);
         res.status(201).send({ message: 'Log registrato con successo' });
     } catch (err) {
