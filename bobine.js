@@ -1396,11 +1396,14 @@ function openBarcodeScanner(targetFieldId) {
 
   barcodeScannerInstance = new Html5Qrcode('scannerContainer');
   
-  // Ottimizzazione: Mirino quadrato e restrizione della decodifica al solo formato QR Code
+  // Ottimizzazione: Mirino rettangolare per codici a barre e supporto combinato QR/CODE_128
   const config = { 
       fps: 10, 
-      qrbox: { width: 250, height: 250 },
-      formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+      qrbox: { width: 300, height: 200 }, // Allargato per accomodare i CODE_128
+      formatsToSupport: [ 
+        Html5QrcodeSupportedFormats.QR_CODE, 
+        Html5QrcodeSupportedFormats.CODE_128 
+      ]
   };
 
   barcodeScannerInstance
