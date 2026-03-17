@@ -1149,25 +1149,36 @@ async function handleTopbarAction(action) {
   }
 
   if (action === 'add-machine') {
-    const name = prompt('Nome macchina');
-    if (name == null || name.trim() === '') return;
-    const barcode = prompt('QR Code');
-    if (barcode == null) return;
     try {
+      // 1. Chiede il nome tramite il modale custom (senza scanner)
+      const name = await askDynamicPrompt('Inserisci il Nome della Macchina', 'text', false);
+      
+      // 2. Chiede il barcode tramite il modale custom (CON scanner abilitato)
+      const barcode = await askDynamicPrompt('Scansiona o inserisci il Barcode', 'text', true);
+      
+      // 3. Esegue la chiamata al server
       const res = await fetch(`${API_URL}/machines`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), barcode: barcode.trim() }),
         credentials: 'include'
       });
+      
       if (!res.ok) throw new Error(await res.text());
+      
+      // 4. Aggiorna la lista
       state.machines = await fetchData('/machines');
       renderSimpleList(machineListEl, state.machines, pickMachineFromList);
-      alert('Macchina aggiunta.');
+      
+      alert('Macchina aggiunta con successo!');
     } catch (err) {
+      // Se l'errore è 'cancelled' o 'empty', l'utente ha premuto "Annulla" nel modale
+      if (err === 'cancelled' || err === 'empty') return; 
+      
       console.error(err);
-      alert('Errore: ' + (err.message || err));
+      alert('Errore durante il salvataggio: ' + (err.message || err));
     }
+    return;
   }
 }
 
