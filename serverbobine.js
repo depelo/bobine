@@ -811,7 +811,6 @@ app.post('/api/login', async (req, res) => {
                     O.IDOperator,
                     O.Admin,
                     O.StartTime
-                FROM [CMP].[dbo].[Users] U
                 FROM [GA].[dbo].[Users] U
                 LEFT JOIN [BOB].[dbo].[Operators] O ON U.IDUser = O.IDUser
                 WHERE U.Barcode = @barcode AND U.IsActive = 1
@@ -1024,12 +1023,11 @@ app.put('/api/users/me/password', authenticateToken, async (req, res) => {
         let pool = await sql.connect(dbConfig);
         // Ricava il PasswordHash attuale da Users usando l'IDUser tramite la relazione con Operators
         let userRes = await pool.request()
-            .input('idOp', sql.Int, req.user.id)
+            .input('idUser', sql.Int, req.user.globalId)
             .query(`
-                SELECT U.IDUser, U.PasswordHash 
-                FROM [GA].[dbo].[Users] U
-                INNER JOIN [BOB].[dbo].[Operators] O ON U.IDUser = O.IDUser
-                WHERE O.IDOperator = @idOp
+                SELECT IDUser, PasswordHash 
+                FROM [GA].[dbo].[Users]
+                WHERE IDUser = @idUser
             `);
 
         if (userRes.recordset.length === 0) return res.status(404).send('Utente non trovato');
