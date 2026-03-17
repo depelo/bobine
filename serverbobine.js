@@ -123,8 +123,8 @@ app.get('/api/operators', authenticateToken, async (req, res) => {
                 U.ResetRequested as resetRequested,
                 CONVERT(varchar(5), O.StartTime, 108) AS startTime
             FROM [BOB].[dbo].[Operators] O
-            INNER JOIN [GA].[dbo].[Users] U ON O.IDUser = U.IDUser
-            WHERE U.IsActive = 1
+            INNER JOIN [BOB].[dbo].[vw_ext_GlobalUsers] U ON O.IDUser = U.IDUser
+            WHERE U.IsActive = 1 AND O.IsActive = 1
         `);
         res.json(result.recordset);
     } catch (err) {
@@ -152,8 +152,11 @@ app.get('/api/operators/available', authenticateToken, async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
         let result = await pool.request().query(`
-            SELECT IDUser as id, Name as name, Barcode as barcode 
-            FROM [GA].[dbo].[Users] 
+            SELECT 
+                IDUser as id, 
+                Name as name, 
+                Barcode as barcode 
+            FROM [BOB].[dbo].[vw_ext_GlobalUsers] 
             WHERE IsActive = 1 
             AND IDUser NOT IN (SELECT IDUser FROM [BOB].[dbo].[Operators] WHERE IsActive = 1)
             ORDER BY Name ASC
@@ -244,33 +247,20 @@ app.put('/api/operators/:id/reset-password', authenticateToken, async (req, res)
 
     try {
         let pool = await sql.connect(dbConfig);
-        
-        // Verifica che l'operatore appartenga a Bobine e recupera IDUser globale
-        const getRes = await pool.request()
-            .input('idOp', sql.Int, idOp)
-            .query(`SELECT IDUser FROM [BOB].[dbo].[Operators] WHERE IDOperator = @idOp`);
-            
-        if (getRes.recordset.length === 0) return res.status(404).send('Operatore non trovato in questo reparto');
-        const idUser = getRes.recordset[0].IDUser;
-
         const hash = await bcrypt.hash(newPassword, 10);
         
         await pool.request()
-            .input('idUser', sql.Int, idUser)
-            .input('hash', sql.NVarChar, hash)
-            .input('force', sql.Bit, forcePwdChange ? 1 : 0)
-            .query(`
-                UPDATE [GA].[dbo].[Users] 
-                SET PasswordHash = @hash, LastPasswordChange = GETDATE(), ForcePwdChange = @force, ResetRequested = 0 
-                WHERE IDUser = @idUser
-            `);
+            .input('IDOperator', sql.Int, idOp)
+            .input('NewPasswordHash', sql.NVarChar, hash)
+            .input('ForcePwdChange', sql.Bit, forcePwdChange ? 1 : 0)
+            .query(`EXEC [BOB].[dbo].[sp_ResetOperatorPassword] @IDOperator, @NewPasswordHash, @ForcePwdChange`);
 
-        // Avvisa in tempo reale tutta la rete che un allarme è stato risolto
+        // Avvisa in tempo reale i Captain (e le altre app) che un allarme è stato risolto
         if (typeof io !== 'undefined') {
             io.emit('pwd_reset_resolved');
         }
 
-        res.status(200).send({ message: 'Password resettata con successo' });
+        res.status(200).send({ message: 'Password resettata con successo tramite Stored Procedure' });
     } catch (err) {
         res.status(500).send(err.message);
     }
