@@ -23,15 +23,12 @@ Il sistema ospita molteplici app dipartimentali mantenendo una singola base di i
   - `LastLogin` (DATETIME): Timestamp dell'ultimo login effettivo dell'utente (aggiornato da `POST /api/login`).
   - `LastBarcodeChange` (DATETIME): Timestamp dell'ultima rigenerazione del Barcode/QR Code di login (aggiornato in creazione utente e in modifica solo se il QR viene cambiato).
 
-### 1.2 Tabella [dbo].[Modules] (L'Autodefinizione)
-È il "Libretto di Istruzioni" per la Captain Console. Permette alla UI di autoconfigurarsi.
-- `IDModule` (INT, PK).
-- `ModuleName`: Nome app (es. "App Bobine").
-- `TargetSchema`: Nome dello Schema nel database che contiene le tabelle operative dell'app (es. "Bobine", "Captain").
-- `TargetTable`: Tabella fisica del Visto dipartimentale (es. "Operators").
-- `RoleDefinition` (JSON): Definisce i ruoli e se richiedono password. 
-  *Esempio:* `{"Admin": {"label": "Caporeparto", "requiresPassword": true}, "Base": {"label": "Operatore Base", "requiresPassword": false}}`.
-- `AppSettings` (NVARCHAR MAX, JSON): Definisce in modo indipendente le impostazioni specifiche e i limiti operativi dell'app (es. OpDeleteMaxRecords, OpDeleteMaxHours) senza hardcoding nel frontend.
+### 1.2 Dizionario Ruoli e Catalogo App (`[dbo].[GlobalRoles]`, `[dbo].[Modules]`, `[dbo].[AppRoles]`)
+Il sistema non usa più stringhe JSON hardcodate per definire i ruoli. La sicurezza è normalizzata in Terza Forma Normale (3NF):
+- `[dbo].[Modules]`: Catalogo delle applicazioni esistenti. (La colonna `RoleDefinition` JSON è deprecata).
+- `[dbo].[GlobalRoles]`: È l'anagrafica aziendale centralizzata dei ruoli (es. `RoleCode`: 'Admin', 'Base', 'Master').
+- `[dbo].[AppRoles]`: Tabella ponte (matrice di sicurezza) che collega un Modulo a un Ruolo Globale. Contiene le regole fisiche: `RequiresPassword`, `SessionHours`, `PwdExpiryDays`.
+- `[dbo].[vw_UserAccess]`: Vista federata globale che unisce dinamicamente tramite `UNION ALL` i "Visti" di tutti i dipartimenti. Traduce i flag locali (es. il bit `Admin` in Bobine) nel corretto `IDGlobalRole`. Il codice Node.js usa esclusivamente questa vista per calcolare accessi e moduli autorizzati al login.
 
 ### 1.3 Tabelle Dipartimentali (I Visti)
 **Esempio: [Bobine].[Operators] (Reparto Bobine)**
@@ -46,6 +43,13 @@ Per garantire che il backend (`serverbobine.js`) sia 100% dinamico e non richied
 1. **Creazione Schema:** Creare uno Schema dedicato per la nuova app (es. `[Magazzino]`).
 2. **Struttura Visto:** Creare una tabella Visti che DEVE contenere sempre: la Foreign Key verso `IDUser`, la colonna del Ruolo (es. `Admin` o `Role`), e la colonna `IsActive` (BIT, fondamentale per il soft-revoke dei permessi).
 3. **Registrazione (Catalogo App):** Registrare la nuova App nella tabella `[dbo].[Modules]`, specificando obbligatoriamente `TargetSchema` (es. 'Magazzino') e `TargetTable` (es. 'OperatoriMagazzino'). Il backend usa l'interpolazione `[CMP].[${mod.TargetSchema}].[${mod.TargetTable}]` per leggere e scrivere i permessi in automatico.
+4. **Dichiarazione dei Ruoli:** Inserire le regole di sicurezza della nuova app in `[GA].[dbo].[AppRoles]`, collegando l'app ai ruoli esistenti nell'anagrafica `[GA].[dbo].[GlobalRoles]`.
+5. **Aggiornamento Vista Federata:** Aggiungere una clausola `UNION ALL` nella vista `[GA].[dbo].[vw_UserAccess]` per includere la nuova tabella dei visti nel calcolo globale degli accessi, mappando i permessi locali al rispettivo `IDGlobalRole`.
+
+### 1.5 Principio di Incapsulamento dei Database Dipartimentali (Regola di Fabrizio)
+Un database dipartimentale (es. `[Bobine]`) deve operare come un silos autosufficiente. Il codice applicativo (es. Node.js) non deve **MAI** eseguire query dirette trans-database interrogando lo schema `[GA]` per risolvere logiche di reparto.
+- **Letture da GA:** Devono avvenire tramite una Vista creata internamente al DB locale (es. `[Bobine].[dbo].[vw_ext_GlobalUsers]`).
+- **Scritture su GA:** Devono essere incapsulate in una Stored Procedure residente nel DB locale (es. `[Bobine].[dbo].[sp_ResetOperatorPassword]`), la quale riceve parametri sicuri ed esegue l'aggiornamento.
 
 ## 2. Struttura delle Tabelle di Business
 
@@ -118,3 +122,7 @@ Combinando `DefaultModuleID` con la lista di moduli autorizzati, `sicurezza.js` 
 Tutte le tabelle principali del sistema (`[dbo].[Users]`, `[Bobine].[Operators]`, `[Captain].[Captains]`, `[Bobine].[Log]`, `[Bobine].[Machines]`) utilizzano la proprietà `IDENTITY (1,1)` di SQL Server per l'auto-incremento nativo delle chiavi primarie. 
 
 **Regola di Sviluppo Inviolabile:** Il codice backend (Node.js) NON DEVE MAI calcolare gli ID manualmente (assolutamente vietato l'uso di pattern come `MAX(ID) + 1`) e NON DEVE MAI includere le colonne identificative (es. `IDUser`, `IDLog`) nelle query di `INSERT`. Il database gestisce l'assegnazione atomica degli ID in totale autonomia, garantendo l'assenza di race-conditions.
+Esposizione Rete e Sicurezza SSL (Gateway)
+L'applicazione è esposta pubblicamente all'indirizzo https://rotoli.ujet.it sulla porta 443.
+Il traffico HTTPS è gestito nativamente dal processo Node.js (serverbobine.js), che legge staticamente i certificati all'avvio dalla directory C:\Acme\certificati_ssl\.
+Gestione Rinnovi: L'aggiornamento fisico dei file .pem è delegato a un client ACME esterno (es. win-acme) su sistema operativo Windows. Poiché Node.js carica i certificati in memoria tramite readFileSync solo allo startup, è imperativo che il sistema di rinnovo ACME sia configurato per eseguire un riavvio forzato del processo node.exe al termine di ogni rinnovo con successo, altrimenti l'app continuerà a servire il certificato scaduto presente in cache.
