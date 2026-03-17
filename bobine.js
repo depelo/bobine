@@ -1169,6 +1169,7 @@ async function handleTopbarAction(action) {
       // 4. Aggiorna la lista
       state.machines = await fetchData('/machines');
       renderSimpleList(machineListEl, state.machines, pickMachineFromList);
+      if (typeof populateMachineSelect === 'function') populateMachineSelect();
       
       alert('Macchina aggiunta con successo!');
     } catch (err) {
@@ -1192,7 +1193,7 @@ function pickMachineFromList(machine) {
   if (state.returnFromLookupTo === 'log-edit') setScreen('log-edit');
 }
 
-  navButtons.forEach((btn) => {
+navButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
     state.returnFromLookupTo = null;
     
@@ -1200,16 +1201,21 @@ function pickMachineFromList(machine) {
     if (btn.dataset.screenTarget === 'log-edit') {
       state.selectedLog = null;
       
-      // Salviamo la macchina selezionata prima di resettare la maschera
       const savedMachineVal = machineSelect ? machineSelect.value : '';
-      
       resetForm();
       
-      // Ripristiniamo la macchina così l'operatore non deve reinserirla
-      if (savedMachineVal && machineSelect) {
-        machineSelect.value = savedMachineVal;
-        state.formDraft.IDMachine = parseInt(savedMachineVal, 10);
-      }
+      // Fetch silente in background per allinearsi al DB
+      fetchData('/machines').then(freshMachines => {
+        state.machines = freshMachines;
+        if (typeof populateMachineSelect === 'function') {
+          populateMachineSelect();
+          // Ripristiniamo la macchina dopo aver ricostruito le options
+          if (savedMachineVal && machineSelect) {
+            machineSelect.value = savedMachineVal;
+            state.formDraft.IDMachine = parseInt(savedMachineVal, 10);
+          }
+        }
+      }).catch(console.error);
     }
     
     setScreen(btn.dataset.screenTarget);
