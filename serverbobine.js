@@ -22,7 +22,7 @@ const dbConfig = {
     user: 'sa',
     password: 'Risk0804',
     server: 'localhost',
-    database: 'CMP',
+    database: 'GA',
     options: {
         encrypt: false,
         trustServerCertificate: true,
@@ -34,7 +34,7 @@ const dbConfig = {
 async function getEffectivePwdRules(pool, userId) {
     // 1. Legge le regole globali
     const confRes = await pool.request().query(
-        "SELECT ConfigKey, ConfigValue FROM [CMP].[dbo].[SystemConfig] WHERE ConfigKey IN ('PwdMinLength', 'PwdRequireNumber', 'PwdRequireUpper', 'PwdRequireSpecial')"
+        "SELECT ConfigKey, ConfigValue FROM [GA].[dbo].[SystemConfig] WHERE ConfigKey IN ('PwdMinLength', 'PwdRequireNumber', 'PwdRequireUpper', 'PwdRequireSpecial')"
     );
     let globals = { PwdMinLength: 6, PwdRequireNumber: true, PwdRequireUpper: false, PwdRequireSpecial: false };
     confRes.recordset.forEach(r => {
@@ -53,7 +53,7 @@ async function getEffectivePwdRules(pool, userId) {
         .input('id', sql.Int, userId)
         .query(`
             SELECT PwdMinLengthOverride, PwdRequireNumberOverride, PwdRequireUpperOverride, PwdRequireSpecialOverride
-            FROM [CMP].[dbo].[Users]
+            FROM [GA].[dbo].[Users]
             WHERE IDUser = @id
         `);
     const overrides = userRes.recordset[0] || {};
@@ -120,8 +120,8 @@ app.get('/api/operators', async (req, res) => {
                 U.Barcode AS barcode, 
                 O.Admin AS isAdmin,
                 CONVERT(varchar(5), O.StartTime, 108) AS startTime
-            FROM [CMP].[Bobine].[Operators] O
-            INNER JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
+            FROM [BOB].[dbo].[Operators] O
+            INNER JOIN [GA].[dbo].[Users] U ON O.IDUser = U.IDUser
             WHERE U.IsActive = 1
         `);
         res.json(result.recordset);
@@ -137,7 +137,7 @@ app.patch('/api/operators/:id/time', async (req, res) => {
         await pool.request()
             .input('ID', sql.Int, parseInt(req.params.id, 10))
             .input('StartTime', sql.VarChar, startTime || null)
-            .query('UPDATE [CMP].[Bobine].[Operators] SET StartTime = @StartTime WHERE IDOperator = @ID');
+            .query('UPDATE [BOB].[dbo].[Operators] SET StartTime = @StartTime WHERE IDOperator = @ID');
         res.status(200).send({ message: 'Orario aggiornato' });
     } catch (err) {
         console.error(err);
@@ -166,7 +166,7 @@ app.post('/api/operators', async (req, res) => {
             userReq.input('barcode', sql.NVarChar, barcode);
             userReq.input('pwd', sql.NVarChar, hash);
             const userRes = await userReq.query(`
-                INSERT INTO [CMP].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive)
+                INSERT INTO [GA].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive)
                 OUTPUT INSERTED.IDUser
                 VALUES (@name, @barcode, @pwd, 1)
             `);
@@ -178,7 +178,7 @@ app.post('/api/operators', async (req, res) => {
             opReq.input('admin', sql.Bit, admin);
             opReq.input('startTime', sql.VarChar, startTime);
             await opReq.query(`
-                INSERT INTO [CMP].[Bobine].[Operators] (IDUser, Admin, StartTime, IsActive)
+                INSERT INTO [BOB].[dbo].[Operators] (IDUser, Admin, StartTime, IsActive)
                 VALUES (@idUser, @admin, @startTime, 1)
             `);
 
@@ -206,7 +206,7 @@ app.put('/api/operators/:id', async (req, res) => {
             // Get the linked IDUser
             const getReq = new sql.Request(transaction);
             getReq.input('idOp', sql.Int, id);
-            const getRes = await getReq.query(`SELECT IDUser FROM [CMP].[Bobine].[Operators] WHERE IDOperator = @idOp`);
+            const getRes = await getReq.query(`SELECT IDUser FROM [BOB].[dbo].[Operators] WHERE IDOperator = @idOp`);
             if (getRes.recordset.length === 0) throw new Error("Operatore non trovato");
             const idUser = getRes.recordset[0].IDUser;
 
@@ -224,7 +224,7 @@ app.put('/api/operators/:id', async (req, res) => {
             }
 
             await userReq.query(`
-                UPDATE [CMP].[dbo].[Users] 
+                UPDATE [GA].[dbo].[Users] 
                 SET Name = @name, Barcode = @barcode ${pwdQuery}
                 WHERE IDUser = @idUser
             `);
@@ -235,7 +235,7 @@ app.put('/api/operators/:id', async (req, res) => {
             opReq.input('admin', sql.Bit, admin);
             opReq.input('startTime', sql.VarChar, startTime);
             await opReq.query(`
-                UPDATE [CMP].[Bobine].[Operators]
+                UPDATE [BOB].[dbo].[Operators]
                 SET Admin = @admin, StartTime = @startTime
                 WHERE IDOperator = @idOp
             `);
@@ -261,8 +261,8 @@ app.delete('/api/operators/:id', async (req, res) => {
             .query(`
                 UPDATE U
                 SET U.IsActive = 0
-                FROM [CMP].[dbo].[Users] U
-                INNER JOIN [CMP].[Bobine].[Operators] O ON U.IDUser = O.IDUser
+                FROM [GA].[dbo].[Users] U
+                INNER JOIN [BOB].[dbo].[Operators] O ON U.IDUser = O.IDUser
                 WHERE O.IDOperator = @idOp
             `);
         res.status(200).send({ message: 'Operatore disattivato logicamente' });
@@ -294,7 +294,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
                    PwdRequireUpperOverride as pwdRequireUpperOverride,
                    PwdRequireSpecialOverride as pwdRequireSpecialOverride,
                    SortOrder as sortOrder
-            FROM [CMP].[dbo].[Users]
+            FROM [GA].[dbo].[Users]
             WHERE IsActive = 1
             ORDER BY SortOrder ASC, Name ASC
         `);
@@ -312,7 +312,7 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
         }));
 
         // 2. Recupera i moduli (Visti disponibili)
-        const modRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetSchema, TargetTable, RoleDefinition FROM [CMP].[dbo].[Modules]`);
+        const modRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetDb, TargetTable, RoleDefinition FROM [GA].[dbo].[Modules]`);
         const modules = modRes.recordset;
 
         // Inizializza gli array per ogni utente
@@ -326,12 +326,12 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
 
         // 3. Popola le autorizzazioni sfruttando TargetSchema
         for (let mod of modules) {
-            if (!mod.TargetSchema || !mod.TargetTable) continue;
+            if (!mod.TargetDb || !mod.TargetTable) continue;
 
             let roleDef = {};
             try { roleDef = JSON.parse(mod.RoleDefinition); } catch (e) {}
 
-            const fullTableName = `[CMP].[${mod.TargetSchema}].[${mod.TargetTable}]`;
+            const fullTableName = `[${mod.TargetDb}].[dbo].[${mod.TargetTable}]`;
             let roleRes;
 
             try {
@@ -388,7 +388,7 @@ app.put('/api/admin/users/reorder', authenticateCaptain, async (req, res) => {
                 const reqSort = new sql.Request(transaction);
                 reqSort.input('id', sql.Int, orderedIds[i]);
                 reqSort.input('sort', sql.Int, i);
-                await reqSort.query(`UPDATE [CMP].[dbo].[Users] SET SortOrder = @sort WHERE IDUser = @id`);
+                await reqSort.query(`UPDATE [GA].[dbo].[Users] SET SortOrder = @sort WHERE IDUser = @id`);
             }
             await transaction.commit();
             res.status(200).json({ message: 'Ordine aggiornato' });
@@ -412,7 +412,7 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
         // Controlla se il barcode è cambiato
         const oldUserRes = await pool.request()
             .input('id', sql.Int, id)
-            .query(`SELECT Barcode FROM [CMP].[dbo].[Users] WHERE IDUser = @id`);
+            .query(`SELECT Barcode FROM [GA].[dbo].[Users] WHERE IDUser = @id`);
             
         let barcodeChanged = false;
         if (oldUserRes.recordset.length > 0 && oldUserRes.recordset[0].Barcode !== barcode) {
@@ -432,7 +432,7 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
         request.input('pwdReqSpec', sql.Bit, pwdRequireSpecialOverride !== null && pwdRequireSpecialOverride !== undefined ? (pwdRequireSpecialOverride ? 1 : 0) : null);
 
         let updateQuery = `
-            UPDATE [CMP].[dbo].[Users] 
+            UPDATE [GA].[dbo].[Users] 
             SET Name = @name, 
                 Barcode = @barcode,
                 ForcePwdChange = @forcePwdChange,
@@ -475,17 +475,17 @@ app.put('/api/admin/users/:id/roles', authenticateCaptain, async (req, res) => {
         let pool = await sql.connect(dbConfig);
 
         // 2. Upsert nelle tabelle dipartimentali 100% Dinamico
-        const modulesRes = await pool.request().query(`SELECT TargetSchema, TargetTable FROM [CMP].[dbo].[Modules]`);
+        const modulesRes = await pool.request().query(`SELECT TargetDb, TargetTable FROM [GA].[dbo].[Modules]`);
         const validModules = modulesRes.recordset;
         const submittedRoles = roles || [];
 
         for (const mod of validModules) {
             const table = mod.TargetTable;
-            const schema = mod.TargetSchema;
-            if (!schema || !table) continue;
+            const dbName = mod.TargetDb;
+            if (!dbName || !table) continue;
 
             const assignedRole = submittedRoles.find(r => r.targetTable === table);
-            const fullTable = `[CMP].[${schema}].[${table}]`;
+            const fullTable = `[${dbName}].[dbo].[${table}]`;
 
             // Adattamento dinamico alla colonna Ruolo tra le App
             let roleCol = table === 'Captains' ? 'Role' : 'Admin';
@@ -527,8 +527,7 @@ app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
         const result = await pool.request().query(`
-            SELECT IDModule as id, ModuleName as name, TargetTable as targetTable, RoleDefinition as roleDefinition, AppSettings as appSettings
-            FROM [CMP].[dbo].[Modules]
+            SELECT IDModule as id, ModuleName as name, TargetDb as targetDb, TargetTable as targetTable, RoleDefinition as roleDefinition, AppSettings as appSettings FROM [GA].[dbo].[Modules]
         `);
 
         const modules = result.recordset.map(mod => {
@@ -554,7 +553,7 @@ app.put('/api/admin/modules/:id', authenticateCaptain, async (req, res) => {
             .input('idModule', sql.Int, idModule)
             .input('roleDef', sql.NVarChar, JSON.stringify(roleDefinition))
             .input('appSet', sql.NVarChar, JSON.stringify(appSettings || {}))
-            .query(`UPDATE [CMP].[dbo].[Modules] SET RoleDefinition = @roleDef, AppSettings = @appSet WHERE IDModule = @idModule`);
+            .query(`UPDATE [GA].[dbo].[Modules] SET RoleDefinition = @roleDef, AppSettings = @appSet WHERE IDModule = @idModule`);
 
         res.status(200).json({ message: 'Regole e Impostazioni App aggiornate con successo.' });
     } catch (err) {
@@ -568,7 +567,7 @@ app.get('/api/admin/config', authenticateCaptain, async (req, res) => {
         let pool = await sql.connect(dbConfig);
         const result = await pool.request().query(`
             SELECT ConfigKey, ConfigValue, Description
-            FROM [CMP].[dbo].[SystemConfig]
+            FROM [GA].[dbo].[SystemConfig]
             ORDER BY ConfigKey ASC
         `);
         res.json(result.recordset);
@@ -591,10 +590,10 @@ app.put('/api/admin/config', authenticateCaptain, async (req, res) => {
                 sqlReq.input('val', sql.VarChar, item.value !== null && item.value !== '' ? String(item.value) : null);
 
                 await sqlReq.query(`
-                    IF EXISTS (SELECT 1 FROM [CMP].[dbo].[SystemConfig] WHERE ConfigKey = @key)
-                        UPDATE [CMP].[dbo].[SystemConfig] SET ConfigValue = @val WHERE ConfigKey = @key
+                    IF EXISTS (SELECT 1 FROM [GA].[dbo].[SystemConfig] WHERE ConfigKey = @key)
+                        UPDATE [GA].[dbo].[SystemConfig] SET ConfigValue = @val WHERE ConfigKey = @key
                     ELSE
-                        INSERT INTO [CMP].[dbo].[SystemConfig] (ConfigKey, ConfigValue) VALUES (@key, @val)
+                        INSERT INTO [GA].[dbo].[SystemConfig] (ConfigKey, ConfigValue) VALUES (@key, @val)
                 `);
             }
             await transaction.commit();
@@ -627,7 +626,7 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
             userReq.input('defaultModuleId', sql.Int, defaultModuleId ? parseInt(defaultModuleId, 10) : null);
 
             const userRes = await userReq.query(`
-                INSERT INTO [CMP].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive, ForcePwdChange, DefaultModuleID, LastBarcodeChange)
+                INSERT INTO [GA].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive, ForcePwdChange, DefaultModuleID, LastBarcodeChange)
                 OUTPUT INSERTED.IDUser
                 VALUES (@name, @barcode, @pwd, 1, @forcePwdChange, @defaultModuleId, GETDATE())
             `);
@@ -635,16 +634,16 @@ app.post('/api/admin/users', authenticateCaptain, async (req, res) => {
 
             if (roles && roles.length > 0) {
                 const modReq = new sql.Request(transaction);
-                const modRes = await modReq.query(`SELECT TargetSchema, TargetTable FROM [CMP].[dbo].[Modules]`);
+                const modRes = await modReq.query(`SELECT TargetDb, TargetTable FROM [GA].[dbo].[Modules]`);
                 const modules = modRes.recordset || [];
 
                 for (const role of roles) {
                     const modDef = modules.find(m => m.TargetTable === role.targetTable);
-                    if (!modDef || !modDef.TargetSchema || !modDef.TargetTable) continue;
+                    if (!modDef || !modDef.TargetDb || !modDef.TargetTable) continue;
 
-                    const schema = modDef.TargetSchema;
+                    const dbName = modDef.TargetDb;
                     const table = modDef.TargetTable;
-                    const fullTable = `[CMP].[${schema}].[${table}]`;
+                    const fullTable = `[${dbName}].[dbo].[${table}]`;
 
                     const isAdmin = role.roleKey === 'Admin' ? 1 : 0;
                     const roleCol = table === 'Captains' ? 'Role' : 'Admin';
@@ -690,7 +689,7 @@ app.delete('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('idUser', sql.Int, idUser)
-            .query(`UPDATE [CMP].[dbo].[Users] SET IsActive = 0 WHERE IDUser = @idUser`);
+            .query(`UPDATE [GA].[dbo].[Users] SET IsActive = 0 WHERE IDUser = @idUser`);
         res.status(200).json({ message: 'Utente disattivato logicamente.' });
     } catch (err) {
         res.status(500).send(err.message);
@@ -704,7 +703,7 @@ app.get('/api/admin/users/deleted', authenticateCaptain, async (req, res) => {
         let pool = await sql.connect(dbConfig);
         const result = await pool.request().query(`
             SELECT IDUser as id, Name as name, Barcode as barcode
-            FROM [CMP].[dbo].[Users]
+            FROM [GA].[dbo].[Users]
             WHERE IsActive = 0
             ORDER BY Name ASC
         `);
@@ -720,7 +719,7 @@ app.put('/api/admin/users/:id/restore', authenticateCaptain, async (req, res) =>
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('id', sql.Int, req.params.id)
-            .query(`UPDATE [CMP].[dbo].[Users] SET IsActive = 1, ForcePwdChange = 1 WHERE IDUser = @id`);
+            .query(`UPDATE [GA].[dbo].[Users] SET IsActive = 1, ForcePwdChange = 1 WHERE IDUser = @id`);
         res.status(200).json({ message: 'OK' });
     } catch (err) {
         res.status(500).send(err.message);
@@ -749,7 +748,7 @@ app.post('/api/admin/users/check-duplicate', authenticateCaptain, async (req, re
         // Cerca utenti disattivati che contengono TUTTE le parole cercate (in qualsiasi ordine)
         const query = `
             SELECT TOP 5 IDUser as id, Name as name, Barcode as barcode 
-            FROM [CMP].[dbo].[Users] 
+            FROM [GA].[dbo].[Users] 
             WHERE IsActive = 0 AND ${conditions.join(' AND ')}
         `;
         
@@ -767,7 +766,7 @@ app.post('/api/admin/users/check-duplicate', authenticateCaptain, async (req, re
 app.get('/api/machines', async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
-        let result = await pool.request().query('SELECT IDMachine as id, Machine as name, Barcode as barcode FROM [CMP].[Bobine].[Machines]');
+        let result = await pool.request().query('SELECT IDMachine as id, Machine as name, Barcode as barcode FROM [BOB].[dbo].[Machines]');
         res.json(result.recordset);
     } catch (err) {
         res.status(500).send(err.message);
@@ -782,7 +781,7 @@ app.post('/api/machines', async (req, res) => {
         await pool.request()
             .input('Machine', sql.NVarChar, name)
             .input('Barcode', sql.NVarChar, barcode)
-            .query('INSERT INTO [CMP].[Bobine].[Machines] (Machine, Barcode) VALUES (@Machine, @Barcode)');
+            .query('INSERT INTO [BOB].[dbo].[Machines] (Machine, Barcode) VALUES (@Machine, @Barcode)');
         res.status(201).send({ message: 'Macchina aggiunta' });
     } catch (err) {
         res.status(500).send(err.message);
@@ -813,7 +812,8 @@ app.post('/api/login', async (req, res) => {
                     O.Admin,
                     O.StartTime
                 FROM [CMP].[dbo].[Users] U
-                LEFT JOIN [CMP].[Bobine].[Operators] O ON U.IDUser = O.IDUser
+                FROM [GA].[dbo].[Users] U
+                LEFT JOIN [BOB].[dbo].[Operators] O ON U.IDUser = O.IDUser
                 WHERE U.Barcode = @barcode AND U.IsActive = 1
             `);
 
@@ -827,7 +827,7 @@ app.post('/api/login', async (req, res) => {
         // Controllo Superuser (usando il nuovo schema e IsActive)
         const captainRes = await pool.request()
             .input('idUser', sql.Int, row.IDUser)
-            .query(`SELECT 1 FROM [CMP].[Captain].[Captains] WHERE IDUser = @idUser AND IsActive = 1`);
+            .query(`SELECT 1 FROM [CAP].[dbo].[Captains] WHERE IDUser = @idUser AND IsActive = 1`);
         const isSuperuser = captainRes.recordset.length > 0;
 
         // Calcolo scadenza password / cambio forzato
@@ -835,7 +835,7 @@ app.post('/api/login', async (req, res) => {
         try {
             const cfgRes = await pool.request().query(`
                 SELECT ConfigValue 
-                FROM [CMP].[dbo].[SystemConfig] 
+                FROM [GA].[dbo].[SystemConfig] 
                 WHERE ConfigKey = 'AdminPwdExpiryDays'
             `);
             if (cfgRes.recordset && cfgRes.recordset.length > 0) {
@@ -852,16 +852,16 @@ app.post('/api/login', async (req, res) => {
         }
 
         // --- CALCOLO MODULI AUTORIZZATI E LIVELLO DI SICUREZZA (HIGH WATERMARK) ---
-        const modulesRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetSchema, TargetTable, RoleDefinition, AppSettings FROM [CMP].[dbo].[Modules]`);
+        const modulesRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetDb, TargetTable, RoleDefinition, AppSettings FROM [GA].[dbo].[Modules]`);
         const authorizedApps = [];
         let globalRequiresPassword = isSuperuser; // Il Superuser richiede sempre la password di default
 
         for (let mod of modulesRes.recordset) {
-            if (!mod.TargetSchema || !mod.TargetTable) continue;
+            if (!mod.TargetDb || !mod.TargetTable) continue;
 
             let hasAccess = false;
             let localRoleKey = 'Base';
-            const fullTableName = `[CMP].[${mod.TargetSchema}].[${mod.TargetTable}]`;
+            const fullTableName = `[${mod.TargetDb}].[dbo].[${mod.TargetTable}]`;
 
             if (mod.TargetTable === 'Operators') {
                 const roleRes = await pool.request()
@@ -948,7 +948,7 @@ app.post('/api/login', async (req, res) => {
             const pool2 = await sql.connect(dbConfig);
             await pool2.request()
                 .input('idUser', sql.Int, row.IDUser)
-                .query(`UPDATE [CMP].[dbo].[Users] SET LastLogin = GETDATE() WHERE IDUser = @idUser`);
+                .query(`UPDATE [GA].[dbo].[Users] SET LastLogin = GETDATE() WHERE IDUser = @idUser`);
         } catch (dbErr) {
             console.error('Errore aggiornamento LastLogin:', dbErr);
         }
@@ -986,7 +986,7 @@ app.get('/api/me', authenticateToken, async (req, res) => {
         let pool = await sql.connect(dbConfig);
         const userRes = await pool.request()
             .input('idUser', sql.Int, req.user.globalId)
-            .query(`SELECT IsActive, ForcePwdChange FROM [CMP].[dbo].[Users] WHERE IDUser = @idUser`);
+            .query(`SELECT IsActive, ForcePwdChange FROM [GA].[dbo].[Users] WHERE IDUser = @idUser`);
 
         // Se l'utente non esiste più o è stato disattivato
         if (userRes.recordset.length === 0 || !userRes.recordset[0].IsActive) {
@@ -1027,8 +1027,8 @@ app.put('/api/users/me/password', authenticateToken, async (req, res) => {
             .input('idOp', sql.Int, req.user.id)
             .query(`
                 SELECT U.IDUser, U.PasswordHash 
-                FROM [CMP].[dbo].[Users] U
-                INNER JOIN [CMP].[Bobine].[Operators] O ON U.IDUser = O.IDUser
+                FROM [GA].[dbo].[Users] U
+                INNER JOIN [BOB].[dbo].[Operators] O ON U.IDUser = O.IDUser
                 WHERE O.IDOperator = @idOp
             `);
 
@@ -1060,7 +1060,7 @@ app.put('/api/users/me/password', authenticateToken, async (req, res) => {
             .input('idUser', sql.Int, dbUser.IDUser)
             .input('hash', sql.NVarChar, hash)
             .query(`
-                UPDATE [CMP].[dbo].[Users] 
+                UPDATE [GA].[dbo].[Users] 
                 SET PasswordHash = @hash, LastPasswordChange = GETDATE(), ForcePwdChange = 0 
                 WHERE IDUser = @idUser
             `);
@@ -1108,10 +1108,10 @@ app.get('/api/logs', async (req, res) => {
                 L.IDRoll as rollId,
                 L.NumeroModifiche,
                 L.bobina_finita
-            FROM [CMP].[Bobine].[Log] L
-            LEFT JOIN [CMP].[Bobine].[Operators] O ON L.IDOperator = O.IDOperator
-            LEFT JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
-            LEFT JOIN [CMP].[Bobine].[Machines] M ON L.IDMachine = M.IDMachine
+            FROM [BOB].[dbo].[Log] L
+            LEFT JOIN [BOB].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
+            LEFT JOIN [GA].[dbo].[Users] U ON O.IDUser = U.IDUser
+            LEFT JOIN [BOB].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
             WHERE L.Eliminato = 0
             ORDER BY L.Date DESC
         `;
@@ -1143,10 +1143,10 @@ app.get('/api/logs/:id', async (req, res) => {
                     L.IDRoll as rollId,
                     L.NumeroModifiche,
                     L.bobina_finita
-                FROM [CMP].[Bobine].[Log] L
-                LEFT JOIN [CMP].[Bobine].[Operators] O ON L.IDOperator = O.IDOperator
-                LEFT JOIN [CMP].[dbo].[Users] U ON O.IDUser = U.IDUser
-                LEFT JOIN [CMP].[Bobine].[Machines] M ON L.IDMachine = M.IDMachine
+                FROM [BOB].[dbo].[Log] L
+                LEFT JOIN [BOB].[dbo].[Operators] O ON L.IDOperator = O.IDOperator
+                LEFT JOIN [GA].[dbo].[Users] U ON O.IDUser = U.IDUser
+                LEFT JOIN [BOB].[dbo].[Machines] M ON L.IDMachine = M.IDMachine
                 WHERE L.IDLog = @IDLog AND L.Eliminato = 0
             `);
         if (!result.recordset || result.recordset.length === 0) {
@@ -1179,11 +1179,11 @@ app.get('/api/logs/:id/history', async (req, res) => {
                         LAG(L.Codart) OVER (ORDER BY L.ValidFrom) AS prev_rawCode,
                         LAG(L.Lot) OVER (ORDER BY L.ValidFrom) AS prev_lot,
                         LAG(L.Notes) OVER (ORDER BY L.ValidFrom) AS prev_notes
-                    FROM [CMP].[Bobine].[Log] FOR SYSTEM_TIME ALL AS L
-                    LEFT JOIN [CMP].[Bobine].[Operators] O_Mod ON L.ModificatoDa = O_Mod.IDOperator
-                    LEFT JOIN [CMP].[dbo].[Users] U_Mod ON O_Mod.IDUser = U_Mod.IDUser
-                    LEFT JOIN [CMP].[Bobine].[Operators] O_Crea ON L.IDOperator = O_Crea.IDOperator
-                    LEFT JOIN [CMP].[dbo].[Users] U_Crea ON O_Crea.IDUser = U_Crea.IDUser
+                    FROM [BOB].[dbo].[Log] FOR SYSTEM_TIME ALL AS L
+                    LEFT JOIN [BOB].[dbo].[Operators] O_Mod ON L.ModificatoDa = O_Mod.IDOperator
+                    LEFT JOIN [GA].[dbo].[Users] U_Mod ON O_Mod.IDUser = U_Mod.IDUser
+                    LEFT JOIN [BOB].[dbo].[Operators] O_Crea ON L.IDOperator = O_Crea.IDOperator
+                    LEFT JOIN [GA].[dbo].[Users] U_Crea ON O_Crea.IDUser = U_Crea.IDUser
                     WHERE L.IDLog = @IDLog
                 )
                 SELECT 
@@ -1226,7 +1226,7 @@ app.post('/api/logs', authenticateToken, async (req, res) => {
             .input('Notes', sql.NVarChar, notes)
             .input('IDRoll', sql.NVarChar, rollId)
             .query(`
-                INSERT INTO [CMP].[Bobine].[Log]
+                INSERT INTO [BOB].[dbo].[Log]
                 (Date, IDOperator, IDMachine, Codart, Lot, Quantity, Notes, IDRoll, bobina_finita)
                 VALUES
                 (@Date, @IDOperator, @IDMachine, @Codart, @Lot, @Quantity, @Notes, @IDRoll, NULL)
@@ -1250,7 +1250,7 @@ app.put('/api/logs/:id', authenticateToken, async (req, res) => {
             .input('ModificatoDa', sql.Int, req.user && req.user.id != null ? parseInt(req.user.id, 10) : null)
             .input('BobinaFinita', sql.Bit, req.body.bobina_finita !== undefined ? req.body.bobina_finita : null)
             .query(`
-                UPDATE [CMP].[Bobine].[Log]
+                UPDATE [BOB].[dbo].[Log]
                 SET Codart = @Codart,
                     Lot = @Lot,
                     Quantity = @Quantity,
@@ -1276,13 +1276,13 @@ app.delete('/api/logs/:id', authenticateToken, async (req, res) => {
             await pool.request()
                 .input('IDLog', sql.Int, logId)
                 .input('ModificatoDa', sql.Int, operatorId)
-                .query(`UPDATE [CMP].[Bobine].[Log] SET Eliminato = 1, ModificatoDa = @ModificatoDa, NumeroModifiche = NumeroModifiche + 1 WHERE IDLog = @IDLog`);
+                .query(`UPDATE [BOB].[dbo].[Log] SET Eliminato = 1, ModificatoDa = @ModificatoDa, NumeroModifiche = NumeroModifiche + 1 WHERE IDLog = @IDLog`);
             return res.status(200).send({ message: 'Log eliminato da Admin' });
         }
         await pool.request()
             .input('IDLog', sql.Int, logId)
             .input('IDOperator', sql.Int, operatorId)
-            .execute('[dbo].[sp_DeleteLogOperatore]');
+            .execute('[BOB].[dbo].[sp_DeleteLogOperatore]');
         res.status(200).send({ message: 'Log eliminato logicamente' });
     } catch (err) {
         const status = err.number >= 50000 ? 403 : 500;
@@ -1298,7 +1298,7 @@ app.patch('/api/logs/:id/bobina-finita', authenticateToken, async (req, res) => 
         await pool.request()
             .input('IDLog', sql.Int, id)
             .input('BobinaFinita', sql.Bit, bobina_finita)
-            .query(`UPDATE [CMP].[Bobine].[Log] SET bobina_finita = @BobinaFinita WHERE IDLog = @IDLog`);
+            .query(`UPDATE [BOB].[dbo].[Log] SET bobina_finita = @BobinaFinita WHERE IDLog = @IDLog`);
         res.status(200).send({ message: 'Stato bobina aggiornato' });
     } catch (err) {
         res.status(500).send(err.message);
@@ -1341,8 +1341,8 @@ app.post('/api/users/recover', async (req, res) => {
         let userRes = await pool.request()
             .input('barcode', sql.NVarChar, barcode)
             .query(`
-                UPDATE [CMP].[dbo].[Users] SET ResetRequested = 1 WHERE Barcode = @barcode AND IsActive = 1;
-                SELECT IDUser, Name FROM [CMP].[dbo].[Users] WHERE Barcode = @barcode AND IsActive = 1;
+                UPDATE [GA].[dbo].[Users] SET ResetRequested = 1 WHERE Barcode = @barcode AND IsActive = 1;
+                SELECT IDUser, Name FROM [GA].[dbo].[Users] WHERE Barcode = @barcode AND IsActive = 1;
             `);
 
         if (userRes.recordset.length === 0) {
