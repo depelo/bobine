@@ -1054,16 +1054,14 @@
       container.innerHTML = '';
 
       globalModules.forEach(mod => {
-        const roles = mod.roleDefinition || {};
-        const roleKeys = Object.keys(roles);
+        const roles = mod.roles || [];
 
         let rolesHtml = '';
-        roleKeys.forEach(key => {
-          const r = roles[key];
+        roles.forEach(r => {
           const pwdBadge = r.requiresPassword ? '<span style="color:var(--danger); font-size:0.75rem;">(Pwd)</span>' : '<span style="color:var(--success); font-size:0.75rem;">(Fast)</span>';
           const hoursBadge = r.sessionHours ? `<span style="color:var(--text-muted); font-size:0.75rem;">(${r.sessionHours}h)</span>` : '';
           const daysBadge = (r.requiresPassword && r.pwdExpiryDays) ? `<span style="color:var(--text-muted); font-size:0.75rem;">(${r.pwdExpiryDays}gg)</span>` : '';
-          rolesHtml += `<li>${(r.label || key)} ${pwdBadge} ${hoursBadge} ${daysBadge}</li>`;
+          rolesHtml += `<li>${r.label} ${pwdBadge} ${hoursBadge} ${daysBadge}</li>`;
         });
 
         const card = document.createElement('div');
@@ -1184,8 +1182,9 @@
       if (u.apps && u.apps.length > 0) {
         u.apps.forEach(app => {
           const mod = globalModules.find(m => m.id === app.moduleId);
-          if (mod && mod.roleDefinition && mod.roleDefinition[app.roleKey]) {
-            if (mod.roleDefinition[app.roleKey].requiresPassword) {
+          if (mod && mod.roles) {
+            const roleInfo = mod.roles.find(r => r.roleKey === app.roleKey);
+            if (roleInfo && roleInfo.requiresPassword) {
               needsPassword = true;
             }
           }
@@ -1239,16 +1238,17 @@
       if (rolesContainer) {
         rolesContainer.innerHTML = '';
 
-        // Costruiamo i checkbox dei ruoli basandoci su RoleDefinition
+        // Costruiamo i checkbox dei ruoli basandoci su mod.roles (array)
         globalModules.forEach(mod => {
-          const roles = mod.roleDefinition;
-          if (!roles) return;
+          const roles = mod.roles || [];
+          if (!roles.length) return;
 
           const modGroup = document.createElement('div');
           modGroup.style.marginBottom = '8px';
           modGroup.innerHTML = `<strong style="font-size:0.9rem; color: var(--primary);">${mod.name}</strong>`;
 
-          for (const [roleKey, roleInfo] of Object.entries(roles)) {
+          roles.forEach(roleInfo => {
+            const roleKey = roleInfo.roleKey;
             const lbl = document.createElement('label');
             lbl.style.display = 'flex';
             lbl.style.alignItems = 'center';
@@ -1282,7 +1282,7 @@
             lbl.appendChild(cb);
             lbl.appendChild(document.createTextNode(roleInfo.label));
             modGroup.appendChild(lbl);
-          }
+          });
           rolesContainer.appendChild(modGroup);
         });
       }
@@ -1406,8 +1406,11 @@
             const mod = globalModules.find(m => m.targetTable === cb.dataset.targetTable);
             if (mod) {
                 selectedModules.set(mod.id, mod.name);
-                if (mod.roleDefinition && mod.roleDefinition[cb.dataset.roleKey] && mod.roleDefinition[cb.dataset.roleKey].requiresPassword) {
-                    needsPwd = true;
+                if (mod.roles) {
+                    const roleInfo = mod.roles.find(r => r.roleKey === cb.dataset.roleKey);
+                    if (roleInfo && roleInfo.requiresPassword) {
+                        needsPwd = true;
+                    }
                 }
             }
         });
@@ -1450,14 +1453,15 @@
       container.innerHTML = '';
 
       globalModules.forEach(mod => {
-        const roles = mod.roleDefinition;
-        if (!roles) return;
+        const roles = mod.roles || [];
+        if (!roles.length) return;
 
         const modGroup = document.createElement('div');
         modGroup.style.marginBottom = '8px';
         modGroup.innerHTML = `<strong style="font-size:0.9rem; color: var(--primary);">${mod.name}</strong>`;
 
-        for (const [roleKey, roleInfo] of Object.entries(roles)) {
+        roles.forEach(roleInfo => {
+          const roleKey = roleInfo.roleKey;
           const lbl = document.createElement('label');
           lbl.style.display = 'flex';
           lbl.style.alignItems = 'center';
@@ -1476,7 +1480,7 @@
           lbl.appendChild(cb);
           lbl.appendChild(document.createTextNode(roleInfo.label));
           modGroup.appendChild(lbl);
-        }
+        });
         container.appendChild(modGroup);
       });
 
@@ -1897,9 +1901,8 @@
       const tbody = document.getElementById('emRolesTableBody');
       tbody.innerHTML = '';
 
-      const roles = mod.roleDefinition || {};
+      const roles = mod.roles || [];
 
-      // Recupero i valori globali per mostrarli nei placeholder dei ruoli
       const globSession = (() => {
         const row = globalConfig.find(c => c.ConfigKey === 'SessionHours');
         return row && row.ConfigValue !== null ? row.ConfigValue : '12';
@@ -1909,20 +1912,20 @@
         return row && row.ConfigValue !== null ? row.ConfigValue : '90';
       })();
 
-      for (const [key, config] of Object.entries(roles)) {
+      roles.forEach(config => {
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px solid var(--bg)';
         const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const labelVal = esc(config.label || '');
         tr.innerHTML = `
-            <td style="padding: 8px; font-family: monospace; color: var(--text-muted);">${esc(key)}</td>
-            <td style="padding: 8px;"><input type="text" class="control role-label" data-key="${esc(key)}" value="${labelVal}" style="padding: 4px;"></td>
-            <td style="padding: 8px; text-align: center;"><input type="checkbox" class="role-reqpwd" data-key="${esc(key)}" ${config.requiresPassword ? 'checked' : ''} style="width:18px; height:18px;"></td>
-            <td style="padding: 8px;"><input type="number" class="control role-ses" data-key="${esc(key)}" value="${config.sessionHours ?? ''}" min="1" placeholder="🌐 ${globSession}" title="Valore globale predefinito: ${globSession} ore" style="padding: 4px; width: 100px;"></td>
-            <td style="padding: 8px;"><input type="number" class="control role-pwd" data-key="${esc(key)}" value="${config.pwdExpiryDays ?? ''}" min="1" placeholder="🌐 ${globExpiry}" title="Valore globale predefinito: ${globExpiry} giorni" style="padding: 4px; width: 100px;"></td>
+            <td style="padding: 8px; font-family: monospace; color: var(--text-muted);">${esc(config.roleKey)}</td>
+            <td style="padding: 8px; color: var(--text);">${esc(config.label)}</td>
+            <td style="padding: 8px; text-align: center;"><input type="checkbox" class="role-reqpwd" data-key="${esc(config.roleKey)}" ${config.requiresPassword ? 'checked' : ''} disabled style="width:18px; height:18px;"></td>
+            <td style="padding: 8px; color: var(--text-muted);">${config.sessionHours ?? '-'}</td>
+            <td style="padding: 8px; color: var(--text-muted);">${config.pwdExpiryDays ?? '-'}</td>
         `;
+        // Nota: I campi sono disabilitati visivamente perché le modifiche ai ruoli ora avvengono a livello DB in AppRoles
         tbody.appendChild(tr);
-      }
+      });
 
       const appSetWrapper = document.getElementById('emAppSettingsWrapper');
       const appSetContainer = document.getElementById('emAppSettingsContainer');
@@ -1968,28 +1971,7 @@
       const mod = globalModules.find(m => m.id == id);
       if (!mod) return;
 
-      const newRoleDef = {};
-      const tbody = document.getElementById('emRolesTableBody');
-      const rows = tbody.querySelectorAll('tr');
-
-      rows.forEach(row => {
-        const labelInput = row.querySelector('.role-label');
-        if (!labelInput) return;
-        const key = labelInput.dataset.key;
-        const label = labelInput.value.trim();
-        const reqPwd = row.querySelector('.role-reqpwd').checked;
-        const ses = row.querySelector('.role-ses').value;
-        const pwd = row.querySelector('.role-pwd').value;
-
-        newRoleDef[key] = {
-          label: label,
-          requiresPassword: reqPwd,
-          sessionHours: ses !== '' ? parseInt(ses, 10) : null,
-          pwdExpiryDays: pwd !== '' ? parseInt(pwd, 10) : null
-        };
-      });
-
-      // 2. Raccogli App Settings in modo sicuro (Merge profondo)
+      // 1. Raccogli solo gli App Settings in modo sicuro (Merge profondo)
       const newAppSet = {};
       // currentEditingModule.appSettings contiene il JSON originale caricato all'apertura del modale
       if (currentEditingModule && currentEditingModule.appSettings) {
@@ -2013,7 +1995,7 @@
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roleDefinition: newRoleDef, appSettings: newAppSet })
+          body: JSON.stringify({ appSettings: newAppSet })
         });
         if (res.status === 401 || res.status === 403) {
           alert('Sessione scaduta o privilegi insufficienti.');

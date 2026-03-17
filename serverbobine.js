@@ -305,62 +305,21 @@ app.get('/api/admin/users', authenticateCaptain, async (req, res) => {
             lastPasswordChange: u.LastPasswordChange
         }));
 
-        // 2. Recupera i moduli (Visti disponibili)
-        const modRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetDb, TargetTable, RoleDefinition FROM [GA].[dbo].[Modules]`);
-        const modules = modRes.recordset;
+        // 2. Recupera le app autorizzate per TUTTI gli utenti in un colpo solo
+        const allAccessRes = await pool.request().query(`
+            SELECT 
+                V.IDUser, M.IDModule as moduleId, M.ModuleName as moduleName,
+                GR.RoleCode as roleKey, GR.DefaultLabel as roleLabel
+            FROM [GA].[dbo].[vw_UserAccess] V
+            INNER JOIN [GA].[dbo].[Modules] M ON V.IDModule = M.IDModule
+            INNER JOIN [GA].[dbo].[GlobalRoles] GR ON V.IDGlobalRole = GR.IDGlobalRole
+        `);
 
-        // Inizializza gli array per ogni utente
+        // 3. Assegna le app ai rispettivi utenti
         for (let u of users) {
-            u.apps = [];
-            // IDs dei moduli autorizzati (Meta-App)
-            u.authorizedModuleIds = [];
-            // Stato di sessione calcolato in RAM tramite Socket.io
+            u.apps = allAccessRes.recordset.filter(a => a.IDUser === u.id);
+            u.authorizedModuleIds = u.apps.map(a => a.moduleId);
             u.hasActiveSession = activeUserSockets.has(u.id);
-        }
-
-        // 3. Popola le autorizzazioni sfruttando TargetSchema
-        for (let mod of modules) {
-            if (!mod.TargetDb || !mod.TargetTable) continue;
-
-            let roleDef = {};
-            try { roleDef = JSON.parse(mod.RoleDefinition); } catch (e) {}
-
-            const fullTableName = `[${mod.TargetDb}].[dbo].[${mod.TargetTable}]`;
-            let roleRes;
-
-            try {
-                if (mod.TargetTable === 'Operators') {
-                    roleRes = await pool.request().query(`SELECT IDUser, Admin FROM ${fullTableName} WHERE IsActive = 1`);
-                } else if (mod.TargetTable === 'Captains') {
-                    roleRes = await pool.request().query(`SELECT IDUser, 1 as Admin FROM ${fullTableName} WHERE IsActive = 1`);
-                } else {
-                    continue;
-                }
-            } catch (err) {
-                console.error(`Errore su ${fullTableName}:`, err.message);
-                continue;
-            }
-
-            if (roleRes && roleRes.recordset) {
-                for (let row of roleRes.recordset) {
-                    let user = users.find(x => x.id === row.IDUser);
-                    if (user) {
-                        let rKey = mod.TargetTable === 'Operators'
-                            ? (row.Admin ? 'Admin' : 'Base')
-                            : 'Master';
-                        let rLabel = roleDef[rKey] ? roleDef[rKey].label : rKey;
-                        user.apps.push({
-                            moduleId: mod.IDModule,
-                            moduleName: mod.ModuleName,
-                            roleKey: rKey,
-                            roleLabel: rLabel
-                        });
-                        if (!user.authorizedModuleIds.includes(mod.IDModule)) {
-                            user.authorizedModuleIds.push(mod.IDModule);
-                        }
-                    }
-                }
-            }
         }
         res.json(users);
     } catch (err) {
@@ -521,19 +480,29 @@ app.put('/api/admin/users/:id/roles', authenticateCaptain, async (req, res) => {
     }
 });
 
-// 3. Recupera i moduli e i ruoli autodefiniti
+// 3. Recupera i moduli e i ruoli applicativi
 app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
-        const result = await pool.request().query(`
-            SELECT IDModule as id, ModuleName as name, TargetDb as targetDb, TargetTable as targetTable, RoleDefinition as roleDefinition, AppSettings as appSettings FROM [GA].[dbo].[Modules]
+        const modRes = await pool.request().query(`
+            SELECT IDModule as id, ModuleName as name, TargetDb as targetDb, TargetTable as targetTable, AppSettings as appSettings 
+            FROM [GA].[dbo].[Modules]
         `);
 
-        const modules = result.recordset.map(mod => {
-            let rDef = {}, aSet = {};
-            try { rDef = mod.roleDefinition ? JSON.parse(mod.roleDefinition) : {}; } catch (e) {}
+        const rolesRes = await pool.request().query(`
+            SELECT AR.IDModule, GR.RoleCode as roleKey, GR.DefaultLabel as label, AR.RequiresPassword as requiresPassword, AR.SessionHours as sessionHours, AR.PwdExpiryDays as pwdExpiryDays
+            FROM [GA].[dbo].[AppRoles] AR
+            INNER JOIN [GA].[dbo].[GlobalRoles] GR ON AR.IDGlobalRole = GR.IDGlobalRole
+        `);
+
+        const modules = modRes.recordset.map(mod => {
+            let aSet = {};
             try { aSet = mod.appSettings ? JSON.parse(mod.appSettings) : {}; } catch (e) {}
-            return { ...mod, roleDefinition: rDef, appSettings: aSet };
+            return { 
+                ...mod, 
+                roles: rolesRes.recordset.filter(r => r.IDModule === mod.id),
+                appSettings: aSet 
+            };
         });
         res.json(modules);
     } catch (err) {
@@ -541,20 +510,19 @@ app.get('/api/admin/modules', authenticateCaptain, async (req, res) => {
     }
 });
 
-// 3b. Aggiorna RoleDefinition e AppSettings del modulo
+// 3b. Aggiorna AppSettings del modulo (ruoli gestiti a livello DB in AppRoles)
 app.put('/api/admin/modules/:id', authenticateCaptain, async (req, res) => {
     const idModule = parseInt(req.params.id, 10);
-    const { roleDefinition, appSettings } = req.body;
+    const { appSettings } = req.body;
 
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('idModule', sql.Int, idModule)
-            .input('roleDef', sql.NVarChar, JSON.stringify(roleDefinition))
             .input('appSet', sql.NVarChar, JSON.stringify(appSettings || {}))
-            .query(`UPDATE [GA].[dbo].[Modules] SET RoleDefinition = @roleDef, AppSettings = @appSet WHERE IDModule = @idModule`);
+            .query(`UPDATE [GA].[dbo].[Modules] SET AppSettings = @appSet WHERE IDModule = @idModule`);
 
-        res.status(200).json({ message: 'Regole e Impostazioni App aggiornate con successo.' });
+        res.status(200).json({ message: 'Impostazioni App aggiornate con successo.' });
     } catch (err) {
         console.error('Errore PUT /api/admin/modules/:id:', err);
         res.status(500).send(err.message);
@@ -849,62 +817,30 @@ app.post('/api/login', async (req, res) => {
             console.error('Errore lettura AdminPwdExpiryDays:', cfgErr);
         }
 
-        // --- CALCOLO MODULI AUTORIZZATI E LIVELLO DI SICUREZZA (HIGH WATERMARK) ---
-        const modulesRes = await pool.request().query(`SELECT IDModule, ModuleName, TargetDb, TargetTable, RoleDefinition, AppSettings FROM [GA].[dbo].[Modules]`);
-        const authorizedApps = [];
-        let globalRequiresPassword = isSuperuser; // Il Superuser richiede sempre la password di default
-
-        for (let mod of modulesRes.recordset) {
-            if (!mod.TargetDb || !mod.TargetTable) continue;
-
-            let hasAccess = false;
-            let localRoleKey = 'Base';
-            const fullTableName = `[${mod.TargetDb}].[dbo].[${mod.TargetTable}]`;
-
-            if (mod.TargetTable === 'Operators') {
-                const roleRes = await pool.request()
-                    .input('id', sql.Int, row.IDUser)
-                    .query(`SELECT Admin FROM ${fullTableName} WHERE IDUser = @id AND IsActive = 1`);
-                if (roleRes.recordset.length > 0) {
-                    hasAccess = true;
-                    localRoleKey = roleRes.recordset[0].Admin ? 'Admin' : 'Base';
-                }
-            } else if (mod.TargetTable === 'Captains') {
-                if (isSuperuser) {
-                    hasAccess = true;
-                    localRoleKey = 'Master';
-                }
-            }
-
-            if (hasAccess) {
-                let roleLabel = localRoleKey;
-                let requiresPassword = false;
-
-                // Valutazione High Watermark e recupero Label dal RoleDefinition
-                if (mod.RoleDefinition) {
-                    try {
-                        const rDef = JSON.parse(mod.RoleDefinition);
-                        if (rDef[localRoleKey]) {
-                            roleLabel = rDef[localRoleKey].label || localRoleKey;
-                            if (rDef[localRoleKey].requiresPassword) {
-                                requiresPassword = true;
-                                globalRequiresPassword = true;
-                            }
-                        }
-                    } catch (e) {
-                        console.error('Errore parsing RoleDefinition per modulo', mod.IDModule);
-                    }
-                }
-                authorizedApps.push({
-                    id: mod.IDModule,
-                    name: mod.ModuleName,
-                    target: mod.TargetTable,
-                    roleKey: localRoleKey,
-                    roleLabel: roleLabel,
-                    requiresPassword: requiresPassword
-                });
-            }
-        }
+        // --- CALCOLO MODULI AUTORIZZATI E LIVELLO DI SICUREZZA VIA VISTA FEDERATA ---
+        const accessRes = await pool.request()
+            .input('idUserLoggato', sql.Int, row.IDUser)
+            .query(`
+                SELECT 
+                    M.IDModule as id,
+                    M.ModuleName as name,
+                    M.TargetTable as target,
+                    GR.RoleCode as roleKey,
+                    GR.DefaultLabel as roleLabel,
+                    AR.RequiresPassword as requiresPassword
+                FROM [GA].[dbo].[vw_UserAccess] V
+                INNER JOIN [GA].[dbo].[Modules] M ON V.IDModule = M.IDModule
+                INNER JOIN [GA].[dbo].[GlobalRoles] GR ON V.IDGlobalRole = GR.IDGlobalRole
+                INNER JOIN [GA].[dbo].[AppRoles] AR ON V.IDModule = AR.IDModule AND V.IDGlobalRole = AR.IDGlobalRole
+                WHERE V.IDUser = @idUserLoggato
+            `);
+            
+        const authorizedApps = accessRes.recordset;
+        
+        let globalRequiresPassword = isSuperuser; // Il superuser di base la richiede sempre
+        authorizedApps.forEach(app => {
+            if (app.requiresPassword) globalRequiresPassword = true;
+        });
 
         let needsPasswordChange = false;
 
