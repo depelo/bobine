@@ -265,9 +265,9 @@ app.put('/api/operators/:id/reset-password', authenticateToken, async (req, res)
                 WHERE IDUser = @idUser
             `);
 
-        // Avvisa in tempo reale i Captain che un allarme è stato risolto
+        // Avvisa in tempo reale tutta la rete che un allarme è stato risolto
         if (typeof io !== 'undefined') {
-            io.to('captains_room').emit('pwd_reset_resolved');
+            io.emit('pwd_reset_resolved');
         }
 
         res.status(200).send({ message: 'Password resettata con successo' });
@@ -462,6 +462,11 @@ app.put('/api/admin/users/:id', authenticateCaptain, async (req, res) => {
         updateQuery += ` WHERE IDUser = @id`;
 
         await request.query(updateQuery);
+
+        // Se il Captain ha azzerato ResetRequested o modificato password/flag, notifichiamo tutta la rete
+        if (typeof io !== 'undefined') {
+            io.emit('pwd_reset_resolved');
+        }
 
         res.status(200).json({ message: 'Impostazioni di sicurezza aggiornate con successo.' });
     } catch (err) {
@@ -1353,9 +1358,9 @@ app.post('/api/users/recover', async (req, res) => {
 
         const userName = userRes.recordset[0].Name;
 
-        // Emette l'avviso in tempo reale alla stanza dei Captain
+        // Emette l'avviso in tempo reale a tutti i client connessi
         if (typeof io !== 'undefined') {
-            io.to('captains_room').emit('pwd_reset_request', { 
+            io.emit('pwd_reset_request', { 
                 userName: userName, 
                 barcode: barcode,
                 time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
