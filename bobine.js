@@ -817,7 +817,7 @@ function renderOperatorList(items) {
     li.style.alignItems = 'center';
     li.style.padding = '12px';
     
-    let alertIcon = op.resetRequested ? '<span style="color: var(--danger); margin-left: 8px; animation: pulse 2s infinite;" title="Richiesta Reset Password">🔔</span>' : '';
+    let alertIcon = op.resetRequested ? '<span style="display: inline-block; width: 10px; height: 10px; background-color: var(--danger); border-radius: 50%; margin-left: 8px; box-shadow: 0 0 5px rgba(220, 53, 69, 0.5);" title="Ha richiesto il reset della password"></span>' : '';
     let adminIcon = op.isAdmin ? '<span style="font-size: 0.8rem; background: var(--primary); color: white; padding: 2px 6px; border-radius: 12px; margin-left: 8px;">Admin</span>' : '';
 
     li.innerHTML = `
@@ -1657,11 +1657,13 @@ function openManageOperatorModal(op) {
   forceEl.checked = true;
 
   if (op.resetRequested) {
+    // Mostra la sezione di reset SOLO se è stato richiesto dall'utente
+    pwdSection.style.display = 'block';
     pwdSection.style.borderColor = 'var(--danger)';
-    pwdSection.style.boxShadow = '0 0 10px rgba(220, 53, 69, 0.3)';
+    pwdSection.style.boxShadow = '0 0 8px rgba(220, 53, 69, 0.2)';
   } else {
-    pwdSection.style.borderColor = '#ffe69c';
-    pwdSection.style.boxShadow = 'none';
+    // Nasconde completamente la possibilità di resettare la password
+    pwdSection.style.display = 'none';
   }
 
   modal.classList.add('is-open');
