@@ -214,6 +214,57 @@
       </div>
     </div>
 
+    <div class="scanner-modal" id="assignOperatorModal" aria-hidden="true">
+      <div class="scanner-modal-inner" style="width: 400px; max-width: 95%;">
+        <p class="scanner-title">Assegna Operatore a Bobine</p>
+        <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">Seleziona un utente globale per concedergli l'accesso a questo reparto.</p>
+        
+        <div class="login-field">
+          <label for="availableUsersSelect">Utente Disponibile</label>
+          <select id="availableUsersSelect" class="control" style="width: 100%;">
+            <option value="">-- Caricamento in corso... --</option>
+          </select>
+        </div>
+        
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 16px; margin-bottom: 24px;">
+          <input type="checkbox" id="assignAdminCheck" style="width: 18px; height: 18px;">
+          <label for="assignAdminCheck" style="margin: 0; font-weight: bold; cursor: pointer;">Nomina Capo Reparto (Admin)</label>
+        </div>
+        
+        <div class="login-actions" style="display: flex; gap: 12px;">
+          <button type="button" class="scanner-cancel" id="assignOperatorCancelBtn" style="flex: 1; background: var(--border);">Annulla</button>
+          <button type="button" class="scanner-cancel" id="assignOperatorSaveBtn" style="flex: 1; background: var(--primary); color: white; border: none;">Assegna Visto</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="scanner-modal" id="manageOperatorModal" aria-hidden="true">
+      <div class="scanner-modal-inner" style="width: 400px; max-width: 95%;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px;">
+          <h2 class="scanner-title" style="margin: 0; border: none; padding: 0;" id="manageOpName">Nome Operatore</h2>
+          <button class="scanner-cancel" id="manageOpCloseBtn" style="width: auto; padding: 6px 12px; margin: 0;">Chiudi</button>
+        </div>
+        
+        <input type="hidden" id="manageOpId">
+        
+        <div id="manageOpPwdSection" style="background: #fff3cd; border: 1px solid #ffe69c; border-radius: var(--radius); padding: 16px; margin-bottom: 24px;">
+          <h4 style="margin: 0 0 12px 0; color: #856404;">🔑 Reset Password</h4>
+          <div class="login-field">
+            <input type="password" id="manageOpNewPwd" class="control" placeholder="Nuova password muletto (es. 123456)" autocomplete="new-password">
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+            <input type="checkbox" id="manageOpForcePwd" checked style="width: 16px; height: 16px;">
+            <label for="manageOpForcePwd" style="margin: 0; font-size: 0.9rem;">Forza reset al prossimo login</label>
+          </div>
+          <button type="button" id="manageOpSavePwdBtn" class="action-btn" style="width: 100%; margin-top: 16px; background: rgb(217, 119, 6); color: white; border: none;">Genera Password</button>
+        </div>
+
+        <div style="border-top: 1px solid var(--border); padding-top: 16px;">
+          <button type="button" id="manageOpRevokeBtn" class="action-btn" style="width: 100%; background: transparent; color: var(--danger); border: 1px solid var(--danger);">🚫 Revoca Visto (Rimuovi da Bobine)</button>
+        </div>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="bobine.js"></script>
   </body>

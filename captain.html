@@ -725,6 +725,11 @@
                 document.getElementById('captainErrorBtnClose').style.backgroundColor = '#d97706';
                 loadData();
             });
+
+            // Quando un Admin di reparto risolve un allarme password, aggiorna silenziosamente i dati
+            captainSocket.on('pwd_reset_resolved', () => {
+                loadData();
+            });
         }
       } catch (err) {
         console.error('Errore inizializzazione:', err);

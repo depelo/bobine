@@ -110,15 +110,17 @@ function authenticateCaptain(req, res, next) {
 // --- API OPERATORI ---
 
 // Recupera todos los operadores, incluyendo il codice di barras e l'orario di inizio turno
-app.get('/api/operators', async (req, res) => {
+app.get('/api/operators', authenticateToken, async (req, res) => {
     try {
         let pool = await sql.connect(dbConfig);
         let result = await pool.request().query(`
             SELECT 
                 O.IDOperator AS id, 
+                U.IDUser as globalId,
                 U.Name AS name, 
                 U.Barcode AS barcode, 
                 O.Admin AS isAdmin,
+                U.ResetRequested as resetRequested,
                 CONVERT(varchar(5), O.StartTime, 108) AS startTime
             FROM [BOB].[dbo].[Operators] O
             INNER JOIN [GA].[dbo].[Users] U ON O.IDUser = U.IDUser
@@ -130,7 +132,7 @@ app.get('/api/operators', async (req, res) => {
     }
 });
 
-app.patch('/api/operators/:id/time', async (req, res) => {
+app.patch('/api/operators/:id/time', authenticateToken, async (req, res) => {
     const { startTime } = req.body; // Formato "HH:mm" o stringa vuota
     try {
         let pool = await sql.connect(dbConfig);
@@ -145,129 +147,131 @@ app.patch('/api/operators/:id/time', async (req, res) => {
     }
 });
 
-// Añade un nuevo operador con código de barras
-app.post('/api/operators', async (req, res) => {
+// Utenti globali disponibili (Passaporti senza Visto Bobine attivo)
+app.get('/api/operators/available', authenticateToken, async (req, res) => {
     try {
-        const operator = req.body?.operator ?? req.body?.name;
-        const admin = req.body?.admin ?? req.body?.isAdmin;
-        const barcode = req.body?.barcode;
-        const startTime = req.body?.startTime ?? null;
-        const password = req.body?.password;
-
-        const hash = await bcrypt.hash(password || '123456', 10); // Default password if empty
         let pool = await sql.connect(dbConfig);
-        const transaction = new sql.Transaction(pool);
-        await transaction.begin();
+        let result = await pool.request().query(`
+            SELECT IDUser as id, Name as name, Barcode as barcode 
+            FROM [GA].[dbo].[Users] 
+            WHERE IsActive = 1 
+            AND IDUser NOT IN (SELECT IDUser FROM [BOB].[dbo].[Operators] WHERE IsActive = 1)
+            ORDER BY Name ASC
+        `);
+        res.json(result.recordset);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
 
-        try {
-            // 1. Insert into Users (Passport)
-            const userReq = new sql.Request(transaction);
-            userReq.input('name', sql.NVarChar, operator);
-            userReq.input('barcode', sql.NVarChar, barcode);
-            userReq.input('pwd', sql.NVarChar, hash);
-            const userRes = await userReq.query(`
-                INSERT INTO [GA].[dbo].[Users] (Name, Barcode, PasswordHash, IsActive)
-                OUTPUT INSERTED.IDUser
-                VALUES (@name, @barcode, @pwd, 1)
+// Añade/riattiva un operatore Bobine assegnando un Visto a un Passaporto esistente
+app.post('/api/operators', authenticateToken, async (req, res) => {
+    const { globalId, admin, startTime } = req.body;
+    try {
+        let pool = await sql.connect(dbConfig);
+        await pool.request()
+            .input('idUser', sql.Int, globalId)
+            .input('admin', sql.Bit, admin ? 1 : 0)
+            .input('startTime', sql.VarChar, startTime || null)
+            .query(`
+                IF EXISTS (SELECT 1 FROM [BOB].[dbo].[Operators] WHERE IDUser = @idUser)
+                BEGIN
+                    UPDATE [BOB].[dbo].[Operators] 
+                    SET IsActive = 1, Admin = @admin, StartTime = @startTime 
+                    WHERE IDUser = @idUser
+                END
+                ELSE
+                BEGIN
+                    INSERT INTO [BOB].[dbo].[Operators] (IDUser, Admin, StartTime, IsActive) 
+                    VALUES (@idUser, @admin, @startTime, 1)
+                END
             `);
-            const newUserId = userRes.recordset[0].IDUser;
-
-            // 2. Insert into Operators (Visa)
-            const opReq = new sql.Request(transaction);
-            opReq.input('idUser', sql.Int, newUserId);
-            opReq.input('admin', sql.Bit, admin);
-            opReq.input('startTime', sql.VarChar, startTime);
-            await opReq.query(`
-                INSERT INTO [BOB].[dbo].[Operators] (IDUser, Admin, StartTime, IsActive)
-                VALUES (@idUser, @admin, @startTime, 1)
-            `);
-
-            await transaction.commit();
-            res.status(201).send({ message: 'Operatore creato con successo' });
-        } catch (txErr) {
-            await transaction.rollback();
-            throw txErr;
-        }
+        res.status(201).send({ message: 'Visto assegnato con successo' });
     } catch (err) {
         console.error('Errore POST /api/operators:', err);
         res.status(500).send(err.message);
     }
 });
 
-app.put('/api/operators/:id', async (req, res) => {
+// Aggiorna solo il Visto Bobine (Admin/StartTime), non il Passaporto globale
+app.put('/api/operators/:id', authenticateToken, async (req, res) => {
     const id = parseInt(req.params.id, 10);
-    const { operator, admin, barcode, startTime, password } = req.body;
+    const { admin, startTime } = req.body;
     try {
         let pool = await sql.connect(dbConfig);
-        const transaction = new sql.Transaction(pool);
-        await transaction.begin();
-
-        try {
-            // Get the linked IDUser
-            const getReq = new sql.Request(transaction);
-            getReq.input('idOp', sql.Int, id);
-            const getRes = await getReq.query(`SELECT IDUser FROM [BOB].[dbo].[Operators] WHERE IDOperator = @idOp`);
-            if (getRes.recordset.length === 0) throw new Error("Operatore non trovato");
-            const idUser = getRes.recordset[0].IDUser;
-
-            // Update Users
-            const userReq = new sql.Request(transaction);
-            userReq.input('idUser', sql.Int, idUser);
-            userReq.input('name', sql.NVarChar, operator);
-            userReq.input('barcode', sql.NVarChar, barcode);
-
-            let pwdQuery = '';
-            if (password && password.trim() !== '') {
-                const hash = await bcrypt.hash(password, 10);
-                userReq.input('pwd', sql.NVarChar, hash);
-                pwdQuery = ', PasswordHash = @pwd, LastPasswordChange = GETDATE()';
-            }
-
-            await userReq.query(`
-                UPDATE [GA].[dbo].[Users] 
-                SET Name = @name, Barcode = @barcode ${pwdQuery}
-                WHERE IDUser = @idUser
-            `);
-
-            // Update Operators
-            const opReq = new sql.Request(transaction);
-            opReq.input('idOp', sql.Int, id);
-            opReq.input('admin', sql.Bit, admin);
-            opReq.input('startTime', sql.VarChar, startTime);
-            await opReq.query(`
+        await pool.request()
+            .input('idOp', sql.Int, id)
+            .input('admin', sql.Bit, admin ? 1 : 0)
+            .input('startTime', sql.VarChar, startTime || null)
+            .query(`
                 UPDATE [BOB].[dbo].[Operators]
                 SET Admin = @admin, StartTime = @startTime
                 WHERE IDOperator = @idOp
             `);
-
-            await transaction.commit();
-            res.status(200).send({ message: 'Operatore aggiornato' });
-        } catch (txErr) {
-            await transaction.rollback();
-            throw txErr;
-        }
+        res.status(200).send({ message: 'Operatore aggiornato' });
     } catch (err) {
         console.error('Errore PUT /api/operators:', err);
         res.status(500).send(err.message);
     }
 });
 
-app.delete('/api/operators/:id', async (req, res) => {
+// Revoca il Visto Bobine lasciando intatto il Passaporto globale
+app.delete('/api/operators/:id', authenticateToken, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     try {
         let pool = await sql.connect(dbConfig);
         await pool.request()
             .input('idOp', sql.Int, id)
             .query(`
-                UPDATE U
-                SET U.IsActive = 0
-                FROM [GA].[dbo].[Users] U
-                INNER JOIN [BOB].[dbo].[Operators] O ON U.IDUser = O.IDUser
-                WHERE O.IDOperator = @idOp
+                UPDATE [BOB].[dbo].[Operators] 
+                SET IsActive = 0 
+                WHERE IDOperator = @idOp
             `);
         res.status(200).send({ message: 'Operatore disattivato logicamente' });
     } catch (err) {
         console.error('Errore DELETE /api/operators:', err);
+        res.status(500).send(err.message);
+    }
+});
+
+// Reset password di reparto per un operatore Bobine (risolve l'allarme Captain)
+app.put('/api/operators/:id/reset-password', authenticateToken, async (req, res) => {
+    const idOp = parseInt(req.params.id, 10);
+    const { newPassword, forcePwdChange } = req.body;
+    
+    if (!req.user.isAdmin && !req.user.isSuperuser) return res.status(403).send('Solo gli Admin possono resettare le password');
+    if (!newPassword) return res.status(400).send('Password obbligatoria');
+
+    try {
+        let pool = await sql.connect(dbConfig);
+        
+        // Verifica che l'operatore appartenga a Bobine e recupera IDUser globale
+        const getRes = await pool.request()
+            .input('idOp', sql.Int, idOp)
+            .query(`SELECT IDUser FROM [BOB].[dbo].[Operators] WHERE IDOperator = @idOp`);
+            
+        if (getRes.recordset.length === 0) return res.status(404).send('Operatore non trovato in questo reparto');
+        const idUser = getRes.recordset[0].IDUser;
+
+        const hash = await bcrypt.hash(newPassword, 10);
+        
+        await pool.request()
+            .input('idUser', sql.Int, idUser)
+            .input('hash', sql.NVarChar, hash)
+            .input('force', sql.Bit, forcePwdChange ? 1 : 0)
+            .query(`
+                UPDATE [GA].[dbo].[Users] 
+                SET PasswordHash = @hash, LastPasswordChange = GETDATE(), ForcePwdChange = @force, ResetRequested = 0 
+                WHERE IDUser = @idUser
+            `);
+
+        // Avvisa in tempo reale i Captain che un allarme è stato risolto
+        if (typeof io !== 'undefined') {
+            io.to('captains_room').emit('pwd_reset_resolved');
+        }
+
+        res.status(200).send({ message: 'Password resettata con successo' });
+    } catch (err) {
         res.status(500).send(err.message);
     }
 });

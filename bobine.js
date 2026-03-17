@@ -812,7 +812,32 @@ function renderOperatorList(items) {
   const sortedItems = items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'it'));
   sortedItems.forEach((op) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span>${op.name}</span>`;
+    li.style.display = 'flex';
+    li.style.justifyContent = 'space-between';
+    li.style.alignItems = 'center';
+    li.style.padding = '12px';
+    
+    let alertIcon = op.resetRequested ? '<span style="color: var(--danger); margin-left: 8px; animation: pulse 2s infinite;" title="Richiesta Reset Password">🔔</span>' : '';
+    let adminIcon = op.isAdmin ? '<span style="font-size: 0.8rem; background: var(--primary); color: white; padding: 2px 6px; border-radius: 12px; margin-left: 8px;">Admin</span>' : '';
+
+    li.innerHTML = `
+      <div style="font-weight: bold; color: var(--text);">
+        ${op.name} ${alertIcon} ${adminIcon}
+        <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal; font-family: monospace;">${op.barcode || '-'}</div>
+      </div>
+    `;
+
+    // Solo un Admin può gestire gli operatori
+    if (state.currentOperator && state.currentOperator.isAdmin) {
+        const manageBtn = document.createElement('button');
+        manageBtn.className = 'action-btn';
+        manageBtn.style.padding = '6px 12px';
+        manageBtn.style.fontSize = '0.9rem';
+        manageBtn.textContent = 'Gestisci';
+        manageBtn.onclick = () => openManageOperatorModal(op);
+        li.appendChild(manageBtn);
+    }
+
     operatorListEl.appendChild(li);
   });
 }
@@ -1109,25 +1134,36 @@ async function handleTopbarAction(action) {
   }
 
   if (action === 'add-operator') {
-    const name = prompt('Nome operatore');
-    if (name == null || name.trim() === '') return;
-    const barcode = prompt('QR Code');
-    if (barcode == null) return;
-    const isAdmin = window.confirm("L'operatore è un Amministratore?\n\nPremi 'OK' per Sì\nPremi 'Annulla' per No");
     try {
-      const res = await fetch(`${API_URL}/operators`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), barcode: barcode.trim(), isAdmin }),
-        credentials: 'include'
-      });
-      if (!res.ok) throw new Error(await res.text());
-      state.operators = await fetchData('/operators');
-      renderOperatorList(state.operators);
-      alert('Operatore aggiunto.');
+      const selectEl = document.getElementById('availableUsersSelect');
+      if (selectEl) {
+        selectEl.innerHTML = '<option value="">-- Caricamento in corso... --</option>';
+      }
+      
+      const modal = document.getElementById('assignOperatorModal');
+      if (modal) {
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+      }
+
+      const availableUsers = await fetchData('/operators/available');
+      
+      if (selectEl) {
+        selectEl.innerHTML = '<option value="">-- Seleziona un utente --</option>';
+        availableUsers.forEach(u => {
+          const opt = document.createElement('option');
+          opt.value = u.id;
+          opt.textContent = `${u.name} (${u.barcode})`;
+          selectEl.appendChild(opt);
+        });
+      }
+      
+      const adminCheck = document.getElementById('assignAdminCheck');
+      if (adminCheck && 'checked' in adminCheck) {
+        adminCheck.checked = false;
+      }
     } catch (err) {
-      console.error(err);
-      alert('Errore: ' + (err.message || err));
+      alert('Errore caricamento utenti disponibili: ' + (err.message || err));
     }
     return;
   }
@@ -1558,6 +1594,173 @@ document.getElementById('successBtnClose')?.addEventListener('click', () => {
     document.activeElement?.blur();
     modal.classList.remove('is-open');
     modal.setAttribute('aria-hidden', 'true');
+  }
+});
+
+// --- LOGICA MODALE ASSEGNA VISTO ---
+document.getElementById('assignOperatorCancelBtn')?.addEventListener('click', () => {
+  const modal = document.getElementById('assignOperatorModal');
+  if (!modal) return;
+  modal.classList.remove('is-open');
+  modal.setAttribute('aria-hidden', 'true');
+});
+
+document.getElementById('assignOperatorSaveBtn')?.addEventListener('click', async () => {
+  const selectEl = document.getElementById('availableUsersSelect');
+  const adminCheck = document.getElementById('assignAdminCheck');
+  const modal = document.getElementById('assignOperatorModal');
+
+  const globalId = selectEl ? selectEl.value : '';
+  const isAdmin = adminCheck && 'checked' in adminCheck ? adminCheck.checked : false;
+
+  if (!globalId) {
+    alert('Seleziona un utente dalla lista.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/operators`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ globalId: parseInt(globalId, 10), admin: isAdmin, startTime: null }),
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(await res.text());
+    
+    if (modal) {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    
+    state.operators = await fetchData('/operators');
+    renderOperatorList(state.operators);
+    alert('Visto assegnato con successo. L\'utente è ora nel reparto.');
+  } catch (err) {
+    alert('Errore durante l\'assegnazione: ' + (err.message || err));
+  }
+});
+
+// --- LOGICA MODALE GESTISCI OPERATORE ---
+function openManageOperatorModal(op) {
+  const idEl = document.getElementById('manageOpId');
+  const nameEl = document.getElementById('manageOpName');
+  const pwdEl = document.getElementById('manageOpNewPwd');
+  const forceEl = document.getElementById('manageOpForcePwd');
+  const pwdSection = document.getElementById('manageOpPwdSection');
+  const modal = document.getElementById('manageOperatorModal');
+
+  if (!idEl || !nameEl || !pwdEl || !forceEl || !pwdSection || !modal) return;
+
+  idEl.value = op.id;
+  nameEl.textContent = op.name;
+  pwdEl.value = '';
+  forceEl.checked = true;
+
+  if (op.resetRequested) {
+    pwdSection.style.borderColor = 'var(--danger)';
+    pwdSection.style.boxShadow = '0 0 10px rgba(220, 53, 69, 0.3)';
+  } else {
+    pwdSection.style.borderColor = '#ffe69c';
+    pwdSection.style.boxShadow = 'none';
+  }
+
+  modal.classList.add('is-open');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+document.getElementById('manageOpCloseBtn')?.addEventListener('click', () => {
+  const modal = document.getElementById('manageOperatorModal');
+  if (!modal) return;
+  modal.classList.remove('is-open');
+  modal.setAttribute('aria-hidden', 'true');
+});
+
+document.getElementById('manageOpSavePwdBtn')?.addEventListener('click', async () => {
+  const idEl = document.getElementById('manageOpId');
+  const pwdEl = document.getElementById('manageOpNewPwd');
+  const forceEl = document.getElementById('manageOpForcePwd');
+  const modal = document.getElementById('manageOperatorModal');
+
+  if (!idEl || !pwdEl || !forceEl) return;
+
+  const idOp = idEl.value;
+  const newPassword = pwdEl.value;
+  const forcePwdChange = forceEl.checked;
+
+  if (!newPassword) {
+    alert('Inserisci una password muletto.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/operators/${idOp}/reset-password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPassword, forcePwdChange }),
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(await res.text());
+    
+    if (modal) {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    
+    state.operators = await fetchData('/operators');
+    renderOperatorList(state.operators);
+    alert('Password resettata! Comunica all\'utente la nuova password temporanea.');
+  } catch (err) {
+    alert('Errore durante il reset della password: ' + (err.message || err));
+  }
+});
+
+document.getElementById('manageOpRevokeBtn')?.addEventListener('click', async () => {
+  const idEl = document.getElementById('manageOpId');
+  const nameEl = document.getElementById('manageOpName');
+  const modal = document.getElementById('manageOperatorModal');
+
+  if (!idEl || !nameEl) return;
+
+  const idOp = idEl.value;
+  const name = nameEl.textContent || '';
+
+  if (!confirm(`Sei sicuro di voler revocare il visto a ${name}? L'utente non potrà più accedere a Bobine.`)) return;
+
+  try {
+    const res = await fetch(`${API_URL}/operators/${idOp}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(await res.text());
+    
+    if (modal) {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    
+    state.operators = await fetchData('/operators');
+    renderOperatorList(state.operators);
+  } catch (err) {
+    alert('Errore durante la revoca: ' + (err.message || err));
+  }
+});
+
+// --- LISTENER SOCKET.IO PER SINCRONIZZAZIONE ALLARMI ---
+document.addEventListener('securityReady', () => {
+  if (window.appSocket) {
+    window.appSocket.on('pwd_reset_request', async () => {
+      if (state.currentScreen === 'operator-list') {
+        state.operators = await fetchData('/operators');
+        renderOperatorList(state.operators);
+      }
+    });
+    
+    window.appSocket.on('pwd_reset_resolved', async () => {
+      if (state.currentScreen === 'operator-list') {
+        state.operators = await fetchData('/operators');
+        renderOperatorList(state.operators);
+      }
+    });
   }
 });
 
