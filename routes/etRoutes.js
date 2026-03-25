@@ -22,20 +22,19 @@ function serializeLabelRow(row) {
 }
 
 router.get('/products', async (req, res) => {
-    const q = (req.query.q || '').trim();
+    const queryText = (req.query.q || '').trim();
     try {
         const pool = await getPoolET();
-        const likeTerm = q === '' ? '%' : `${q}%`;
-        const result = await pool.request()
-            .input('q', sql.NVarChar, q)
-            .input('likeTerm', sql.NVarChar, likeTerm)
+        const productsRes = await pool.request()
+            .input('qRaw', sql.NVarChar, queryText)
+            .input('qLike', sql.NVarChar, queryText ? `${queryText}%` : '')
             .query(`
-            SELECT DISTINCT TOP 50 MD_coddb AS cod
-            FROM [ET].[dbo].[Prodotti_Padre]
-            WHERE (@q = '' OR MD_coddb LIKE @likeTerm)
+            SELECT DISTINCT TOP 50 MD_coddb
+            FROM [ET].[dbo].[Vis_01_DBEtich]
+            WHERE (@qRaw = '' OR MD_coddb LIKE @qLike)
             ORDER BY MD_coddb
         `);
-        const products = result.recordset.map(r => r.cod).filter(c => c != null);
+        const products = (productsRes.recordset || []).map((row) => row.MD_coddb).filter((c) => c != null);
         res.json({ products });
     } catch (err) {
         console.error('GET /products ET:', err);
@@ -44,18 +43,19 @@ router.get('/products', async (req, res) => {
 });
 
 router.get('/components/:padre', async (req, res) => {
-    const padre = req.params.padre;
     try {
         const pool = await getPoolET();
-        const result = await pool.request()
-            .input('padre', sql.NVarChar, padre)
+        const compRes = await pool.request()
+            .input('padre', sql.NVarChar, req.params.padre)
             .query(`
-            SELECT MD_codfigli
-            FROM [ET].[dbo].[Componenti_Figli]
+            SELECT DISTINCT MD_codfigli
+            FROM [ET].[dbo].[Vis_01_DBEtich]
             WHERE MD_coddb = @padre AND MD_codfigli IS NOT NULL
             ORDER BY MD_codfigli
         `);
-        const components = result.recordset.map(r => ({ MD_codfigli: r.MD_codfigli }));
+        const components = (compRes.recordset || []).map((row) => ({
+            MD_codfigli: row.MD_codfigli
+        }));
         res.json({ components });
     } catch (err) {
         console.error('GET /components ET:', err);
