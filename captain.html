@@ -180,7 +180,7 @@
       <div class="login-field" style="margin-top: 16px;">
         <label>App di Destinazione Principale</label>
         <select id="adminNewDefaultModule" class="control" style="width:100%">
-          <option value="">-- Seleziona prima i Visti --</option>
+          <option value="">-- Seleziona App --</option>
         </select>
       </div>
 
@@ -291,7 +291,7 @@
             <div class="login-field" style="margin-top: 16px;">
               <label for="umpDefaultModule">App di Destinazione Principale</label>
               <select id="umpDefaultModule" class="control">
-                <option value="">-- Seleziona --</option>
+                <option value="">-- Seleziona App --</option>
               </select>
             </div>
           </div>
@@ -444,6 +444,30 @@
       }
       if (!res.ok) throw new Error(await res.text());
       return res.json();
+    }
+
+    async function populateModulesDropdowns(modulesFromLoad = null) {
+      try {
+        const modules =
+          modulesFromLoad && modulesFromLoad.length > 0
+            ? modulesFromLoad
+            : await apiFetch('/admin/modules');
+        const selects = [
+          document.getElementById('adminNewDefaultModule'),
+          document.getElementById('umpDefaultModule')
+        ].filter(Boolean);
+        selects.forEach((select) => {
+          select.innerHTML = '<option value="">-- Seleziona App --</option>';
+          modules.forEach((mod) => {
+            const opt = document.createElement('option');
+            opt.value = mod.id;
+            opt.textContent = mod.name;
+            select.appendChild(opt);
+          });
+        });
+      } catch (err) {
+        console.error('Errore caricamento dropdown moduli:', err);
+      }
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -745,6 +769,8 @@
         globalUsers = users;
         globalModules = modules;
         allModules = modules;
+
+        await populateModulesDropdowns(modules);
 
         const requestsCount = globalUsers.filter(u => u.resetRequested).length;
         const bell = document.getElementById('pwdAlertBell');
@@ -1085,17 +1111,6 @@
         // Usa i moduli già caricati se disponibili
         const modules = allModules && allModules.length > 0 ? allModules : await apiFetch('/admin/modules');
         allModules = modules;
-        
-        const defaultSelect = document.getElementById('umpDefaultModule');
-        if (defaultSelect) {
-            defaultSelect.innerHTML = '<option value=\"\">-- Seleziona --</option>';
-            modules.forEach(mod => {
-                const opt = document.createElement('option');
-                opt.value = mod.id;
-                opt.textContent = mod.name;
-                defaultSelect.appendChild(opt);
-            });
-        }
 
         // Popola la tendina filtro App dell'Anagrafica
         const filterAppSelect = document.getElementById('filterAppSelect');
@@ -1210,13 +1225,6 @@
       }
       const defaultSelect = document.getElementById('umpDefaultModule');
       if (defaultSelect) {
-          defaultSelect.innerHTML = '<option value="">-- Seleziona --</option>';
-          globalModules.forEach(mod => {
-              const opt = document.createElement('option');
-              opt.value = mod.id;
-              opt.textContent = mod.name;
-              defaultSelect.appendChild(opt);
-          });
           defaultSelect.value = u.defaultModuleId != null ? String(u.defaultModuleId) : '';
       }
       // Ripristina tab Sicurezza
@@ -1424,18 +1432,8 @@
 
         const defModSelect = document.getElementById('adminNewDefaultModule');
         const currentVal = defModSelect.value;
-        defModSelect.innerHTML = '<option value="">-- Seleziona App --</option>';
-        selectedModules.forEach((name, id) => {
-            const opt = document.createElement('option');
-            opt.value = id;
-            opt.textContent = name;
-            defModSelect.appendChild(opt);
-        });
-
-        if (selectedModules.has(parseInt(currentVal, 10))) {
-            defModSelect.value = currentVal;
-        } else if (selectedModules.size > 0) {
-            defModSelect.selectedIndex = 1; // Auto-seleziona la prima app disponibile
+        if (currentVal && !selectedModules.has(parseInt(currentVal, 10))) {
+            defModSelect.value = '';
         }
     }
 
@@ -1444,7 +1442,7 @@
       document.getElementById('adminNewName').value = '';
       document.getElementById('adminNewPassword').value = '';
       document.getElementById('adminNewForcePwd').checked = true;
-      document.getElementById('adminNewDefaultModule').innerHTML = '<option value="">-- Seleziona prima i Visti --</option>';
+      document.getElementById('adminNewDefaultModule').value = '';
       document.getElementById('adminNewPwdLabel').innerHTML = 'Password (Opzionale)';
 
       generateNewUserQR();

@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Progettazione etichette</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .pointer-row { cursor: pointer; }
+
+        /* Scorrimento orizzontale per le schede */
+        .nav-tabs-scrollable {
+            flex-wrap: nowrap !important;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch; /* Scorrimento fluido su mobile */
+            padding-bottom: 1px; /* Previene il taglio del bordo inferiore */
+        }
+
+        /* Personalizzazione visiva della barra di scorrimento (opzionale ma più elegante) */
+        .nav-tabs-scrollable::-webkit-scrollbar {
+            height: 4px;
+        }
+        .nav-tabs-scrollable::-webkit-scrollbar-thumb {
+            background-color: #adb5bd;
+            border-radius: 4px;
+        }
+
+        /* Bottoni delle schede più compatti */
+        .nav-tabs-scrollable .nav-link {
+            padding: 0.35rem 0.6rem;
+            font-size: 0.85rem;
+        }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="sicurezza.js"></script>
+</head>
+<body>
+<main class="container py-2">
+    <h1 class="h3 mb-4">Progettazione etichette</h1>
+
+    <div id="alertBox"></div>
+
+    <section id="step1Area" class="card mb-2">
+        <div class="card-body">
+                <div class="row g-2">
+                <div class="col-md-8">
+                    <label for="padreInput" class="form-label">Codice</label>
+                    <input id="padreInput" class="form-control" list="productsList" placeholder="Digita codice db...">
+                    <datalist id="productsList"></datalist>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button id="loadComponentsBtn" class="btn btn-primary w-100">Carica componenti</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="step2Area" class="card mb-2 d-none">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h6 mb-0">Etichette</h2>
+                <button id="changeProductBtn" class="btn btn-sm btn-outline-secondary">Cambia codice db</button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover table-bordered align-middle" id="componentsTable">
+                    <thead class="table-light">
+                    <tr>
+                        <th>Codice etichetta</th>
+                        <th style="width: 220px;">Azione</th>
+                    </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section id="recordTableArea" class="card d-none">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-2">
+                <div class="d-flex align-items-center gap-3">
+                    <button id="backToComponentsBtn" class="btn btn-sm btn-outline-secondary" type="button">&larr; Indietro</button>
+                    <div>
+                        <p class="text-muted mb-0" id="selectedPairText"></p>
+                    </div>
+                </div>
+                <div>
+                    <button id="saveRecordBtn" class="btn btn-sm btn-success px-4 shadow-sm" type="button">Salva Modifiche</button>
+                </div>
+            </div>
+            <form id="editForm">
+                <ul class="nav nav-tabs nav-tabs-scrollable" id="fieldsTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="main-tab" data-bs-toggle="tab" data-bs-target="#main-pane" type="button" role="tab" aria-selected="true">Dati Principali</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="desc-tab" data-bs-toggle="tab" data-bs-target="#desc-pane" type="button" role="tab" aria-selected="false">Descrizioni e Note</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="bool-tab" data-bs-toggle="tab" data-bs-target="#bool-pane" type="button" role="tab" aria-selected="false">Opzioni Sì/No</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="sym-tab" data-bs-toggle="tab" data-bs-target="#sym-pane" type="button" role="tab" aria-selected="false">Simboli</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="s-tab" data-bs-toggle="tab" data-bs-target="#s-pane" type="button" role="tab" aria-selected="false">Altri simboli</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="disegno-tab" data-bs-toggle="tab" data-bs-target="#disegno-pane" type="button" role="tab" aria-selected="false">Disegni</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="clienti-tab" data-bs-toggle="tab" data-bs-target="#clienti-pane" type="button" role="tab" aria-selected="false">Clienti</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="kr-tab" data-bs-toggle="tab" data-bs-target="#kr-pane" type="button" role="tab" aria-selected="false">Campi KR</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="fabb-tab" data-bs-toggle="tab" data-bs-target="#fabb-pane" type="button" role="tab" aria-selected="false">Fabbricante</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="comp-tab" data-bs-toggle="tab" data-bs-target="#comp-pane" type="button" role="tab" aria-selected="false">Componenti</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="logo-tab" data-bs-toggle="tab" data-bs-target="#logo-pane" type="button" role="tab" aria-selected="false">Loghi</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="cb-tab" data-bs-toggle="tab" data-bs-target="#cb-pane" type="button" role="tab" aria-selected="false">Campi CB</button>
+                    </li>
+                </ul>
+                <div class="tab-content border border-top-0 p-2 mb-2 bg-white" id="fieldsTabContent">
+                    <div class="tab-pane fade show active" id="main-pane" role="tabpanel" aria-labelledby="main-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyMain"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="desc-pane" role="tabpanel" aria-labelledby="desc-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyDesc"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="bool-pane" role="tabpanel" aria-labelledby="bool-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyBool"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="sym-pane" role="tabpanel" aria-labelledby="sym-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodySym"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="s-pane" role="tabpanel" aria-labelledby="s-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyS"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="disegno-pane" role="tabpanel" aria-labelledby="disegno-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyDisegno"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="clienti-pane" role="tabpanel" aria-labelledby="clienti-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyClienti"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="kr-pane" role="tabpanel" aria-labelledby="kr-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyKr"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="fabb-pane" role="tabpanel" aria-labelledby="fabb-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyFabb"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="comp-pane" role="tabpanel" aria-labelledby="comp-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyComp"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="logo-pane" role="tabpanel" aria-labelledby="logo-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyLogo"></tbody>
+                        </table>
+                    </div>
+                    <div class="tab-pane fade" id="cb-pane" role="tabpanel" aria-labelledby="cb-tab" tabindex="0">
+                        <table class="table table-sm table-bordered table-striped align-middle mb-0">
+                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <tbody id="recordTableBodyCb"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const state = {
+        selectedPadre: "",
+        selectedFiglio: "",
+        metadata: null,
+        currentRecord: {}
+    };
+
+    const padreInput = document.getElementById("padreInput");
+    const productsList = document.getElementById("productsList");
+    const loadComponentsBtn = document.getElementById("loadComponentsBtn");
+    const step1Area = document.getElementById("step1Area");
+    const step2Area = document.getElementById("step2Area");
+    const changeProductBtn = document.getElementById("changeProductBtn");
+    const backToComponentsBtn = document.getElementById("backToComponentsBtn");
+    const componentsTableBody = document.querySelector("#componentsTable tbody");
+    const recordTableArea = document.getElementById("recordTableArea");
+    const editForm = document.getElementById("editForm");
+    const tbodyMain = document.getElementById("recordTableBodyMain");
+    const tbodyDesc = document.getElementById("recordTableBodyDesc");
+    const tbodyS = document.getElementById("recordTableBodyS");
+    const tbodySym = document.getElementById("recordTableBodySym");
+    const tbodyDisegno = document.getElementById("recordTableBodyDisegno");
+    const tbodyClienti = document.getElementById("recordTableBodyClienti");
+    const tbodyKr = document.getElementById("recordTableBodyKr");
+    const tbodyFabb = document.getElementById("recordTableBodyFabb");
+    const tbodyComp = document.getElementById("recordTableBodyComp");
+    const tbodyLogo = document.getElementById("recordTableBodyLogo");
+    const tbodyBool = document.getElementById("recordTableBodyBool");
+    const tbodyCb = document.getElementById("recordTableBodyCb");
+    const saveRecordBtn = document.getElementById("saveRecordBtn");
+    const selectedPairText = document.getElementById("selectedPairText");
+    const alertBox = document.getElementById("alertBox");
+    const readonlyFields = new Set(["et_kcodart", "et_kcodart_layer", "originedati", "et_layer_nriga"]);
+    const booleanFields = [
+        "et_codart", "et_codal", "et_disegno", "et_disegno_pb", "et_comp",
+        "et_logo", "et_fabb", "et_sterile", "et_latexfree", "et_cliente",
+        "et_Cli_logo", "et_critico", "et_ean13", "et_ucc128"
+    ];
+    const dateFields = [
+        "et_data_val"
+    ];
+    const textareaFields = ["et_desc_r1", "et_desc_r2", "et_desc_r3", "et_Note"];
+    const tabSFields = ["et_s1", "et_s2", "et_s3", "et_s4", "et_s5", "et_s6", "et_s7", "et_s8", "et_s9"];
+    const fieldOrder = [
+        "originedati", "et_kcodart", "et_kcodart_layer", "et_layer_nriga", "et_kcodart_form",
+        "et_kcodart_form_pos", "et_path_form", "et_data_val", "et_codart", "et_codal",
+        "et_sgme", "et_desc_r1", "et_desc_r2", "et_desc_r3", "et_disegno",
+        "et_nome_disegno", "et_path_disegno", "et_disegno_pb", "et_nome_disegno_pb", "et_path_disegno_pb",
+        "et_comp", "et_nome_comp", "et_path_comp", "et_logo", "et_nome_logo",
+        "et_path_logo", "et_fabb", "et_nome_fabb", "et_path_fabb", "et_CB_societa",
+        "et_CB_Art", "et_Note", "et_pezzi", "et_mesi_scad", "et_sym_scad",
+        "et_sterile", "et_msg_steril", "et_sym_ster", "et_certifi", "et_sym_certifi",
+        "et_latexfree", "et_sym_latexF", "et_sym_lotto", "et_sym_istr", "et_sym_mon",
+        "et_cliente", "et_CodCli", "et_Cli_codart", "et_Cli_CB_Società", "et_Cli_CB_Art",
+        "et_Cli_logo", "et_Cli_nome_logo", "et_Cli_path_logo", "et_cli_certifi", "et_kr1",
+        "et_kr2", "et_kr3", "et_critico", "et_ean13", "et_ucc128",
+        "et_colonne", "et_sym_fabb", "et_numprt", "et_s1", "et_s2",
+        "et_s3", "et_s4", "et_s5", "et_s6", "et_s7",
+        "et_s8", "et_s9", "et_sym_datafabb", "et_sym_SBS"
+    ];
+
+    function showAlert(message, type = "info") {
+        alertBox.innerHTML = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+    }
+
+    async function loadProducts(query = "") {
+        const response = await fetch(`/api/products?q=${encodeURIComponent(query)}`, { credentials: "include" });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || "Errore caricamento prodotti.");
+        }
+        productsList.innerHTML = "";
+        (data.products || []).forEach((product) => {
+            const option = document.createElement("option");
+            option.value = product;
+            productsList.appendChild(option);
+        });
+    }
+
+    async function loadComponents() {
+        const padre = padreInput.value.trim();
+        if (!padre) {
+            showAlert("Inserisci prima un codice padre.", "warning");
+            return;
+        }
+
+        state.selectedPadre = padre;
+        state.selectedFiglio = "";
+        recordTableArea.classList.add("d-none");
+        tbodyMain.innerHTML = "";
+        tbodyDesc.innerHTML = "";
+        tbodyS.innerHTML = "";
+        tbodySym.innerHTML = "";
+        tbodyDisegno.innerHTML = "";
+        tbodyClienti.innerHTML = "";
+        tbodyKr.innerHTML = "";
+        tbodyFabb.innerHTML = "";
+        tbodyComp.innerHTML = "";
+        tbodyLogo.innerHTML = "";
+        tbodyBool.innerHTML = "";
+        tbodyCb.innerHTML = "";
+        componentsTableBody.innerHTML = "";
+
+        const response = await fetch(`/api/components/${encodeURIComponent(padre)}`, { credentials: "include" });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || "Errore caricamento componenti.");
+        }
+
+        step1Area.classList.add("d-none");
+        step2Area.classList.remove("d-none");
+
+        (data.components || []).forEach((item) => {
+            const tr = document.createElement("tr");
+            tr.classList.add("pointer-row");
+            tr.innerHTML = `
+                <td>${item.MD_codfigli || ""}</td>
+                <td><button class="btn btn-sm btn-outline-primary">Modifica</button></td>
+            `;
+            const button = tr.querySelector("button");
+            const openEditor = () => loadLabelData(state.selectedPadre, item.MD_codfigli);
+            tr.addEventListener("click", openEditor);
+            button.addEventListener("click", (event) => {
+                event.stopPropagation();
+                openEditor();
+            });
+            componentsTableBody.appendChild(tr);
+        });
+
+        if (!data.components || data.components.length === 0) {
+            showAlert("Nessun componente trovato per il padre selezionato.", "secondary");
+        }
+    }
+
+    async function loadLabelData(padre, figlio) {
+        if (!figlio) {
+            showAlert("Codice figlio non valido.", "warning");
+            return;
+        }
+
+        state.selectedPadre = padre;
+        state.selectedFiglio = figlio;
+
+        const params = new URLSearchParams({
+            et_kcodart: padre,
+            et_kcodart_layer: figlio
+        });
+        const response = await fetch(`/api/label?${params.toString()}`, { credentials: "include" });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || "Errore caricamento record.");
+        }
+        tbodyMain.innerHTML = "";
+        tbodyDesc.innerHTML = "";
+        tbodyS.innerHTML = "";
+        tbodySym.innerHTML = "";
+        tbodyDisegno.innerHTML = "";
+        tbodyClienti.innerHTML = "";
+        tbodyKr.innerHTML = "";
+        tbodyFabb.innerHTML = "";
+        tbodyComp.innerHTML = "";
+        tbodyLogo.innerHTML = "";
+        tbodyBool.innerHTML = "";
+        tbodyCb.innerHTML = "";
+        fieldOrder.forEach((field) => {
+            if (data[field] === undefined) {
+                return;
+            }
+            const value = data[field];
+            const row = document.createElement("tr");
+            const fieldCell = document.createElement("td");
+            fieldCell.textContent = field;
+
+            const valueCell = document.createElement("td");
+            const isBooleanField = booleanFields.includes(field);
+
+            if (isBooleanField) {
+                const normalizedValue = value == null ? "" : String(value);
+                const checkedSi = normalizedValue === "1" || normalizedValue === "True" || normalizedValue === "true";
+                const checkedNo = !checkedSi;
+
+                const uniqueBaseId = `${field}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                const yesId = `${uniqueBaseId}_si`;
+                const noId = `${uniqueBaseId}_no`;
+
+                valueCell.innerHTML = `
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Selezione Sì/No">
+                        <input type="radio" class="btn-check" name="${field}" id="${yesId}" value="1" autocomplete="off" ${checkedSi ? "checked" : ""}>
+                        <label class="btn btn-outline-success" for="${yesId}">Sì</label>
+                        <input type="radio" class="btn-check" name="${field}" id="${noId}" value="0" autocomplete="off" ${checkedNo ? "checked" : ""}>
+                        <label class="btn btn-outline-danger" for="${noId}">No</label>
+                    </div>
+                `;
+            } else if (dateFields.includes(field)) {
+                const normalizedValue = value == null ? "" : String(value);
+                const dateValue = normalizedValue.length >= 10 ? normalizedValue.substring(0, 10) : "";
+                const input = document.createElement("input");
+                input.type = "date";
+                input.className = "form-control form-control-sm";
+                input.name = field;
+                input.id = `input_${field}`;
+                input.value = dateValue;
+                if (readonlyFields.has(field)) {
+                    input.readOnly = true;
+                    input.classList.add("bg-light");
+                }
+                valueCell.appendChild(input);
+            } else if (textareaFields.includes(field)) {
+                const textarea = document.createElement("textarea");
+                textarea.name = field;
+                textarea.id = `input_${field}`;
+                textarea.rows = 2;
+                textarea.textContent = value == null ? "" : String(value);
+                if (readonlyFields.has(field)) {
+                    textarea.readOnly = true;
+                    textarea.className = "form-control form-control-sm bg-light text-muted";
+                } else {
+                    textarea.className = "form-control form-control-sm";
+                }
+                valueCell.appendChild(textarea);
+            } else {
+                const input = document.createElement("input");
+                input.type = "text";
+                input.name = field;
+                input.value = value ?? "";
+                if (readonlyFields.has(field)) {
+                    input.readOnly = true;
+                    input.className = "form-control form-control-sm bg-light text-muted";
+                } else {
+                    input.className = "form-control form-control-sm";
+                }
+                valueCell.appendChild(input);
+            }
+            row.appendChild(fieldCell);
+            row.appendChild(valueCell);
+            if (textareaFields.includes(field)) {
+                tbodyDesc.appendChild(row);
+            } else if (booleanFields.includes(field)) {
+                tbodyBool.appendChild(row);
+            } else if (tabSFields.includes(field)) {
+                tbodyS.appendChild(row);
+            } else if (field.startsWith("et_sym")) {
+                tbodySym.appendChild(row);
+            } else if (field.includes("disegno")) {
+                tbodyDisegno.appendChild(row);
+            } else if (field.toLowerCase().includes("cb")) {
+                tbodyCb.appendChild(row);
+            } else if (field.toLowerCase().includes("cli")) {
+                tbodyClienti.appendChild(row);
+            } else if (field.startsWith("et_kr")) {
+                tbodyKr.appendChild(row);
+            } else if (field.toLowerCase().includes("fabb")) {
+                tbodyFabb.appendChild(row);
+            } else if (field.toLowerCase().includes("comp")) {
+                tbodyComp.appendChild(row);
+            } else if (field.toLowerCase().includes("logo")) {
+                tbodyLogo.appendChild(row);
+            } else {
+                tbodyMain.appendChild(row);
+            }
+        });
+        selectedPairText.textContent = `Codice db: ${padre} - Etichetta: ${figlio}`;
+        recordTableArea.classList.remove("d-none");
+        step2Area.classList.add("d-none");
+    }
+
+    async function saveRecord() {
+        const padre = (state.selectedPadre || "").trim();
+        if (!padre) {
+            throw new Error("Codice padre mancante. Impossibile salvare.");
+        }
+
+        const descEl = editForm.querySelector('[name="et_desc_r1"]');
+        const descrizione = descEl ? String(descEl.value || "").trim() : "";
+
+        const response = await fetch("/api/etichette/salva", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                CodicePadre: padre,
+                Descrizione: descrizione
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || "Errore durante il salvataggio.");
+        }
+        showAlert(data.message || "Salvataggio completato con successo.", "success");
+    }
+
+    padreInput.addEventListener("input", async () => {
+        try {
+            await loadProducts(padreInput.value.trim());
+        } catch (error) {
+            showAlert(error.message, "danger");
+        }
+    });
+
+    loadComponentsBtn.addEventListener("click", async () => {
+        try {
+            await loadComponents();
+        } catch (error) {
+            showAlert(error.message, "danger");
+        }
+    });
+
+    saveRecordBtn.addEventListener("click", async () => {
+        try {
+            await saveRecord();
+        } catch (error) {
+            showAlert(error.message, "danger");
+        }
+    });
+
+    changeProductBtn.addEventListener("click", () => {
+        step1Area.classList.remove("d-none");
+        step2Area.classList.add("d-none");
+        recordTableArea.classList.add("d-none");
+        padreInput.value = "";
+        padreInput.focus();
+    });
+
+    backToComponentsBtn.addEventListener("click", () => {
+        recordTableArea.classList.add("d-none");
+        step2Area.classList.remove("d-none");
+    });
+
+    loadProducts().catch((error) => {
+        showAlert(error.message, "danger");
+    });
+</script>
+</body>
+</html>
