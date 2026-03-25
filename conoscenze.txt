@@ -1,6 +1,10 @@
-# Documentazione Tecnica Database: Piattaforma UJet ERP/MES
+# Documentazione Tecnica: Piattaforma UJet ERP/MES (PortalUjet)
 Motore Database: Microsoft SQL Server. Topology: catalogo identità e anagrafica moduli in **`[GA]`** (in alcuni ambienti legacy il nome file può comparire come CMP); ogni app operativa risiede nel proprio database silos.
 Paradigma di Sicurezza: "Zero-Trust". I controlli sui permessi non sono demandati solo al codice, ma sono blindati a livello di database.
+
+Il **gateway applicativo unificato** che espone HTTPS, API REST, file statici e WebSocket si chiama **PortalUjet**. Il file di ingresso del processo Node.js è **`server.js`** (in precedenza denominato in modo legacy `serverbobine.js`).
+
+---
 
 ## 1. Architettura Identità: "Passaporto e Visto"
 Il sistema ospita molteplici app dipartimentali mantenendo una singola base di identità, fondata sul paradigma architetturale **"1 App = 1 Database = 1 Visto"** (Bounded Context).
@@ -30,7 +34,7 @@ Il sistema non usa più stringhe JSON hardcodate per definire i ruoli. La sicure
 - `[GA].[dbo].[Modules]`: Catalogo delle applicazioni esistenti; **governa il routing** verso i silos dipartimentali tramite la colonna **`TargetDb`** (nome del database fisico di destinazione), oltre ai metadati già noti come `TargetSchema` / `TargetTable` per individuare la tabella del visto. (La colonna `RoleDefinition` JSON è deprecata).
 - `[GA].[dbo].[GlobalRoles]`: È l'anagrafica aziendale centralizzata dei ruoli (es. `RoleCode`: 'Admin', 'Base', 'Master').
 - `[GA].[dbo].[AppRoles]`: Tabella ponte (matrice di sicurezza) che collega un Modulo a un Ruolo Globale. Contiene le regole fisiche: `RequiresPassword`, `SessionHours`, `PwdExpiryDays`.
-- `[GA].[dbo].[vw_UserAccess]`: Vista federata che **aggrega i dati da database diversi** tramite **`UNION ALL`**: ogni ramo legge la tabella visti nel silos indicato da `Modules.TargetDb`. Per ogni combinazione utente/app, calcola dinamicamente **`IDGlobalRole`** incrociando i **`RoleCode` locali** (o equivalenti mappati dal reparto) con la tabella **`GlobalRoles`**, così il login e le API ricevono un modello permessi unico senza hardcoding per app. Il backend Node.js usa questa vista (o la stessa logica materializzata) per accessi e moduli autorizzati.
+- `[GA].[dbo].[vw_UserAccess]`: Vista federata che **aggrega i dati da database diversi** tramite **`UNION ALL`**: ogni ramo legge la tabella visti nel silos indicato da `Modules.TargetDb`. Per ogni combinazione utente/app, calcola dinamicamente **`IDGlobalRole`** incrociando i **`RoleCode` locali** (o equivalenti mappati dal reparto) con la tabella **`GlobalRoles`**, così il login e le API ricevono un modello permessi unico senza hardcoding per app. Il backend PortalUjet usa questa vista (o la stessa logica materializzata) per accessi e moduli autorizzati.
 
 ### 1.3 Tabelle Dipartimentali (I Visti)
 **Esempio: `[Bobine].[dbo].[Operators]` (Reparto Bobine)**
@@ -41,7 +45,7 @@ Contiene solo attributi lavorativi locali.
 - `StartTime` (VARCHAR): Orario turno specifico.
 
 ### 1.4 Regole per le Tabelle delle App (I Visti) e Routing Dinamico
-Per garantire che il backend (`serverbobine.js`) sia dinamico quando si aggiungono nuove app, vanno rispettate queste regole d'oro (paradigma **1 App = 1 Database**):
+Per garantire che il backend (**`server.js`**, PortalUjet Gateway) sia dinamico quando si aggiungono nuove app, vanno rispettate queste regole d'oro (paradigma **1 App = 1 Database**):
 1. **Creazione Silos:** Provisionare un **database dedicato** per la nuova app (es. `[Magazzino]` su un'istanza SQL definita), con schema operativo coerente (spesso `[dbo]`).
 2. **Struttura Visto:** Nel database dell'app, creare la tabella Visti che DEVE contenere sempre: la Foreign Key verso `IDUser` (Passaporto), la colonna del Ruolo (es. `Admin` o `Role`), e la colonna `IsActive` (BIT, fondamentale per il soft-revoke dei permessi).
 3. **Registrazione (Catalogo App):** Registrare la nuova App in `[GA].[dbo].[Modules]`, obbligatoriamente con **`TargetDb`** (nome del database silos), più `TargetSchema` e `TargetTable` per puntare alla tabella visti. Il backend risolve connessioni e nomi oggetto in base a questi metadati.
@@ -57,27 +61,71 @@ Un database dipartimentale (es. `[Bobine]`, `[ET]`) deve operare come un silos a
 Silos dedicato alla progettazione etichette; può risiedere su istanza/server distinti (es. **bcube2**) rispetto ad altre app.
 
 - **`[ET].[dbo].[Operators]` (Visto locale):** Permessi nell'app Etichette. Colonne tipiche: `IDUser` (legame al Passaporto), `Admin`, `IsActive`.
-- **`[ET].[dbo].[Prodotti_Padre]`:** Testate etichetta (codice padre / anagrafica di testata) con **auditing** tramite riferimento operatore (es. `IDOperator` o equivalente legato all'operatore del silos).
-- **`[ET].[dbo].[Componenti_Figli]`:** Righe della distinta base (figli) collegate al padre; vincolo referenziale con **`ON DELETE CASCADE`** dal record padre in `Prodotti_Padre`, così la cancellazione della testata rimuove coerentemente le righe figlie.
-- **Logica incapsulata:** L'inserimento/aggiornamento orchestrato lato silos avviene tramite Stored Procedure, in particolare **`sp_SalvaEtichetta`**, che accetta tra i parametri l'**`IDUser` globale** (identità dal JWT / Passaporto, es. `globalId`) per tracciabilità e validazione, mantenendo il dominio ET autocontenuto.
+- **Modello dati fisico (testata e distinta):** Tabelle come `[ET].[dbo].[Prodotti_Padre]` e `[ET].[dbo].[Componenti_Figli]` possono esistere per persistenza e vincoli (es. `ON DELETE CASCADE` dalla testata alle righe figlie). **NON devono essere interrogate direttamente** dalle API di lettura della progettazione etichette esposte al frontend.
+- **Lettura obbligatoria via vista federata:** Le interrogazioni di lettura per elenco **padri** e **figli** (progettazione etichette) **DEVONO** usare esclusivamente la vista **`[ET].[dbo].[Vis_01_DBEtich]`**, che incapsula il contratto di lettura corretto (colonne quali `MD_coddb`, `MD_codfigli`). Qualsiasi SELECT diretto sulle tabelle fisiche per questi flussi è **vietato** e causa errori di schema o incoerenze operative.
+- **Scrittura obbligatoria via procedura:** Le modifiche orchestrate lato silos **DEVONO** passare esclusivamente dalla stored procedure **`[ET].[dbo].[sp_SalvaEtichetta]`**. Alla procedura deve **sempre** essere passato l'identificativo globale dell'utente (**`IDUser` del Passaporto**), estratto dal JWT tramite il middleware **`authenticateToken`** come **`req.user.globalId`**, per auditing e tracciabilità. È **vietato** bypassare la SP con UPDATE ad hoc su `[ET].[dbo].[UJ_etichette3]` o altre tabelle per i flussi governati da quella procedura.
 
-## 2. Struttura delle Tabelle di Business
+---
 
-### 2.1 Tabella [Bobine].[Log] (Cuore Operativo)
+## 2. Architettura Backend Modulare (Router Pattern)
+
+Il backend **non è più un monolite** in un singolo file di migliaia di righe. PortalUjet adotta **Express** con **`express.Router()`**, separando le responsabilità per dominio.
+
+### 2.1 Ruolo di `server.js` (PortalUjet Gateway)
+Il file **`server.js`** funge da **composizione minima** del gateway:
+- Inizializzazione Express (middleware globali: JSON, CORS, cookie parser, file statici dalla root del progetto).
+- Terminazione **HTTPS** e avvio listener sulla porta configurata (es. 443).
+- Istanza **Socket.io** agganciata al server HTTPS e gestione eventi di presenza / sicurezza in tempo reale (stanze Captain, kick, sipario, ecc.).
+
+**Non** si aggiungono nuove rotte HTTP direttamente in `server.js` salvo eccezioni architetturali esplicitamente approvate. La logica di business risiede nei router.
+
+### 2.2 Struttura delle rotte (`routes/`)
+Le API REST sono organizzate in moduli dedicati, tipicamente:
+- **`routes/authRoutes.js`**: autenticazione globale (Passaporto) — login, logout, sessione corrente, password utente, recupero credenziali.
+- **`routes/adminRoutes.js`**: Captain Console — utenti globali, moduli, configurazione di sistema.
+- **`routes/bobineRoutes.js`**: dominio reparto Bobine (Visto) — operatori, macchine, registro log.
+- **`routes/etRoutes.js`**: dominio silos **Etichette** — tutte le API che leggono o scrivono sul database **`[ET]`** (server es. **bcube2**) tramite il pool dedicato.
+
+### 2.3 Regola imperativa per l'app Etichette (frontend `ET.html`)
+**Qualsiasi nuova API REST** destinata al modulo Etichette **DEVE** essere implementata **ESCLUSIVAMENTE** in **`routes/etRoutes.js`**.  
+È **vietato** aggiungere endpoint ET in `authRoutes.js`, `adminRoutes.js`, `bobineRoutes.js` o in `server.js`, salvo revisione architetturale esplicita. Questo previene accoppiamenti errati tra silos e mantiene il confine **1 App = 1 router di dominio** per il layer HTTP.
+
+---
+
+## 3. Regola CRITICA: Gestione Connessioni e Pool SQL
+
+In un ambiente **Zero-Trust** con **silos su server o istanze SQL distinte** (es. identità su **localhost** / catalogo `[GA]`, Etichette su **bcube2** / `[ET]`), la gestione delle connessioni **non è negoziabile**.
+
+### 3.1 Divieto assoluto: `sql.connect(config)` globale
+È **severamente vietato** usare il pattern **`sql.connect(config)`** (connessione globale implicita del driver) per servire richieste concorrenti verso database diversi. In scenari multi-database, tale uso **sovrascrive o mescola il contesto del pool condiviso** e può far eseguire query sul **server o database sbagliato**, con rischi di **data leak**, **corruzione dei dati** e **violazione del perimetro Zero-Trust**.
+
+### 3.2 Obbligo: pool isolati in `config/db.js`
+La configurazione **DEVE** definire **Connection Pool distinti**, istanziati con **`new sql.ConnectionPool(config)`** e **`pool.connect()`**, uno per ogni contesto di silos (es. **pool GA** per identità e reparti legati al nodo principale, **pool ET** per **bcube2**).
+
+I router **DEVONO** ottenere il pool corretto tramite le funzioni esportate (es. **`getPoolGA()`**, **`getPoolET()`**) e **DEVONO** usare **`pool.request()`** per ogni query.  
+Il file **`routes/etRoutes.js`** **DEVE** usare **solo** **`getPoolET()`** per qualsiasi accesso a `[ET]`. **Non** usare `getPoolGA()` per query sul silos Etichette.
+
+---
+
+## 4. Struttura delle Tabelle di Business
+
+### 4.1 Tabella [Bobine].[Log] (Cuore Operativo)
 Registra tutte le transazioni di produzione.
 - Dati: `IDMachine`, `Codart`, `Lot`, `Quantity`, `IDRoll`, `bobina_finita`.
 - Tracciabilità: Legato a `IDOperator` (il Visto), non a `IDUser` (il Passaporto), per mantenere il contesto dipartimentale.
 - **Sicurezza (Soft-Delete e Auditing):** Usa `Eliminato = 1`. Modifiche tracciate via `ModificatoDa`, `NumeroModifiche` e System-Versioned Temporal Tables (`ValidFrom`, `ValidTo`) interrogabili tramite `FOR SYSTEM_TIME ALL`.
 
-### 2.2 Tabella [Bobine].[Machines]
+### 4.2 Tabella [Bobine].[Machines]
 Anagrafica dei macchinari di produzione. `IDMachine`, `Machine`, `Barcode` (per selezione rapida).
 
-### 2.3 Tabella `[GA].[dbo].[SystemConfig]`
+### 4.3 Tabella `[GA].[dbo].[SystemConfig]`
 Dizionario Key/Value per le configurazioni dinamiche (modificabili dal Captain a runtime). 
 Valori: `AdminPwdExpiryDays`, `AdminSessionHours`, `OpDeleteMaxRecords`, `OpDeleteMaxHours`. Nuove regole password: PwdMinLength, PwdRequireNumber, PwdRequireUpper, PwdRequireSpecial.
 *(Per aggiungere parametri, si inserisce una nuova riga, non una nuova colonna).*
 
-## 3. Logica di Business e Stored Procedures
+---
+
+## 5. Logica di Business e Stored Procedures
 
 ### sp_DeleteLogOperatore
 Questa procedura garantisce che l'eliminazione (Soft-Delete) dei log da parte di operatori standard sia sicura e limitata.
@@ -90,57 +138,61 @@ Se tutte le condizioni sono soddisfatte, esegue `UPDATE ... SET Eliminato = 1`.
 
 ---
 
-## 4. Architettura Meta-App e Sicurezza Frontend
+## 6. PortalUjet: Meta-App, Layer Frontend e Sicurezza Globale
 
-Il sistema è diviso in due Layer principali:
+Il sistema frontend è organizzato in **PortalUjet** come **meta-app** a due layer.
 
-- **Layer 1 – Gateway di accesso**  
-  Punto di ingresso unico (futuro `index.html`) che gestisce login, routing iniziale verso le app dipartimentali e orchestrazione globale.
+### 6.1 Layer 1 – Gateway di accesso
+Punto di ingresso unico (es. `index.html`) che gestisce login, routing iniziale verso le app dipartimentali e orchestrazione globale.
 
-- **Layer 2 – App operative**  
-  Applicazioni pure (es. `bobine.html`) focalizzate sul dominio di reparto. Non gestiscono direttamente login e permessi globali, ma consumano le decisioni prese a monte, reagendo ai dati di sicurezza aggregati (es. oggetto globale `window.SecurityData`).
+### 6.2 Layer 2 – App operative (es. `bobine.html`, `ET.html`)
+Applicazioni focalizzate sul **dominio di reparto** (interfaccia operativa pura).
 
-### Sicurezza Globale e Script `sicurezza.js`
+#### Divieti assoluti per le app di Layer 2
+Le app di Layer 2 **NON DEVONO ASSOLUTAMENTE**:
+- implementare **flussi di login** (form login, chiamate dirette a `POST /api/login` come sostituto del gateway);
+- **verificare o parsare JWT** lato client come perimetro di sicurezza;
+- implementare **logout** come unica fonte di verità (invalidazione sessione, pulizia cookie, redirect post-logout) **al di fuori** del contratto globale.
 
-La sicurezza e le autorizzazioni – inclusi i WebSocket e i redirect brutali per sessione scaduta – sono gestite da uno script globale `sicurezza.js` residente nel Layer 1:
+Tutto il **perimetro di sicurezza**, l'**accesso ai moduli (RBAC)**, i **redirect** per sessione non valida, la **gestione del cambio password obbligatorio (Sipario)** e gli eventi **WebSocket** di sicurezza sono **centralizzati** nello script globale **`sicurezza.js`**.
 
-- Valida il token JWT e le informazioni di identità/moduli autorizzati.
-- Esegue redirect immediati in caso di sessione scaduta o permessi insufficienti.
-- Gestisce la richiesta di cambio password obbligatorio.
+#### Obblighi per le app di Layer 2
+- **Includere** obbligatoriamente: **`<script src="sicurezza.js"></script>`** (ordine di caricamento coerente con il resto della pagina, tipicamente nel `<head>` o subito dopo, come nelle app esistenti).
+- Implementare **solo** l'interfaccia operativa (UI, chiamate API di dominio con `credentials: 'include'` ove richiesto, stato applicativo locale).
+- Ascoltare **`securityReady`** (e analoghi) per inizializzare la UI quando la sessione è valida.
+- Ascoltare **`securityCurtainResolved`** per aggiornare lo stato locale dopo il cambio password senza ricaricare la pagina (es. azzerare flag `forcePwdChange` in memoria).
 
-Se è richiesto un cambio password, `sicurezza.js` inietta un "Sipario" (overlay DOM) sopra il Layer 2:
-- Blocca l'interazione con l'app operativa.
-- Può essere attivato al caricamento (se l'utente ha il flag a DB) oppure in tempo reale dal Captain via WebSockets.
-- Al termine della procedura, aggiorna il JWT nei cookie e chiude il Sipario SENZA ricaricare la pagina, emettendo un evento `securityCurtainResolved`.
-- REGOLA PER LO SVILUPPO DI NUOVE APP (Layer 2): Ogni nuova app deve ascoltare l'evento `document.addEventListener('securityCurtainResolved', ...)` per aggiornare il proprio stato in memoria locale (es. `state.currentOperator.forcePwdChange = false`) in modo silente, preservando il lavoro in corso dell'utente.
+### 6.3 Sicurezza Globale e Script `sicurezza.js`
+La sicurezza e le autorizzazioni – inclusi i WebSocket e i redirect per sessione scaduta – sono gestite da **`sicurezza.js`**:
+- Valida la sessione tramite le API globali (es. `GET /api/me`) e le informazioni di identità / moduli autorizzati.
+- Esegue redirect immediati in caso di sessione non valida o permessi insufficienti (RBAC per modulo, es. accesso a Captain Console o a moduli specifici).
+- Gestisce il cambio password obbligatorio (**Sipario**): overlay DOM che blocca l'interazione con Layer 2; può essere attivato al caricamento o in tempo reale dal Captain via Socket.io; al termine emette **`securityCurtainResolved`**.
 
-### Captain Console e DefaultModuleID
+### 6.4 Captain Console e DefaultModuleID
+La **Captain Console** governa l'accesso alle app dipartimentali (Visti, utenti globali, moduli). Imposta **`DefaultModuleID`** su `[GA].[dbo].[Users]`.  
+**Manutenzione UI:** le selezioni di modulo devono essere **dinamiche** da **`GET /api/admin/modules`** (origine **`[GA].[dbo].[Modules]`**), **mai** hardcoded nell'HTML.
 
-La **Captain Console** è l'interfaccia amministrativa che governa l'accesso alle app dipartimentali:
+### 6.5 Backend `server.js`, pool SQL e JWT (riepilogo operativo)
+- **Pool:** Utilizzare **solo** i pool isolati da **`config/db.js`** (`getPoolGA`, `getPoolET`, ecc.); vedi Sezione 3.
+- **JWT su `req.user` (middleware `authenticateToken`):**
+  - **`req.user.id`**: identificativo del **Visto locale** nell'app corrente (es. `IDOperator` nel silos di reparto), per log e permessi contestuali.
+  - **`req.user.globalId`**: identificativo del **Passaporto** (`IDUser` in `[GA].[dbo].[Users]`), per correlazione cross-app e per parametri verso procedure nei silos (es. **`sp_SalvaEtichetta`** in `[ET]`).
 
-- Aggiunge/rimuove utenti dalle tabelle di reparto (es. `[Bobine].[Operators]`) per assegnare o revocare i \"Visti\" locali.
-- Imposta `DefaultModuleID` su `[dbo].[Users]`, che definisce **l'app di destinazione principale** (Layer 2) che verrà proposta all'utente al login.
-- **Manutenzione UI (moduli):** Tutte le selezioni di modulo / app di default nella Captain Console devono essere **dinamiche**: i menu a tendina sono popolati dall'API (es. **`GET /api/admin/modules`**, dati da **`[GA].[dbo].[Modules]`**) e **non devono essere hardcoded** nell'HTML.
+---
 
-Combinando `DefaultModuleID` con la lista di moduli autorizzati, `sicurezza.js` può:
+## 7. Architettura Primary Keys e Database
 
-- Calcolare il redirect iniziale post-login.
-- Validare la navigazione cross-modulo nella Meta-App.
-- Applicare in modo coerente le politiche di sicurezza globali su tutte le app operative.
-
-### Backend `serverbobine.js`, pool SQL e JWT
-
-- **Connessioni multiple:** Il server gestisce **pool `ConnectionPool` dedicati** per ciascun silos / database di lavoro, separati dalla connessione globale al catalogo identità, così da evitare conflitti di contesto e incroci accidentali tra transazioni su `[GA]` e sui database dipartimentali (es. `[Bobine]`, `[ET]`).
-- **JWT e identità:** Nel token decodificato su `req.user`, conviene distinguere:
-  - **`req.user.id`**: identificativo del **visto locale** nell'app corrente (es. `IDOperator` nel silos di reparto), usato per log e permessi contestuali.
-  - **`req.user.globalId`**: identificativo del **Passaporto** (`IDUser` in `[GA].[dbo].[Users]`), usato per correlazione cross-app e per parametri come `IDUser` verso procedure nei silos (es. `sp_SalvaEtichetta`).
-
-## 5. Architettura Primary Keys e Database
 **Gestione Primary Keys (IDENTITY):**
 Tutte le tabelle principali del sistema (`[dbo].[Users]`, `[Bobine].[Operators]`, `[Captain].[Captains]`, `[Bobine].[Log]`, `[Bobine].[Machines]`) utilizzano la proprietà `IDENTITY (1,1)` di SQL Server per l'auto-incremento nativo delle chiavi primarie. 
 
 **Regola di Sviluppo Inviolabile:** Il codice backend (Node.js) NON DEVE MAI calcolare gli ID manualmente (assolutamente vietato l'uso di pattern come `MAX(ID) + 1`) e NON DEVE MAI includere le colonne identificative (es. `IDUser`, `IDLog`) nelle query di `INSERT`. Il database gestisce l'assegnazione atomica degli ID in totale autonomia, garantendo l'assenza di race-conditions.
-Esposizione Rete e Sicurezza SSL (Gateway)
-L'applicazione è esposta pubblicamente all'indirizzo https://rotoli.ujet.it sulla porta 443.
-Il traffico HTTPS è gestito nativamente dal processo Node.js (serverbobine.js), che legge staticamente i certificati all'avvio dalla directory C:\Acme\certificati_ssl\.
-Gestione Rinnovi: L'aggiornamento fisico dei file .pem è delegato a un client ACME esterno (es. win-acme) su sistema operativo Windows. Poiché Node.js carica i certificati in memoria tramite readFileSync solo allo startup, è imperativo che il sistema di rinnovo ACME sia configurato per eseguire un riavvio forzato del processo node.exe al termine di ogni rinnovo con successo, altrimenti l'app continuerà a servire il certificato scaduto presente in cache.
+
+---
+
+## 8. Esposizione Rete e Sicurezza SSL (Gateway)
+
+L'applicazione è esposta pubblicamente all'indirizzo **https://rotoli.ujet.it** sulla porta **443**.
+
+Il traffico HTTPS è gestito nativamente dal processo Node.js (**`server.js`**, PortalUjet Gateway), che legge staticamente i certificati all'avvio dalla directory **`C:\Acme\certificati_ssl\`**.
+
+**Gestione Rinnovi:** L'aggiornamento fisico dei file `.pem` è delegato a un client ACME esterno (es. win-acme) su sistema operativo Windows. Poiché Node.js carica i certificati in memoria tramite `readFileSync` solo allo **startup**, è **imperativo** che il sistema di rinnovo ACME sia configurato per eseguire un **riavvio forzato** del processo `node.exe` al termine di ogni rinnovo con successo; in caso contrario l'app continuerà a servire il certificato scaduto presente in cache.
