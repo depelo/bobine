@@ -1770,6 +1770,35 @@ document.getElementById('editSuccessBtnClose')?.addEventListener('click', () => 
   document.getElementById('editSuccessModal').classList.remove('is-open');
 });
 
+function buildDynamicMenu() {
+  const apps = window.SecurityData?.user?.authorizedApps;
+  if (!Array.isArray(apps)) return;
+
+  const container = document.getElementById('dynamicMenuApps');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  apps.forEach((app) => {
+    const aid = Number(app.id);
+    if (aid === 1 || aid === 2) return;
+
+    let url = '';
+    if (aid === 3) url = '/ET.html';
+    if (!url) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'menu-drawer-btn';
+    btn.textContent = app.name || 'App';
+    btn.addEventListener('click', () => {
+      closeMenuDrawer();
+      window.location.href = url;
+    });
+    container.appendChild(btn);
+  });
+}
+
 function bootstrapFromSecurity() {
   if (!window.SecurityData || !window.SecurityData.user) {
     return;
@@ -1798,6 +1827,7 @@ function bootstrapFromSecurity() {
   };
 
   updateCurrentOperatorUI();
+  buildDynamicMenu();
   applyPermissions();
   void loadInitialData().then(() => {
     setScreen('log-edit');

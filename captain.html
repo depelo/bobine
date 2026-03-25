@@ -691,8 +691,9 @@
         if (appLinksContainer && me.authorizedApps) {
             me.authorizedApps.forEach(app => {
                 let url = '';
-                if (app.target === 'Operators') url = 'bobine.html';
-                // (Future app verranno mappate qui)
+                const aid = Number(app.id);
+                if (aid === 1) url = 'bobine.html';
+                if (aid === 3) url = 'ET.html';
 
                 if (url) {
                     const btn = document.createElement('div');
