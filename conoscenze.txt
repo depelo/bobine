@@ -1,19 +1,21 @@
 # Documentazione Tecnica Database: Piattaforma UJet ERP/MES
-Motore Database: Microsoft SQL Server. Nome Database: CMP.
+Motore Database: Microsoft SQL Server. Topology: catalogo identità e anagrafica moduli in **`[GA]`** (in alcuni ambienti legacy il nome file può comparire come CMP); ogni app operativa risiede nel proprio database silos.
 Paradigma di Sicurezza: "Zero-Trust". I controlli sui permessi non sono demandati solo al codice, ma sono blindati a livello di database.
 
 ## 1. Architettura Identità: "Passaporto e Visto"
-Il sistema ospita molteplici app dipartimentali mantenendo una singola base di identità, fondata sul rigoroso paradigma architetturale **"1 App = 1 Schema = 1 Visto"** (Bounded Context).
+Il sistema ospita molteplici app dipartimentali mantenendo una singola base di identità, fondata sul paradigma architetturale **"1 App = 1 Database = 1 Visto"** (Bounded Context).
 
-- **Passaporto (Auth Centralizzata):** Gestito nella tabella `[dbo].[Users]`. Lo schema `[dbo]` è "sacro" e riservato ESCLUSIVAMENTE alle tabelle di sistema (`Users`, `Modules`, `SystemConfig`). Nessuna tabella operativa deve risiedere qui.
-- **Visto (Silos Dipartimentali):** Ogni App ha un proprio Schema dedicato nel database (es. schema `[Bobine]`, schema `[Captain]`). All'interno dello schema dell'app risiede la tabella dei permessi locali (es. `[Bobine].[Operators]`, `[Captain].[Captains]`).
+Ogni applicazione risiede in un **database fisico separato (silos)**, non più solo in uno schema isolato nello stesso file di dati: l'isolamento del dominio è totale. L'infrastruttura può essere **distribuita su server diversi** (es. il silos **Etichette `[ET]`** ospitato su **bcube2**, mentre altre app restano su nodi dedicati).
 
-### 1.1 Tabella [dbo].[Users] (Il Passaporto)
-- `IDUser` (INT, PK): Identificativo assoluto.
+- **Passaporto (Auth Centralizzata):** Gestito nel database di governance identità (es. `[GA]`), tabella `[dbo].[Users]`. Il catalogo centrale (`Users`, `Modules`, `SystemConfig`, ruoli globali) resta "sacro": nessuna tabella operativa di reparto vi risiede.
+- **Visto (Silos Dipartimentali):** Ogni App possiede il **proprio database**; al suo interno (tipicamente schema `[dbo]`) risiede la tabella dei permessi locali del visto (es. `[Bobine].[dbo].[Operators]`, tabelle analoghe negli altri silos). Un utente ottiene un visto per app = una riga (o equivalente) nel database di quell'app, collegata al Passaporto tramite `IDUser`.
+
+### 1.1 Tabella `[GA].[dbo].[Users]` (Il Passaporto)
+- `IDUser` (INT, PK): Identificativo assoluto (Passaporto; nel JWT è mappato tipicamente come `globalId`).
 - `Name`, `Barcode` (Unique): Identificatori per il login.
 - `PasswordHash`: Hash bcrypt.
 - `IsActive`: Soft-delete globale.
-- `DefaultModuleID` (INT, FK verso [dbo].[Modules]): Definisce l'app predefinita dell'utente al login (Meta-App Layer 2).
+- `DefaultModuleID` (INT, FK verso `[GA].[dbo].[Modules]`): Definisce l'app predefinita dell'utente al login (Meta-App Layer 2); il catalogo `Modules` include **`TargetDb`** per il routing verso il silos corretto.
 - `ResetRequested` (BIT): Flag (0/1) che indica se l'utente ha richiesto un reset della password dal gateway. Usato per persistere l'allarme nella Captain Console fino a risoluzione.
 - **Overrides di Sicurezza (Eccezioni per utente):**
   - `SessionHoursOverride` / `PwdExpiryDaysOverride`: Sovrascrivono i valori globali di SystemConfig.
@@ -23,15 +25,15 @@ Il sistema ospita molteplici app dipartimentali mantenendo una singola base di i
   - `LastLogin` (DATETIME): Timestamp dell'ultimo login effettivo dell'utente (aggiornato da `POST /api/login`).
   - `LastBarcodeChange` (DATETIME): Timestamp dell'ultima rigenerazione del Barcode/QR Code di login (aggiornato in creazione utente e in modifica solo se il QR viene cambiato).
 
-### 1.2 Dizionario Ruoli e Catalogo App (`[dbo].[GlobalRoles]`, `[dbo].[Modules]`, `[dbo].[AppRoles]`)
+### 1.2 Dizionario Ruoli e Catalogo App (`[GA].[dbo].[GlobalRoles]`, `[GA].[dbo].[Modules]`, `[GA].[dbo].[AppRoles]`)
 Il sistema non usa più stringhe JSON hardcodate per definire i ruoli. La sicurezza è normalizzata in Terza Forma Normale (3NF):
-- `[dbo].[Modules]`: Catalogo delle applicazioni esistenti. (La colonna `RoleDefinition` JSON è deprecata).
-- `[dbo].[GlobalRoles]`: È l'anagrafica aziendale centralizzata dei ruoli (es. `RoleCode`: 'Admin', 'Base', 'Master').
-- `[dbo].[AppRoles]`: Tabella ponte (matrice di sicurezza) che collega un Modulo a un Ruolo Globale. Contiene le regole fisiche: `RequiresPassword`, `SessionHours`, `PwdExpiryDays`.
-- `[dbo].[vw_UserAccess]`: Vista federata globale che unisce dinamicamente tramite `UNION ALL` i "Visti" di tutti i dipartimenti. Traduce i flag locali (es. il bit `Admin` in Bobine) nel corretto `IDGlobalRole`. Il codice Node.js usa esclusivamente questa vista per calcolare accessi e moduli autorizzati al login.
+- `[GA].[dbo].[Modules]`: Catalogo delle applicazioni esistenti; **governa il routing** verso i silos dipartimentali tramite la colonna **`TargetDb`** (nome del database fisico di destinazione), oltre ai metadati già noti come `TargetSchema` / `TargetTable` per individuare la tabella del visto. (La colonna `RoleDefinition` JSON è deprecata).
+- `[GA].[dbo].[GlobalRoles]`: È l'anagrafica aziendale centralizzata dei ruoli (es. `RoleCode`: 'Admin', 'Base', 'Master').
+- `[GA].[dbo].[AppRoles]`: Tabella ponte (matrice di sicurezza) che collega un Modulo a un Ruolo Globale. Contiene le regole fisiche: `RequiresPassword`, `SessionHours`, `PwdExpiryDays`.
+- `[GA].[dbo].[vw_UserAccess]`: Vista federata che **aggrega i dati da database diversi** tramite **`UNION ALL`**: ogni ramo legge la tabella visti nel silos indicato da `Modules.TargetDb`. Per ogni combinazione utente/app, calcola dinamicamente **`IDGlobalRole`** incrociando i **`RoleCode` locali** (o equivalenti mappati dal reparto) con la tabella **`GlobalRoles`**, così il login e le API ricevono un modello permessi unico senza hardcoding per app. Il backend Node.js usa questa vista (o la stessa logica materializzata) per accessi e moduli autorizzati.
 
 ### 1.3 Tabelle Dipartimentali (I Visti)
-**Esempio: [Bobine].[Operators] (Reparto Bobine)**
+**Esempio: `[Bobine].[dbo].[Operators]` (Reparto Bobine)**
 Contiene solo attributi lavorativi locali.
 - `IDOperator` (INT, PK): ID storico usato nei Log.
 - `IDUser` (INT, FK): Relazione con Users.
@@ -39,17 +41,25 @@ Contiene solo attributi lavorativi locali.
 - `StartTime` (VARCHAR): Orario turno specifico.
 
 ### 1.4 Regole per le Tabelle delle App (I Visti) e Routing Dinamico
-Per garantire che il backend (`serverbobine.js`) sia 100% dinamico e non richieda hardcoding quando si aggiungono nuove app, vanno rispettate queste tre regole d'oro:
-1. **Creazione Schema:** Creare uno Schema dedicato per la nuova app (es. `[Magazzino]`).
-2. **Struttura Visto:** Creare una tabella Visti che DEVE contenere sempre: la Foreign Key verso `IDUser`, la colonna del Ruolo (es. `Admin` o `Role`), e la colonna `IsActive` (BIT, fondamentale per il soft-revoke dei permessi).
-3. **Registrazione (Catalogo App):** Registrare la nuova App nella tabella `[dbo].[Modules]`, specificando obbligatoriamente `TargetSchema` (es. 'Magazzino') e `TargetTable` (es. 'OperatoriMagazzino'). Il backend usa l'interpolazione `[CMP].[${mod.TargetSchema}].[${mod.TargetTable}]` per leggere e scrivere i permessi in automatico.
-4. **Dichiarazione dei Ruoli:** Inserire le regole di sicurezza della nuova app in `[GA].[dbo].[AppRoles]`, collegando l'app ai ruoli esistenti nell'anagrafica `[GA].[dbo].[GlobalRoles]`.
-5. **Aggiornamento Vista Federata:** Aggiungere una clausola `UNION ALL` nella vista `[GA].[dbo].[vw_UserAccess]` per includere la nuova tabella dei visti nel calcolo globale degli accessi, mappando i permessi locali al rispettivo `IDGlobalRole`.
+Per garantire che il backend (`serverbobine.js`) sia dinamico quando si aggiungono nuove app, vanno rispettate queste regole d'oro (paradigma **1 App = 1 Database**):
+1. **Creazione Silos:** Provisionare un **database dedicato** per la nuova app (es. `[Magazzino]` su un'istanza SQL definita), con schema operativo coerente (spesso `[dbo]`).
+2. **Struttura Visto:** Nel database dell'app, creare la tabella Visti che DEVE contenere sempre: la Foreign Key verso `IDUser` (Passaporto), la colonna del Ruolo (es. `Admin` o `Role`), e la colonna `IsActive` (BIT, fondamentale per il soft-revoke dei permessi).
+3. **Registrazione (Catalogo App):** Registrare la nuova App in `[GA].[dbo].[Modules]`, obbligatoriamente con **`TargetDb`** (nome del database silos), più `TargetSchema` e `TargetTable` per puntare alla tabella visti. Il backend risolve connessioni e nomi oggetto in base a questi metadati.
+4. **Dichiarazione dei Ruoli:** Inserire le regole di sicurezza della nuova app in `[GA].[dbo].[AppRoles]`, collegando l'app ai ruoli esistenti in `[GA].[dbo].[GlobalRoles]`.
+5. **Aggiornamento Vista Federata:** Estendere `[GA].[dbo].[vw_UserAccess]` con un nuovo ramo `UNION ALL` che interroga il silos (`TargetDb`) e mappa i permessi locali al rispettivo `IDGlobalRole`.
 
 ### 1.5 Principio di Incapsulamento dei Database Dipartimentali (Regola di Fabrizio)
-Un database dipartimentale (es. `[Bobine]`) deve operare come un silos autosufficiente. Il codice applicativo (es. Node.js) non deve **MAI** eseguire query dirette trans-database interrogando lo schema `[GA]` per risolvere logiche di reparto.
-- **Letture da GA:** Devono avvenire tramite una Vista creata internamente al DB locale (es. `[Bobine].[dbo].[vw_ext_GlobalUsers]`).
-- **Scritture su GA:** Devono essere incapsulate in una Stored Procedure residente nel DB locale (es. `[Bobine].[dbo].[sp_ResetOperatorPassword]`), la quale riceve parametri sicuri ed esegue l'aggiornamento.
+Un database dipartimentale (es. `[Bobine]`, `[ET]`) deve operare come un silos autosufficiente. Il codice applicativo non deve **MAI** spargere logica di reparto con join ad hoc cross-database verso `[GA]` lato client/query inline non governate.
+- **Letture da GA:** Preferire viste o contratti esposti dal silos locale (es. `[Bobine].[dbo].[vw_ext_GlobalUsers]`) ove applicabile.
+- **Scritture cross-catalogo:** Incapsulare in Stored Procedure nel database competente, con parametri tipizzati e controlli di sicurezza.
+
+### 1.6 Database `[ET]` (App Etichette)
+Silos dedicato alla progettazione etichette; può risiedere su istanza/server distinti (es. **bcube2**) rispetto ad altre app.
+
+- **`[ET].[dbo].[Operators]` (Visto locale):** Permessi nell'app Etichette. Colonne tipiche: `IDUser` (legame al Passaporto), `Admin`, `IsActive`.
+- **`[ET].[dbo].[Prodotti_Padre]`:** Testate etichetta (codice padre / anagrafica di testata) con **auditing** tramite riferimento operatore (es. `IDOperator` o equivalente legato all'operatore del silos).
+- **`[ET].[dbo].[Componenti_Figli]`:** Righe della distinta base (figli) collegate al padre; vincolo referenziale con **`ON DELETE CASCADE`** dal record padre in `Prodotti_Padre`, così la cancellazione della testata rimuove coerentemente le righe figlie.
+- **Logica incapsulata:** L'inserimento/aggiornamento orchestrato lato silos avviene tramite Stored Procedure, in particolare **`sp_SalvaEtichetta`**, che accetta tra i parametri l'**`IDUser` globale** (identità dal JWT / Passaporto, es. `globalId`) per tracciabilità e validazione, mantenendo il dominio ET autocontenuto.
 
 ## 2. Struttura delle Tabelle di Business
 
@@ -62,7 +72,7 @@ Registra tutte le transazioni di produzione.
 ### 2.2 Tabella [Bobine].[Machines]
 Anagrafica dei macchinari di produzione. `IDMachine`, `Machine`, `Barcode` (per selezione rapida).
 
-### 2.3 Tabella [dbo].[SystemConfig]
+### 2.3 Tabella `[GA].[dbo].[SystemConfig]`
 Dizionario Key/Value per le configurazioni dinamiche (modificabili dal Captain a runtime). 
 Valori: `AdminPwdExpiryDays`, `AdminSessionHours`, `OpDeleteMaxRecords`, `OpDeleteMaxHours`. Nuove regole password: PwdMinLength, PwdRequireNumber, PwdRequireUpper, PwdRequireSpecial.
 *(Per aggiungere parametri, si inserisce una nuova riga, non una nuova colonna).*
@@ -110,12 +120,20 @@ La **Captain Console** è l'interfaccia amministrativa che governa l'accesso all
 
 - Aggiunge/rimuove utenti dalle tabelle di reparto (es. `[Bobine].[Operators]`) per assegnare o revocare i \"Visti\" locali.
 - Imposta `DefaultModuleID` su `[dbo].[Users]`, che definisce **l'app di destinazione principale** (Layer 2) che verrà proposta all'utente al login.
+- **Manutenzione UI (moduli):** Tutte le selezioni di modulo / app di default nella Captain Console devono essere **dinamiche**: i menu a tendina sono popolati dall'API (es. **`GET /api/admin/modules`**, dati da **`[GA].[dbo].[Modules]`**) e **non devono essere hardcoded** nell'HTML.
 
 Combinando `DefaultModuleID` con la lista di moduli autorizzati, `sicurezza.js` può:
 
 - Calcolare il redirect iniziale post-login.
 - Validare la navigazione cross-modulo nella Meta-App.
 - Applicare in modo coerente le politiche di sicurezza globali su tutte le app operative.
+
+### Backend `serverbobine.js`, pool SQL e JWT
+
+- **Connessioni multiple:** Il server gestisce **pool `ConnectionPool` dedicati** per ciascun silos / database di lavoro, separati dalla connessione globale al catalogo identità, così da evitare conflitti di contesto e incroci accidentali tra transazioni su `[GA]` e sui database dipartimentali (es. `[Bobine]`, `[ET]`).
+- **JWT e identità:** Nel token decodificato su `req.user`, conviene distinguere:
+  - **`req.user.id`**: identificativo del **visto locale** nell'app corrente (es. `IDOperator` nel silos di reparto), usato per log e permessi contestuali.
+  - **`req.user.globalId`**: identificativo del **Passaporto** (`IDUser` in `[GA].[dbo].[Users]`), usato per correlazione cross-app e per parametri come `IDUser` verso procedure nei silos (es. `sp_SalvaEtichetta`).
 
 ## 5. Architettura Primary Keys e Database
 **Gestione Primary Keys (IDENTITY):**
