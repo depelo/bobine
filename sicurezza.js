@@ -47,6 +47,17 @@ async function initSecurity() {
               return false;
             }
           }
+
+          if (currentPath.includes('et.html')) {
+            const hasEtAccess =
+              Array.isArray(user.authorizedApps) &&
+              user.authorizedApps.some((app) => Number(app.id) === 3);
+            if (!hasEtAccess) {
+              alert('Non sei autorizzato ad accedere al modulo Etichette.');
+              window.location.href = '/';
+              return false;
+            }
+          }
         }
       }
 

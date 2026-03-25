@@ -58,11 +58,11 @@ if (user.defaultModuleId === 3) {
 
 **Refactor necesario para no romper el flujo**
 
-- Hoy `**loadModules()`** repuebla `umpDefaultModule` y el filtro `filterAppSelect`; `**openUserManager`** vuelve a reconstruir `umpDefaultModule` desde `globalModules`; `**updateNewUserDynamicFields**` reconstruye `adminNewDefaultModule` solo con apps de los “visti” seleccionados.
+- Hoy `**loadModules()`** repuebla `umpDefaultModule` y el filtro `filterAppSelect`; `**openUserManager`** vuelve a reconstruir `umpDefaultModule` desde `globalModules`; `**updateNewUserDynamicFields`** reconstruye `adminNewDefaultModule` solo con apps de los “visti” seleccionados.
 - Para cumplir el requisito de lista **completa desde API** y evitar borrar las opciones:
   - Extraer o reutilizar la lógica de `populateModulesDropdowns` y **eliminar la duplicación** en `loadModules()` para `umpDefaultModule` (dejar en `loadModules()` solo la parte de `**filterAppSelect`**).
   - En `**openUserManager`**: en lugar de reconstruir opciones, asignar solo `defaultSelect.value` según `u.defaultModuleId` (las opciones ya vienen de `populateModulesDropdowns`).
-  - En `**updateNewUserDynamicFields**`: **no** sustituir el `innerHTML` de `adminNewDefaultModule` (mantener solo la lógica de etiqueta password obligatoria / opcional).
+  - En `**updateNewUserDynamicFields`**: **no** sustituir el `innerHTML` de `adminNewDefaultModule` (mantener solo la lógica de etiqueta password obligatoria / opcional).
   - En `**openNewUserModal`**: **no** hacer `innerHTML` que deje el select con una sola opción; resetear con `value = ''` (u opción equivalente) para no perder las opciones cargadas.
 
 Con esto se respeta Bootstrap/CSS existente: solo markup mínimo de `<option>` y JS.
@@ -92,7 +92,7 @@ Añadir `credentials: 'include'` a **las cuatro** llamadas `fetch`:
 En `**saveRecord()`**:
 
 - Sustituir URL por `**POST /api/etichette/salva`**.
-- Cabeceras: `Content-Type: application/json` y `**credentials: 'include'**`.
+- Cabeceras: `Content-Type: application/json` y `**credentials: 'include'`**.
 - Cuerpo **solo**:
   - `**CodicePadre`:** obligatorio — usar `state.selectedPadre` o el valor coherente con el padre ya cargado (p. ej. tras validar que no esté vacío; alineado con `et_kcodart` del formulario si sigue presente).
   - `**Descrizione`:** opcional — para la PoC puede enviarse `""` o el valor de un campo de descripción si se quiere probar texto (p. ej. primer textarea `et_desc_r1` si existe en el DOM).
