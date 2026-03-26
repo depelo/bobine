@@ -76,7 +76,7 @@ router.get('/label', async (req, res) => {
             .input('et_kcodart_layer', sql.NVarChar, kcodart_layer)
             .query(`
             SELECT TOP 1 *
-            FROM [ET].[dbo].[UJ_etichette3]
+            FROM [ET].[dbo].[UJ_etichette]
             WHERE et_kcodart = @et_kcodart AND et_kcodart_layer = @et_kcodart_layer
         `);
         if (!result.recordset || result.recordset.length === 0) {
