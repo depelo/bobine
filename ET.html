@@ -87,6 +87,7 @@
                     <thead class="table-light">
                     <tr>
                         <th>Codice etichetta</th>
+                        <th>Riga</th>
                         <th style="width: 220px;">Azione</th>
                     </tr>
                     </thead>
@@ -232,6 +233,7 @@
     const state = {
         selectedPadre: "",
         selectedFiglio: "",
+        riga: "",
         metadata: null,
         currentRecord: {}
     };
@@ -322,6 +324,7 @@
 
         state.selectedPadre = padre;
         state.selectedFiglio = "";
+        state.riga = "";
         recordTableArea.classList.add("d-none");
         tbodyMain.innerHTML = "";
         tbodyDesc.innerHTML = "";
@@ -347,14 +350,16 @@
         step2Area.classList.remove("d-none");
 
         (data.components || []).forEach((item) => {
+            const figlio = item.MD_codfigli || item.et_kcodart_layer || "";
             const tr = document.createElement("tr");
             tr.classList.add("pointer-row");
             tr.innerHTML = `
-                <td>${item.MD_codfigli || ""}</td>
+                <td>${figlio}</td>
+                <td>${item.et_layer_nriga || ""}</td>
                 <td><button class="btn btn-sm btn-outline-primary">Modifica</button></td>
             `;
             const button = tr.querySelector("button");
-            const openEditor = () => loadLabelData(state.selectedPadre, item.MD_codfigli);
+            const openEditor = () => loadLabelData(state.selectedPadre, item.MD_codfigli, item.et_layer_nriga);
             tr.addEventListener("click", openEditor);
             button.addEventListener("click", (event) => {
                 event.stopPropagation();
@@ -368,18 +373,20 @@
         }
     }
 
-    async function loadLabelData(padre, figlio) {
-        if (!figlio) {
-            showAlert("Codice figlio non valido.", "warning");
+    async function loadLabelData(padre, figlio, riga) {
+        if (!figlio || !riga) {
+            showAlert("Chiave composita non valida (figlio/riga).", "warning");
             return;
         }
 
         state.selectedPadre = padre;
         state.selectedFiglio = figlio;
+        state.riga = riga;
 
         const params = new URLSearchParams({
             et_kcodart: padre,
-            et_kcodart_layer: figlio
+            et_kcodart_layer: figlio,
+            et_layer_nriga: riga
         });
         const response = await fetch(`/api/label?${params.toString()}`, { credentials: "include" });
         const data = await response.json();
@@ -495,19 +502,23 @@
                 tbodyMain.appendChild(row);
             }
         });
-        selectedPairText.textContent = `Codice db: ${padre} - Etichetta: ${figlio}`;
+        selectedPairText.textContent = `Codice db: ${padre} - Etichetta: ${figlio} - Riga: ${riga}`;
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
     }
 
     async function saveRecord() {
         const padre = (state.selectedPadre || "").trim();
+        const figlio = (state.selectedFiglio || "").trim();
+        const riga = state.riga || 0;
         if (!padre) {
             throw new Error("Codice padre mancante. Impossibile salvare.");
         }
-
-        const descEl = editForm.querySelector('[name="et_desc_r1"]');
-        const descrizione = descEl ? String(descEl.value || "").trim() : "";
+        if (!figlio || !riga) {
+            throw new Error("Chiave composita incompleta (figlio/riga). Impossibile salvare.");
+        }
+        const formData = new FormData(document.getElementById("editForm"));
+        const payload = Object.fromEntries(formData.entries());
 
         const response = await fetch("/api/etichette/salva", {
             method: "POST",
@@ -515,7 +526,9 @@
             credentials: "include",
             body: JSON.stringify({
                 CodicePadre: padre,
-                Descrizione: descrizione
+                CodiceFiglio: figlio,
+                Riga: riga,
+                DatiEtichetta: payload
             }),
         });
         const data = await response.json();
