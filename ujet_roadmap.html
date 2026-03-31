@@ -1,0 +1,1621 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ecosistema UJet — Avanzamento</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #0c0e13;
+    --bg-card: #14161d;
+    --bg-hover: #1a1d27;
+    --border: #242836;
+    --text: #c8cdd8;
+    --muted: #6b7394;
+    --bright: #eef0f6;
+    --accent: #4a7cff;
+    --green: #34d399;
+    --green-dim: rgba(52,211,153,0.12);
+    --yellow: #fbbf24;
+    --yellow-dim: rgba(251,191,36,0.12);
+    --purple: #a78bfa;
+    --purple-dim: rgba(167,139,250,0.12);
+    --orange: #fb923c;
+    --orange-dim: rgba(251,146,60,0.12);
+    --cyan: #22d3ee;
+    --tip-bg: #1e2130;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+}
+.page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px 40px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+/* --- Barra superiore a schede --- */
+.app-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin: 0 0 4px;
+    padding: 0 0 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.app-tab {
+    appearance: none;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    background: var(--bg-card);
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: color .15s, background .15s, border-color .15s;
+}
+.app-tab:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+}
+.app-tab.is-active {
+    color: var(--bright);
+    background: var(--bg-card);
+    border-color: var(--border);
+    box-shadow: 0 1px 0 var(--bg-card);
+    position: relative;
+    z-index: 2;
+    margin-bottom: -1px;
+    padding-bottom: 11px;
+}
+.tab-panels {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Corpo pagina: roadmap attaccata alla Pipeline; spazio solo prima tabella tool */
+.page-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-width: 0;
+}
+.section--tools {
+    margin-top: 36px;
+}
+
+/* Sezioni “card” (pipeline + tabella): stesso linguaggio visivo delle rm-card */
+.section--card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px 24px 26px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
+}
+.section--card .section-head {
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+}
+.section--pipeline {
+    border-top: 2px solid rgba(74, 124, 255, 0.45);
+}
+.section--tools.section--card {
+    border-top: 2px solid rgba(52, 211, 153, 0.4);
+}
+
+/* Tabella: scroll orizzontale su viewport stretti (evita overflow pagina) */
+.table-scroll-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 2px -6px 0;
+    padding: 4px 6px 2px;
+    border-radius: 8px;
+}
+.tool-table { min-width: 640px; }
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+}
+.header h1 { font-size: 20px; font-weight: 700; color: var(--bright); }
+.header h1 span { color: var(--accent); font-weight: 500; }
+.header-meta { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+.section { margin-bottom: 0; }
+.section-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-bottom: 16px;
+}
+.section-title { font-size: 15px; font-weight: 700; color: var(--bright); }
+.section-sub { font-size: 12px; color: var(--muted); }
+
+/* Roadmap: il blocco segue l’altezza del contenuto (niente stretch alla riga più alta) */
+.section--roadmap {
+    width: 100%;
+    max-width: 100%;
+    flex: 0 0 auto;
+}
+
+/* --- ROADMAP GRID RESPONSIVE --- */
+.roadmap-track {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    padding: 8px 0 0;
+    align-items: start;
+}
+
+@media (max-width: 1100px) {
+    .roadmap-track { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 720px) {
+    .roadmap-track { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+    .roadmap-track { grid-template-columns: 1fr; }
+}
+
+.rm-phase {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+}
+.rm-phase:hover { z-index: 50; }
+
+.rm-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    margin: 0 auto 12px;
+    border: 2px solid;
+}
+.dot-done { border-color: var(--green); background: var(--green); }
+.dot-active { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 10px rgba(74,124,255,0.5); }
+.dot-future { border-color: var(--muted); background: transparent; }
+
+.rm-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    transition: border-color .2s;
+    height: auto;
+    min-height: 0;
+    width: 100%;
+}
+.rm-card:hover { border-color: rgba(74,124,255,0.25); }
+.rm-tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.rm-card h3 { font-size: 14px; font-weight: 700; color: var(--bright); margin-bottom: 6px; line-height: 1.3; }
+
+/* Fasi completate: elenco voci nel widget (stesso pattern delle altre fasi) */
+.rm-card-done { cursor: default; border-top: 2px solid var(--green) !important; }
+.rm-card-active { border-top: 2px solid var(--accent) !important; }
+.rm-done-summary { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.rm-done-summary strong { color: var(--green); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.rm-card-done .rm-items { margin-top: 8px; font-size: 12px; }
+.rm-card-done .rm-item { padding: 5px 0; font-size: 12px; }
+
+/* Fasi attive/future: items espansi */
+.rm-items { margin-top: 10px; }
+.rm-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 0; font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    position: relative;
+}
+.rm-item:last-child { border: none; }
+.rm-check { flex-shrink: 0; font-size: 11px; margin-top: 2px; }
+.rm-check-done { color: var(--green); }
+.rm-check-pending { color: var(--muted); }
+.rm-item-text { color: var(--text); }
+.rm-item-text small { display: block; color: var(--muted); font-size: 11px; }
+
+/* Tooltip sugli item pending */
+.rm-item-pending {
+    cursor: default;
+}
+.rm-item-tip {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: var(--tip-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    width: 300px;
+    z-index: 999;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.5;
+}
+.rm-item-pending:hover .rm-item-tip { display: block; }
+.rm-item-tip::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 16px;
+    width: 8px; height: 8px;
+    background: var(--tip-bg);
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    transform: rotate(45deg);
+}
+
+/* --- TOOL TABLE --- */
+.tool-table { width: 100%; border-collapse: separate; border-spacing: 0 4px; }
+.tool-table th {
+    font-size: 11px; font-weight: 500; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.8px; text-align: left; padding: 6px 14px;
+}
+.tool-table td {
+    background: var(--bg-card); padding: 10px 14px; font-size: 13px;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.tool-table tr td:first-child { border-left: 1px solid var(--border); border-radius: 8px 0 0 8px; }
+.tool-table tr td:last-child { border-right: 1px solid var(--border); border-radius: 0 8px 8px 0; }
+.tool-table tr:hover td { background: var(--bg-hover); }
+.tool-name { font-weight: 700; color: var(--bright); font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.tool-note {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text);
+    max-width: 52ch;
+}
+.tool-note code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--cyan);
+    font-weight: 400;
+}
+.tool-note strong { color: var(--bright); font-weight: 600; }
+
+/* --- BADGES --- */
+.badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 100px; font-size: 10px; font-weight: 600; white-space: nowrap;
+}
+.badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; }
+.b-live { background: var(--green-dim); color: var(--green); }
+.b-live::before { background: var(--green); }
+.b-wip { background: var(--yellow-dim); color: var(--yellow); }
+.b-wip::before { background: var(--yellow); }
+.b-plan { background: var(--purple-dim); color: var(--purple); }
+.b-plan::before { background: var(--purple); }
+.b-idea { background: var(--orange-dim); color: var(--orange); }
+.b-idea::before { background: var(--orange); }
+
+/* --- PIPELINE --- */
+.pipe-layers {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+.pipe-layer {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+.pipe-layer-arrow {
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 0;
+    user-select: none;
+}
+.pipe-block {
+    font-size: 12px; padding: 6px 14px; border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace; font-weight: 500; white-space: nowrap;
+    border: 1px solid transparent;
+}
+/* Tooltip pipeline (hover su ogni blocco) */
+.pipe-wrap {
+    position: relative;
+    display: inline-block;
+    z-index: 1;
+    cursor: default;
+}
+.pipe-wrap:hover { z-index: 200; }
+.pipe-tip {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(340px, 92vw);
+    background: var(--tip-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text);
+    text-align: left;
+    white-space: normal;
+    font-weight: 400;
+}
+.pipe-wrap:hover .pipe-tip { display: block; }
+.pipe-tip::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    margin-left: -5px;
+    width: 10px; height: 10px;
+    background: var(--tip-bg);
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    transform: rotate(45deg);
+}
+.pipe-tip-align-left { left: 0; transform: none; }
+.pipe-tip-align-left::before { left: 20px; margin-left: 0; }
+.pipe-tip-desc { color: var(--muted); margin-bottom: 8px; font-size: 11px; }
+.pipe-tip-row { margin: 6px 0 0; font-size: 11px; }
+.pipe-tip-row:first-of-type { margin-top: 0; }
+.pipe-tip-label {
+    display: block;
+    font-weight: 700;
+    color: var(--bright);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+.pipe-tip code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--cyan);
+    font-weight: 400;
+}
+
+.footer {
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+}
+
+@media (max-width: 768px) {
+    .page { padding: 20px 16px 32px; }
+    .app-tab { padding: 8px 12px; font-size: 12px; }
+    .section--tools { margin-top: 28px; }
+    .section--card { padding: 18px 16px 22px; }
+    .header { flex-direction: column; gap: 4px; align-items: flex-start; }
+    .footer { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<nav class="app-tabs" role="tablist" aria-label="Navigazione applicazione">
+    <button type="button" class="app-tab is-active" role="tab" id="tab-roadmap" aria-selected="true" aria-controls="panel-roadmap" data-tab="panel-roadmap">Roadmap UJET</button>
+    <button type="button" class="app-tab" role="tab" id="tab-accessi" aria-selected="false" aria-controls="panel-accessi" data-tab="panel-accessi" tabindex="-1">Gestione accessi</button>
+    <button type="button" class="app-tab" role="tab" id="tab-bobine" aria-selected="false" aria-controls="panel-bobine" data-tab="panel-bobine" tabindex="-1">app bobine</button>
+    <button type="button" class="app-tab" role="tab" id="tab-captain" aria-selected="false" aria-controls="panel-captain" data-tab="panel-captain" tabindex="-1">app captain console</button>
+    <button type="button" class="app-tab" role="tab" id="tab-etichette" aria-selected="false" aria-controls="panel-etichette" data-tab="panel-etichette" tabindex="-1">app Etichette</button>
+</nav>
+
+<div class="tab-panels">
+
+<div id="panel-roadmap" role="tabpanel" aria-labelledby="tab-roadmap">
+
+<header class="header">
+    <h1>UJET <span>Intelligent Orchestrator</span></h1>
+    <div class="header-meta">aggiornamento: 2026-03-31 · repo: depelo/Ujet</div>
+</header>
+
+<main class="page-main">
+
+<!-- ========== ROADMAP ========== -->
+<div class="section section--roadmap">
+    <div class="section-head">
+        <div class="section-title">Roadmap</div>
+        <div class="section-sub">Fasi 1–5</div>
+    </div>
+    <div class="roadmap-track">
+
+            <!-- FASE 1: DONE -->
+            <div class="rm-phase">
+                <div class="rm-dot dot-done"></div>
+                <div class="rm-card rm-card-done">
+                    <div class="rm-tag" style="color:var(--green);">Fase 1 ✓</div>
+                    <h3>Fondazione</h3>
+                    <div class="rm-done-summary"><strong>6/6</strong> completati</div>
+                    <div class="rm-items">
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Orchestratore DAG con context_bus</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">LLM Gateway multi-provider (Round-Robin, crittografia)</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Batch Engine parallelo (ThreadPoolExecutor, Socket.IO)</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Schema DB relazionale completo</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Colonne HH in camtipa (Fabrizio)</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Data Curation: Blacklist + Golden Sets</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FASE 2: DONE -->
+            <div class="rm-phase">
+                <div class="rm-dot dot-done"></div>
+                <div class="rm-card rm-card-done">
+                    <div class="rm-tag" style="color:var(--green);">Fase 2 ✓</div>
+                    <h3>Pipeline Core</h3>
+                    <div class="rm-done-summary"><strong>5/5</strong> tool operativi</div>
+                    <div class="rm-items">
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">tool_macro_categorie — tipologie da tabtipa</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">tool_estrazione_misure — ID + cm, FLAT+DETTAGLIO</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">tool_ricerca_accessori — espliciti/bannati/valorizzati</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">attributo_2050_tool — materiale FabriJet</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">tool_sintesi_finale — zoccolo duro + tolleranza + LLM</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FASE 3: ATTIVA -->
+            <div class="rm-phase">
+                <div class="rm-dot dot-active"></div>
+                <div class="rm-card rm-card-active">
+                    <div class="rm-tag" style="color:var(--accent);">Fase 3 — In corso</div>
+                    <h3>QA, Debugger & Tuning</h3>
+                    <div class="rm-items">
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Profiler verde/rosso + DAG evaluator</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">query_estrazione_atteso tutti i tool</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Hardcoding sintesi (strip zeri, tooltip)</div></div>
+                        <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Fix _MISURE_ESTRATTE_DETTAGLIO</div></div>
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">Fine-tuning prompt<small>Andrea — continuo</small></div>
+                            <div class="rm-item-tip">Andrea sta portando avanti il lavoro di fine-tuning dei prompt per rendere i tool esistenti efficaci. Questo lavoro procede anche a progetto congelato.</div>
+                        </div>
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">Affinamento matrice differenze</div>
+                            <div class="rm-item-tip">Questo tool al momento è stato creato e genera una tabella di differenze tra articoli candidati, ma non ne usa il prodotto ad alcuno scopo. Va integrato nella pipeline decisionale.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FASE 4: FUTURA -->
+            <div class="rm-phase">
+                <div class="rm-dot dot-future"></div>
+                <div class="rm-card">
+                    <div class="rm-tag" style="color:var(--purple);">Fase 4</div>
+                    <h3>Nuovi Tool AI</h3>
+                    <div class="rm-items">
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">Analisi disegni tecnici</div>
+                            <div class="rm-item-tip">Serve un tool in grado di analizzare i disegni degli articoli allegati alle specifiche, estraendo dimensioni e caratteristiche tramite Vision API.</div>
+                        </div>
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">Glossario di settore</div>
+                            <div class="rm-item-tip">Serve un tool che faccia analisi semantica della richiesta gestendo un glossario di termini medicali, sinonimi, abbreviazioni e gergo operatore.</div>
+                        </div>
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">Cataloghi concorrenza</div>
+                            <div class="rm-item-tip">Attualmente i nostri operatori fanno la ricerca anche basandosi su cataloghi della concorrenza. Dobbiamo esplorare questo metodo e creare un tool che mappi codici competitor ai nostri codici interni.</div>
+                        </div>
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">Catalogo interno</div>
+                            <div class="rm-item-tip">Basandoci nell'esperienza dei cataloghi della concorrenza, è probabile che anche il nostro catalogo sia una fonte utile di informazioni per un tool specifico di ricerca semantica.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FASE 5: VISIONE -->
+            <div class="rm-phase">
+                <div class="rm-dot dot-future"></div>
+                <div class="rm-card">
+                    <div class="rm-tag" style="color:var(--muted);">Fase 5</div>
+                    <h3>Integrazione Aziendale</h3>
+                    <div class="rm-items">
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">Integrazione https//rotoli</div>
+                            <div class="rm-item-tip">La app al momento è esclusa dall'ecosistema Rotoli che stiamo creando. L'orchestratore dovrà essere esposto come servizio consumabile all'interno della piattaforma.</div>
+                        </div>
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">API RESTful per BCube/ERP</div>
+                            <div class="rm-item-tip">Esporre la pipeline di classificazione come endpoint REST standardizzato, consumabile direttamente dal gestionale BCube e da eventuali integrazioni ERP, senza passare dall'interfaccia web.</div>
+                        </div>
+                        <div class="rm-item rm-item-pending">
+                            <span class="rm-check rm-check-pending">○</span>
+                            <div class="rm-item-text">Feedback loop → Golden Sets</div>
+                            <div class="rm-item-tip">Chiudere il cerchio: quando un operatore corregge una classificazione errata, la correzione alimenta automaticamente i Golden Sets, arricchendo il dataset di training e migliorando i prompt nel tempo.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+<!-- ========== PIPELINE ========== -->
+<div class="section section--card section--pipeline">
+    <div class="section-head">
+        <div class="section-title">Pipeline</div>
+        <div class="section-sub">richiesta testuale → codice articolo</div>
+    </div>
+    <div class="pipe-layers">
+        <!-- Layer 1: Input -->
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">📝 Input</div>
+                <div class="pipe-tip pipe-tip-align-left">
+                    <p class="pipe-tip-desc">Ingresso testuale dell’operatore nel DAG: viene serializzata nel context bus come richiesta da consumare da tutti i tool.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Ingresso</span><code>RICHIESTA_UTENTE</code> (testo libero della richiesta).</div>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span>Stesso payload nel bus orchestratore; nessuna inferenza.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+
+        <!-- Layer 2: Macro Categorie -->
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">📂 Macro Cat.</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc"><code>tool_macro_categorie</code>: due step LLM — scelta del macro-cluster da JSON, poi matching sui codici tipologia (tabtipa / AI.xlsx).</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Ingresso</span><code>RICHIESTA_UTENTE</code>; mapping e liste tipologie da asset JSON/Excel.</div>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span><code>CODICI_MACRO_CATEGORIE</code>, <code>CLUSTER_FASE1</code>, <code>dettaglio_selezionati</code> (per UI).</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+
+        <!-- Layer 3: Tool paralleli -->
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">📏 Misure</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc"><code>tool_estrazione_misure</code>: estrae dal testo le misure in cm solo per attributi dimensionali ammessi (<code>HH_ct_TipMis = 'P'</code>) sulle tipologie scelte.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Ingresso</span><code>RICHIESTA_UTENTE</code>, <code>LISTA_ATTRIBUTI_DIMENSIONALI</code> (da <code>CODICI_MACRO_CATEGORIE</code> + DB + TABELLA_MANUALE).</div>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span><code>MISURE_ESTRATTE</code>, <code>misure_piatte</code>, <code>_MISURE_ESTRATTE_DETTAGLIO</code>.</div>
+                </div>
+            </div>
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">🔍 Accessori</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc"><code>tool_ricerca_accessori</code>: step 1 LLM separa accessori espliciti e bannati; step 2 valorizza i valori tecnici interrogando il DB (comtipa / valarti).</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Ingresso</span><code>RICHIESTA_UTENTE</code>, <code>LISTA_ACCESSORI_DISPONIBILI</code> (da macro-cat.), opz. <code>DETTAGLI_COMTIPA_SCELTI</code>.</div>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span><code>ACCESSORI_ESPLICITI</code>, <code>ACCESSORI_BANNATI</code>, <code>ACCESSORI_VALORIZZATI_FINALI</code> + <code>_ACCESSORI_*_DETTAGLIO</code>.</div>
+                </div>
+            </div>
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">🧪 Materiale</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc"><code>attributo_2050_tool</code>: FabriJet — l’LLM sceglie solo tra materiali candidati restituiti da <code>sp_UJET_GetMaterialiCandidati</code> per le tipologie.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Ingresso</span><code>RICHIESTA_UTENTE</code>, <code>CODICI_MACRO_CATEGORIE</code>, <code>MATERIALI_CANDIDATI_FILTRATI</code> (stringa da DB).</div>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span><code>CODICI_MATERIALI_FABRIJET</code> (array interi), dettaglio per UI.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+
+        <!-- Layer 4: Sintesi -->
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:rgba(74,124,255,0.12); color:var(--accent); border-color:rgba(74,124,255,0.25);">🎯 Sintesi</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc"><code>tool_sintesi_finale</code>: costruisce schede articolo da SQL, poi l’LLM confronta richiesta vs candidati (tolleranze, zoccolo duro) e produce il best match.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Ingresso</span><code>RICHIESTA_UTENTE</code>, macro-cat., <code>MISURE_ESTRATTE</code>, dettagli accessori/misure/materiali, <code>LISTA_ARTICOLI_SCHEDE</code>.</div>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span><code>SINTESI_FINALE_OUTPUT</code> (<code>articoli_trovati</code>, <code>articoli_finali</code>), <code>SINTESI_CODICI_FINALI</code>.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+
+        <!-- Layer 5: Matrice -->
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--yellow-dim); color:var(--yellow); border-color:rgba(251,191,36,0.2);">📊 Matrice</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc"><code>tool_matrice_differenze</code>: pass-through senza LLM — pivot su dati clinici (VALARTI) e logistici (ARTICO); mantiene solo colonne che differiscono tra articoli.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Ingresso</span><code>SINTESI_FINALE_OUTPUT</code> (almeno 2 <code>articoli_trovati</code>) via trigger <code>DATI_DIFFERENZE_GREZZI</code>.</div>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span><code>MATRICE_DIFFERENZE</code> (JSON dinamico per tabella UI). Oggi non guida ancora la decisione a valle.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== TOOL STATUS ========== -->
+<div class="section section--card section--tools">
+    <div class="section-head">
+        <div class="section-title">Stato Tool</div>
+    </div>
+    <div class="table-scroll-wrap">
+    <table class="tool-table">
+        <thead><tr><th>Tool</th><th>Stato</th><th>Debugger</th><th>Note</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><div class="tool-name">tool_macro_categorie</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td><span class="badge b-live">atteso ✓</span></td>
+                <td class="tool-note">Due step LLM: macro-cluster da JSON, poi matching codici tipologia (tabtipa / AI.xlsx). Scrive <code>CODICI_MACRO_CATEGORIE</code> nel context bus. Valore atteso debugger: tipologia effettiva dell’articolo (ground truth SQL). Affinamento prompt continuo.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">tool_estrazione_misure</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td><span class="badge b-live">atteso ✓</span></td>
+                <td class="tool-note">Estrae cm dal testo solo per <code>ct_ncampo</code> con <code>HH_ct_TipMis = 'P'</code> sulle tipologie scelte; nomi estesi da <code>TABELLA_MANUALE.xlsx</code> o fallback <code>ct_descamp</code> (conoscenze §2B). Pattern FLAT + <code>_MISURE_ESTRATTE_DETTAGLIO</code>. Debugger: confronto solo sugli ID attributo, non sui valori numerici.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">tool_ricerca_accessori</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td><span class="badge b-live">atteso ✓</span></td>
+                <td class="tool-note">DB-first: lista da <code>camtipa</code> con <code>HH_ct_AIAcc = 'S'</code> e radici <code>HH_ct_AIPadre IS NULL</code>; Excel solo arricchimento descrizioni. Step 2 valorizza da comtipa/VALARTI. Debugger: match asimmetrico (espliciti ⊆ atteso, bannati disgiunti; formato triplo <code>codice : descr : valore</code> vs stringhe riepilogo).</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">attributo_2050_tool</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td><span class="badge b-live">atteso ✓</span></td>
+                <td class="tool-note">Attributo 2050 = materiale FabriJet (<code>alv_valdouble</code> → <code>IDFabriJet</code>). Candidati solo da <code>sp_UJET_GetMaterialiCandidati</code> (incrocio <code>_FabriJet</code>, <code>UJET_FJ_Descrizioni</code>, criteri). Filtro sintesi con <strong>UNION inclusiva</strong>: non penalizza articoli senza 2050 valorizzato (NULL/9999). Validazione ID su anagrafica.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">tool_sintesi_finale</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td><span class="badge b-wip">tooltip ✓ · tuning</span></td>
+                <td class="tool-note">Costruisce <code>LISTA_ARTICOLI_SCHEDE</code> da SQL con vincoli business (es. solo <code>hh_ar_gest = 1</code>); unisce macro-cat., misure, <code>_ACCESSORI_*_DETTAGLIO</code>, materiali. LLM valida richiesta vs candidati (tolleranze numeriche ±20% su campi tipo 7). UI: codici finali, strip zeri, tooltip. Tuning prompt in corso.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">tool_matrice_differenze</div></td>
+                <td><span class="badge b-wip">Embrionale</span></td>
+                <td><span class="badge b-plan">—</span></td>
+                <td class="tool-note">Pass-through senza LLM: legge <code>SINTESI_FINALE_OUTPUT</code> (≥2 <code>articoli_trovati</code>), query VALARTI + ARTICO, pivot e colonne solo dove i valori divergono. Utile confronto visivo per l’operatore; <strong>non</strong> ancora usato dal DAG per la scelta dell’articolo (cfr. Fase 3 roadmap).</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">tool_glossario</div></td>
+                <td><span class="badge b-plan">Pianificato</span></td>
+                <td><span class="badge b-plan">—</span></td>
+                <td class="tool-note">Previsto in Fase 4: disambiguazione semantica della richiesta (termini medici, sinonimi, abbreviazioni, gergo operatore) prima o accanto agli step di estrazione.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">tool_disegni_tecnici</div></td>
+                <td><span class="badge b-plan">Pianificato</span></td>
+                <td><span class="badge b-plan">—</span></td>
+                <td class="tool-note">Vision API su disegni tecnici allegati alle specifiche: estrazione dimensioni e attributi non presenti nel testo libero.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">tool_cataloghi_concorrenza</div></td>
+                <td><span class="badge b-idea">Idea</span></td>
+                <td><span class="badge b-plan">—</span></td>
+                <td class="tool-note">Esplorazione metodo operatori: mappatura codici cataloghi competitor → codici interni UJET, da integrare nella ricerca o nella pipeline.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">tool_catalogo_interno</div></td>
+                <td><span class="badge b-idea">Idea</span></td>
+                <td><span class="badge b-plan">—</span></td>
+                <td class="tool-note">Ricerca semantica sul catalogo aziendale come fonte parallela (analogo concettuale ai cataloghi concorrenza), da definire in architettura.</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+
+</main>
+
+<footer class="footer">
+    <span>Andrea De Pellegrin · Fabrizio Di Pietro Tardioli</span>
+    <span>depelo/Ujet · Marzo 2026</span>
+</footer>
+
+</div>
+
+<div id="panel-accessi" role="tabpanel" aria-labelledby="tab-accessi" style="display:none;">
+
+<header class="header">
+    <h1>UJet <span>Gateway di accesso</span></h1>
+    <div class="header-meta">aggiornamento: 2026-03-31 · repo: bobine (portal)</div>
+</header>
+
+<main class="page-main">
+
+<div class="section section--roadmap">
+    <div class="section-head">
+        <div class="section-title">Roadmap</div>
+        <div class="section-sub">Fasi 1–5 · identità e ingresso alle app</div>
+    </div>
+    <div class="roadmap-track">
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-done"></div>
+            <div class="rm-card rm-card-done">
+                <div class="rm-tag" style="color:var(--green);">Fase 1 ✓</div>
+                <h3>Ingresso operatore</h3>
+                <div class="rm-done-summary"><strong>5/5</strong> completati</div>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Login con barcode / QR operatore (<code>index.html</code>)</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Scansione fotocamera (<code>html5-qrcode</code>) + input manuale</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">PWA: manifest, tema, schermata login dedicata</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Flusso password di sicurezza quando richiesto dal backend</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Link recupero / dimenticanza password (UI gateway)</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-done"></div>
+            <div class="rm-card rm-card-done">
+                <div class="rm-tag" style="color:var(--green);">Fase 2 ✓</div>
+                <h3>Sessione &amp; sicurezza</h3>
+                <div class="rm-done-summary"><strong>4/4</strong> completati</div>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">JWT / cookie di sessione condivisi con le app Rotoli</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Modulo <code>sicurezza.js</code>: redirect, gate, coerenza host</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Logout e cambio utente dal registro bobine</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Regole password globali e layer di validazione (allineamento backend)</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-active"></div>
+            <div class="rm-card rm-card-active">
+                <div class="rm-tag" style="color:var(--accent);">Fase 3 — In corso</div>
+                <h3>Profilo &amp; zero-trust</h3>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Pagina profilo operatore (<code>profile.html</code>)</div></div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Allineamento completo identity / UMP / visti</div>
+                        <div class="rm-item-tip">Passaporto utente, visti per app e ruoli devono restare l’unica fonte di verità condivisa tra gateway, Captain e ogni modulo.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Cage password &amp; high-watermark login</div>
+                        <div class="rm-item-tip">Rafforzare scenari JIT (reset richiesto, PIN, kick sessione) senza rompere l’esperienza mobile in reparto.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-future"></div>
+            <div class="rm-card">
+                <div class="rm-tag" style="color:var(--purple);">Fase 4</div>
+                <h3>Osservabilità &amp; audit</h3>
+                <div class="rm-items">
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Log strutturati accessi / tentativi falliti</div>
+                        <div class="rm-item-tip">Dashboard o export per sicurezza: IP, device, correlazione con eventi Captain (kick, reset password).</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Avvisi anomalie (brute force, sessioni duplicate)</div>
+                        <div class="rm-item-tip">Integrazione con campanella Captain e soglie configurabili.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-future"></div>
+            <div class="rm-card">
+                <div class="rm-tag" style="color:var(--muted);">Fase 5</div>
+                <h3>Integrazione piattaforma</h3>
+                <div class="rm-items">
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">SSO verso ecosistema esteso (es. UJET Orchestrator)</div>
+                        <div class="rm-item-tip">Stesso operatore potrebbe attraversare più servizi: definire trust boundary e token exchange.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">MFA opzionale per ruoli sensibili</div>
+                        <div class="rm-item-tip">Valutare TOTP o push solo dove richiesto da policy aziendale.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="section section--card section--pipeline" style="border-top-color: rgba(34, 211, 238, 0.45);">
+    <div class="section-head">
+        <div class="section-title">Flusso accesso</div>
+        <div class="section-sub">da QR operatore alle app autorizzate</div>
+    </div>
+    <div class="pipe-layers">
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:rgba(34,211,238,0.12); color:var(--cyan); border-color:rgba(34,211,238,0.25);">📷 QR / Barcode</div>
+                <div class="pipe-tip pipe-tip-align-left">
+                    <p class="pipe-tip-desc">L’operatore scansiona o digita il proprio codice sul gateway (<code>loginBarcode</code>).</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span>Identificativo operatore verso API login.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">🔐 Auth</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Backend valida passaporto, stato account, eventuale password o PIN; emette sessione.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Uscita</span>Cookie / JWT + payload utente per <code>portal.js</code>.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:rgba(74,124,255,0.12); color:var(--accent); border-color:rgba(74,124,255,0.25);">🧭 Menu app</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Il gateway mostra solo le app per cui l’utente ha visto (Bobine, Etichette, Captain se ammesso, ecc.).</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Navigazione</span>URL protetti; <code>sicurezza.js</code> ribalta al login se sessione assente.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--yellow-dim); color:var(--yellow); border-color:rgba(251,191,36,0.2);">📱 App dest.</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Bobine, Etichette o altre PWA caricano Socket.IO e API con la stessa identità.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Nota</span>Captain Console è raggiungibile solo da profili con permesso amministrativo.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section section--card section--tools">
+    <div class="section-head">
+        <div class="section-title">Componenti gateway</div>
+    </div>
+    <div class="table-scroll-wrap">
+    <table class="tool-table">
+        <thead><tr><th>Componente</th><th>Stato</th><th>Note</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><div class="tool-name">index.html · portal.js</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">UI login, beep scansione, messaggi errore, redirect post-login verso app consentite.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">sicurezza.js</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Gate lato client allineato al backend: sessione valida, percorsi statici, coerenza con <code>bobine.html</code> / <code>ET.html</code>.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">manifest.json · PWA</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Aggiungi a Home, tema colore, nome breve per kiosk smartphone in reparto.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Profilo · reset password</div></td>
+                <td><span class="badge b-wip">In evoluzione</span></td>
+                <td class="tool-note">Flussi fisici / JIT e modali profilo collegati alle API Captain; allineamento continuo con regole password globali.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Audit &amp; MFA</div></td>
+                <td><span class="badge b-plan">Pianificato</span></td>
+                <td class="tool-note">Fasi 4–5 roadmap: telemetria accessi e secondo fattore per ruoli critici.</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+
+</main>
+
+<footer class="footer">
+    <span>Gateway UJet · Gestione accessi</span>
+    <span>repo bobine · Marzo 2026</span>
+</footer>
+
+</div>
+
+<div id="panel-bobine" role="tabpanel" aria-labelledby="tab-bobine" style="display:none;">
+
+<header class="header">
+    <h1>UJet <span>Rotoli (Bobine)</span></h1>
+    <div class="header-meta">aggiornamento: 2026-03-31 · repo: bobine</div>
+</header>
+
+<main class="page-main">
+
+<div class="section section--roadmap">
+    <div class="section-head">
+        <div class="section-title">Roadmap</div>
+        <div class="section-sub">Fasi 1–5 · produzione rotoli in reparto</div>
+    </div>
+    <div class="roadmap-track">
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-done"></div>
+            <div class="rm-card rm-card-done">
+                <div class="rm-tag" style="color:var(--green);">Fase 1 ✓</div>
+                <h3>Registro &amp; dati</h3>
+                <div class="rm-done-summary"><strong>6/6</strong> completati</div>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Schermata registro: macchina, MP, codici, operatore</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Selezione macchina da elenco + QR macchina</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Scansione codice materia prima e flussi dual-btn</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Liste macchine, operatori, log (navigazione laterale)</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Integrazione backend MSSQL / API modulo bobine</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Shell menu drawer: profilo, Captain (se abilitato), Add to Home</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-done"></div>
+            <div class="rm-card rm-card-done">
+                <div class="rm-tag" style="color:var(--green);">Fase 2 ✓</div>
+                <h3>Realtime &amp; UX</h3>
+                <div class="rm-done-summary"><strong>4/4</strong> completati</div>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Socket.IO condiviso con Captain per eventi di dominio</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Topbar dinamica e schermate <code>data-screen</code></div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Modale bobina finita / conferme operative</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Storico modifiche e validazione smart sui campi</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-active"></div>
+            <div class="rm-card rm-card-active">
+                <div class="rm-tag" style="color:var(--accent);">Fase 3 — In corso</div>
+                <h3>Affidabilità &amp; meta-app</h3>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Refactor meta-app e cablaggio frontend-backend</div></div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Layer sicurezza end-to-end (fix e hardening)</div>
+                        <div class="rm-item-tip">Allineamento permessi, WebSocket auth, edge case logout / kick.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Dashboard operativa anagrafica (se prevista in piano)</div>
+                        <div class="rm-item-tip">Viste riassuntive per capi reparto: throughput, fermi, qualità.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-future"></div>
+            <div class="rm-card">
+                <div class="rm-tag" style="color:var(--purple);">Fase 4</div>
+                <h3>Automazione &amp; integrazioni</h3>
+                <div class="rm-items">
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Regole business avanzate su lotti e tracciabilità</div>
+                        <div class="rm-item-tip">Collegamenti stretti con BCube / codici interni e verifica incrociata con UJET classification dove utile.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Stampa / etichette inline dal registro</div>
+                        <div class="rm-item-tip">Ponte verso app Etichette o servizio di stampa ZPL.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-future"></div>
+            <div class="rm-card">
+                <div class="rm-tag" style="color:var(--muted);">Fase 5</div>
+                <h3>Scala &amp; manutenzione</h3>
+                <div class="rm-items">
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Multi-impianto / multi-db orchestrati</div>
+                        <div class="rm-item-tip">Estensione oltre singolo nodo MSSQL con routing configurabile.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Osservabilità (metriche, health check client)</div>
+                        <div class="rm-item-tip">Allineamento con semafori salute Captain per stato reparto.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="section section--card section--pipeline">
+    <div class="section-head">
+        <div class="section-title">Flusso produzione</div>
+        <div class="section-sub">dalla scansione al persist log</div>
+    </div>
+    <div class="pipe-layers">
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">👤 Operatore</div>
+                <div class="pipe-tip pipe-tip-align-left">
+                    <p class="pipe-tip-desc">Sessione valida dal gateway; display nome operatore nel registro.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Dati</span>Identità usata per ogni riga di log e audit.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">🏭 Macchina</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Select popolato da API + scansione QR macchina per ridurre errori.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Output</span><code>machine</code> associato al record di produzione.</div>
+                </div>
+            </div>
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">📦 MP</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Codice materia prima: lettura barcode e validazione contro anagrafica.</p>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:rgba(74,124,255,0.12); color:var(--accent); border-color:rgba(74,124,255,0.25);">📝 Registro</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Form griglia: pesi, metri, causali, note — con pipeline di validazione UI.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Realtime</span>Eventi Socket.IO per aggiornamenti incrociati (liste, Captain).</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--yellow-dim); color:var(--yellow); border-color:rgba(251,191,36,0.2);">💾 Persistenza</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Commit su DB modulo bobine; storico modifiche e dettagli log consultabili dalla quarta icona.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section section--card section--tools">
+    <div class="section-head">
+        <div class="section-title">Superfici &amp; moduli</div>
+    </div>
+    <div class="table-scroll-wrap">
+    <table class="tool-table">
+        <thead><tr><th>Modulo</th><th>Stato</th><th>Note</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><div class="tool-name">Registro (log-edit)</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Cuore dell’app: acquisizione produzione con scansioni e controlli.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Macchine · Operatori · Log</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Navigazione laterale; viste elenco e dettaglio collegate al backend.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Socket.IO</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Allineato con eventi Captain (presenza, kick, notifiche dominio).</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Sicurezza &amp; menu</div></td>
+                <td><span class="badge b-wip">In evoluzione</span></td>
+                <td class="tool-note">Drawer app dinamiche, link Captain condizionato, profilo utente.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Integrazione ERP / etichette</div></td>
+                <td><span class="badge b-plan">Pianificato</span></td>
+                <td class="tool-note">Fase 4: automazioni e stampa collegata all’app Etichette.</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+
+</main>
+
+<footer class="footer">
+    <span>UJet Rotoli · App bobine</span>
+    <span>repo bobine · Marzo 2026</span>
+</footer>
+
+</div>
+
+<div id="panel-captain" role="tabpanel" aria-labelledby="tab-captain" style="display:none;">
+
+<header class="header">
+    <h1>Captain <span>Console amministrativa</span></h1>
+    <div class="header-meta">aggiornamento: 2026-03-31 · repo: bobine</div>
+</header>
+
+<main class="page-main">
+
+<div class="section section--roadmap">
+    <div class="section-head">
+        <div class="section-title">Roadmap</div>
+        <div class="section-sub">Fasi 1–5 · anagrafica, accessi, ossario</div>
+    </div>
+    <div class="roadmap-track">
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-done"></div>
+            <div class="rm-card rm-card-done">
+                <div class="rm-tag" style="color:var(--green);">Fase 1 ✓</div>
+                <h3>Anagrafica utenti</h3>
+                <div class="rm-done-summary"><strong>5/5</strong> completati</div>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Vista “Passaporti”: lista globale, ricerca, filtri app e stato</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">CRUD utenti, modali creazione / modifica</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Statistiche: totale utenti, online, allarmi password</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Campanella richieste reset password (badge contatore)</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">QR utente (libreria <code>qrcodejs</code>) per badge fisici</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-done"></div>
+            <div class="rm-card rm-card-done">
+                <div class="rm-tag" style="color:var(--green);">Fase 2 ✓</div>
+                <h3>Accessi &amp; moduli</h3>
+                <div class="rm-done-summary"><strong>4/4</strong> completati</div>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Tab “Accessi”: visti per app (Bobine, Etichette, …)</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Ordinamento moduli con <code>Sortable</code> per menu operatore</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Switcher permessi e routing console</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">App switcher sidebar: “Le tue App” verso gateway</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-active"></div>
+            <div class="rm-card rm-card-active">
+                <div class="rm-tag" style="color:var(--accent);">Fase 3 — In corso</div>
+                <h3>Realtime &amp; sicurezza</h3>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Presenza online operatori (Socket.IO)</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Kick sessione e allineamento <code>globalId</code> websocket</div></div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Semafori salute servizi (health)</div>
+                        <div class="rm-item-tip">Indicatori verde/rosso per backend, DB, code — visibili dalla console.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Pannello gestione utente unificato (password, ruolo, JIT)</div>
+                        <div class="rm-item-tip">Ridurre frammentazione tra modali profilo, reset fisico e stati <code>ResetRequested</code>.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-future"></div>
+            <div class="rm-card">
+                <div class="rm-tag" style="color:var(--purple);">Fase 4</div>
+                <h3>Ossario &amp; compliance</h3>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Vista Ossario (archivio / soft-delete)</div></div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Policy retention e export GDPR-ready</div>
+                        <div class="rm-item-tip">Flussi di cancellazione definitiva vs ripristino con tracciamento.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-future"></div>
+            <div class="rm-card">
+                <div class="rm-tag" style="color:var(--muted);">Fase 5</div>
+                <h3>Enterprise</h3>
+                <div class="rm-items">
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Ruoli granulari e deleghe</div>
+                        <div class="rm-item-tip">Amministratori di reparto vs global admin; audit azioni sensibili.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Integrazione directory aziendale (LDAP / Entra ID)</div>
+                        <div class="rm-item-tip">Sync passaporti da identity esterna mantenendo visti app locali.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="section section--card section--pipeline" style="border-top-color: rgba(167, 139, 250, 0.5);">
+    <div class="section-head">
+        <div class="section-title">Flusso amministrativo</div>
+        <div class="section-sub">dalla console agli operatori in campo</div>
+    </div>
+    <div class="pipe-layers">
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--purple-dim); color:var(--purple); border-color:rgba(167,139,250,0.3);">🛡️ Admin</div>
+                <div class="pipe-tip pipe-tip-align-left">
+                    <p class="pipe-tip-desc">Accesso riservato: sessione gateway + permesso Captain verificato dal backend.</p>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">📇 Passaporto</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Creazione o aggiornamento anagrafica: barcode, nome, stato account.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Output</span>Record utente univoco nel DB identity.</div>
+                </div>
+            </div>
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">🎫 Visti</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Tab Accessi: quali app compaiono nel menu drawer dell’operatore.</p>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:rgba(74,124,255,0.12); color:var(--accent); border-color:rgba(74,124,255,0.25);">📡 Realtime</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Socket.IO: presenza, notifiche reset, kick — stesso bus delle app operative.</p>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--yellow-dim); color:var(--yellow); border-color:rgba(251,191,36,0.2);">📱 Operatori</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Le modifiche si riflettono al prossimo login o in tempo reale (menu app, sessioni).</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section section--card section--tools">
+    <div class="section-head">
+        <div class="section-title">Aree console</div>
+    </div>
+    <div class="table-scroll-wrap">
+    <table class="tool-table">
+        <thead><tr><th>Area</th><th>Stato</th><th>Note</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><div class="tool-name">Utenti (Passaporti)</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Ricerca globale, filtri, statistiche, CRUD, QR badge.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Accessi · Sortable</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Assegnazione moduli e ordine voci menu per operatore.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Impostazioni · Profilo admin</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Configurazioni di sicurezza e profilo chi usa la console.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Ossario</div></td>
+                <td><span class="badge b-wip">In evoluzione</span></td>
+                <td class="tool-note">Soft-delete, ripristino; roadmap Fase 4 su retention e export.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Presenza · Kick · Health</div></td>
+                <td><span class="badge b-wip">In evoluzione</span></td>
+                <td class="tool-note">Online in tempo reale e kick attivi; semafori salute in completamento.</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+
+</main>
+
+<footer class="footer">
+    <span>Captain Console · Amministrazione UJet</span>
+    <span>repo bobine · Marzo 2026</span>
+</footer>
+
+</div>
+
+<div id="panel-etichette" role="tabpanel" aria-labelledby="tab-etichette" style="display:none;">
+
+<header class="header">
+    <h1>Progettazione <span>Etichette</span></h1>
+    <div class="header-meta">aggiornamento: 2026-03-31 · repo: bobine · <code>ET.html</code></div>
+</header>
+
+<main class="page-main">
+
+<div class="section section--roadmap">
+    <div class="section-head">
+        <div class="section-title">Roadmap</div>
+        <div class="section-sub">Fasi 1–5 · codice padre → righe etichetta</div>
+    </div>
+    <div class="roadmap-track">
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-done"></div>
+            <div class="rm-card rm-card-done">
+                <div class="rm-tag" style="color:var(--green);">Fase 1 ✓</div>
+                <h3>Selezione prodotto</h3>
+                <div class="rm-done-summary"><strong>4/4</strong> completati</div>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Input codice padre con <code>datalist</code> e autocomplete da DB</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Pulsante “Carica componenti” e transizione step 1 → 2</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Shell menu / logout coerente con Bobine (<code>bobine.css</code>)</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Gate <code>sicurezza.js</code> + Socket.IO come le altre app</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-done"></div>
+            <div class="rm-card rm-card-done">
+                <div class="rm-tag" style="color:var(--green);">Fase 2 ✓</div>
+                <h3>Gestione etichette</h3>
+                <div class="rm-done-summary"><strong>3/3</strong> completati</div>
+                <div class="rm-items">
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Tabella componenti / codici etichetta con azioni riga</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Schede (tabs) per record multipli e UI responsive scrollabile</div></div>
+                    <div class="rm-item"><span class="rm-check rm-check-done">✓</span><div class="rm-item-text">Area record dettaglio (campi dinamici) dietro caricamento selettivo</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-active"></div>
+            <div class="rm-card rm-card-active">
+                <div class="rm-tag" style="color:var(--accent);">Fase 3 — In corso</div>
+                <h3>Zero-trust &amp; qualità dati</h3>
+                <div class="rm-items">
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Allineamento permessi modulo Etichette in Captain</div>
+                        <div class="rm-item-tip">Stesso modello visti delle altre app; verifiche lato API per ogni mutazione.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Validazione pipeline UI (cleanup campi, messaggi <code>alertBox</code>)</div>
+                        <div class="rm-item-tip">Completare smart validation e gestione errori rete come in Bobine.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-future"></div>
+            <div class="rm-card">
+                <div class="rm-tag" style="color:var(--purple);">Fase 4</div>
+                <h3>Stampa &amp; layout</h3>
+                <div class="rm-items">
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Anteprima WYSIWYG o PDF etichetta</div>
+                        <div class="rm-item-tip">Rendering fedele al foglio fisico prima della stampa di produzione.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Export ZPL / driver stampanti industriali</div>
+                        <div class="rm-item-tip">Ponte verso stampanti di reparto; template versionati per articolo.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="rm-phase">
+            <div class="rm-dot dot-future"></div>
+            <div class="rm-card">
+                <div class="rm-tag" style="color:var(--muted);">Fase 5</div>
+                <h3>Workflow &amp; integrazione</h3>
+                <div class="rm-items">
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Richiesta etichetta da registro Bobine</div>
+                        <div class="rm-item-tip">Dopo chiusura bobina, aprire contesto prodotto in ET con un click.</div>
+                    </div>
+                    <div class="rm-item rm-item-pending">
+                        <span class="rm-check rm-check-pending">○</span>
+                        <div class="rm-item-text">Versioning e storico modifiche etichetta</div>
+                        <div class="rm-item-tip">Audit chi ha cambiato cosa, con diff visivo tra revisioni.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="section section--card section--pipeline" style="border-top-color: rgba(251, 146, 60, 0.45);">
+    <div class="section-head">
+        <div class="section-title">Flusso dati</div>
+        <div class="section-sub">dal codice articolo alle righe modificabili</div>
+    </div>
+    <div class="pipe-layers">
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--orange-dim); color:var(--orange); border-color:rgba(251,146,60,0.25);">🔢 Codice DB</div>
+                <div class="pipe-tip pipe-tip-align-left">
+                    <p class="pipe-tip-desc">Operatore inserisce o seleziona il codice padre (prodotto) dal datalist.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">API</span>Lookup prodotti e validazione esistenza.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--green-dim); color:var(--green); border-color:rgba(52,211,153,0.2);">🧩 Componenti</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Caricamento elenco codici etichetta associati al padre.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">UI</span>Tabella <code>componentsTable</code> con azioni per riga.</div>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:rgba(74,124,255,0.12); color:var(--accent); border-color:rgba(74,124,255,0.25);">✏️ Record</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Pannello record: campi per etichetta selezionata (tabs Bootstrap).</p>
+                </div>
+            </div>
+        </div>
+        <div class="pipe-layer-arrow">↓</div>
+        <div class="pipe-layer">
+            <div class="pipe-wrap">
+                <div class="pipe-block" style="background:var(--yellow-dim); color:var(--yellow); border-color:rgba(251,191,36,0.2);">💾 Salva</div>
+                <div class="pipe-tip">
+                    <p class="pipe-tip-desc">Persistenza tramite API modulo etichette; feedback in <code>alertBox</code>.</p>
+                    <div class="pipe-tip-row"><span class="pipe-tip-label">Future</span>Stampa e versioning (Fasi 4–5).</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section section--card section--tools">
+    <div class="section-head">
+        <div class="section-title">Superfici tecniche</div>
+    </div>
+    <div class="table-scroll-wrap">
+    <table class="tool-table">
+        <thead><tr><th>Elemento</th><th>Stato</th><th>Note</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><div class="tool-name">ET.html · step1–2</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Bootstrap 5 + stili Bobine; caricamento componenti e tabella etichette.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Record table · tabs</div></td>
+                <td><span class="badge b-live">Operativo</span></td>
+                <td class="tool-note">Editing campi dinamici per codice etichetta selezionato.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">API backend etichette</div></td>
+                <td><span class="badge b-wip">In evoluzione</span></td>
+                <td class="tool-note">Allineamento permessi zero-trust e messaggi errore uniformi.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Stampa ZPL / anteprima</div></td>
+                <td><span class="badge b-plan">Pianificato</span></td>
+                <td class="tool-note">Fase 4 roadmap: output produzione e driver stampanti.</td>
+            </tr>
+            <tr>
+                <td><div class="tool-name">Deep link da Bobine</div></td>
+                <td><span class="badge b-idea">Idea</span></td>
+                <td class="tool-note">Fase 5: contesto rotolo → progettazione etichetta in un flusso unico.</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+
+</main>
+
+<footer class="footer">
+    <span>App Etichette · UJet</span>
+    <span>repo bobine · Marzo 2026</span>
+</footer>
+
+</div>
+
+</div>
+
+</div>
+<script>
+(function () {
+    var tabs = document.querySelectorAll('.app-tab');
+    var panelIds = ['panel-roadmap', 'panel-accessi', 'panel-bobine', 'panel-captain', 'panel-etichette'];
+
+    function activate(targetId) {
+        if (!targetId) return;
+        panelIds.forEach(function (pid) {
+            var el = document.getElementById(pid);
+            if (!el) return;
+            el.style.display = pid === targetId ? 'block' : 'none';
+        });
+        tabs.forEach(function (btn) {
+            var on = btn.getAttribute('data-tab') === targetId;
+            btn.classList.toggle('is-active', on);
+            btn.setAttribute('aria-selected', String(on));
+            btn.tabIndex = on ? 0 : -1;
+        });
+    }
+
+    tabs.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            activate(this.getAttribute('data-tab'));
+        });
+        btn.addEventListener('keydown', function (e) {
+            var arrows = { ArrowLeft: -1, ArrowRight: 1 };
+            var dir = arrows[e.key];
+            if (dir == null && e.key !== 'Home' && e.key !== 'End') return;
+            e.preventDefault();
+            var arr = Array.prototype.slice.call(tabs);
+            var i = arr.indexOf(this);
+            if (e.key === 'Home') i = 0;
+            else if (e.key === 'End') i = arr.length - 1;
+            else i = (i + dir + arr.length) % arr.length;
+            arr[i].focus();
+            activate(arr[i].getAttribute('data-tab'));
+        });
+    });
+})();
+</script>
+</body>
+</html>
