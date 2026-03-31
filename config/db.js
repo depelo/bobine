@@ -15,7 +15,7 @@ const dbConfig = {
 const dbConfigET = {
     user: 'sa',
     password: 'Risk0804',
-    server: 'bcube2',
+    server: '192.168.0.163',
     database: 'ET',
     options: {
         encrypt: false,
