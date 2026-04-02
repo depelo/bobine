@@ -345,6 +345,7 @@
         if (!response.ok) {
             throw new Error(data.error || "Errore caricamento componenti.");
         }
+        console.log("[DEBUG] Payload API components:", data); // Log frontend
 
         step1Area.classList.add("d-none");
         step2Area.classList.remove("d-none");

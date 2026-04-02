@@ -46,11 +46,13 @@ router.get('/components/:padre', async (req, res) => {
     try {
         const pool = await getPoolPE();
 
-        // 1. Recupero la descrizione del padre dalla vista
+        // 1. Recupero la descrizione del padre dalla vista (con ISNULL per evitare valori nulli e alias esplicito)
         const descRes = await pool.request()
             .input('padre', sql.NVarChar, req.params.padre)
-            .query(`SELECT TOP 1 DescrPadre FROM [PE].[dbo].[Vis_01_DBEtich] WHERE MD_coddb = @padre`);
-        const padreDesc = descRes.recordset.length > 0 ? descRes.recordset[0].DescrPadre : '';
+            .query(`SELECT TOP 1 ISNULL(DescrPadre, 'NESSUNA DESCRIZIONE') AS DescrizioneDato FROM [PE].[dbo].[Vis_01_DBEtich] WHERE MD_coddb = @padre`);
+
+        const padreDesc = descRes.recordset.length > 0 ? descRes.recordset[0].DescrizioneDato : 'CODICE NON TROVATO IN VIS_01';
+        console.log(`[DEBUG] Ricerca padre: ${req.params.padre} | Descrizione trovata: ${padreDesc}`); // Log backend
 
         // 2. Recupero i componenti
         const compRes = await pool.request()
