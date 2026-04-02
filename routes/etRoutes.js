@@ -135,7 +135,7 @@ router.post('/etichette/salva', authenticateToken, async (req, res) => {
             .input('CodiceFiglio', sql.VarChar, CodiceFiglio)
             .input('Riga', sql.Real, Riga)
             .input('JsonDati', sql.NVarChar, jsonDati)
-            .execute('[ET].[dbo].[sp_SalvaEtichetta]');
+            .execute('[PE].[dbo].[sp_SalvaEtichetta]');
 
         res.status(200).json({ message: 'Salvataggio completato con successo.' });
     } catch (err) {
