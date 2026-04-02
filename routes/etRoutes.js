@@ -106,8 +106,8 @@ router.post('/etichette/salva', authenticateToken, async (req, res) => {
         : null;
     const globalId = req.user && req.user.globalId != null ? parseInt(req.user.globalId, 10) : null;
 
-    if (!CodicePadre) {
-        return res.status(400).json({ error: 'CodicePadre obbligatorio.' });
+    if (!CodicePadre || !CodiceFiglio) {
+        return res.status(400).json({ error: 'CodicePadre e CodiceFiglio obbligatori.' });
     }
     if (!CodiceFiglio) {
         return res.status(400).json({ error: 'CodiceFiglio obbligatorio.' });
@@ -123,14 +123,19 @@ router.post('/etichette/salva', authenticateToken, async (req, res) => {
     }
 
     try {
-        const pool = await getPoolPE();
+        const pool = await getPoolET();
+
+        // 2. Trasformazione del payload in stringa JSON
+        const jsonDati = JSON.stringify(DatiEtichetta);
+
+        // 3. Esecuzione con ESATTAMENTE i 5 parametri previsti dal database
         await pool.request()
             .input('IDUser', sql.Int, globalId)
             .input('CodicePadre', sql.VarChar, CodicePadre)
             .input('CodiceFiglio', sql.VarChar, CodiceFiglio)
             .input('Riga', sql.Real, Riga)
-            .input('JsonDati', sql.NVarChar, JSON.stringify(DatiEtichetta))
-            .execute('[PE].[dbo].[sp_SalvaEtichetta]');
+            .input('JsonDati', sql.NVarChar, jsonDati)
+            .execute('[ET].[dbo].[sp_SalvaEtichetta]');
 
         res.status(200).json({ message: 'Salvataggio completato con successo.' });
     } catch (err) {
