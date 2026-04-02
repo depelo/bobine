@@ -106,8 +106,8 @@ router.post('/etichette/salva', authenticateToken, async (req, res) => {
         : null;
     const globalId = req.user && req.user.globalId != null ? parseInt(req.user.globalId, 10) : null;
 
-    if (!CodicePadre || !CodiceFiglio) {
-        return res.status(400).json({ error: 'CodicePadre e CodiceFiglio obbligatori.' });
+    if (!CodicePadre) {
+        return res.status(400).json({ error: 'CodicePadre obbligatorio.' });
     }
     if (!CodiceFiglio) {
         return res.status(400).json({ error: 'CodiceFiglio obbligatorio.' });
@@ -123,7 +123,7 @@ router.post('/etichette/salva', authenticateToken, async (req, res) => {
     }
 
     try {
-        const pool = await getPoolET();
+        const pool = await getPoolPE();
 
         // 2. Trasformazione del payload in stringa JSON
         const jsonDati = JSON.stringify(DatiEtichetta);
