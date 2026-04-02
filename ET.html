@@ -79,7 +79,7 @@
     <section id="step2Area" class="card mb-2 d-none">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <h2 class="h6 mb-0">Etichette - Padre: <span id="displaySelectedPadre" class="text-primary"></span></h2>
+                <h2 class="h6 mb-0">Etichette - Padre: <span id="displaySelectedPadre" class="text-primary"></span> <span id="displayDescPadre" class="text-muted ms-1 fw-normal" style="font-size: 0.9em;"></span></h2>
                 <button id="changeProductBtn" class="btn btn-sm btn-outline-secondary">Cambia codice db</button>
             </div>
             <div class="table-responsive">
@@ -349,6 +349,7 @@
         step1Area.classList.add("d-none");
         step2Area.classList.remove("d-none");
         document.getElementById("displaySelectedPadre").textContent = padre;
+        document.getElementById("displayDescPadre").textContent = data.padreDesc ? `- ${data.padreDesc}` : "";
 
         (data.components || []).forEach((item) => {
             const figlio = item.MD_codfigli || item.et_kcodart_layer || "";

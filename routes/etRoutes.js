@@ -45,6 +45,14 @@ router.get('/products', async (req, res) => {
 router.get('/components/:padre', async (req, res) => {
     try {
         const pool = await getPoolPE();
+
+        // 1. Recupero la descrizione del padre dalla vista
+        const descRes = await pool.request()
+            .input('padre', sql.NVarChar, req.params.padre)
+            .query(`SELECT TOP 1 DescrPadre FROM [PE].[dbo].[Vis_01_DBEtich] WHERE MD_coddb = @padre`);
+        const padreDesc = descRes.recordset.length > 0 ? descRes.recordset[0].DescrPadre : '';
+
+        // 2. Recupero i componenti
         const compRes = await pool.request()
             .input('padre', sql.NVarChar, req.params.padre)
             .query(`
@@ -58,7 +66,8 @@ router.get('/components/:padre', async (req, res) => {
             et_kcodart_layer: row.MD_codfigli,
             et_layer_nriga: row.et_layer_nriga
         }));
-        res.json({ components });
+
+        res.json({ components, padreDesc });
     } catch (err) {
         console.error('GET /components PE:', err);
         res.status(500).json({ error: err.message });
