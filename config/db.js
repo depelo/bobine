@@ -12,11 +12,11 @@ const dbConfig = {
     }
 };
 
-const dbConfigET = {
+const dbConfigPE = {
     user: 'sa',
     password: 'Risk0804',
     server: '192.168.0.163',
-    database: 'ET',
+    database: 'PE',
     options: {
         encrypt: false,
         trustServerCertificate: true,
@@ -27,8 +27,8 @@ const dbConfigET = {
 const poolGA = new sql.ConnectionPool(dbConfig);
 const poolGAConnect = poolGA.connect();
 
-const poolET = new sql.ConnectionPool(dbConfigET);
-const poolETConnect = poolET.connect();
+const poolPE = new sql.ConnectionPool(dbConfigPE);
+const poolPEConnect = poolPE.connect();
 
 module.exports = {
     sql,
@@ -36,8 +36,8 @@ module.exports = {
         await poolGAConnect;
         return poolGA;
     },
-    getPoolET: async () => {
-        await poolETConnect;
-        return poolET;
+    getPoolPE: async () => {
+        await poolPEConnect;
+        return poolPE;
     }
 };

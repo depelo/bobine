@@ -1,5 +1,5 @@
 const express = require('express');
-const { sql, getPoolET } = require('../config/db');
+const { sql, getPoolPE } = require('../config/db');
 const { authenticateToken } = require('../middlewares/auth');
 
 const router = express.Router();
@@ -24,13 +24,13 @@ function serializeLabelRow(row) {
 router.get('/products', async (req, res) => {
     const queryText = (req.query.q || '').trim();
     try {
-        const pool = await getPoolET();
+        const pool = await getPoolPE();
         const productsRes = await pool.request()
             .input('qRaw', sql.NVarChar, queryText)
             .input('qLike', sql.NVarChar, queryText ? `${queryText}%` : '')
             .query(`
             SELECT DISTINCT TOP 50 MD_coddb
-            FROM [ET].[dbo].[Vis_01_DBEtich]
+            FROM [PE].[dbo].[Vis_01_DBEtich]
             WHERE (@qRaw = '' OR MD_coddb LIKE @qLike)
             ORDER BY MD_coddb
         `);
@@ -44,12 +44,12 @@ router.get('/products', async (req, res) => {
 
 router.get('/components/:padre', async (req, res) => {
     try {
-        const pool = await getPoolET();
+        const pool = await getPoolPE();
         const compRes = await pool.request()
             .input('padre', sql.NVarChar, req.params.padre)
             .query(`
             SELECT DISTINCT et_kcodart_layer AS MD_codfigli, et_layer_nriga
-            FROM [ET].[dbo].[UJ_etichette]
+            FROM [PE].[dbo].[UJ_etichette]
             WHERE et_kcodart = @padre AND originedati = 'A'
             ORDER BY et_kcodart_layer, et_layer_nriga
         `);
@@ -77,14 +77,14 @@ router.get('/label', async (req, res) => {
         return res.status(400).json({ error: 'Parametro et_layer_nriga non valido.' });
     }
     try {
-        const pool = await getPoolET();
+        const pool = await getPoolPE();
         const result = await pool.request()
             .input('et_kcodart', sql.NVarChar, kcodart)
             .input('et_kcodart_layer', sql.NVarChar, kcodart_layer)
             .input('et_layer_nriga', sql.Real, etLayerRigaNum)
             .query(`
             SELECT TOP 1 *
-            FROM [ET].[dbo].[UJ_etichette]
+            FROM [PE].[dbo].[UJ_etichette]
             WHERE et_kcodart = @et_kcodart AND et_kcodart_layer = @et_kcodart_layer AND et_layer_nriga = @et_layer_nriga
         `);
         if (!result.recordset || result.recordset.length === 0) {
@@ -123,14 +123,14 @@ router.post('/etichette/salva', authenticateToken, async (req, res) => {
     }
 
     try {
-        const pool = await getPoolET();
+        const pool = await getPoolPE();
         await pool.request()
             .input('IDUser', sql.Int, globalId)
             .input('CodicePadre', sql.VarChar, CodicePadre)
             .input('CodiceFiglio', sql.VarChar, CodiceFiglio)
             .input('Riga', sql.Real, Riga)
             .input('JsonDati', sql.NVarChar, JSON.stringify(DatiEtichetta))
-            .execute('[ET].[dbo].[sp_SalvaEtichetta]');
+            .execute('[PE].[dbo].[sp_SalvaEtichetta]');
 
         res.status(200).json({ message: 'Salvataggio completato con successo.' });
     } catch (err) {
