@@ -354,10 +354,12 @@
 
         (data.components || []).forEach((item) => {
             const figlio = item.MD_codfigli || item.et_kcodart_layer || "";
+            const figlioDescHtml = item.figlioDesc ? ` <span class="text-muted ms-1 fw-normal" style="font-size: 0.9em;">- ${item.figlioDesc}</span>` : "";
+            
             const tr = document.createElement("tr");
             tr.classList.add("pointer-row");
             tr.innerHTML = `
-                <td>${figlio}</td>
+                <td>${figlio}${figlioDescHtml}</td>
                 <td>${item.et_layer_nriga || ""}</td>
                 <td><button class="btn btn-sm btn-outline-primary">Modifica</button></td>
             `;

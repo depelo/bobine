@@ -54,19 +54,27 @@ router.get('/components/:padre', async (req, res) => {
         const padreDesc = descRes.recordset.length > 0 ? descRes.recordset[0].DescrizioneDato : 'CODICE NON TROVATO IN VIS_01';
         console.log(`[DEBUG] Ricerca padre: ${req.params.padre} | Descrizione trovata: ${padreDesc}`); // Log backend
 
-        // 2. Recupero i componenti
+        // 2. Recupero i componenti e la relativa descrizione del figlio tramite LEFT JOIN
         const compRes = await pool.request()
-            .input('padre', sql.NVarChar, req.params.padre)
+            .input('padre', sql.NVarChar, req.params.padre.trim())
             .query(`
-            SELECT DISTINCT et_kcodart_layer AS MD_codfigli, et_layer_nriga
-            FROM [PE].[dbo].[UJ_etichette]
-            WHERE et_kcodart = @padre AND originedati = 'A'
-            ORDER BY et_kcodart_layer, et_layer_nriga
+            SELECT DISTINCT 
+                u.et_kcodart_layer AS MD_codfigli, 
+                u.et_layer_nriga,
+                ISNULL(v.DescrFiglio, '') AS figlioDesc
+            FROM [PE].[dbo].[UJ_etichette] u
+            LEFT JOIN [PE].[dbo].[Vis_01_DBEtich] v 
+                ON LTRIM(RTRIM(u.et_kcodart)) = LTRIM(RTRIM(v.MD_coddb)) 
+               AND LTRIM(RTRIM(u.et_kcodart_layer)) = LTRIM(RTRIM(v.MD_codfigli))
+            WHERE LTRIM(RTRIM(u.et_kcodart)) = @padre AND u.originedati = 'A'
+            ORDER BY u.et_kcodart_layer, u.et_layer_nriga
         `);
+        
         const components = (compRes.recordset || []).map((row) => ({
             MD_codfigli: row.MD_codfigli,
             et_kcodart_layer: row.MD_codfigli,
-            et_layer_nriga: row.et_layer_nriga
+            et_layer_nriga: row.et_layer_nriga,
+            figlioDesc: row.figlioDesc
         }));
 
         res.json({ components, padreDesc });
@@ -75,6 +83,8 @@ router.get('/components/:padre', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+
 
 router.get('/label', async (req, res) => {
     const kcodart = (req.query.et_kcodart || '').trim();
