@@ -353,23 +353,38 @@
         document.getElementById("displayDescPadre").textContent = data.padreDesc ? `- ${data.padreDesc}` : "";
 
         (data.components || []).forEach((item) => {
-            const figlio = item.MD_codfigli || item.et_kcodart_layer || "";
+            const figlio = item.MD_codfigli || "";
+            const riga = item.et_layer_nriga || 0;
             const figlioDescHtml = item.figlioDesc ? ` <span class="text-muted ms-1 fw-normal" style="font-size: 0.9em;">- ${item.figlioDesc}</span>` : "";
-            
+            const isConfigurata = item.IsConfigurata === 1;
+
             const tr = document.createElement("tr");
             tr.classList.add("pointer-row");
+            
+            const btnHtml = isConfigurata 
+                ? `<button class="btn btn-sm btn-outline-primary">Modifica</button>` 
+                : `<button class="btn btn-sm btn-success shadow-sm">Crea Nuova</button>`;
+
             tr.innerHTML = `
                 <td>${figlio}${figlioDescHtml}</td>
-                <td>${item.et_layer_nriga || ""}</td>
-                <td><button class="btn btn-sm btn-outline-primary">Modifica</button></td>
+                <td>${riga}</td>
+                <td>${btnHtml}</td>
             `;
-            const button = tr.querySelector("button");
-            const openEditor = () => loadLabelData(state.selectedPadre, item.MD_codfigli, item.et_layer_nriga);
-            tr.addEventListener("click", openEditor);
-            button.addEventListener("click", (event) => {
+
+            const actionHandler = () => {
+                if (isConfigurata) {
+                    loadLabelData(state.selectedPadre, figlio, riga);
+                } else {
+                    apriFormVuoto(state.selectedPadre, figlio, riga);
+                }
+            };
+
+            tr.addEventListener("click", actionHandler);
+            tr.querySelector("button").addEventListener("click", (event) => {
                 event.stopPropagation();
-                openEditor();
+                actionHandler();
             });
+
             componentsTableBody.appendChild(tr);
         });
 
@@ -508,6 +523,66 @@
             }
         });
         selectedPairText.textContent = `Codice db: ${padre} - Etichetta: ${figlio} - Riga: ${riga}`;
+        recordTableArea.classList.remove("d-none");
+        step2Area.classList.add("d-none");
+    }
+
+    function apriFormVuoto(padre, figlio, riga) {
+        state.selectedPadre = padre;
+        state.selectedFiglio = figlio;
+        state.riga = riga;
+
+        [tbodyMain, tbodyDesc, tbodyS, tbodySym, tbodyDisegno, tbodyClienti, tbodyKr, tbodyFabb, tbodyComp, tbodyLogo, tbodyBool, tbodyCb].forEach(tb => tb.innerHTML = "");
+
+        fieldOrder.forEach((field) => {
+            const row = document.createElement("tr");
+            const fieldCell = document.createElement("td");
+            fieldCell.textContent = field;
+            const valueCell = document.createElement("td");
+
+            const isBooleanField = booleanFields.includes(field);
+            if (isBooleanField) {
+                const uniqueBaseId = `${field}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                valueCell.innerHTML = `
+                    <div class="btn-group btn-group-sm" role="group">
+                        <input type="radio" class="btn-check" name="${field}" id="${uniqueBaseId}_si" value="1" autocomplete="off">
+                        <label class="btn btn-outline-success" for="${uniqueBaseId}_si">Sì</label>
+                        <input type="radio" class="btn-check" name="${field}" id="${uniqueBaseId}_no" value="0" autocomplete="off" checked>
+                        <label class="btn btn-outline-danger" for="${uniqueBaseId}_no">No</label>
+                    </div>`;
+            } else if (dateFields.includes(field)) {
+                valueCell.innerHTML = `<input type="date" class="form-control form-control-sm" name="${field}">`;
+            } else if (textareaFields.includes(field)) {
+                valueCell.innerHTML = `<textarea class="form-control form-control-sm" name="${field}" rows="2"></textarea>`;
+            } else {
+                let defaultVal = "";
+                if (field === "et_kcodart") defaultVal = padre;
+                if (field === "et_kcodart_layer") defaultVal = figlio;
+                if (field === "et_layer_nriga") defaultVal = riga;
+                if (field === "originedati") defaultVal = "A";
+                
+                const readonlyAttr = readonlyFields.has(field) ? 'readonly class="form-control form-control-sm bg-light text-muted"' : 'class="form-control form-control-sm"';
+                valueCell.innerHTML = `<input type="text" name="${field}" value="${defaultVal}" ${readonlyAttr}>`;
+            }
+
+            row.appendChild(fieldCell);
+            row.appendChild(valueCell);
+
+            if (textareaFields.includes(field)) tbodyDesc.appendChild(row);
+            else if (booleanFields.includes(field)) tbodyBool.appendChild(row);
+            else if (tabSFields.includes(field)) tbodyS.appendChild(row);
+            else if (field.startsWith("et_sym")) tbodySym.appendChild(row);
+            else if (field.includes("disegno")) tbodyDisegno.appendChild(row);
+            else if (field.toLowerCase().includes("cb")) tbodyCb.appendChild(row);
+            else if (field.toLowerCase().includes("cli")) tbodyClienti.appendChild(row);
+            else if (field.startsWith("et_kr")) tbodyKr.appendChild(row);
+            else if (field.toLowerCase().includes("fabb")) tbodyFabb.appendChild(row);
+            else if (field.toLowerCase().includes("comp")) tbodyComp.appendChild(row);
+            else if (field.toLowerCase().includes("logo")) tbodyLogo.appendChild(row);
+            else tbodyMain.appendChild(row);
+        });
+
+        selectedPairText.innerHTML = `<strong>CREAZIONE NUOVA</strong> - Codice db: ${padre} - Etichetta: ${figlio} - Riga: ${riga}`;
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
     }
