@@ -37,7 +37,7 @@ router.get('/products', async (req, res) => {
         const products = (productsRes.recordset || []).map((row) => row.MD_coddb).filter((c) => c != null);
         res.json({ products });
     } catch (err) {
-        console.error('GET /products ET:', err);
+        console.error('GET /products PE:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -60,7 +60,7 @@ router.get('/components/:padre', async (req, res) => {
         }));
         res.json({ components });
     } catch (err) {
-        console.error('GET /components ET:', err);
+        console.error('GET /components PE:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -92,7 +92,7 @@ router.get('/label', async (req, res) => {
         }
         res.json(serializeLabelRow(result.recordset[0]));
     } catch (err) {
-        console.error('GET /label ET:', err);
+        console.error('GET /label PE:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -134,7 +134,7 @@ router.post('/etichette/salva', authenticateToken, async (req, res) => {
 
         res.status(200).json({ message: 'Salvataggio completato con successo.' });
     } catch (err) {
-        console.error('POST /etichette/salva ET:', err);
+        console.error('POST /etichette/salva PE:', err);
         res.status(500).json({ error: err.message || 'Errore durante il salvataggio.' });
     }
 });
