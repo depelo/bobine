@@ -235,8 +235,17 @@
         selectedFiglio: "",
         riga: "",
         metadata: null,
-        currentRecord: {}
+        currentRecord: {},
+        isDirty: false
     };
+
+    // Funzione helper per verificare i cambiamenti
+    function checkUnsavedChanges() {
+        if (state.isDirty) {
+            return confirm("⚠️ Attenzione: hai delle modifiche non salvate.\n\nSe continui, perderai il lavoro fatto. Sei sicuro di voler uscire?");
+        }
+        return true;
+    }
 
     const padreInput = document.getElementById("padreInput");
     const productsList = document.getElementById("productsList");
@@ -372,6 +381,8 @@
             `;
 
             const actionHandler = () => {
+                if (!checkUnsavedChanges()) return;
+                state.isDirty = false;
                 if (isConfigurata) {
                     loadLabelData(state.selectedPadre, figlio, riga);
                 } else {
@@ -525,6 +536,7 @@
         selectedPairText.textContent = `Codice db: ${padre} - Etichetta: ${figlio} - Riga: ${riga}`;
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
+        state.isDirty = false; // Reset dopo il caricamento iniziale
     }
 
     function apriFormVuoto(padre, figlio, riga) {
@@ -585,6 +597,7 @@
         selectedPairText.innerHTML = `<strong>CREAZIONE NUOVA</strong> - Codice db: ${padre} - Etichetta: ${figlio} - Riga: ${riga}`;
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
+        state.isDirty = false; // Reset per il form vuoto
     }
 
     async function saveRecord() {
@@ -616,7 +629,20 @@
             throw new Error(data.error || "Errore durante il salvataggio.");
         }
         showAlert(data.message || "Salvataggio completato con successo.", "success");
+        state.isDirty = false; // Reset del flag dopo salvataggio riuscito
     }
+
+    // Traccia qualsiasi input o cambio nel form
+    editForm.addEventListener("input", () => { state.isDirty = true; });
+    editForm.addEventListener("change", () => { state.isDirty = true; });
+
+    // Protezione chiusura scheda / ricaricamento pagina
+    window.addEventListener("beforeunload", (e) => {
+        if (state.isDirty) {
+            e.preventDefault();
+            e.returnValue = ""; // Standard per mostrare il prompt nativo del browser
+        }
+    });
 
     padreInput.addEventListener("input", async () => {
         try {
@@ -643,6 +669,8 @@
     });
 
     changeProductBtn.addEventListener("click", () => {
+        if (!checkUnsavedChanges()) return;
+        state.isDirty = false;
         step1Area.classList.remove("d-none");
         step2Area.classList.add("d-none");
         recordTableArea.classList.add("d-none");
@@ -651,6 +679,8 @@
     });
 
     backToComponentsBtn.addEventListener("click", () => {
+        if (!checkUnsavedChanges()) return;
+        state.isDirty = false;
         recordTableArea.classList.add("d-none");
         step2Area.classList.remove("d-none");
     });
