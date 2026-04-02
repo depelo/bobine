@@ -1,8 +1,12 @@
+require('dotenv').config();
+
 const sql = require('mssql');
 
+const dbUser = process.env.DB_USER || 'sa';
+
 const dbConfig = {
-    user: 'sa',
-    password: 'Risk0804',
+    user: dbUser,
+    password: process.env.DB_PASSWORD_GA || '',
     server: 'localhost',
     database: 'GA',
     options: {
@@ -13,8 +17,8 @@ const dbConfig = {
 };
 
 const dbConfigPE = {
-    user: 'sa',
-    password: 'Risk0804',
+    user: dbUser,
+    password: process.env.DB_PASSWORD_PE || '',
     server: '192.168.0.163',
     database: 'PE',
     options: {
