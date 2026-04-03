@@ -57,7 +57,7 @@
     <header class="d-flex align-items-center gap-3 mb-4 flex-wrap">
         <button type="button" id="menuBtn" class="btn btn-outline-secondary shadow-sm" aria-label="Apri menu">☰ Menu</button>
         <img src="logo.png" alt="Logo U.Jet" style="height: 38px; object-fit: contain;">
-        <h1 class="h4 mb-0 text-secondary border-start border-2 ps-3 fw-normal">Progettazione etichette</h1>
+        <h1 class="h4 mb-0 text-danger border-start border-2 ps-3 fw-normal">Progettazione etichette</h1>
     </header>
 
     <div id="alertBox"></div>
@@ -66,7 +66,7 @@
         <div class="card-body">
                 <div class="row g-2">
                 <div class="col-md-8">
-                    <label for="padreInput" class="form-label">Codice</label>
+                    <label for="padreInput" class="form-label">Codice distinta base</label>
                     <input id="padreInput" class="form-control" list="productsList" placeholder="Digita codice db...">
                     <datalist id="productsList"></datalist>
                 </div>
@@ -80,7 +80,7 @@
     <section id="step2Area" class="card mb-2 d-none">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <h2 class="h6 mb-0"><span id="displaySelectedPadre" class="text-primary"></span> <span id="displayDescPadre" class="text-muted ms-1 fw-normal" style="font-size: 0.9em;"></span></h2>
+                <h2 class="h6 mb-0"><span id="displaySelectedPadre" class="text-primary fw-bold"></span><span id="displayDescPadre"></span></h2>
                 <button id="changeProductBtn" class="btn btn-sm btn-outline-secondary">Cambia codice db</button>
             </div>
             <div class="table-responsive">
@@ -227,6 +227,24 @@
             </form>
         </div>
     </section>
+
+    <div class="modal fade" id="unsavedChangesModal" tabindex="-1" aria-labelledby="unsavedChangesModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-warning">
+          <div class="modal-header bg-warning text-dark shadow-sm">
+            <h5 class="modal-title" id="unsavedChangesModalLabel"><i class="bi bi-exclamation-triangle"></i> ⚠️ Attenzione</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body fs-6">
+            Hai delle modifiche <strong>non salvate</strong> in questa etichetta.<br><br>Se continui, perderai il lavoro fatto. Sei sicuro di voler uscire?
+          </div>
+          <div class="modal-footer bg-light">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla e resta</button>
+            <button type="button" class="btn btn-danger" id="confirmDiscardBtn">Sì, perdi le modifiche</button>
+          </div>
+        </div>
+      </div>
+    </div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -240,12 +258,33 @@
         isDirty: false
     };
 
-    // Funzione helper per verificare i cambiamenti
-    function checkUnsavedChanges() {
-        if (state.isDirty) {
-            return confirm("⚠️ Attenzione: hai delle modifiche non salvate.\n\nSe continui, perderai il lavoro fatto. Sei sicuro di voler uscire?");
-        }
-        return true;
+    // Funzione helper ASINCRONA per verificare i cambiamenti tramite Modale
+    async function checkUnsavedChanges() {
+        if (!state.isDirty) return true;
+        
+        return new Promise((resolve) => {
+            const modalEl = document.getElementById('unsavedChangesModal');
+            const modal = new bootstrap.Modal(modalEl);
+            const confirmBtn = document.getElementById('confirmDiscardBtn');
+            
+            // Rimuove vecchi listener clonando il pulsante per evitare inneschi multipli
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+            
+            // Se l'utente clicca il pulsante rosso (Sì, perdi modifiche)
+            newConfirmBtn.addEventListener('click', () => {
+                modal.hide();
+                resolve(true);
+            });
+            
+            // Se la modale viene chiusa (tasto Annulla, X, o click fuori)
+            modalEl.addEventListener('hidden.bs.modal', function onHide() {
+                modalEl.removeEventListener('hidden.bs.modal', onHide);
+                resolve(false); // La Promise si risolve a false solo se non era già risolta a true
+            }, { once: true });
+            
+            modal.show();
+        });
     }
 
     const padreInput = document.getElementById("padreInput");
@@ -309,6 +348,16 @@
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         `;
+        // Auto-rimozione dell'alert dopo 3 secondi
+        setTimeout(() => {
+            const alertContainer = alertBox;
+            const alertNode = alertContainer.lastElementChild;
+            if (alertNode) {
+                alertNode.classList.remove('show');
+                alertNode.classList.add('fade');
+                setTimeout(() => alertNode.remove(), 150);
+            }
+        }, 3000);
     }
 
     async function loadProducts(query = "") {
@@ -360,7 +409,19 @@
         step1Area.classList.add("d-none");
         step2Area.classList.remove("d-none");
         document.getElementById("displaySelectedPadre").textContent = padre;
-        document.getElementById("displayDescPadre").textContent = data.padreDesc ? `- ${data.padreDesc}` : "";
+        const descEl = document.getElementById("displayDescPadre");
+        if (descEl) {
+            if (data.padreDesc && !data.padreDesc.includes("[")) {
+                // Stile coerente: testo blu (primary) come il codice padre
+                descEl.innerHTML = `<span class="text-primary fw-bold ms-1">- ${data.padreDesc}</span>`;
+                descEl.className = ""; // Pulisce le vecchie classi inline
+                descEl.removeAttribute("style");
+            } else {
+                descEl.textContent = data.padreDesc ? `- ${data.padreDesc}` : "[- ERRORE: data.padreDesc MANCANTE]";
+            }
+        } else {
+            alert("Errore critico UI: L'elemento displayDescPadre è sparito dal DOM!");
+        }
 
         (data.components || []).forEach((item) => {
             const figlio = item.MD_codfigli || "";
@@ -381,13 +442,13 @@
                 <td>${btnHtml}</td>
             `;
 
-            const actionHandler = () => {
-                if (!checkUnsavedChanges()) return;
+            const actionHandler = async () => {
+                if (!(await checkUnsavedChanges())) return;
                 state.isDirty = false;
                 if (isConfigurata) {
-                    loadLabelData(state.selectedPadre, figlio, riga);
+                    loadLabelData(state.selectedPadre, figlio, riga, item.figlioDesc);
                 } else {
-                    apriFormVuoto(state.selectedPadre, figlio, riga);
+                    apriFormVuoto(state.selectedPadre, figlio, riga, item.figlioDesc);
                 }
             };
 
@@ -405,7 +466,7 @@
         }
     }
 
-    async function loadLabelData(padre, figlio, riga) {
+    async function loadLabelData(padre, figlio, riga, figlioDesc = "") {
         if (!figlio || !riga) {
             showAlert("Chiave composita non valida (figlio/riga).", "warning");
             return;
@@ -534,13 +595,15 @@
                 tbodyMain.appendChild(row);
             }
         });
-        selectedPairText.textContent = `Codice db: ${padre} - Etichetta: ${figlio} - Riga: ${riga}`;
+        const descPadre = document.getElementById("displayDescPadre").textContent;
+        const descFiglioHtml = figlioDesc ? ` - ${figlioDesc}` : "";
+        selectedPairText.innerHTML = `<span class="text-primary fw-bold">${padre} ${descPadre}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">${figlio}${descFiglioHtml}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">Riga: ${riga}</span>`;
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
         state.isDirty = false; // Reset dopo il caricamento iniziale
     }
 
-    function apriFormVuoto(padre, figlio, riga) {
+    function apriFormVuoto(padre, figlio, riga, figlioDesc = "") {
         state.selectedPadre = padre;
         state.selectedFiglio = figlio;
         state.riga = riga;
@@ -595,7 +658,9 @@
             else tbodyMain.appendChild(row);
         });
 
-        selectedPairText.innerHTML = `<strong>CREAZIONE NUOVA</strong> - Codice db: ${padre} - Etichetta: ${figlio} - Riga: ${riga}`;
+        const descPadre = document.getElementById("displayDescPadre").textContent;
+        const descFiglioHtml = figlioDesc ? ` - ${figlioDesc}` : "";
+        selectedPairText.innerHTML = `<span class="badge bg-success me-2">CREAZIONE NUOVA</span> <span class="text-primary fw-bold">${padre} ${descPadre}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">${figlio}${descFiglioHtml}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">Riga: ${riga}</span>`;
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
         state.isDirty = false; // Reset per il form vuoto
@@ -653,6 +718,14 @@
         }
     });
 
+    // Permette di caricare i componenti premendo Invio nel campo di input
+    padreInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault(); // Evita il ricaricamento accidentale della pagina
+            loadComponentsBtn.click();
+        }
+    });
+
     loadComponentsBtn.addEventListener("click", async () => {
         try {
             await loadComponents();
@@ -669,8 +742,8 @@
         }
     });
 
-    changeProductBtn.addEventListener("click", () => {
-        if (!checkUnsavedChanges()) return;
+    changeProductBtn.addEventListener("click", async () => {
+        if (!(await checkUnsavedChanges())) return;
         state.isDirty = false;
         step1Area.classList.remove("d-none");
         step2Area.classList.add("d-none");
@@ -679,8 +752,8 @@
         padreInput.focus();
     });
 
-    backToComponentsBtn.addEventListener("click", () => {
-        if (!checkUnsavedChanges()) return;
+    backToComponentsBtn.addEventListener("click", async () => {
+        if (!(await checkUnsavedChanges())) return;
         state.isDirty = false;
         recordTableArea.classList.add("d-none");
         step2Area.classList.remove("d-none");
