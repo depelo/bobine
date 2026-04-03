@@ -281,47 +281,40 @@
         }
     }
 
-    async function loadUjEtichetteColumnDescriptions() {
+    async function loadMetadata() {
         try {
             const response = await fetch('/api/uj-etichette-column-descriptions', { credentials: 'include' });
-            if (response.ok) {
-                const data = await response.json();
-                if (Array.isArray(data)) {
-                    state.columnDescriptions = data.reduce((acc, item) => {
-                        if (item && item.Campo != null) acc[String(item.Campo)] = item.Descrizione != null ? String(item.Descrizione) : '';
-                        return acc;
-                    }, {});
-                } else if (data && typeof data === 'object') {
-                    state.columnDescriptions = data;
-                } else {
-                    state.columnDescriptions = {};
-                }
-            } else {
-                console.error('Errore metadati colonne UJ_etichette:', response.status, response.statusText);
-                state.columnDescriptions = {};
+            if (!response.ok) {
+                throw new Error(response.statusText);
             }
-        } catch (error) {
-            console.error('Errore di rete metadati colonne:', error);
+            const data = await response.json();
+            state.columnDescriptions = {};
+            if (Array.isArray(data)) {
+                data.forEach((item) => {
+                    if (item && item.Campo) {
+                        state.columnDescriptions[String(item.Campo).toLowerCase()] =
+                            item.Descrizione != null ? String(item.Descrizione) : '';
+                    }
+                });
+            } else if (data && typeof data === 'object') {
+                Object.keys(data).forEach((k) => {
+                    state.columnDescriptions[k.toLowerCase()] = data[k] != null ? String(data[k]) : '';
+                });
+            }
+            console.log('Mappa descrizioni pronta:', state.columnDescriptions);
+        } catch (e) {
+            console.error('Errore metadati:', e);
             state.columnDescriptions = {};
         }
     }
 
-    function getFieldDescription(field) {
-        const m = state.columnDescriptions;
-        if (!m || typeof m !== 'object') return '';
-        if (m[field] != null && String(m[field]).trim() !== '') return String(m[field]);
-        const found = Object.keys(m).find((k) => k.toLowerCase() === String(field).toLowerCase());
-        return found && m[found] != null ? String(m[found]) : '';
-    }
-
-    function appendDescCell(row, field) {
+    function appendDescCell(row, descStr) {
         const descCell = document.createElement('td');
         descCell.className = 'text-muted';
         descCell.style.width = '35%';
         descCell.style.fontSize = '0.8rem';
         descCell.style.fontStyle = 'italic';
-        const d = getFieldDescription(field);
-        descCell.textContent = d;
+        descCell.textContent = descStr || '';
         row.appendChild(descCell);
     }
 
@@ -548,9 +541,9 @@
                 if (!(await checkUnsavedChanges())) return;
                 state.isDirty = false;
                 if (isConfigurata) {
-                    loadLabelData(state.selectedPadre, figlio, riga, item.figlioDesc);
+                    await loadLabelData(state.selectedPadre, figlio, riga, item.figlioDesc);
                 } else {
-                    apriFormVuoto(state.selectedPadre, figlio, riga, item.figlioDesc);
+                    await apriFormVuoto(state.selectedPadre, figlio, riga, item.figlioDesc);
                 }
             };
 
@@ -572,6 +565,10 @@
         if (!figlio || !riga) {
             showAlert("Chiave composita non valida (figlio/riga).", "warning");
             return;
+        }
+
+        if (Object.keys(state.columnDescriptions).length === 0) {
+            await loadMetadata();
         }
 
         state.selectedPadre = padre;
@@ -604,8 +601,11 @@
             if (data[field] === undefined) {
                 return;
             }
-            const descStr = getFieldDescription(field);
-            console.log("Rendering campo:", field, "con descrizione:", descStr);
+            const fieldKey = field.toLowerCase();
+            const descStr = state.columnDescriptions[fieldKey] || '';
+            if (fieldKey === 'originedati') {
+                console.log('Trovata descrizione per originedati:', descStr);
+            }
             const value = data[field];
             const row = document.createElement("tr");
             const fieldCell = document.createElement("td");
@@ -689,7 +689,7 @@
                 valueCell.appendChild(input);
             }
             row.appendChild(fieldCell);
-            appendDescCell(row, field);
+            appendDescCell(row, descStr);
             row.appendChild(valueCell);
             if (textareaFields.includes(field)) {
                 tbodyDesc.appendChild(row);
@@ -727,7 +727,11 @@
         state.isDirty = false; // Reset dopo il caricamento iniziale
     }
 
-    function apriFormVuoto(padre, figlio, riga, figlioDesc = "") {
+    async function apriFormVuoto(padre, figlio, riga, figlioDesc = "") {
+        if (Object.keys(state.columnDescriptions).length === 0) {
+            await loadMetadata();
+        }
+
         state.selectedPadre = padre;
         state.selectedFiglio = figlio;
         state.riga = riga;
@@ -735,8 +739,11 @@
         [tbodyMain, tbodyDesc, tbodyS, tbodySym, tbodyDisegno, tbodyClienti, tbodyKr, tbodyFabb, tbodyComp, tbodyLogo, tbodyBool, tbodyCb].forEach(tb => tb.innerHTML = "");
 
         fieldOrder.forEach((field) => {
-            const descStr = getFieldDescription(field);
-            console.log("Rendering campo:", field, "con descrizione:", descStr);
+            const fieldKey = field.toLowerCase();
+            const descStr = state.columnDescriptions[fieldKey] || '';
+            if (fieldKey === 'originedati') {
+                console.log('Trovata descrizione per originedati:', descStr);
+            }
             const row = document.createElement("tr");
             const fieldCell = document.createElement("td");
             fieldCell.className = "fw-bold text-secondary";
@@ -784,7 +791,7 @@
             }
 
             row.appendChild(fieldCell);
-            appendDescCell(row, field);
+            appendDescCell(row, descStr);
             row.appendChild(valueCell);
 
             if (textareaFields.includes(field)) tbodyDesc.appendChild(row);
@@ -913,17 +920,19 @@
         step2Area.classList.remove("d-none");
     });
 
-    function initEtPageData() {
+    async function initEtPageData() {
+        await loadMetadata();
         loadFormsList();
-        loadUjEtichetteColumnDescriptions();
         loadProducts().catch((error) => {
             showAlert(error.message, "danger");
         });
     }
     if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", initEtPageData);
+        document.addEventListener("DOMContentLoaded", () => {
+            initEtPageData().catch((err) => console.error(err));
+        });
     } else {
-        initEtPageData();
+        initEtPageData().catch((err) => console.error(err));
     }
 
     function openMenuDrawer() {
