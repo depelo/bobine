@@ -60,6 +60,34 @@ router.get('/form-list', async (req, res) => {
     }
 });
 
+// Metadati colonne UJ_etichette: MS_Description → mappa nome campo → testo
+router.get('/uj-etichette-column-descriptions', async (req, res) => {
+    try {
+        const pool = await getPoolPE();
+        const result = await pool.request().query(`
+            SELECT
+                cols.name AS Campo,
+                CAST(prop.value AS NVARCHAR(MAX)) AS Descrizione
+            FROM sys.columns cols
+            LEFT JOIN sys.extended_properties prop
+                ON prop.major_id = cols.object_id
+                AND prop.minor_id = cols.column_id
+                AND prop.name = N'MS_Description'
+            WHERE cols.object_id = OBJECT_ID(N'[PE].[dbo].[UJ_etichette]')
+        `);
+        const map = {};
+        for (const row of result.recordset || []) {
+            const campo = row.Campo != null ? String(row.Campo) : '';
+            if (!campo) continue;
+            map[campo] = row.Descrizione != null ? String(row.Descrizione) : '';
+        }
+        res.json(map);
+    } catch (err) {
+        console.error('GET /uj-etichette-column-descriptions:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.get('/components/:padre', async (req, res) => {
     try {
         const pool = await getPoolPE();
