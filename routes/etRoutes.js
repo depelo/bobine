@@ -29,12 +29,18 @@ router.get('/products', async (req, res) => {
             .input('qRaw', sql.NVarChar, queryText)
             .input('qLike', sql.NVarChar, queryText ? `${queryText}%` : '')
             .query(`
-            SELECT DISTINCT TOP 50 MD_coddb
+            SELECT TOP 50 MD_coddb, MAX(ISNULL(DescrPadre, '')) AS DescrPadre
             FROM [PE].[dbo].[Vis_01_DBEtich]
             WHERE (@qRaw = '' OR MD_coddb LIKE @qLike)
+            GROUP BY MD_coddb
             ORDER BY MD_coddb
         `);
-        const products = (productsRes.recordset || []).map((row) => row.MD_coddb).filter((c) => c != null);
+        const products = (productsRes.recordset || [])
+            .filter((row) => row.MD_coddb != null)
+            .map((row) => ({
+                codice: String(row.MD_coddb).trim(),
+                descrizione: row.DescrPadre != null ? String(row.DescrPadre) : ''
+            }));
         res.json({ products });
     } catch (err) {
         console.error('GET /products PE:', err);

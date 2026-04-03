@@ -69,6 +69,7 @@
                 <div class="col-md-8">
                     <label for="padreInput" class="form-label">Codice distinta base</label>
                     <input id="padreInput" class="form-control" list="productsList" placeholder="Digita codice db + Enter">
+                    <div id="liveDescPadre" class="form-text text-primary fw-semibold mt-1" style="min-height: 1.2em;" aria-live="polite"></div>
                     <datalist id="productsList"></datalist>
                 </div>
                 <div class="col-md-4 d-flex align-items-end">
@@ -308,6 +309,7 @@
 
     const padreInput = document.getElementById("padreInput");
     const productsList = document.getElementById("productsList");
+    const liveDescPadre = document.getElementById("liveDescPadre");
     const loadComponentsBtn = document.getElementById("loadComponentsBtn");
     const step1Area = document.getElementById("step1Area");
     const step2Area = document.getElementById("step2Area");
@@ -384,6 +386,17 @@
         if (formCont) formCont.style.borderLeft = "none";
     }
 
+    function updateLiveDescPadre() {
+        if (!liveDescPadre) return;
+        const val = padreInput.value.trim();
+        liveDescPadre.textContent = "";
+        if (val.length === 0) return;
+        const option = Array.from(productsList.options).find((opt) => opt.value === val);
+        if (option) {
+            liveDescPadre.textContent = option.getAttribute("data-desc") || option.textContent || "";
+        }
+    }
+
     async function loadProducts(query = "") {
         const response = await fetch(`/api/products?q=${encodeURIComponent(query)}`, { credentials: "include" });
         const data = await response.json();
@@ -393,9 +406,19 @@
         productsList.innerHTML = "";
         (data.products || []).forEach((product) => {
             const option = document.createElement("option");
-            option.value = product;
+            if (typeof product === "string") {
+                option.value = product;
+            } else {
+                const codice = product.codice != null ? String(product.codice) : String(product.MD_coddb ?? "");
+                const descrizione =
+                    product.descrizione != null ? String(product.descrizione) : String(product.DescrPadre ?? "");
+                option.value = codice;
+                option.setAttribute("data-desc", descrizione);
+                option.textContent = descrizione ? `${codice} - ${descrizione}` : codice;
+            }
             productsList.appendChild(option);
         });
+        updateLiveDescPadre();
     }
 
     async function loadComponents() {
@@ -769,6 +792,9 @@
             showAlert(error.message, "danger");
         }
     });
+    padreInput.addEventListener("change", () => {
+        updateLiveDescPadre();
+    });
 
     // Permette di caricare i componenti premendo Invio nel campo di input
     padreInput.addEventListener("keydown", (event) => {
@@ -802,6 +828,7 @@
         recordTableArea.classList.add("d-none");
         resetRecordTableFormBorder();
         padreInput.value = "";
+        if (liveDescPadre) liveDescPadre.textContent = "";
         padreInput.focus();
     });
 
