@@ -261,7 +261,7 @@
         selectedPadre: "",
         selectedFiglio: "",
         riga: "",
-        metadata: null,
+        columnDescriptions: {},
         currentRecord: {},
         isDirty: false,
         formsList: []
@@ -285,19 +285,29 @@
         try {
             const response = await fetch('/api/uj-etichette-column-descriptions', { credentials: 'include' });
             if (response.ok) {
-                state.metadata = await response.json();
+                const data = await response.json();
+                if (Array.isArray(data)) {
+                    state.columnDescriptions = data.reduce((acc, item) => {
+                        if (item && item.Campo != null) acc[String(item.Campo)] = item.Descrizione != null ? String(item.Descrizione) : '';
+                        return acc;
+                    }, {});
+                } else if (data && typeof data === 'object') {
+                    state.columnDescriptions = data;
+                } else {
+                    state.columnDescriptions = {};
+                }
             } else {
                 console.error('Errore metadati colonne UJ_etichette:', response.status, response.statusText);
-                state.metadata = {};
+                state.columnDescriptions = {};
             }
         } catch (error) {
             console.error('Errore di rete metadati colonne:', error);
-            state.metadata = {};
+            state.columnDescriptions = {};
         }
     }
 
     function getFieldDescription(field) {
-        const m = state.metadata;
+        const m = state.columnDescriptions;
         if (!m || typeof m !== 'object') return '';
         if (m[field] != null && String(m[field]).trim() !== '') return String(m[field]);
         const found = Object.keys(m).find((k) => k.toLowerCase() === String(field).toLowerCase());
@@ -306,8 +316,10 @@
 
     function appendDescCell(row, field) {
         const descCell = document.createElement('td');
-        descCell.className = 'text-muted small';
-        descCell.style.fontSize = '0.85rem';
+        descCell.className = 'text-muted';
+        descCell.style.width = '35%';
+        descCell.style.fontSize = '0.8rem';
+        descCell.style.fontStyle = 'italic';
         const d = getFieldDescription(field);
         descCell.textContent = d;
         row.appendChild(descCell);
@@ -592,9 +604,14 @@
             if (data[field] === undefined) {
                 return;
             }
+            const descStr = getFieldDescription(field);
+            console.log("Rendering campo:", field, "con descrizione:", descStr);
             const value = data[field];
             const row = document.createElement("tr");
             const fieldCell = document.createElement("td");
+            fieldCell.className = "fw-bold text-secondary";
+            fieldCell.style.width = "25%";
+            fieldCell.style.fontSize = "0.85rem";
             fieldCell.textContent = field;
 
             const valueCell = document.createElement("td");
@@ -718,8 +735,13 @@
         [tbodyMain, tbodyDesc, tbodyS, tbodySym, tbodyDisegno, tbodyClienti, tbodyKr, tbodyFabb, tbodyComp, tbodyLogo, tbodyBool, tbodyCb].forEach(tb => tb.innerHTML = "");
 
         fieldOrder.forEach((field) => {
+            const descStr = getFieldDescription(field);
+            console.log("Rendering campo:", field, "con descrizione:", descStr);
             const row = document.createElement("tr");
             const fieldCell = document.createElement("td");
+            fieldCell.className = "fw-bold text-secondary";
+            fieldCell.style.width = "25%";
+            fieldCell.style.fontSize = "0.85rem";
             fieldCell.textContent = field;
             const valueCell = document.createElement("td");
 
