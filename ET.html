@@ -65,17 +65,20 @@
 
     <section id="step1Area" class="card mb-2">
         <div class="card-body">
-                <div class="row g-2">
-                <div class="col-md-8">
-                    <label for="padreInput" class="form-label">Codice distinta base</label>
-                    <input id="padreInput" class="form-control" list="productsList" placeholder="Digita codice db + Enter">
-                    <div id="liveDescPadre" class="form-text text-primary fw-semibold mt-1" style="min-height: 1.2em;" aria-live="polite"></div>
-                    <datalist id="productsList"></datalist>
+            <div class="row align-items-center g-2">
+                <div class="col-auto" style="width: 250px;">
+                    <input id="padreInput" class="form-control" list="productsList" placeholder="Codice db + Enter">
                 </div>
-                <div class="col-md-4 d-flex align-items-end">
-                    <button id="loadComponentsBtn" class="btn btn-primary w-100">Carica etichette da db</button>
+                <div class="col-auto">
+                    <button id="loadComponentsBtn" class="btn btn-outline-secondary shadow-sm" title="Carica etichette da db" aria-label="Carica etichette da db">
+                        <i class="bi bi-file-earmark-arrow-down fs-5"></i>
+                    </button>
+                </div>
+                <div class="col px-3">
+                    <div id="liveDescPadre" class="text-primary fw-bold text-truncate" style="min-width: 0;" title="" aria-live="polite"></div>
                 </div>
             </div>
+            <datalist id="productsList"></datalist>
         </div>
     </section>
 
@@ -95,7 +98,7 @@
                     <thead class="table-light">
                     <tr>
                         <th>Etichetta</th>
-                        <th>Riga</th>
+                        <th class="text-center" style="width: 80px;">Riga</th>
                         <th style="width: 220px;">Azione</th>
                     </tr>
                     </thead>
@@ -389,11 +392,18 @@
     function updateLiveDescPadre() {
         if (!liveDescPadre) return;
         const val = padreInput.value.trim();
-        liveDescPadre.textContent = "";
-        if (val.length === 0) return;
         const option = Array.from(productsList.options).find((opt) => opt.value === val);
         if (option) {
-            liveDescPadre.textContent = option.getAttribute("data-desc") || option.textContent || "";
+            let desc = option.getAttribute("data-desc") || "";
+            if (!desc && option.textContent) {
+                const parts = option.textContent.split(" - ");
+                desc = parts.length > 1 ? parts.slice(1).join(" - ") : "";
+            }
+            liveDescPadre.textContent = desc;
+            liveDescPadre.title = desc;
+        } else {
+            liveDescPadre.textContent = "";
+            liveDescPadre.title = "";
         }
     }
 
@@ -486,7 +496,7 @@
 
             tr.innerHTML = `
                 <td>${figlio}${figlioDescHtml}</td>
-                <td>${riga}</td>
+                <td class="text-center">${riga}</td>
                 <td>${btnHtml}</td>
             `;
 
@@ -828,7 +838,10 @@
         recordTableArea.classList.add("d-none");
         resetRecordTableFormBorder();
         padreInput.value = "";
-        if (liveDescPadre) liveDescPadre.textContent = "";
+        if (liveDescPadre) {
+            liveDescPadre.textContent = "";
+            liveDescPadre.title = "";
+        }
         padreInput.focus();
     });
 
