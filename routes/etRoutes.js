@@ -42,6 +42,18 @@ router.get('/products', async (req, res) => {
     }
 });
 
+// Recupero lista Form per la combobox (stesso router di /products, /components, /label → /api/form-list)
+router.get('/form-list', async (req, res) => {
+    try {
+        const pool = await getPoolPE();
+        const result = await pool.request().query('SELECT * FROM [PE].[dbo].[Form]');
+        res.json(result.recordset || []);
+    } catch (error) {
+        console.error('Errore recupero tabella Form:', error);
+        res.status(500).json({ error: 'Errore recupero form' });
+    }
+});
+
 router.get('/components/:padre', async (req, res) => {
     try {
         const pool = await getPoolPE();

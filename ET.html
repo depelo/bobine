@@ -255,8 +255,23 @@
         riga: "",
         metadata: null,
         currentRecord: {},
-        isDirty: false
+        isDirty: false,
+        formsList: []
     };
+
+    async function loadFormsList() {
+        try {
+            const response = await fetch('/api/form-list', { credentials: 'include' });
+            if (response.ok) {
+                state.formsList = await response.json();
+                console.log('Lista Form caricata con successo:', state.formsList);
+            } else {
+                console.error('Errore server caricamento Form:', response.status, response.statusText);
+            }
+        } catch (error) {
+            console.error('Errore di rete caricamento lista Form:', error);
+        }
+    }
 
     // Funzione helper ASINCRONA per verificare i cambiamenti tramite Modale
     async function checkUnsavedChanges() {
@@ -554,6 +569,18 @@
                     textarea.className = "form-control form-control-sm";
                 }
                 valueCell.appendChild(textarea);
+            } else if (field === "et_kcodart_form") {
+                let defaultVal = "";
+                if (typeof data !== 'undefined' && data[field] != null && data[field] !== "") defaultVal = String(data[field]);
+                let opts = `<option value="">-- Seleziona Form --</option>`;
+                (state.formsList || []).forEach((f) => {
+                    const keys = Object.keys(f);
+                    const val = f[keys[0]];
+                    const desc = keys.length > 1 ? f[keys[1]] : val;
+                    const isSelected = (String(val) === String(defaultVal)) ? "selected" : "";
+                    opts += `<option value="${val}" ${isSelected}>${val} - ${desc}</option>`;
+                });
+                valueCell.innerHTML = `<select name="${field}" class="form-select form-select-sm">${opts}</select>`;
             } else {
                 const input = document.createElement("input");
                 input.type = "text";
@@ -630,6 +657,17 @@
                 valueCell.innerHTML = `<input type="date" class="form-control form-control-sm" name="${field}">`;
             } else if (textareaFields.includes(field)) {
                 valueCell.innerHTML = `<textarea class="form-control form-control-sm" name="${field}" rows="2"></textarea>`;
+            } else if (field === "et_kcodart_form") {
+                let defaultVal = "";
+                let opts = `<option value="">-- Seleziona Form --</option>`;
+                (state.formsList || []).forEach((f) => {
+                    const keys = Object.keys(f);
+                    const val = f[keys[0]];
+                    const desc = keys.length > 1 ? f[keys[1]] : val;
+                    const isSelected = (String(val) === String(defaultVal)) ? "selected" : "";
+                    opts += `<option value="${val}" ${isSelected}>${val} - ${desc}</option>`;
+                });
+                valueCell.innerHTML = `<select name="${field}" class="form-select form-select-sm">${opts}</select>`;
             } else {
                 let defaultVal = "";
                 if (field === "et_kcodart") defaultVal = padre;
@@ -759,9 +797,17 @@
         step2Area.classList.remove("d-none");
     });
 
-    loadProducts().catch((error) => {
-        showAlert(error.message, "danger");
-    });
+    function initEtPageData() {
+        loadFormsList();
+        loadProducts().catch((error) => {
+            showAlert(error.message, "danger");
+        });
+    }
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initEtPageData);
+    } else {
+        initEtPageData();
+    }
 
     function openMenuDrawer() {
         document.getElementById("menuDrawer").classList.add("is-open");
