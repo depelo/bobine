@@ -46,7 +46,7 @@ router.get('/products', async (req, res) => {
 router.get('/form-list', async (req, res) => {
     try {
         const pool = await getPoolPE();
-        const result = await pool.request().query('SELECT * FROM [PE].[dbo].[Form]');
+        const result = await pool.request().query('SELECT * FROM [PE].[dbo].[Form] WHERE Attivo = 1');
         res.json(result.recordset || []);
     } catch (error) {
         console.error('Errore recupero tabella Form:', error);
