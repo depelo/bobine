@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Progettazione etichette</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="bobine.css" />
     <style>
         .pointer-row { cursor: pointer; }
@@ -67,11 +68,11 @@
                 <div class="row g-2">
                 <div class="col-md-8">
                     <label for="padreInput" class="form-label">Codice distinta base</label>
-                    <input id="padreInput" class="form-control" list="productsList" placeholder="Digita codice db...">
+                    <input id="padreInput" class="form-control" list="productsList" placeholder="Digita codice db + Enter">
                     <datalist id="productsList"></datalist>
                 </div>
                 <div class="col-md-4 d-flex align-items-end">
-                    <button id="loadComponentsBtn" class="btn btn-primary w-100">Carica componenti</button>
+                    <button id="loadComponentsBtn" class="btn btn-primary w-100">Carica etichette da db</button>
                 </div>
             </div>
         </div>
@@ -79,9 +80,14 @@
 
     <section id="step2Area" class="card mb-2 d-none">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h2 class="h6 mb-0"><span id="displaySelectedPadre" class="text-primary fw-bold"></span><span id="displayDescPadre"></span></h2>
-                <button id="changeProductBtn" class="btn btn-sm btn-outline-secondary">Cambia codice db</button>
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <button id="changeProductBtn" class="btn btn-sm btn-outline-secondary shadow-sm" title="Cambia codice db" aria-label="Torna alla selezione padre">
+                    <i class="bi bi-arrow-left fs-6"></i>
+                </button>
+                <h2 class="h6 mb-0 d-flex align-items-center">
+                    <span id="displaySelectedPadre" class="text-primary fw-bold"></span>
+                    <span id="displayDescPadre"></span>
+                </h2>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm table-hover table-bordered align-middle" id="componentsTable">
@@ -100,16 +106,14 @@
 
     <section id="recordTableArea" class="card d-none">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-2">
-                <div class="d-flex align-items-center gap-3">
-                    <button id="backToComponentsBtn" class="btn btn-sm btn-outline-secondary" type="button">&larr; Indietro</button>
-                    <div>
-                        <p class="text-muted mb-0" id="selectedPairText"></p>
-                    </div>
-                </div>
-                <div>
-                    <button id="saveRecordBtn" class="btn btn-sm btn-success px-4 shadow-sm" type="button">Salva Modifiche</button>
-                </div>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2 border-bottom pb-2">
+                <button id="backToComponentsBtn" class="btn btn-sm btn-outline-secondary shadow-sm" type="button" title="Indietro alla lista" aria-label="Indietro">
+                    <i class="bi bi-arrow-left fs-6"></i>
+                </button>
+                <p class="text-muted mb-0 flex-grow-1 min-width-0" id="selectedPairText"></p>
+                <button id="saveRecordBtn" class="btn btn-sm btn-outline-secondary px-4 shadow-sm" type="button" title="Salva Modifiche" aria-label="Salva">
+                    <i class="bi bi-floppy fs-6"></i>
+                </button>
             </div>
             <form id="editForm">
                 <ul class="nav nav-tabs nav-tabs-scrollable" id="fieldsTab" role="tablist">
@@ -375,6 +379,11 @@
         }, 3000);
     }
 
+    function resetRecordTableFormBorder() {
+        const formCont = document.getElementById("formArea") || document.getElementById("recordTableArea");
+        if (formCont) formCont.style.borderLeft = "none";
+    }
+
     async function loadProducts(query = "") {
         const response = await fetch(`/api/products?q=${encodeURIComponent(query)}`, { credentials: "include" });
         const data = await response.json();
@@ -400,6 +409,7 @@
         state.selectedFiglio = "";
         state.riga = "";
         recordTableArea.classList.add("d-none");
+        resetRecordTableFormBorder();
         tbodyMain.innerHTML = "";
         tbodyDesc.innerHTML = "";
         tbodyS.innerHTML = "";
@@ -624,7 +634,9 @@
         });
         const descPadre = document.getElementById("displayDescPadre").textContent;
         const descFiglioHtml = figlioDesc ? ` - ${figlioDesc}` : "";
-        selectedPairText.innerHTML = `<span class="text-primary fw-bold">${padre} ${descPadre}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">${figlio}${descFiglioHtml}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">Riga: ${riga}</span>`;
+        selectedPairText.innerHTML = `<span class="badge bg-primary-subtle text-primary border border-primary-subtle me-2" style="font-size: 0.7rem; padding: 0.2em 0.4em; vertical-align: middle;">edit</span> <span class="text-primary fw-bold">${padre} ${descPadre}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">${figlio}${descFiglioHtml}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">Riga: ${riga}</span>`;
+        const formCont = document.getElementById("formArea") || document.getElementById("recordTableArea");
+        if (formCont) formCont.style.borderLeft = "4px solid #0d6efd";
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
         state.isDirty = false; // Reset dopo il caricamento iniziale
@@ -698,7 +710,9 @@
 
         const descPadre = document.getElementById("displayDescPadre").textContent;
         const descFiglioHtml = figlioDesc ? ` - ${figlioDesc}` : "";
-        selectedPairText.innerHTML = `<span class="badge bg-success me-2">CREAZIONE NUOVA</span> <span class="text-primary fw-bold">${padre} ${descPadre}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">${figlio}${descFiglioHtml}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">Riga: ${riga}</span>`;
+        selectedPairText.innerHTML = `<span class="badge bg-success-subtle text-success border border-success-subtle me-2" style="font-size: 0.7rem; padding: 0.2em 0.4em; vertical-align: middle;">new</span> <span class="text-primary fw-bold">${padre} ${descPadre}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">${figlio}${descFiglioHtml}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">Riga: ${riga}</span>`;
+        const formCont = document.getElementById("formArea") || document.getElementById("recordTableArea");
+        if (formCont) formCont.style.borderLeft = "4px solid #198754";
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
         state.isDirty = false; // Reset per il form vuoto
@@ -786,6 +800,7 @@
         step1Area.classList.remove("d-none");
         step2Area.classList.add("d-none");
         recordTableArea.classList.add("d-none");
+        resetRecordTableFormBorder();
         padreInput.value = "";
         padreInput.focus();
     });
@@ -794,6 +809,7 @@
         if (!(await checkUnsavedChanges())) return;
         state.isDirty = false;
         recordTableArea.classList.add("d-none");
+        resetRecordTableFormBorder();
         step2Area.classList.remove("d-none");
     });
 
