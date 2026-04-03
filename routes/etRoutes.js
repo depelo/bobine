@@ -1,5 +1,5 @@
 const express = require('express');
-const { sql, getPoolPE } = require('../config/db');
+const { sql, getPoolPE, getPoolET } = require('../config/db');
 const { authenticateToken } = require('../middlewares/auth');
 
 const router = express.Router();
@@ -60,25 +60,25 @@ router.get('/form-list', async (req, res) => {
     }
 });
 
-// Metadati MS_Description su colonne [PE].[dbo].[UJ_etichette] — array { Campo, Descrizione }
+// Metadati MS_Description sulla tabella fisica [ET].[dbo].[UJ_Etichette] (connessione al catalogo ET su BCUBE2)
 async function queryUjEtichetteMetadata(pool) {
     const result = await pool.request().query(`
         SELECT
-            CAST(col.name AS VARCHAR(255)) AS Campo,
-            CAST(prop.value AS NVARCHAR(MAX)) AS Descrizione
-        FROM sys.extended_properties AS prop
-        INNER JOIN sys.columns AS col
-            ON prop.major_id = col.object_id
-            AND prop.minor_id = col.column_id
-        WHERE prop.name = N'MS_Description'
-          AND col.object_id = OBJECT_ID(N'[PE].[dbo].[UJ_etichette]')
+            CAST(c.name AS VARCHAR(255)) AS Campo,
+            CAST(ep.value AS NVARCHAR(MAX)) AS Descrizione
+        FROM sys.extended_properties AS ep
+        INNER JOIN sys.columns AS c
+            ON ep.major_id = c.object_id
+            AND ep.minor_id = c.column_id
+        WHERE ep.name = N'MS_Description'
+          AND ep.major_id = OBJECT_ID(N'[dbo].[UJ_Etichette]')
     `);
     return result.recordset || [];
 }
 
 router.get('/et/metadata', async (req, res) => {
     try {
-        const pool = await getPoolPE();
+        const pool = await getPoolET();
         const rows = await queryUjEtichetteMetadata(pool);
         res.json(rows);
     } catch (err) {
@@ -90,7 +90,7 @@ router.get('/et/metadata', async (req, res) => {
 // Alias retrocompatibile — stesso payload array { Campo, Descrizione }
 router.get('/uj-etichette-column-descriptions', async (req, res) => {
     try {
-        const pool = await getPoolPE();
+        const pool = await getPoolET();
         const rows = await queryUjEtichetteMetadata(pool);
         res.json(rows);
     } catch (err) {
