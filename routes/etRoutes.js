@@ -60,28 +60,39 @@ router.get('/form-list', async (req, res) => {
     }
 });
 
-// Metadati colonne UJ_etichette: MS_Description → mappa nome campo → testo
+// Metadati MS_Description su colonne [PE].[dbo].[UJ_etichette] — array { Campo, Descrizione }
+async function queryUjEtichetteMetadata(pool) {
+    const result = await pool.request().query(`
+        SELECT
+            CAST(col.name AS VARCHAR(255)) AS Campo,
+            CAST(prop.value AS NVARCHAR(MAX)) AS Descrizione
+        FROM sys.extended_properties AS prop
+        INNER JOIN sys.columns AS col
+            ON prop.major_id = col.object_id
+            AND prop.minor_id = col.column_id
+        WHERE prop.name = N'MS_Description'
+          AND col.object_id = OBJECT_ID(N'[PE].[dbo].[UJ_etichette]')
+    `);
+    return result.recordset || [];
+}
+
+router.get('/et/metadata', async (req, res) => {
+    try {
+        const pool = await getPoolPE();
+        const rows = await queryUjEtichetteMetadata(pool);
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /et/metadata:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Alias retrocompatibile — stesso payload array { Campo, Descrizione }
 router.get('/uj-etichette-column-descriptions', async (req, res) => {
     try {
         const pool = await getPoolPE();
-        const result = await pool.request().query(`
-            SELECT
-                cols.name AS Campo,
-                CAST(prop.value AS NVARCHAR(MAX)) AS Descrizione
-            FROM sys.columns cols
-            LEFT JOIN sys.extended_properties prop
-                ON prop.major_id = cols.object_id
-                AND prop.minor_id = cols.column_id
-                AND prop.name = N'MS_Description'
-            WHERE cols.object_id = OBJECT_ID(N'[PE].[dbo].[UJ_etichette]')
-        `);
-        const map = {};
-        for (const row of result.recordset || []) {
-            const campo = row.Campo != null ? String(row.Campo) : '';
-            if (!campo) continue;
-            map[campo] = row.Descrizione != null ? String(row.Descrizione) : '';
-        }
-        res.json(map);
+        const rows = await queryUjEtichetteMetadata(pool);
+        res.json(rows);
     } catch (err) {
         console.error('GET /uj-etichette-column-descriptions:', err);
         res.status(500).json({ error: err.message });

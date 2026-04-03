@@ -283,22 +283,24 @@
 
     async function loadMetadata() {
         try {
-            const response = await fetch('/api/uj-etichette-column-descriptions', { credentials: 'include' });
+            const response = await fetch('/api/et/metadata', { credentials: 'include' });
             if (!response.ok) {
                 throw new Error(response.statusText);
             }
-            const data = await response.json();
+            const rawData = await response.json();
+            console.log('Dati grezzi dal DB:', rawData);
+
             state.columnDescriptions = {};
-            if (Array.isArray(data)) {
-                data.forEach((item) => {
-                    if (item && item.Campo) {
-                        state.columnDescriptions[String(item.Campo).toLowerCase()] =
-                            item.Descrizione != null ? String(item.Descrizione) : '';
-                    }
+            if (Array.isArray(rawData)) {
+                rawData.forEach((item) => {
+                    const key = (item.Campo || item.campo || '').toLowerCase().trim();
+                    const val = (item.Descrizione != null ? String(item.Descrizione) : item.descrizione != null ? String(item.descrizione) : '').trim();
+                    if (key) state.columnDescriptions[key] = val;
                 });
-            } else if (data && typeof data === 'object') {
-                Object.keys(data).forEach((k) => {
-                    state.columnDescriptions[k.toLowerCase()] = data[k] != null ? String(data[k]) : '';
+            } else if (rawData && typeof rawData === 'object') {
+                Object.keys(rawData).forEach((k) => {
+                    state.columnDescriptions[k.toLowerCase().trim()] =
+                        rawData[k] != null ? String(rawData[k]).trim() : '';
                 });
             }
             console.log('Mappa descrizioni pronta:', state.columnDescriptions);
@@ -310,10 +312,11 @@
 
     function appendDescCell(row, descStr) {
         const descCell = document.createElement('td');
-        descCell.className = 'text-muted';
+        descCell.className = 'text-muted small';
         descCell.style.width = '35%';
         descCell.style.fontSize = '0.8rem';
         descCell.style.fontStyle = 'italic';
+        descCell.style.minWidth = '150px';
         descCell.textContent = descStr || '';
         row.appendChild(descCell);
     }
@@ -601,7 +604,7 @@
             if (data[field] === undefined) {
                 return;
             }
-            const fieldKey = field.toLowerCase();
+            const fieldKey = field.toLowerCase().trim();
             const descStr = state.columnDescriptions[fieldKey] || '';
             if (fieldKey === 'originedati') {
                 console.log('Trovata descrizione per originedati:', descStr);
@@ -609,7 +612,7 @@
             const value = data[field];
             const row = document.createElement("tr");
             const fieldCell = document.createElement("td");
-            fieldCell.className = "fw-bold text-secondary";
+            fieldCell.className = "fw-bold text-secondary small";
             fieldCell.style.width = "25%";
             fieldCell.style.fontSize = "0.85rem";
             fieldCell.textContent = field;
@@ -739,14 +742,14 @@
         [tbodyMain, tbodyDesc, tbodyS, tbodySym, tbodyDisegno, tbodyClienti, tbodyKr, tbodyFabb, tbodyComp, tbodyLogo, tbodyBool, tbodyCb].forEach(tb => tb.innerHTML = "");
 
         fieldOrder.forEach((field) => {
-            const fieldKey = field.toLowerCase();
+            const fieldKey = field.toLowerCase().trim();
             const descStr = state.columnDescriptions[fieldKey] || '';
             if (fieldKey === 'originedati') {
                 console.log('Trovata descrizione per originedati:', descStr);
             }
             const row = document.createElement("tr");
             const fieldCell = document.createElement("td");
-            fieldCell.className = "fw-bold text-secondary";
+            fieldCell.className = "fw-bold text-secondary small";
             fieldCell.style.width = "25%";
             fieldCell.style.fontSize = "0.85rem";
             fieldCell.textContent = field;
