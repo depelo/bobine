@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Progettazione etichette</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="bobine.css" />
     <style>
         .pointer-row { cursor: pointer; }
@@ -54,40 +55,50 @@
 </aside>
 
 <main class="container py-2">
-    <header class="d-flex align-items-center gap-2 mb-4 flex-wrap">
-        <button type="button" id="menuBtn" class="btn btn-outline-secondary" aria-label="Apri menu">☰ Menu</button>
-        <h1 class="h3 mb-0">Progettazione etichette</h1>
+    <header class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+        <button type="button" id="menuBtn" class="btn btn-outline-secondary shadow-sm" aria-label="Apri menu">☰ Menu</button>
+        <img src="logo.png" alt="Logo U.Jet" style="height: 38px; object-fit: contain;">
+        <h1 class="h4 mb-0 text-danger border-start border-2 ps-3 fw-normal">Progettazione etichette</h1>
     </header>
 
     <div id="alertBox"></div>
 
     <section id="step1Area" class="card mb-2">
         <div class="card-body">
-                <div class="row g-2">
-                <div class="col-md-8">
-                    <label for="padreInput" class="form-label">Codice</label>
-                    <input id="padreInput" class="form-control" list="productsList" placeholder="Digita codice db...">
-                    <datalist id="productsList"></datalist>
+            <div class="row align-items-center g-2">
+                <div class="col-auto" style="width: 250px;">
+                    <input id="padreInput" class="form-control" list="productsList" placeholder="Codice db + Enter">
                 </div>
-                <div class="col-md-4 d-flex align-items-end">
-                    <button id="loadComponentsBtn" class="btn btn-primary w-100">Carica componenti</button>
+                <div class="col-auto">
+                    <button id="loadComponentsBtn" class="btn btn-outline-secondary shadow-sm" title="Carica etichette da db" aria-label="Carica etichette da db">
+                        <i class="bi bi-file-earmark-arrow-down fs-5"></i>
+                    </button>
+                </div>
+                <div class="col px-3">
+                    <div id="liveDescPadre" class="text-primary fw-bold text-truncate" style="min-width: 0;" title="" aria-live="polite"></div>
                 </div>
             </div>
+            <datalist id="productsList"></datalist>
         </div>
     </section>
 
     <section id="step2Area" class="card mb-2 d-none">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h2 class="h6 mb-0">Etichette - Padre: <span id="displaySelectedPadre" class="text-primary"></span></h2>
-                <button id="changeProductBtn" class="btn btn-sm btn-outline-secondary">Cambia codice db</button>
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <button id="changeProductBtn" class="btn btn-sm btn-outline-secondary shadow-sm" title="Cambia codice db" aria-label="Torna alla selezione padre">
+                    <i class="bi bi-arrow-left fs-6"></i>
+                </button>
+                <h2 class="h6 mb-0 d-flex align-items-center">
+                    <span id="displaySelectedPadre" class="text-primary fw-bold"></span>
+                    <span id="displayDescPadre"></span>
+                </h2>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm table-hover table-bordered align-middle" id="componentsTable">
                     <thead class="table-light">
                     <tr>
-                        <th>Codice etichetta</th>
-                        <th>Riga</th>
+                        <th>Etichetta</th>
+                        <th class="text-center" style="width: 80px;">Riga</th>
                         <th style="width: 220px;">Azione</th>
                     </tr>
                     </thead>
@@ -99,16 +110,14 @@
 
     <section id="recordTableArea" class="card d-none">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-2">
-                <div class="d-flex align-items-center gap-3">
-                    <button id="backToComponentsBtn" class="btn btn-sm btn-outline-secondary" type="button">&larr; Indietro</button>
-                    <div>
-                        <p class="text-muted mb-0" id="selectedPairText"></p>
-                    </div>
-                </div>
-                <div>
-                    <button id="saveRecordBtn" class="btn btn-sm btn-success px-4 shadow-sm" type="button">Salva Modifiche</button>
-                </div>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2 border-bottom pb-2">
+                <button id="backToComponentsBtn" class="btn btn-sm btn-outline-secondary shadow-sm" type="button" title="Indietro alla lista" aria-label="Indietro">
+                    <i class="bi bi-arrow-left fs-6"></i>
+                </button>
+                <p class="text-muted mb-0 flex-grow-1 min-width-0" id="selectedPairText"></p>
+                <button id="saveRecordBtn" class="btn btn-sm btn-outline-secondary px-4 shadow-sm" type="button" title="Salva Modifiche" aria-label="Salva">
+                    <i class="bi bi-floppy fs-6"></i>
+                </button>
             </div>
             <form id="editForm">
                 <ul class="nav nav-tabs nav-tabs-scrollable" id="fieldsTab" role="tablist">
@@ -152,73 +161,73 @@
                 <div class="tab-content border border-top-0 p-2 mb-2 bg-white" id="fieldsTabContent">
                     <div class="tab-pane fade show active" id="main-pane" role="tabpanel" aria-labelledby="main-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyMain"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="desc-pane" role="tabpanel" aria-labelledby="desc-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyDesc"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="bool-pane" role="tabpanel" aria-labelledby="bool-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyBool"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="sym-pane" role="tabpanel" aria-labelledby="sym-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodySym"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="s-pane" role="tabpanel" aria-labelledby="s-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyS"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="disegno-pane" role="tabpanel" aria-labelledby="disegno-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyDisegno"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="clienti-pane" role="tabpanel" aria-labelledby="clienti-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyClienti"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="kr-pane" role="tabpanel" aria-labelledby="kr-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyKr"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="fabb-pane" role="tabpanel" aria-labelledby="fabb-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyFabb"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="comp-pane" role="tabpanel" aria-labelledby="comp-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyComp"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="logo-pane" role="tabpanel" aria-labelledby="logo-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyLogo"></tbody>
                         </table>
                     </div>
                     <div class="tab-pane fade" id="cb-pane" role="tabpanel" aria-labelledby="cb-tab" tabindex="0">
                         <table class="table table-sm table-bordered table-striped align-middle mb-0">
-                            <thead class="table-light"><tr><th style="width: 30%;">Campo</th><th>Valore</th></tr></thead>
+                            <thead class="table-light"><tr><th style="width: 25%;">Campo</th><th style="width: 35%;">Descrizione</th><th>Valore</th></tr></thead>
                             <tbody id="recordTableBodyCb"></tbody>
                         </table>
                     </div>
@@ -226,6 +235,24 @@
             </form>
         </div>
     </section>
+
+    <div class="modal fade" id="unsavedChangesModal" tabindex="-1" aria-labelledby="unsavedChangesModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-warning">
+          <div class="modal-header bg-warning text-dark shadow-sm">
+            <h5 class="modal-title" id="unsavedChangesModalLabel"><i class="bi bi-exclamation-triangle"></i> ⚠️ Attenzione</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body fs-6">
+            Hai delle modifiche <strong>non salvate</strong> in questa etichetta.<br><br>Se continui, perderai il lavoro fatto. Sei sicuro di voler uscire?
+          </div>
+          <div class="modal-footer bg-light">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla e resta</button>
+            <button type="button" class="btn btn-danger" id="confirmDiscardBtn">Sì, perdi le modifiche</button>
+          </div>
+        </div>
+      </div>
+    </div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -234,12 +261,98 @@
         selectedPadre: "",
         selectedFiglio: "",
         riga: "",
-        metadata: null,
-        currentRecord: {}
+        columnDescriptions: {},
+        currentRecord: {},
+        isDirty: false,
+        formsList: []
     };
+
+    async function loadFormsList() {
+        try {
+            const response = await fetch('/api/form-list', { credentials: 'include' });
+            if (response.ok) {
+                state.formsList = await response.json();
+                console.log('Lista Form caricata con successo:', state.formsList);
+            } else {
+                console.error('Errore server caricamento Form:', response.status, response.statusText);
+            }
+        } catch (error) {
+            console.error('Errore di rete caricamento lista Form:', error);
+        }
+    }
+
+    async function loadMetadata() {
+        try {
+            const response = await fetch('/api/et/metadata', { credentials: 'include' });
+            if (!response.ok) {
+                throw new Error(response.statusText);
+            }
+            const rawData = await response.json();
+            console.log('Dati grezzi dal DB:', rawData);
+
+            state.columnDescriptions = {};
+            if (Array.isArray(rawData)) {
+                rawData.forEach((item) => {
+                    const key = (item.Campo || item.campo || '').toLowerCase().trim();
+                    const val = (item.Descrizione != null ? String(item.Descrizione) : item.descrizione != null ? String(item.descrizione) : '').trim();
+                    if (key) state.columnDescriptions[key] = val;
+                });
+            } else if (rawData && typeof rawData === 'object') {
+                Object.keys(rawData).forEach((k) => {
+                    state.columnDescriptions[k.toLowerCase().trim()] =
+                        rawData[k] != null ? String(rawData[k]).trim() : '';
+                });
+            }
+            console.log('Mappa descrizioni pronta:', state.columnDescriptions);
+        } catch (e) {
+            console.error('Errore metadati:', e);
+            state.columnDescriptions = {};
+        }
+    }
+
+    function appendDescCell(row, descStr) {
+        const descCell = document.createElement('td');
+        descCell.className = 'text-muted small';
+        descCell.style.width = '35%';
+        descCell.style.fontSize = '0.8rem';
+        descCell.style.fontStyle = 'italic';
+        descCell.style.minWidth = '150px';
+        descCell.textContent = descStr || '';
+        row.appendChild(descCell);
+    }
+
+    // Funzione helper ASINCRONA per verificare i cambiamenti tramite Modale
+    async function checkUnsavedChanges() {
+        if (!state.isDirty) return true;
+        
+        return new Promise((resolve) => {
+            const modalEl = document.getElementById('unsavedChangesModal');
+            const modal = new bootstrap.Modal(modalEl);
+            const confirmBtn = document.getElementById('confirmDiscardBtn');
+            
+            // Rimuove vecchi listener clonando il pulsante per evitare inneschi multipli
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+            
+            // Se l'utente clicca il pulsante rosso (Sì, perdi modifiche)
+            newConfirmBtn.addEventListener('click', () => {
+                modal.hide();
+                resolve(true);
+            });
+            
+            // Se la modale viene chiusa (tasto Annulla, X, o click fuori)
+            modalEl.addEventListener('hidden.bs.modal', function onHide() {
+                modalEl.removeEventListener('hidden.bs.modal', onHide);
+                resolve(false); // La Promise si risolve a false solo se non era già risolta a true
+            }, { once: true });
+            
+            modal.show();
+        });
+    }
 
     const padreInput = document.getElementById("padreInput");
     const productsList = document.getElementById("productsList");
+    const liveDescPadre = document.getElementById("liveDescPadre");
     const loadComponentsBtn = document.getElementById("loadComponentsBtn");
     const step1Area = document.getElementById("step1Area");
     const step2Area = document.getElementById("step2Area");
@@ -299,6 +412,39 @@
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         `;
+        // Auto-rimozione dell'alert dopo 3 secondi
+        setTimeout(() => {
+            const alertContainer = alertBox;
+            const alertNode = alertContainer.lastElementChild;
+            if (alertNode) {
+                alertNode.classList.remove('show');
+                alertNode.classList.add('fade');
+                setTimeout(() => alertNode.remove(), 150);
+            }
+        }, 3000);
+    }
+
+    function resetRecordTableFormBorder() {
+        const formCont = document.getElementById("formArea") || document.getElementById("recordTableArea");
+        if (formCont) formCont.style.borderLeft = "none";
+    }
+
+    function updateLiveDescPadre() {
+        if (!liveDescPadre) return;
+        const val = padreInput.value.trim();
+        const option = Array.from(productsList.options).find((opt) => opt.value === val);
+        if (option) {
+            let desc = option.getAttribute("data-desc") || "";
+            if (!desc && option.textContent) {
+                const parts = option.textContent.split(" - ");
+                desc = parts.length > 1 ? parts.slice(1).join(" - ") : "";
+            }
+            liveDescPadre.textContent = desc;
+            liveDescPadre.title = desc;
+        } else {
+            liveDescPadre.textContent = "";
+            liveDescPadre.title = "";
+        }
     }
 
     async function loadProducts(query = "") {
@@ -310,9 +456,19 @@
         productsList.innerHTML = "";
         (data.products || []).forEach((product) => {
             const option = document.createElement("option");
-            option.value = product;
+            if (typeof product === "string") {
+                option.value = product;
+            } else {
+                const codice = product.codice != null ? String(product.codice) : String(product.MD_coddb ?? "");
+                const descrizione =
+                    product.descrizione != null ? String(product.descrizione) : String(product.DescrPadre ?? "");
+                option.value = codice;
+                option.setAttribute("data-desc", descrizione);
+                option.textContent = descrizione ? `${codice} - ${descrizione}` : codice;
+            }
             productsList.appendChild(option);
         });
+        updateLiveDescPadre();
     }
 
     async function loadComponents() {
@@ -326,6 +482,7 @@
         state.selectedFiglio = "";
         state.riga = "";
         recordTableArea.classList.add("d-none");
+        resetRecordTableFormBorder();
         tbodyMain.innerHTML = "";
         tbodyDesc.innerHTML = "";
         tbodyS.innerHTML = "";
@@ -345,27 +502,60 @@
         if (!response.ok) {
             throw new Error(data.error || "Errore caricamento componenti.");
         }
+        console.log("[DEBUG] Payload API components:", data); // Log frontend
 
         step1Area.classList.add("d-none");
         step2Area.classList.remove("d-none");
         document.getElementById("displaySelectedPadre").textContent = padre;
+        const descEl = document.getElementById("displayDescPadre");
+        if (descEl) {
+            if (data.padreDesc && !data.padreDesc.includes("[")) {
+                // Stile coerente: testo blu (primary) come il codice padre
+                descEl.innerHTML = `<span class="text-primary fw-bold ms-1">- ${data.padreDesc}</span>`;
+                descEl.className = ""; // Pulisce le vecchie classi inline
+                descEl.removeAttribute("style");
+            } else {
+                descEl.textContent = data.padreDesc ? `- ${data.padreDesc}` : "[- ERRORE: data.padreDesc MANCANTE]";
+            }
+        } else {
+            alert("Errore critico UI: L'elemento displayDescPadre è sparito dal DOM!");
+        }
 
         (data.components || []).forEach((item) => {
-            const figlio = item.MD_codfigli || item.et_kcodart_layer || "";
+            const figlio = item.MD_codfigli || "";
+            const riga = item.et_layer_nriga || 0;
+            const figlioDescHtml = item.figlioDesc ? ` <span class="text-muted ms-1 fw-normal" style="font-size: 0.9em;">- ${item.figlioDesc}</span>` : "";
+            const isConfigurata = item.IsConfigurata === 1;
+
             const tr = document.createElement("tr");
             tr.classList.add("pointer-row");
+            
+            const btnHtml = isConfigurata 
+                ? `<button class="btn btn-sm btn-outline-primary">Modifica</button>` 
+                : `<button class="btn btn-sm btn-success shadow-sm">Crea Nuova</button>`;
+
             tr.innerHTML = `
-                <td>${figlio}</td>
-                <td>${item.et_layer_nriga || ""}</td>
-                <td><button class="btn btn-sm btn-outline-primary">Modifica</button></td>
+                <td>${figlio}${figlioDescHtml}</td>
+                <td class="text-center">${riga}</td>
+                <td>${btnHtml}</td>
             `;
-            const button = tr.querySelector("button");
-            const openEditor = () => loadLabelData(state.selectedPadre, item.MD_codfigli, item.et_layer_nriga);
-            tr.addEventListener("click", openEditor);
-            button.addEventListener("click", (event) => {
+
+            const actionHandler = async () => {
+                if (!(await checkUnsavedChanges())) return;
+                state.isDirty = false;
+                if (isConfigurata) {
+                    await loadLabelData(state.selectedPadre, figlio, riga, item.figlioDesc);
+                } else {
+                    await apriFormVuoto(state.selectedPadre, figlio, riga, item.figlioDesc);
+                }
+            };
+
+            tr.addEventListener("click", actionHandler);
+            tr.querySelector("button").addEventListener("click", (event) => {
                 event.stopPropagation();
-                openEditor();
+                actionHandler();
             });
+
             componentsTableBody.appendChild(tr);
         });
 
@@ -374,10 +564,14 @@
         }
     }
 
-    async function loadLabelData(padre, figlio, riga) {
+    async function loadLabelData(padre, figlio, riga, figlioDesc = "") {
         if (!figlio || !riga) {
             showAlert("Chiave composita non valida (figlio/riga).", "warning");
             return;
+        }
+
+        if (Object.keys(state.columnDescriptions).length === 0) {
+            await loadMetadata();
         }
 
         state.selectedPadre = padre;
@@ -410,9 +604,17 @@
             if (data[field] === undefined) {
                 return;
             }
+            const fieldKey = field.toLowerCase().trim();
+            const descStr = state.columnDescriptions[fieldKey] || '';
+            if (fieldKey === 'originedati') {
+                console.log('Trovata descrizione per originedati:', descStr);
+            }
             const value = data[field];
             const row = document.createElement("tr");
             const fieldCell = document.createElement("td");
+            fieldCell.className = "fw-bold text-secondary small";
+            fieldCell.style.width = "25%";
+            fieldCell.style.fontSize = "0.85rem";
             fieldCell.textContent = field;
 
             const valueCell = document.createElement("td");
@@ -462,6 +664,20 @@
                     textarea.className = "form-control form-control-sm";
                 }
                 valueCell.appendChild(textarea);
+            } else if (field === "et_kcodart_form") {
+                let defaultVal = "";
+                if (typeof data !== 'undefined' && data[field] != null && data[field] !== "") defaultVal = String(data[field]);
+                let opts = `<option value="">-- Seleziona Form --</option>`;
+                (state.formsList || []).forEach((f) => {
+                    const values = Object.values(f || {});
+                    const codice = f.Codice ?? values[0] ?? "";
+                    const nome = f.NomeForm ?? values[1] ?? codice;
+                    const noteRaw = f.Note ?? "";
+                    const note = noteRaw ? ` - [${noteRaw}]` : "";
+                    const isSelected = (String(codice) === String(defaultVal)) ? "selected" : "";
+                    opts += `<option value="${codice}" ${isSelected}>${codice} - ${nome}${note}</option>`;
+                });
+                valueCell.innerHTML = `<select name="${field}" class="form-select form-select-sm">${opts}</select>`;
             } else {
                 const input = document.createElement("input");
                 input.type = "text";
@@ -476,6 +692,7 @@
                 valueCell.appendChild(input);
             }
             row.appendChild(fieldCell);
+            appendDescCell(row, descStr);
             row.appendChild(valueCell);
             if (textareaFields.includes(field)) {
                 tbodyDesc.appendChild(row);
@@ -503,9 +720,105 @@
                 tbodyMain.appendChild(row);
             }
         });
-        selectedPairText.textContent = `Codice db: ${padre} - Etichetta: ${figlio} - Riga: ${riga}`;
+        const descPadre = document.getElementById("displayDescPadre").textContent;
+        const descFiglioHtml = figlioDesc ? ` - ${figlioDesc}` : "";
+        selectedPairText.innerHTML = `<span class="badge bg-primary-subtle text-primary border border-primary-subtle me-2" style="font-size: 0.7rem; padding: 0.2em 0.4em; vertical-align: middle;">edit</span> <span class="text-primary fw-bold">${padre} ${descPadre}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">${figlio}${descFiglioHtml}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">Riga: ${riga}</span>`;
+        const formCont = document.getElementById("formArea") || document.getElementById("recordTableArea");
+        if (formCont) formCont.style.borderLeft = "4px solid #0d6efd";
         recordTableArea.classList.remove("d-none");
         step2Area.classList.add("d-none");
+        state.isDirty = false; // Reset dopo il caricamento iniziale
+    }
+
+    async function apriFormVuoto(padre, figlio, riga, figlioDesc = "") {
+        if (Object.keys(state.columnDescriptions).length === 0) {
+            await loadMetadata();
+        }
+
+        state.selectedPadre = padre;
+        state.selectedFiglio = figlio;
+        state.riga = riga;
+
+        [tbodyMain, tbodyDesc, tbodyS, tbodySym, tbodyDisegno, tbodyClienti, tbodyKr, tbodyFabb, tbodyComp, tbodyLogo, tbodyBool, tbodyCb].forEach(tb => tb.innerHTML = "");
+
+        fieldOrder.forEach((field) => {
+            const fieldKey = field.toLowerCase().trim();
+            const descStr = state.columnDescriptions[fieldKey] || '';
+            if (fieldKey === 'originedati') {
+                console.log('Trovata descrizione per originedati:', descStr);
+            }
+            const row = document.createElement("tr");
+            const fieldCell = document.createElement("td");
+            fieldCell.className = "fw-bold text-secondary small";
+            fieldCell.style.width = "25%";
+            fieldCell.style.fontSize = "0.85rem";
+            fieldCell.textContent = field;
+            const valueCell = document.createElement("td");
+
+            const isBooleanField = booleanFields.includes(field);
+            if (isBooleanField) {
+                const uniqueBaseId = `${field}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                valueCell.innerHTML = `
+                    <div class="btn-group btn-group-sm" role="group">
+                        <input type="radio" class="btn-check" name="${field}" id="${uniqueBaseId}_si" value="1" autocomplete="off">
+                        <label class="btn btn-outline-success" for="${uniqueBaseId}_si">Sì</label>
+                        <input type="radio" class="btn-check" name="${field}" id="${uniqueBaseId}_no" value="0" autocomplete="off" checked>
+                        <label class="btn btn-outline-danger" for="${uniqueBaseId}_no">No</label>
+                    </div>`;
+            } else if (dateFields.includes(field)) {
+                valueCell.innerHTML = `<input type="date" class="form-control form-control-sm" name="${field}">`;
+            } else if (textareaFields.includes(field)) {
+                valueCell.innerHTML = `<textarea class="form-control form-control-sm" name="${field}" rows="2"></textarea>`;
+            } else if (field === "et_kcodart_form") {
+                let defaultVal = "";
+                let opts = `<option value="">-- Seleziona Form --</option>`;
+                (state.formsList || []).forEach((f) => {
+                    const values = Object.values(f || {});
+                    const codice = f.Codice ?? values[0] ?? "";
+                    const nome = f.NomeForm ?? values[1] ?? codice;
+                    const noteRaw = f.Note ?? "";
+                    const note = noteRaw ? ` - [${noteRaw}]` : "";
+                    const isSelected = (String(codice) === String(defaultVal)) ? "selected" : "";
+                    opts += `<option value="${codice}" ${isSelected}>${codice} - ${nome}${note}</option>`;
+                });
+                valueCell.innerHTML = `<select name="${field}" class="form-select form-select-sm">${opts}</select>`;
+            } else {
+                let defaultVal = "";
+                if (field === "et_kcodart") defaultVal = padre;
+                if (field === "et_kcodart_layer") defaultVal = figlio;
+                if (field === "et_layer_nriga") defaultVal = riga;
+                if (field === "originedati") defaultVal = "A";
+                
+                const readonlyAttr = readonlyFields.has(field) ? 'readonly class="form-control form-control-sm bg-light text-muted"' : 'class="form-control form-control-sm"';
+                valueCell.innerHTML = `<input type="text" name="${field}" value="${defaultVal}" ${readonlyAttr}>`;
+            }
+
+            row.appendChild(fieldCell);
+            appendDescCell(row, descStr);
+            row.appendChild(valueCell);
+
+            if (textareaFields.includes(field)) tbodyDesc.appendChild(row);
+            else if (booleanFields.includes(field)) tbodyBool.appendChild(row);
+            else if (tabSFields.includes(field)) tbodyS.appendChild(row);
+            else if (field.startsWith("et_sym")) tbodySym.appendChild(row);
+            else if (field.includes("disegno")) tbodyDisegno.appendChild(row);
+            else if (field.toLowerCase().includes("cb")) tbodyCb.appendChild(row);
+            else if (field.toLowerCase().includes("cli")) tbodyClienti.appendChild(row);
+            else if (field.startsWith("et_kr")) tbodyKr.appendChild(row);
+            else if (field.toLowerCase().includes("fabb")) tbodyFabb.appendChild(row);
+            else if (field.toLowerCase().includes("comp")) tbodyComp.appendChild(row);
+            else if (field.toLowerCase().includes("logo")) tbodyLogo.appendChild(row);
+            else tbodyMain.appendChild(row);
+        });
+
+        const descPadre = document.getElementById("displayDescPadre").textContent;
+        const descFiglioHtml = figlioDesc ? ` - ${figlioDesc}` : "";
+        selectedPairText.innerHTML = `<span class="badge bg-success-subtle text-success border border-success-subtle me-2" style="font-size: 0.7rem; padding: 0.2em 0.4em; vertical-align: middle;">new</span> <span class="text-primary fw-bold">${padre} ${descPadre}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">${figlio}${descFiglioHtml}</span> <span class="text-muted mx-1">▶</span> <span class="text-dark fw-bold">Riga: ${riga}</span>`;
+        const formCont = document.getElementById("formArea") || document.getElementById("recordTableArea");
+        if (formCont) formCont.style.borderLeft = "4px solid #198754";
+        recordTableArea.classList.remove("d-none");
+        step2Area.classList.add("d-none");
+        state.isDirty = false; // Reset per il form vuoto
     }
 
     async function saveRecord() {
@@ -537,13 +850,37 @@
             throw new Error(data.error || "Errore durante il salvataggio.");
         }
         showAlert(data.message || "Salvataggio completato con successo.", "success");
+        state.isDirty = false; // Reset del flag dopo salvataggio riuscito
     }
+
+    // Traccia qualsiasi input o cambio nel form
+    editForm.addEventListener("input", () => { state.isDirty = true; });
+    editForm.addEventListener("change", () => { state.isDirty = true; });
+
+    // Protezione chiusura scheda / ricaricamento pagina
+    window.addEventListener("beforeunload", (e) => {
+        if (state.isDirty) {
+            e.preventDefault();
+            e.returnValue = ""; // Standard per mostrare il prompt nativo del browser
+        }
+    });
 
     padreInput.addEventListener("input", async () => {
         try {
             await loadProducts(padreInput.value.trim());
         } catch (error) {
             showAlert(error.message, "danger");
+        }
+    });
+    padreInput.addEventListener("change", () => {
+        updateLiveDescPadre();
+    });
+
+    // Permette di caricare i componenti premendo Invio nel campo di input
+    padreInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault(); // Evita il ricaricamento accidentale della pagina
+            loadComponentsBtn.click();
         }
     });
 
@@ -563,22 +900,43 @@
         }
     });
 
-    changeProductBtn.addEventListener("click", () => {
+    changeProductBtn.addEventListener("click", async () => {
+        if (!(await checkUnsavedChanges())) return;
+        state.isDirty = false;
         step1Area.classList.remove("d-none");
         step2Area.classList.add("d-none");
         recordTableArea.classList.add("d-none");
+        resetRecordTableFormBorder();
         padreInput.value = "";
+        if (liveDescPadre) {
+            liveDescPadre.textContent = "";
+            liveDescPadre.title = "";
+        }
         padreInput.focus();
     });
 
-    backToComponentsBtn.addEventListener("click", () => {
+    backToComponentsBtn.addEventListener("click", async () => {
+        if (!(await checkUnsavedChanges())) return;
+        state.isDirty = false;
         recordTableArea.classList.add("d-none");
+        resetRecordTableFormBorder();
         step2Area.classList.remove("d-none");
     });
 
-    loadProducts().catch((error) => {
-        showAlert(error.message, "danger");
-    });
+    async function initEtPageData() {
+        await loadMetadata();
+        loadFormsList();
+        loadProducts().catch((error) => {
+            showAlert(error.message, "danger");
+        });
+    }
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => {
+            initEtPageData().catch((err) => console.error(err));
+        });
+    } else {
+        initEtPageData().catch((err) => console.error(err));
+    }
 
     function openMenuDrawer() {
         document.getElementById("menuDrawer").classList.add("is-open");

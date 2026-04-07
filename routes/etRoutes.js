@@ -1,5 +1,5 @@
 const express = require('express');
-const { sql, getPoolPE } = require('../config/db');
+const { sql, getPoolPE, getPoolET } = require('../config/db');
 const { authenticateToken } = require('../middlewares/auth');
 
 const router = express.Router();
@@ -29,12 +29,18 @@ router.get('/products', async (req, res) => {
             .input('qRaw', sql.NVarChar, queryText)
             .input('qLike', sql.NVarChar, queryText ? `${queryText}%` : '')
             .query(`
-            SELECT DISTINCT TOP 50 MD_coddb
+            SELECT TOP 50 MD_coddb, MAX(ISNULL(DescrPadre, '')) AS DescrPadre
             FROM [PE].[dbo].[Vis_01_DBEtich]
             WHERE (@qRaw = '' OR MD_coddb LIKE @qLike)
+            GROUP BY MD_coddb
             ORDER BY MD_coddb
         `);
-        const products = (productsRes.recordset || []).map((row) => row.MD_coddb).filter((c) => c != null);
+        const products = (productsRes.recordset || [])
+            .filter((row) => row.MD_coddb != null)
+            .map((row) => ({
+                codice: String(row.MD_coddb).trim(),
+                descrizione: row.DescrPadre != null ? String(row.DescrPadre) : ''
+            }));
         res.json({ products });
     } catch (err) {
         console.error('GET /products PE:', err);
@@ -42,28 +48,102 @@ router.get('/products', async (req, res) => {
     }
 });
 
+// Recupero lista Form per la combobox (stesso router di /products, /components, /label → /api/form-list)
+router.get('/form-list', async (req, res) => {
+    try {
+        const pool = await getPoolPE();
+        const result = await pool.request().query('SELECT * FROM [PE].[dbo].[Form] WHERE Valido = 1');
+        res.json(result.recordset || []);
+    } catch (error) {
+        console.error('Errore recupero tabella Form:', error);
+        res.status(500).json({ error: 'Errore recupero form' });
+    }
+});
+
+// Metadati MS_Description sulla tabella fisica [ET].[dbo].[UJ_Etichette] (connessione al catalogo ET su BCUBE2)
+async function queryUjEtichetteMetadata(pool) {
+    const result = await pool.request().query(`
+        SELECT
+            CAST(c.name AS VARCHAR(255)) AS Campo,
+            CAST(ep.value AS NVARCHAR(MAX)) AS Descrizione
+        FROM sys.extended_properties AS ep
+        INNER JOIN sys.columns AS c
+            ON ep.major_id = c.object_id
+            AND ep.minor_id = c.column_id
+        WHERE ep.name = N'MS_Description'
+          AND ep.major_id = OBJECT_ID(N'[dbo].[UJ_Etichette]')
+    `);
+    return result.recordset || [];
+}
+
+router.get('/et/metadata', async (req, res) => {
+    try {
+        const pool = await getPoolET();
+        const rows = await queryUjEtichetteMetadata(pool);
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /et/metadata:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Alias retrocompatibile — stesso payload array { Campo, Descrizione }
+router.get('/uj-etichette-column-descriptions', async (req, res) => {
+    try {
+        const pool = await getPoolET();
+        const rows = await queryUjEtichetteMetadata(pool);
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /uj-etichette-column-descriptions:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.get('/components/:padre', async (req, res) => {
     try {
         const pool = await getPoolPE();
-        const compRes = await pool.request()
+
+        // 1. Recupero la descrizione del padre dalla vista (con ISNULL per evitare valori nulli e alias esplicito)
+        const descRes = await pool.request()
             .input('padre', sql.NVarChar, req.params.padre)
+            .query(`SELECT TOP 1 ISNULL(DescrPadre, 'NESSUNA DESCRIZIONE') AS DescrizioneDato FROM [PE].[dbo].[Vis_01_DBEtich] WHERE MD_coddb = @padre`);
+
+        const padreDesc = descRes.recordset.length > 0 ? descRes.recordset[0].DescrizioneDato : 'CODICE NON TROVATO IN VIS_01';
+        console.log(`[DEBUG] Ricerca padre: ${req.params.padre} | Descrizione trovata: ${padreDesc}`); // Log backend
+
+        // 2. Recupero componenti dalla vista (BOM) e verifico esistenza in UJ_etichette
+        const compRes = await pool.request()
+            .input('padre', sql.NVarChar, req.params.padre.trim())
             .query(`
-            SELECT DISTINCT et_kcodart_layer AS MD_codfigli, et_layer_nriga
-            FROM [PE].[dbo].[UJ_etichette]
-            WHERE et_kcodart = @padre AND originedati = 'A'
-            ORDER BY et_kcodart_layer, et_layer_nriga
+            SELECT DISTINCT 
+                LTRIM(RTRIM(v.MD_codfigli)) AS MD_codfigli, 
+                v.md_riga AS et_layer_nriga,
+                ISNULL(v.DescrFiglio, '') AS figlioDesc,
+                CASE WHEN u.et_kcodart_layer IS NOT NULL THEN 1 ELSE 0 END AS IsConfigurata
+            FROM [PE].[dbo].[Vis_01_DBEtich] v
+            LEFT JOIN [PE].[dbo].[UJ_etichette] u
+                ON LTRIM(RTRIM(v.MD_coddb)) = LTRIM(RTRIM(u.et_kcodart))
+               AND LTRIM(RTRIM(v.MD_codfigli)) = LTRIM(RTRIM(u.et_kcodart_layer))
+               AND u.originedati = 'A'
+            WHERE LTRIM(RTRIM(v.MD_coddb)) = @padre
+            ORDER BY MD_codfigli, et_layer_nriga
         `);
+        
         const components = (compRes.recordset || []).map((row) => ({
             MD_codfigli: row.MD_codfigli,
-            et_kcodart_layer: row.MD_codfigli,
-            et_layer_nriga: row.et_layer_nriga
+            et_layer_nriga: row.et_layer_nriga,
+            figlioDesc: row.figlioDesc,
+            IsConfigurata: row.IsConfigurata
         }));
-        res.json({ components });
+
+        res.json({ components, padreDesc });
     } catch (err) {
         console.error('GET /components PE:', err);
         res.status(500).json({ error: err.message });
     }
 });
+
+
 
 router.get('/label', async (req, res) => {
     const kcodart = (req.query.et_kcodart || '').trim();
