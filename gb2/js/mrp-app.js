@@ -26,6 +26,9 @@ const MrpApp = (() => {
     };
 
     function init() {
+        // Init configurazione DB (badge + modale profili)
+        MrpDbConfig.init();
+
         // Navigazione tra view via nav buttons
         document.querySelectorAll('.mrp-nav-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -82,3 +85,5 @@ const MrpApp = (() => {
 
     return { init, switchView, state, API_BASE, confermaOrdine, rimuoviOrdine, getOrdiniConfermati, isArticoloConfermato, getKeyOrdine };
 })();
+
+document.addEventListener('DOMContentLoaded', MrpApp.init);

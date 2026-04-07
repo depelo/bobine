@@ -1,0 +1,60 @@
+/* ============================================
+   MRP DB CONFIG — Badge profilo DB nell'header
+   ============================================ */
+
+.mrp-header-center {
+    display: flex;
+    align-items: center;
+    margin: 0 auto;
+}
+
+.mrp-db-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--bg);
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 0.82rem;
+    color: var(--text);
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.mrp-db-badge:hover {
+    background: var(--primary-light);
+    border-color: var(--primary);
+}
+
+.mrp-db-badge-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #16a34a;
+    flex-shrink: 0;
+    animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.mrp-db-badge-label {
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.mrp-db-badge-server {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 400;
+}
+
+.mrp-db-badge-icon {
+    font-size: 1rem;
+    opacity: 0.5;
+}
