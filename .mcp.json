@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "mssql-ujet11": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@connorbritain/mssql-mcp-server@latest"],
+      "env": {
+        "SERVER_NAME": "192.168.0.163",
+        "DATABASE_NAME": "UJET11",
+        "SQL_AUTH_MODE": "sql",
+        "SQL_USERNAME": "sa",
+        "SQL_PASSWORD": "Risk0804",
+        "TRUST_SERVER_CERTIFICATE": "true",
+        "READONLY": "false",
+        "MAX_ROWS_DEFAULT": "100"
+      }
+    }
+  }
+}
