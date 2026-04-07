@@ -77,7 +77,7 @@
 /* --- COLORI PER TIPO ORDINE --- */
 .modal-row-ordforn td { background: #ffffff; }
 .modal-row-ordprod td { background: #fffde7; color: #1e293b; }
-.modal-row-impprod td { background: #fff3e0; color: #4e342e; }
+.modal-row-impprod td { background: var(--row-esaurito); color: var(--row-esaurito-text); }
 
 .modal-row-impprod:hover td,
 .modal-row-ordprod:hover td,
@@ -124,7 +124,7 @@
 }
 .legenda-ordforn::before { background: #ffffff; }
 .legenda-ordprod::before { background: #fffde7; }
-.legenda-impprod::before { background: #fff3e0; }
+.legenda-impprod::before { background: var(--row-esaurito); }
 
 /* Split View — pannello ordini */
 .split-ordini-card {
@@ -134,19 +134,7 @@
     overflow: hidden;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
-.split-ordini-card .matrioska-table tr.modal-row-impprod td { background: #fff3e0; }
+.split-ordini-card .matrioska-table tr.modal-row-impprod td { background: var(--row-esaurito); }
 .split-ordini-card .matrioska-table tr.modal-row-ordprod td { background: #fffde7; }
 .split-ordini-card .matrioska-table tr.modal-row-ordforn td { background: #ffffff; }
 
-/* Tema daltonismo — override colori modale */
-body.theme-colorblind .modal-row-impprod td {
-    background: #e0f2f1 !important;
-    color: #004d40 !important;
-    background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0, 77, 64, 0.04) 10px, rgba(0, 77, 64, 0.04) 20px) !important;
-}
-body.theme-colorblind .modal-row-ordprod td {
-    background: #e3f2fd !important;
-    color: #0d47a1 !important;
-}
-body.theme-colorblind .legenda-impprod::before { background: #e0f2f1; }
-body.theme-colorblind .legenda-ordprod::before { background: #e3f2fd; }

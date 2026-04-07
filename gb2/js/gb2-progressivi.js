@@ -171,17 +171,6 @@ const MrpProgressivi = (() => {
             });
         }
 
-        const chkColorblind = document.getElementById('chkColorblind');
-        if (chkColorblind) {
-            chkColorblind.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    document.body.classList.add('theme-colorblind');
-                } else {
-                    document.body.classList.remove('theme-colorblind');
-                }
-            });
-        }
-
         // --- MODALE: Drill-through su bottone 🔍 Imp.Prod ---
         const tblModal = document.getElementById('tblModalOrdini');
         if (tblModal) {

@@ -28,7 +28,7 @@
 }
 .mrp-table thead { position: sticky; top: 0; z-index: 10; }
 .mrp-table th {
-    background: #334155;
+    background: var(--table-header-bg);
     color: white;
     padding: 8px 10px;
     text-align: center;
@@ -36,14 +36,14 @@
     font-size: 0.78rem;
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    border-right: 1px solid #475569;
+    border-right: 1px solid var(--table-header-border);
     position: sticky;
     top: 0;
 }
 .mrp-table td {
     padding: 6px 10px;
-    border-right: 1px solid #e2e8f0;
-    border-bottom: 1px solid #e2e8f0;
+    border-right: 1px solid var(--table-border-color);
+    border-bottom: 1px solid var(--table-border-color);
 }
 
 /* Colonne numeriche allineate a destra */
@@ -61,13 +61,13 @@
 .mrp-table tr.row-magazzino td { background: var(--row-magazzino); color: var(--row-magazzino-text); }
 .mrp-table tr.row-totale td { background: var(--row-totale); color: var(--row-totale-text); font-weight: 700; }
 .mrp-table tr.mrp-row-totale td {
-    background-color: #fef08a;
+    background-color: var(--row-totale);
     color: var(--row-totale-text);
     font-weight: 700;
 }
 .mrp-table tr.row-figlio td { background: var(--row-figlio); color: var(--row-figlio-text); }
 .mrp-table tr.row-figlio-alt td { background: var(--row-figlio-alt); }
-.mrp-table tr.row-totale-nero td:last-child { background: #1e293b; color: #fff; }
+.mrp-table tr.row-totale-nero td:last-child { background: var(--mrp-row-generale-totale); color: #fff; }
 
 /* Responsive */
 @media (max-width: 768px) {
@@ -81,8 +81,8 @@
 
 /* Stile esaurito */
 .mrp-table tr.row-esaurito td {
-    background: #fff3e0 !important;
-    color: #bf360c !important;
+    background: var(--row-esaurito) !important;
+    color: var(--row-esaurito-text) !important;
 }
 
 .code-dim {
@@ -132,7 +132,7 @@
 }
 .matrioska-section-title:not(:first-child) {
     margin-top: 24px;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--table-border-color);
     padding-top: 16px;
 }
 .matrioska-table {
@@ -142,22 +142,22 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 .matrioska-table th {
-    background: #e2e8f0;
+    background: var(--table-border-color);
     font-size: 11px;
     padding: 6px;
     text-align: left;
 }
 .matrioska-table td {
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--table-border-color);
     padding: 6px;
     font-size: 12px;
 }
 .matrioska-table.table-bom-data thead {
-    background: #334155;
+    background: var(--table-header-bg);
     color: white;
 }
 .matrioska-table.table-bom-data thead th {
-    background: #334155;
+    background: var(--table-header-bg);
     color: white;
 }
 .matrioska-table tr.row-magazzino td {
@@ -165,11 +165,11 @@
     color: var(--row-magazzino-text);
 }
 .matrioska-table tr.row-esaurito td {
-    background: #fff3e0 !important;
-    color: #bf360c !important;
+    background: var(--row-esaurito) !important;
+    color: var(--row-esaurito-text) !important;
 }
 .matrioska-table tr.mrp-row-totale td {
-    background-color: #fef08a;
+    background-color: var(--row-totale);
     font-weight: bold;
 }
 .cell-valore-totale { font-weight: 600; color: var(--primary-dark); }
@@ -255,45 +255,21 @@ body:not(.show-scaduti) .mrp-table tr.row-scaduto + tr.matrioska-nested-row {
     filter: brightness(0.95);
 }
 
-/* --- TEMA DALTONISMO --- */
-body.theme-colorblind {
-    --danger: #d55e00;
-    --success: #0072b2;
-    --row-magazzino: #e6f0f9;
-    --row-esaurito: #fef0d9;
-}
-body.theme-colorblind .mrp-table tr.row-esaurito td,
-body.theme-colorblind .matrioska-table tr.row-esaurito td {
-    color: #d55e00 !important;
-    font-weight: 800;
-    background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(213, 94, 0, 0.05) 10px, rgba(213, 94, 0, 0.05) 20px) !important;
-}
-body.theme-colorblind .scaduto-badge {
-    background: #000;
-    color: #fff;
-    border: 1px solid #fff;
-    border-radius: 0;
-}
-body.theme-colorblind .mrp-table tr.row-scaduto .mrp-desc-articolo {
-    text-decoration-color: #000;
-    text-decoration-style: wavy;
-}
-
 /* --- RIGA TOTALE CROSS-FASE (rossa in Access) --- */
 .mrp-table tr.mrp-row-totale-cross td {
-    background: #e53935 !important;
+    background: var(--mrp-row-totale-cross) !important;
     color: #ffffff !important;
     font-weight: 700;
 }
 .matrioska-table tr.mrp-row-totale-cross td {
-    background: #e53935 !important;
+    background: var(--mrp-row-totale-cross) !important;
     color: #ffffff !important;
     font-weight: 700;
 }
 
 /* --- RIGA GENERALE TOTALE (nera con disp verde in Access) --- */
 .mrp-table tr.mrp-row-generale-totale td {
-    background: #1e293b !important;
+    background: var(--mrp-row-generale-totale) !important;
     color: #ffffff !important;
     font-weight: 700;
 }
@@ -323,32 +299,32 @@ body.theme-colorblind .mrp-table tr.row-scaduto .mrp-desc-articolo {
 
 .split-mrp-section-header td {
     padding: 0;
-    border-bottom: 1px solid var(--border, #e2e8f0);
+    border-bottom: 1px solid var(--border, var(--table-border-color));
 }
 
 /* Blocchi MRP esaurimento / sostitutivo / combinato */
 .mrp-table tr.mrp-row-totale-cross.mrp-blocco-esaurimento td,
 .matrioska-table tr.mrp-row-totale-cross.mrp-blocco-esaurimento td {
-    background: #e65100 !important;
+    background: var(--mrp-blocco-esaurimento) !important;
     color: #ffffff !important;
     font-weight: 700;
 }
 .mrp-table tr.mrp-row-totale-cross.mrp-blocco-sostitutivo td,
 .matrioska-table tr.mrp-row-totale-cross.mrp-blocco-sostitutivo td {
-    background: #c62828 !important;
+    background: var(--mrp-blocco-sostitutivo) !important;
     color: #ffffff !important;
     font-weight: 700;
 }
 .mrp-table tr.mrp-row-totale-cross.mrp-blocco-combinato td,
 .matrioska-table tr.mrp-row-totale-cross.mrp-blocco-combinato td {
-    background: #ad1457 !important;
+    background: var(--mrp-blocco-combinato) !important;
     color: #ffffff !important;
     font-weight: 700;
 }
 
 .mrp-table tr.row-magazzino.mrp-blocco-esaurimento td,
 .matrioska-table tr.row-magazzino.mrp-blocco-esaurimento td {
-    background: #fff3e0 !important;
+    background: var(--row-esaurito) !important;
 }
 .mrp-table tr.row-magazzino.mrp-blocco-sostitutivo td,
 .matrioska-table tr.row-magazzino.mrp-blocco-sostitutivo td {
@@ -431,20 +407,8 @@ body.theme-colorblind .mrp-table tr.row-scaduto .mrp-desc-articolo {
     gap: 12px;
     padding: 4px 14px;
     background: #fafafa;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--table-border-color);
     font-size: 0.72rem;
 }
 #splitOrdiniContent { max-height: 500px; overflow-y: auto; }
 
-body.theme-colorblind .mrp-table tr.mrp-row-totale-cross td,
-body.theme-colorblind .matrioska-table tr.mrp-row-totale-cross td {
-    background: #d55e00 !important;
-    background-image: repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.1) 8px, rgba(255,255,255,0.1) 16px) !important;
-}
-
-body.theme-colorblind .split-ordini-card .matrioska-table tr.modal-row-impprod td {
-    background: #e0f2f1 !important;
-}
-body.theme-colorblind .split-ordini-card .matrioska-table tr.modal-row-ordprod td {
-    background: #e3f2fd !important;
-}

@@ -8,7 +8,7 @@ const { authenticateToken } = require('../middlewares/auth');
 // Deploy oggetti SQL — fuori dalla factory perché serve anche all'avvio del server
 async function deployMrpObjects(poolMRP) {
     const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
-    const files = ['create_ordini_emessi.sql', 'usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql'];
+    const files = ['create_ordini_emessi.sql', 'usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql', 'create_user_preferences.sql'];
     const results = [];
     for (const file of files) {
         const filePath = path.join(sqlDir, file);
@@ -1445,6 +1445,72 @@ router.get('/health', authMiddleware, async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ status: 'error', error: err.message });
+    }
+});
+
+// ============================================================
+// API 6: USER PREFERENCES (color themes)
+// ============================================================
+
+router.get('/user/preferences', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user?.globalId;
+        if (!userId) {
+            return res.json({ colorPreset: 'default', customColors: {} });
+        }
+        const pool = await getPoolMRP();
+        const result = await pool.request()
+            .input('userId', sql.Int, userId)
+            .query('SELECT ColorPreset, CustomColors FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @userId');
+
+        if (result.recordset.length === 0) {
+            return res.json({ colorPreset: 'default', customColors: {} });
+        }
+
+        const row = result.recordset[0];
+        let customColors = {};
+        try { customColors = JSON.parse(row.CustomColors || '{}'); } catch (e) {}
+
+        res.json({
+            colorPreset: row.ColorPreset || 'default',
+            customColors
+        });
+    } catch (err) {
+        console.error('[GB2] Errore GET /user/preferences:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/user/preferences', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user?.globalId;
+        if (!userId) {
+            return res.json({ success: true });
+        }
+        const { colorPreset, customColors } = req.body;
+        const pool = await getPoolMRP();
+
+        const colorsJson = JSON.stringify(customColors || {});
+
+        await pool.request()
+            .input('userId', sql.Int, userId)
+            .input('preset', sql.VarChar(50), colorPreset || 'default')
+            .input('colors', sql.NVarChar(sql.MAX), colorsJson)
+            .query(`
+                MERGE [GB2].[dbo].[UserPreferences] AS target
+                USING (SELECT @userId AS IDUser) AS source
+                ON target.IDUser = source.IDUser
+                WHEN MATCHED THEN
+                    UPDATE SET ColorPreset = @preset, CustomColors = @colors, UpdatedAt = GETDATE()
+                WHEN NOT MATCHED THEN
+                    INSERT (IDUser, ColorPreset, CustomColors, UpdatedAt)
+                    VALUES (@userId, @preset, @colors, GETDATE());
+            `);
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[GB2] Errore POST /user/preferences:', err);
+        res.status(500).json({ error: err.message });
     }
 });
 

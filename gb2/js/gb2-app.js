@@ -26,6 +26,9 @@ const MrpApp = (() => {
     };
 
     function init() {
+        // Init tema colori (prima di tutto per prevenire FOUC)
+        MrpTheme.init();
+
         // Init configurazione DB (badge + modale profili)
         MrpDbConfig.init();
 

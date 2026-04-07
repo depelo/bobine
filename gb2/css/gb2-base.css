@@ -29,6 +29,22 @@
     --row-figlio: #e8f5e9;
     --row-figlio-text: #1e293b;
     --row-figlio-alt: #f1f8e9;
+
+    /* Riga esaurito */
+    --row-esaurito: #fff3e0;
+    --row-esaurito-text: #bf360c;
+
+    /* Tabella struttura */
+    --table-header-bg: #334155;
+    --table-header-border: #475569;
+    --table-border-color: #e2e8f0;
+
+    /* Blocchi MRP */
+    --mrp-blocco-esaurimento: #e65100;
+    --mrp-blocco-sostitutivo: #c62828;
+    --mrp-blocco-combinato: #ad1457;
+    --mrp-row-totale-cross: #e53935;
+    --mrp-row-generale-totale: #1e293b;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

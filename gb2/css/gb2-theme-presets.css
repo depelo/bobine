@@ -1,0 +1,78 @@
+/* ============================================
+   MRP THEME PRESETS — Preset daltonismo e
+   alto contrasto via data-theme su <html>
+   ============================================ */
+
+/* Preset: Deuteranopia (cecità rosso-verde tipo 2) — Palette Wong */
+html[data-theme="deuteranopia"] {
+    --danger: #d55e00;
+    --success: #0072b2;
+    --warning: #e69f00;
+    --row-padre: #004060;
+    --row-magazzino: #e6f0f9;
+    --row-totale: #f0e442;
+    --row-figlio: #e6f0f9;
+    --row-figlio-alt: #f0f6fc;
+    --row-esaurito: #fef0d9;
+    --row-esaurito-text: #d55e00;
+    --mrp-blocco-esaurimento: #d55e00;
+    --mrp-blocco-sostitutivo: #0072b2;
+    --mrp-blocco-combinato: #cc79a7;
+    --mrp-row-totale-cross: #d55e00;
+}
+
+/* Preset: Protanopia (cecità al rosso) */
+html[data-theme="protanopia"] {
+    --danger: #b35900;
+    --success: #0072b2;
+    --warning: #e69f00;
+    --primary: #0072b2;
+    --primary-dark: #005080;
+    --primary-light: #d6eaf8;
+    --row-padre: #003050;
+    --row-magazzino: #d6eaf8;
+    --row-totale: #f0e442;
+    --row-figlio: #d6eaf8;
+    --row-figlio-alt: #e8f4fc;
+    --row-esaurito: #fff2cc;
+    --row-esaurito-text: #b35900;
+    --mrp-blocco-esaurimento: #b35900;
+    --mrp-blocco-sostitutivo: #0072b2;
+    --mrp-blocco-combinato: #9467bd;
+    --mrp-row-totale-cross: #b35900;
+}
+
+/* Preset: Alto Contrasto */
+html[data-theme="high-contrast"] {
+    --primary: #0050a0;
+    --primary-dark: #003070;
+    --primary-light: #cce0ff;
+    --bg: #ffffff;
+    --bg-content: #ffffff;
+    --text: #000000;
+    --text-muted: #333333;
+    --border: #000000;
+    --input-bg: #ffffff;
+    --danger: #cc0000;
+    --success: #006600;
+    --warning: #cc6600;
+    --row-padre: #000000;
+    --row-padre-text: #ffffff;
+    --row-magazzino: #e6ffe6;
+    --row-magazzino-text: #000000;
+    --row-totale: #ffff00;
+    --row-totale-text: #000000;
+    --row-figlio: #f0f0f0;
+    --row-figlio-text: #000000;
+    --row-figlio-alt: #e8e8e8;
+    --row-esaurito: #ffe0cc;
+    --row-esaurito-text: #cc0000;
+    --table-header-bg: #000000;
+    --table-header-border: #333333;
+    --table-border-color: #000000;
+    --mrp-blocco-esaurimento: #cc6600;
+    --mrp-blocco-sostitutivo: #0000cc;
+    --mrp-blocco-combinato: #660066;
+    --mrp-row-totale-cross: #cc0000;
+    --mrp-row-generale-totale: #000000;
+}
