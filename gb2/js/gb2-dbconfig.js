@@ -60,7 +60,7 @@ const MrpDbConfig = (() => {
             banner.style.fontWeight = '700';
             banner.style.fontSize = '0.85rem';
             banner.style.letterSpacing = '0.5px';
-            banner.style.zIndex = '999';
+            banner.style.zIndex = '100';
             if (email) {
                 banner.innerHTML = '\uD83D\uDD27 AMBIENTE DI PROVA \u2014 Le email vengono inviate a <strong>' + esc(email) + '</strong> invece che ai fornitori';
             } else {
@@ -74,7 +74,7 @@ const MrpDbConfig = (() => {
             banner.style.padding = '5px 16px';
             banner.style.fontWeight = '600';
             banner.style.fontSize = '0.78rem';
-            banner.style.zIndex = '999';
+            banner.style.zIndex = '100';
             banner.innerHTML = '\u26A1 PRODUZIONE';
         }
     }

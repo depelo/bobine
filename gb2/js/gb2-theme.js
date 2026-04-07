@@ -148,6 +148,8 @@ const MrpTheme = (() => {
 
     let currentPreset = 'default';
     let customColors = {};
+    let customLabels = {};
+    let dirty = false;
     let panelOpen = false;
     let editMode = false;
     let miniPicker = null;
@@ -168,6 +170,7 @@ const MrpTheme = (() => {
                 const data = JSON.parse(cached);
                 currentPreset = data.colorPreset || 'default';
                 customColors = data.customColors || {};
+                customLabels = data.customLabels || {};
                 applyPresetInternal(currentPreset, customColors);
             } catch (e) {
                 console.warn('[MrpTheme] Cache locale corrotta, uso default');
@@ -180,6 +183,10 @@ const MrpTheme = (() => {
         // 3. Listener globali
         document.addEventListener('keydown', onKeyDown);
         document.body.addEventListener('click', onBodyClick);
+
+        // 4. Bottone apertura pannello
+        const btnOpen = document.getElementById('btnOpenTheme');
+        if (btnOpen) btnOpen.addEventListener('click', openPanel);
     }
 
     function fetchServerPreferences() {
@@ -193,13 +200,15 @@ const MrpTheme = (() => {
                 if (!data) return;
                 const serverPreset = data.colorPreset || 'default';
                 const serverColors = data.customColors || {};
+                const serverLabels = data.customLabels || {};
 
                 // Confronta con cache: se diverso, aggiorna
-                const cacheStr = JSON.stringify({ colorPreset: currentPreset, customColors });
-                const serverStr = JSON.stringify({ colorPreset: serverPreset, customColors: serverColors });
+                const cacheStr = JSON.stringify({ colorPreset: currentPreset, customColors, customLabels });
+                const serverStr = JSON.stringify({ colorPreset: serverPreset, customColors: serverColors, customLabels: serverLabels });
                 if (cacheStr !== serverStr) {
                     currentPreset = serverPreset;
                     customColors = serverColors;
+                    customLabels = serverLabels;
                     applyPresetInternal(currentPreset, customColors);
                     updateLocalStorage();
                 }
@@ -310,7 +319,8 @@ const MrpTheme = (() => {
     function updateLocalStorage() {
         localStorage.setItem('mrp-theme', JSON.stringify({
             colorPreset: currentPreset,
-            customColors
+            customColors,
+            customLabels
         }));
     }
 
@@ -360,6 +370,11 @@ const MrpTheme = (() => {
         panelOpen = false;
         editMode = false;
         removeMiniPicker();
+        // Auto-save alla chiusura
+        if (dirty) {
+            save();
+            dirty = false;
+        }
     }
 
     // --------------------------------------------------------
@@ -389,7 +404,6 @@ const MrpTheme = (() => {
             </div>
             <div class="mrp-theme-panel-footer">
                 <button class="mrp-theme-btn mrp-theme-btn-reset" id="mrpThemeResetAll">Reset</button>
-                <button class="mrp-theme-btn mrp-theme-btn-save" id="mrpThemeSave">Salva</button>
                 <span class="mrp-theme-feedback" id="mrpThemeFeedback"></span>
             </div>
         `;
@@ -403,8 +417,8 @@ const MrpTheme = (() => {
         panel.querySelector('#mrpThemeResetAll').addEventListener('click', () => {
             reset();
             populatePanel();
+            dirty = true;
         });
-        panel.querySelector('#mrpThemeSave').addEventListener('click', save);
 
         return panel;
     }
@@ -435,12 +449,13 @@ const MrpTheme = (() => {
 
             group.vars.forEach(v => {
                 const val = getCurrentValue(v.name);
+                const displayLabel = customLabels[v.name] || v.label;
                 const row = document.createElement('div');
                 row.className = 'mrp-theme-row';
                 row.dataset.varName = v.name;
 
                 row.innerHTML = `
-                    <span class="mrp-theme-label" title="${v.name}">${v.label}</span>
+                    <span class="mrp-theme-label" title="${v.name} — doppio click per rinominare">${displayLabel}</span>
                     <div class="mrp-theme-swatch-wrap">
                         <input type="color" class="mrp-theme-swatch" value="${normalizeHex(val)}" data-var="${v.name}">
                     </div>
@@ -448,11 +463,51 @@ const MrpTheme = (() => {
                     <button class="mrp-theme-row-reset" data-var="${v.name}" title="Ripristina default">&circlearrowright;</button>
                 `;
 
+                // Label editabile con doppio click
+                const labelSpan = row.querySelector('.mrp-theme-label');
+                function attachLabelEdit(span) {
+                    span.addEventListener('dblclick', function onDblClick() {
+                        const currentText = customLabels[v.name] || v.label;
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = 'mrp-theme-label-edit';
+                        input.value = currentText;
+                        input.style.cssText = 'width:100%;font-size:0.78rem;padding:2px 4px;border:1px solid var(--primary);border-radius:3px;outline:none;';
+                        span.replaceWith(input);
+                        input.focus();
+                        input.select();
+
+                        function commitLabel() {
+                            const newLabel = input.value.trim() || v.label;
+                            if (newLabel !== v.label) {
+                                customLabels[v.name] = newLabel;
+                            } else {
+                                delete customLabels[v.name];
+                            }
+                            const newSpan = document.createElement('span');
+                            newSpan.className = 'mrp-theme-label';
+                            newSpan.title = v.name + ' \u2014 doppio click per rinominare';
+                            newSpan.textContent = newLabel;
+                            input.replaceWith(newSpan);
+                            attachLabelEdit(newSpan);
+                            dirty = true;
+                            updateLocalStorage();
+                        }
+                        input.addEventListener('blur', commitLabel);
+                        input.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                            if (e.key === 'Escape') { input.value = v.label; input.blur(); }
+                        });
+                    });
+                }
+                attachLabelEdit(labelSpan);
+
                 // Swatch change
                 row.querySelector('.mrp-theme-swatch').addEventListener('input', (e) => {
                     const color = e.target.value;
                     setColor(v.name, color);
                     row.querySelector('.mrp-theme-hex').value = color;
+                    dirty = true;
                 });
 
                 // Hex input
@@ -462,6 +517,7 @@ const MrpTheme = (() => {
                     if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
                         setColor(v.name, raw);
                         row.querySelector('.mrp-theme-swatch').value = raw;
+                        dirty = true;
                     }
                 });
 
@@ -469,13 +525,13 @@ const MrpTheme = (() => {
                 row.querySelector('.mrp-theme-row-reset').addEventListener('click', () => {
                     delete customColors[v.name];
                     document.documentElement.style.removeProperty(v.name);
-                    // Riapplica preset se non custom
                     if (currentPreset !== 'custom' && PRESETS[currentPreset] && PRESETS[currentPreset][v.name]) {
                         document.documentElement.style.setProperty(v.name, PRESETS[currentPreset][v.name]);
                     }
                     const defVal = getResetValue(v.name);
                     row.querySelector('.mrp-theme-swatch').value = normalizeHex(defVal);
                     hexInput.value = normalizeHex(defVal);
+                    dirty = true;
                     updateLocalStorage();
                 });
 
@@ -653,7 +709,8 @@ const MrpTheme = (() => {
     function save() {
         const payload = {
             colorPreset: currentPreset,
-            customColors
+            customColors,
+            customLabels
         };
 
         updateLocalStorage();

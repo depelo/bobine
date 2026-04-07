@@ -14,3 +14,16 @@ ELSE
 BEGIN
     PRINT 'Tabella [GB2].[dbo].[UserPreferences] esiste gia.';
 END
+GO
+
+-- Aggiunta colonna CustomLabels se non esiste
+IF NOT EXISTS (
+    SELECT 1 FROM [GB2].sys.columns
+    WHERE object_id = OBJECT_ID('[GB2].[dbo].[UserPreferences]')
+      AND name = 'CustomLabels'
+)
+BEGIN
+    ALTER TABLE [GB2].[dbo].[UserPreferences]
+    ADD CustomLabels NVARCHAR(MAX) NOT NULL DEFAULT '{}';
+    PRINT 'Colonna CustomLabels aggiunta.';
+END

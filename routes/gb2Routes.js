@@ -1456,24 +1456,27 @@ router.get('/user/preferences', authMiddleware, async (req, res) => {
     try {
         const userId = req.user?.globalId;
         if (!userId) {
-            return res.json({ colorPreset: 'default', customColors: {} });
+            return res.json({ colorPreset: 'default', customColors: {}, customLabels: {} });
         }
         const pool = await getPoolMRP();
         const result = await pool.request()
             .input('userId', sql.Int, userId)
-            .query('SELECT ColorPreset, CustomColors FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @userId');
+            .query('SELECT ColorPreset, CustomColors, CustomLabels FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @userId');
 
         if (result.recordset.length === 0) {
-            return res.json({ colorPreset: 'default', customColors: {} });
+            return res.json({ colorPreset: 'default', customColors: {}, customLabels: {} });
         }
 
         const row = result.recordset[0];
         let customColors = {};
+        let customLabels = {};
         try { customColors = JSON.parse(row.CustomColors || '{}'); } catch (e) {}
+        try { customLabels = JSON.parse(row.CustomLabels || '{}'); } catch (e) {}
 
         res.json({
             colorPreset: row.ColorPreset || 'default',
-            customColors
+            customColors,
+            customLabels
         });
     } catch (err) {
         console.error('[GB2] Errore GET /user/preferences:', err);
@@ -1487,24 +1490,26 @@ router.post('/user/preferences', authMiddleware, async (req, res) => {
         if (!userId) {
             return res.json({ success: true });
         }
-        const { colorPreset, customColors } = req.body;
+        const { colorPreset, customColors, customLabels } = req.body;
         const pool = await getPoolMRP();
 
         const colorsJson = JSON.stringify(customColors || {});
+        const labelsJson = JSON.stringify(customLabels || {});
 
         await pool.request()
             .input('userId', sql.Int, userId)
             .input('preset', sql.VarChar(50), colorPreset || 'default')
             .input('colors', sql.NVarChar(sql.MAX), colorsJson)
+            .input('labels', sql.NVarChar(sql.MAX), labelsJson)
             .query(`
                 MERGE [GB2].[dbo].[UserPreferences] AS target
                 USING (SELECT @userId AS IDUser) AS source
                 ON target.IDUser = source.IDUser
                 WHEN MATCHED THEN
-                    UPDATE SET ColorPreset = @preset, CustomColors = @colors, UpdatedAt = GETDATE()
+                    UPDATE SET ColorPreset = @preset, CustomColors = @colors, CustomLabels = @labels, UpdatedAt = GETDATE()
                 WHEN NOT MATCHED THEN
-                    INSERT (IDUser, ColorPreset, CustomColors, UpdatedAt)
-                    VALUES (@userId, @preset, @colors, GETDATE());
+                    INSERT (IDUser, ColorPreset, CustomColors, CustomLabels, UpdatedAt)
+                    VALUES (@userId, @preset, @colors, @labels, GETDATE());
             `);
 
         res.json({ success: true });

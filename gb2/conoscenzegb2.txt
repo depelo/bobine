@@ -1,0 +1,588 @@
+================================================================================
+  CONOSCENZE PROGETTO GB2 (Gabriele 2.0) — APP MRP WEB
+  Modulo integrato nell'ecosistema PortalUjet
+  Documento destinato a un'IA che prende in mano il progetto
+  Data: 7 Aprile 2026
+================================================================================
+
+INDICE
+------
+1. CONTESTO E POSIZIONAMENTO NELL'ECOSISTEMA
+2. ARCHITETTURA TECNICA
+3. STRUTTURA FILE DEL PROGETTO
+4. DATABASE — STRUTTURA E RELAZIONI
+5. BACKEND — API REST COMPLETE
+6. FRONTEND — ARCHITETTURA SPA
+7. FLUSSO MRP — LOGICA DI BUSINESS
+8. FLUSSO EMISSIONE ORDINI FORNITORE
+9. GENERAZIONE PDF E INVIO EMAIL
+10. GESTIONE PROFILI DB (MULTI-AMBIENTE)
+11. SISTEMA TEMI E COLORI PERSONALIZZABILI
+12. INTEGRAZIONE LAYER 2 (PORTALUJET)
+13. SVILUPPO LOCALE CON VITE
+14. AUTO-DEPLOY SQL
+15. PRINCIPI ARCHITETTURALI
+16. PROBLEMI NOTI E AVVERTENZE
+17. GLOSSARIO
+18. PERSONE DI RIFERIMENTO
+
+
+================================================================================
+1. CONTESTO E POSIZIONAMENTO NELL'ECOSISTEMA
+================================================================================
+
+GB2 (Gabriele 2.0) e l'app MRP (Material Requirements Planning) di U.Jet s.r.l.
+Sostituisce un vecchio programma Access VBA collegato al database ERP BCube.
+
+GB2 e integrata nell'ecosistema PortalUjet come modulo dipartimentale,
+seguendo il paradigma "1 App = 1 Database = 1 Visto":
+  - Database silos: [GB2] su 192.168.0.163
+  - Tabella Visto: [GB2].[dbo].[Operators] (IDOperator, IDUser, Admin, IsActive)
+  - Registrata in [GA].[dbo].[Modules] come IDModule = 4, TargetDb = 'GB2'
+  - Ruoli: Admin (UAD = Ufficio Admin) e Base (UAC = Ufficio Acquisti)
+  - ENTRAMBI i ruoli richiedono password (diverso da Bobine dove Base no)
+
+Il Captain Console gestisce l'assegnazione dei visti (permessi) agli utenti.
+Dopo l'assegnazione, l'utente vede "Gabriele 2.0" nel menu laterale.
+
+NOTA IMPORTANTE: Il file conoscenze.txt nella root del progetto bobine contiene
+le regole architetturali generali di PortalUjet (Passaporto/Visto, Zero-Trust,
+pool isolati, ecc.). Quelle regole si applicano anche a GB2. Questo documento
+copre solo le specificita dell'app GB2/MRP.
+
+
+================================================================================
+2. ARCHITETTURA TECNICA
+================================================================================
+
+Stack:
+  - Backend: Node.js + Express, integrato nel server.js principale (porta 443)
+  - Database: SQL Server 2022 su 192.168.0.163
+  - Frontend: SPA vanilla (HTML + CSS + JS, NO framework)
+  - PDF: PDFKit (server-side)
+  - Email: Nodemailer
+  - Libreria DB: mssql (node-mssql)
+  - Dev server: Vite (porta 3000)
+
+Database utilizzati:
+  - UJET11: dati ERP BCube (articoli, ordini, magazzini, movimenti)
+  - MRP: tabelle custom (ordini_emessi, stored procedures)
+  - GB2: silos dell'app (Operators per i visti, UserPreferences per le preferenze)
+
+Gestione connessioni:
+  - config/db-mrp.js: pool dedicati per UJET11 e MRP con profili dinamici
+  - config/db.js (principale): pool per GA, PE, ET, BOB (NON usato da GB2)
+  - Le rotte GB2 usano SOLO db-mrp.js, MAI db.js
+  - Per accedere a [GB2] si usa cross-database dal pool MRP
+
+
+================================================================================
+3. STRUTTURA FILE DEL PROGETTO
+================================================================================
+
+I file di GB2 sono distribuiti nella root del progetto bobine:
+
+  routes/
+    gb2Routes.js              # TUTTE le API REST (~1950 righe). File centrale.
+                              # Factory function: createGb2Routes({ io, skipAuth })
+                              # skipAuth=true in dev (Vite), false in produzione
+
+  config/
+    db-mrp.js                 # Pool UJET11 + MRP con profili dinamici e switch
+    db-profiles-mrp.json      # File persistente profili DB (in .gitignore!)
+    smtp-mrp.js               # Gestione SMTP legata ai profili DB
+
+  gb2/
+    conoscenzegb2.txt         # Questo file
+    css/
+      gb2-shell.css           # Layout shell Layer 2 (sidebar, topbar)
+      gb2-base.css            # Reset, variabili CSS, layout base, tipografia
+      gb2-parametri.css       # Stili form parametri
+      gb2-progressivi.css     # Stili griglia progressivi
+      gb2-proposta.css        # Stili foglio proposta ordini
+      gb2-modali.css          # Stili modali
+      gb2-dbconfig.css        # Stili pannello configurazione DB
+      gb2-decisione.css       # Stili pannello decisionale
+      gb2-theme.css           # Stili pannello personalizzazione colori
+      gb2-theme-presets.css   # Preset tematici (deuteranopia, protanopia, alto contrasto)
+    js/
+      gb2-app.js              # Orchestratore: routing, stato globale, init
+      gb2-bootstrap.js        # Layer 2: sidebar, menu dinamico app
+      gb2-theme.js            # Sistema temi: 30 variabili CSS, preset, editing contestuale
+      gb2-parametri.js        # Logica form parametri: combo articoli, fasi, magazzini
+      gb2-progressivi.js      # Logica griglia progressivi e chart
+      gb2-proposta.js         # Logica proposte ordine: rendering, conferma, emissione
+      gb2-dbconfig.js         # Logica configurazione profili DB e SMTP
+
+  gb2.html                    # Pagina unica SPA (header, nav, views, modali)
+
+  sql/mrp/
+    create_ordini_emessi.sql  # DDL tabella registro emissioni
+    create_user_preferences.sql # DDL tabella preferenze utente (colori, label)
+    usp_CreaOrdineFornitore.sql # SP creazione ordine atomico
+    usp_AggiornaStatoInvioOrdine.sql # SP aggiornamento stato invio
+
+  utils/
+    pdfOrdine.js              # Generazione PDF ordine fornitore
+
+  setup-gb2.js                # Script one-time: crea DB GB2, registra modulo in GA
+
+  vite.config.js              # Dev server con plugin backend integrato
+
+FILE IN .GITIGNORE:
+  - config/db-profiles-mrp.json (contiene credenziali, varia per ambiente)
+  - .env
+  - node_modules/
+
+
+================================================================================
+4. DATABASE — STRUTTURA E RELAZIONI
+================================================================================
+
+--- DATABASE UJET11 (BCube — NON modificare la struttura!) ---
+
+  artico (ar_*)         Anagrafica articoli
+  artfasi (af_*)        Fasi di lavorazione per articolo
+  anagra (an_*)         Anagrafica clienti/fornitori
+  testord (td_*)        Testate ordini (clienti e fornitori)
+  movord (mo_*)         Righe ordini
+  movmag (mm_*)         Movimenti di magazzino
+  imperim (im_*)        Impegni di materiale
+  ordlist (ol_*)        Lista ordini MRP (generata da BCube)
+  artpro (ap_*)         Progressivi articolo/magazzino
+  tabmaga (tb_*)        Anagrafica magazzini
+  tabciva (ci_*)        Aliquote IVA
+  tabnuma               Numeratori BCube
+  Analisi_scorte        Vista BCube per consumi storici
+
+  Per i dettagli delle colonne, consultare conoscenze.txt nella root
+  del progetto (sezione "Gabriele2.0/conoscenze.txt").
+
+--- DATABASE MRP (tabelle custom) ---
+
+  ordini_emessi         Registro emissioni ordini dal MRP web
+    id                  PK identity
+    ol_progr            FK verso ordlist
+    ol_tipork, ol_codart, ol_conto, ol_quant, ol_fase, ol_magaz
+    ord_anno, ord_serie, ord_numord, ord_riga
+    quantita_ordinata   Quantita effettivamente ordinata
+    elaborazione_id     Identificativo elaborazione MRP (YYYYMMDDHHMMSS)
+    data_emissione, operatore
+
+--- DATABASE GB2 (silos app) ---
+
+  Operators             Tabella Visto (permessi)
+    IDOperator          PK identity
+    IDUser              FK verso [GA].[dbo].[Users]
+    Admin               BIT (1=UAD/Admin, 0=UAC/Base)
+    IsActive            BIT (default 1, soft-delete)
+
+  UserPreferences       Preferenze utente (colori, label)
+    IDUser              PK (stesso di GA.Users.IDUser)
+    ColorPreset         VARCHAR(50) — 'default'|'deuteranopia'|'protanopia'|'high-contrast'|'custom'
+    CustomColors        NVARCHAR(MAX) — JSON con override colori CSS
+    CustomLabels        NVARCHAR(MAX) — JSON con nomi personalizzati delle variabili
+    UpdatedAt           DATETIME
+
+
+================================================================================
+5. BACKEND — API REST COMPLETE
+================================================================================
+
+Tutte le API sono montate su /api/mrp nel server.js principale.
+File: routes/gb2Routes.js (~1950 righe)
+
+Factory function: createGb2Routes({ io, skipAuth })
+  - io: istanza Socket.io (per eventi real-time)
+  - skipAuth: se true, disabilita authenticateToken (usato in dev con Vite)
+
+Import: config/db-mrp.js (pool UJET11 + MRP + profili)
+Import: config/smtp-mrp.js (invio email)
+Import: middlewares/auth.js (authenticateToken)
+
+--- PROFILI DB ---
+GET  /db/active-profile          Profilo attivo (label, server, colore, ambiente)
+GET  /db/profiles                Lista tutti i profili (senza password)
+POST /db/switch                  Switch profilo attivo {profileId}
+POST /db/profiles                Crea profilo
+PUT  /db/profiles/:id            Aggiorna profilo
+DELETE /db/profiles/:id          Elimina profilo (non quello attivo)
+POST /db/test-connection         Test connessione senza switchare
+
+--- RICERCA ARTICOLI ---
+GET  /articoli/search?q=...&field=codart|codalt|descr
+GET  /articoli/:codart/fasi      Fasi di lavorazione
+GET  /magazzini                  Lista magazzini
+
+--- DATI MRP ---
+GET  /progressivi?codart=...&magaz=...&fase=...
+                                 Dati MRP completi (giacenza, ordini, impegni, progressivo)
+GET  /progressivi/expand         Espansione dettaglio progressivi
+
+--- ORDINI E IMPEGNI ---
+GET  /ordini-dettaglio           Dettaglio ordini
+GET  /ordini-rmp                 Ordini RMP
+GET  /ordini-padre               Ordini padre
+GET  /proposta-ordini            Proposte ordine raggruppate per fornitore
+
+--- CONSUMI STORICI ---
+GET  /consumi/sprint-multi       Consumi ultimi 6 mesi (multi-articolo)
+GET  /consumi/marathon-multi     Consumi ultimi 24 mesi (multi-articolo)
+GET  /consumi/sprint/:codart     Consumi sprint singolo articolo
+GET  /consumi/marathon/:codart   Consumi marathon singolo articolo
+
+--- EMISSIONE ORDINI ---
+POST /emetti-ordine              Emette ordine fornitore singolo
+POST /emetti-ordini-batch        Emette ordini per piu fornitori
+
+--- PDF ---
+GET  /ordine-pdf/:anno/:serie/:numord    Genera/scarica PDF ordine
+
+--- EMAIL ---
+POST /invia-ordine-email         Invia ordine via email al fornitore
+GET  /smtp/status                Stato configurazione SMTP
+POST /smtp/test                  Test connessione SMTP
+
+--- PREFERENZE UTENTE ---
+GET  /user/preferences           Legge preferenze colori/label da [GB2].[dbo].[UserPreferences]
+POST /user/preferences           Salva preferenze (MERGE/upsert)
+                                 Se req.user non esiste (dev mode), ritorna default/no-op
+
+--- SISTEMA ---
+GET  /health                     Health check (verifica connessione UJET11 + MRP)
+POST /deploy-sp                  Forza deploy manuale oggetti SQL
+GET  /check-sp                   Verifica esistenza stored procedures
+
+
+================================================================================
+6. FRONTEND — ARCHITETTURA SPA
+================================================================================
+
+La SPA ha un unico file HTML (gb2.html) con due "views" switchabili via nav:
+  - view-parametri:    Form di ricerca + pannello proposta ordini
+  - view-progressivi:  Griglia progressivi articolo + grafici
+
+Moduli JavaScript (pattern IIFE, ciascuno espone un oggetto globale):
+  - MrpApp           Stato globale, routing views, API_BASE ('/api/mrp'), init
+  - MrpTheme         Sistema temi colori (30 variabili CSS, preset, editing)
+  - MrpDbConfig      Gestione profili DB e SMTP
+  - MrpParametri     Gestione form parametri, combo autocomplete
+  - MrpProgressivi   Griglia progressivi, chart consumi, pannello decisionale
+  - MrpProposta      Proposte ordine, conferma, emissione, rendering fornitore
+
+Ordine di caricamento script (in gb2.html, fondo body):
+  1. gb2-theme.js        (prima di tutto per prevenire FOUC)
+  2. gb2-dbconfig.js
+  3. gb2-app.js           (chiama MrpTheme.init(), MrpDbConfig.init(), MrpParametri.init())
+  4. gb2-parametri.js
+  5. gb2-progressivi.js
+  6. gb2-proposta.js
+  7. gb2-bootstrap.js     (Layer 2: sidebar, menu dinamico — ultimo)
+
+Catena di inizializzazione:
+  DOMContentLoaded → MrpApp.init() → MrpTheme.init() → MrpDbConfig.init() → MrpParametri.init()
+  securityReady (da sicurezza.js) → gb2-bootstrap → buildDynamicMenu()
+
+Stato globale (MrpApp.state):
+  - articoloSelezionato: oggetto articolo selezionato
+  - parametri: { codart, magaz, fase, modo, sintetico }
+  - ultimoRisultato: ultimo risultato query
+  - ordiniConfermati: Map<key, dati> (chiave = "fornitore|codart|fase|magaz")
+  - propostaCorrente: contesto riga proposta navigata ai progressivi
+
+NOTA: Tutte le fetch() devono avere { credentials: 'include' } per inviare
+il cookie JWT al server di produzione.
+
+
+================================================================================
+7. FLUSSO MRP — LOGICA DI BUSINESS
+================================================================================
+
+Elaborazione per singolo articolo (funzione caricaMRP):
+  1. Legge giacenza base da artpro (ap_esist, ap_ordin, ap_impeg)
+  2. Legge ordini fornitore aperti da movord (tipork='O', serie='F')
+  3. Legge ordini MRP da ordlist (tipork='O','H','Y')
+  4. Legge emissioni gia fatte da MRP.ordini_emessi (sottrae da ap_ordin)
+  5. Calcola progressivo per magazzino/fase con disponibilita
+  6. Gestisce articoli esauriti con sostitutivo (blocchi esaurimento/sostitutivo/combinato)
+  7. Restituisce array di righe tipizzate: padre, magazzino, totale, figlio, ecc.
+
+Funzioni helper critiche (NON modificare la logica):
+  - caricaMRP()                    Cuore del calcolo MRP
+  - normalizzaMagazzinoPerChiave() Aggregazione per chiave magaz_fase
+  - costruisciCombinatoRighe()     Merge esaurito + sostitutivo
+  - taggaMrpBlocco()               Etichettatura blocchi
+  - buildGeneraleTotaleRow()       Riga totale generale
+  - getPoliticaRiordino()          Decodifica politica riordino articolo
+
+
+================================================================================
+8. FLUSSO EMISSIONE ORDINI FORNITORE
+================================================================================
+
+Passo 1 — Conferma (client-side):
+  L'operatore conferma quantita, data, prezzo nel pannello decisionale.
+  Dati in MrpApp.state.ordiniConfermati. NIENTE va in DB in questa fase.
+
+Passo 2 — Emissione (POST /emetti-ordine):
+  Chiama stored procedure [MRP].[dbo].[usp_CreaOrdineFornitore] che:
+  a) Parsa JSON articoli con OPENJSON
+  b) Arricchisce da artico (descrizione, IVA)
+  c) Calcola castelletto IVA
+  d) LOCK applicativo (sp_getapplock) per serializzare numerazione
+  e) Calcola numord = MAX(td_numord)+1 da testord
+  f) INSERT testord + movord su UJET11
+  g) INSERT ordini_emessi su MRP
+  h) Restituisce testata + righe per il PDF
+
+Passo 3 — PDF generato server-side con PDFKit, ritornato come base64.
+
+Passo 4 — UI: ri-fetch dati dal server (data-driven, mai manipolazione DOM diretta).
+
+Passo 5 — Email (opzionale): POST /invia-ordine-email con PDF allegato.
+
+
+================================================================================
+9. GENERAZIONE PDF E INVIO EMAIL
+================================================================================
+
+File: utils/pdfOrdine.js
+Il PDF replica il layout degli ordini BCube originali.
+Se l'ambiente e "prova", il PDF ha filigrana "[PROVA]".
+
+SMTP: config/smtp-mrp.js
+La configurazione SMTP e integrata nei profili DB (db-profiles-mrp.json).
+Ogni profilo puo avere i propri server SMTP e credenziali.
+Il campo email_prova redirige tutte le email a un indirizzo di test.
+
+NOTA FUTURA: l'SMTP dovrebbe diventare per-utente, non per-profilo.
+Ogni operatore ha la sua email aziendale (es. gabriel.ilas@ujet.it).
+
+
+================================================================================
+10. GESTIONE PROFILI DB (MULTI-AMBIENTE)
+================================================================================
+
+File: config/db-mrp.js, config/db-profiles-mrp.json
+
+Il sistema supporta piu ambienti (produzione, prova, sviluppo).
+Switch a caldo: chiude pool, aggiorna profilo, ricrea pool.
+
+Ogni profilo contiene:
+  - id, label, server, database_ujet11, database_mrp
+  - user, password (SQL Server auth)
+  - color (per il badge visuale nell'header)
+  - ambiente ('produzione' | 'prova')
+  - smtp_* (configurazione email legata all'ambiente)
+  - email_prova (redirect email in ambiente di prova)
+
+IMPORTANTE: db-profiles-mrp.json e in .gitignore perche contiene credenziali
+e varia tra ambienti. Ogni installazione mantiene la propria copia.
+
+
+================================================================================
+11. SISTEMA TEMI E COLORI PERSONALIZZABILI
+================================================================================
+
+File: gb2/js/gb2-theme.js, gb2/css/gb2-theme.css, gb2/css/gb2-theme-presets.css
+Tabella: [GB2].[dbo].[UserPreferences]
+
+Il sistema gestisce 30 variabili CSS organizzate in 4 gruppi:
+
+  Interfaccia Base (12): --primary, --primary-dark, --primary-light, --bg,
+    --bg-content, --text, --text-muted, --border, --input-bg, --danger,
+    --success, --warning
+
+  Righe Griglia (11): --row-padre, --row-padre-text, --row-magazzino,
+    --row-magazzino-text, --row-totale, --row-totale-text, --row-figlio,
+    --row-figlio-text, --row-figlio-alt, --row-esaurito, --row-esaurito-text
+
+  Struttura Tabella (3): --table-header-bg, --table-header-border,
+    --table-border-color
+
+  Blocchi MRP (5): --mrp-blocco-esaurimento, --mrp-blocco-sostitutivo,
+    --mrp-blocco-combinato, --mrp-row-totale-cross, --mrp-row-generale-totale
+
+PRESET DISPONIBILI:
+  - default: colori standard
+  - deuteranopia: palette Wong (daltonismo rosso-verde tipo 2)
+  - protanopia: ottimizzato per cecita al rosso
+  - high-contrast: massimo contrasto, bordi netti
+
+FUNZIONALITA:
+  - Pannello slide-in laterale destro (bottone "Tema" nell'header)
+  - Preset selezionabile da dropdown
+  - Ogni colore personalizzabile con swatch + input hex
+  - Label dei colori rinominabili con doppio click (salvate in CustomLabels)
+  - Auto-save alla chiusura del pannello
+  - Editing contestuale: click su riga tabella (con pannello aperto) → mini-picker
+  - FOUC prevention: carica da localStorage sincronamente, poi aggiorna dal server
+  - Persistenza: [GB2].[dbo].[UserPreferences] via /api/mrp/user/preferences
+
+NOTA TECNICA: in dev mode (Vite con skipAuth), req.user non esiste.
+Gli endpoint preferenze ritornano default e accettano save come no-op.
+
+
+================================================================================
+12. INTEGRAZIONE LAYER 2 (PORTALUJET)
+================================================================================
+
+gb2.html e un'app Layer 2 dell'ecosistema PortalUjet:
+
+  - Carica sicurezza.js nel <head> (validazione sessione, RBAC, sipario)
+  - Carica socket.io per eventi real-time
+  - Ha la sidebar a scomparsa (menu-drawer) con link alle altre app
+  - Il menu e costruito dinamicamente da window.SecurityData.user.authorizedApps
+  - Il check RBAC in sicurezza.js verifica che l'utente abbia IDModule=4 nelle authorizedApps
+  - La navigazione cross-app e aggiornata in: bobine.js, ET.html, captain.html, portal.js
+
+Mapping URL per modulo:
+  IDModule 1 → /bobine.html
+  IDModule 2 → /captain.html
+  IDModule 3 → /ET.html
+  IDModule 4 → /gb2.html
+
+Post-login routing (portal.js):
+  defaultModuleId = 4 → redirect a /gb2.html
+
+
+================================================================================
+13. SVILUPPO LOCALE CON VITE
+================================================================================
+
+File: vite.config.js
+
+Vite e il dev server per lo sviluppo locale. Permette di lavorare sul frontend
+con hot-reload senza dover lanciare il server di produzione.
+
+ARCHITETTURA UNIFICATA:
+  Il plugin Vite monta lo STESSO gb2Routes.js usato in produzione.
+  Non esiste un backend separato per lo sviluppo — un solo codice.
+
+  Il plugin passa skipAuth: true, quindi le rotte non richiedono JWT.
+  Questo significa che in dev locale non serve autenticazione.
+
+PROXY:
+  /api/mrp/* → gestito internamente dal plugin (Express dentro Vite)
+  /api/*     → proxyato a https://rotoli.ujet.it (login, sessione, bobine, ecc.)
+  /socket.io → proxyato a https://rotoli.ujet.it (WebSocket)
+
+NOTA SUL LOGIN IN DEV:
+  Il login in dev avviene via proxy verso rotoli.ujet.it. Se il server
+  non e raggiungibile (fuori rete UJET senza VPN), il login non funziona.
+  Se una sessione precedente ha un cookie JWT valido, l'utente entra
+  senza password — questo e normale, non e un bug di sicurezza.
+
+LANCIARE IN DEV:
+  cd C:\Users\depel\Documents\progetto\ujet\bobine
+  npx vite
+  → Apre su http://localhost:3000
+
+
+================================================================================
+14. AUTO-DEPLOY SQL
+================================================================================
+
+All'avvio (sia server.js che Vite), viene chiamata deployMrpObjects(pool):
+  1. Legge tutti i file dalla cartella sql/mrp/
+  2. Splitta per "GO" (separatore batch SQL Server)
+  3. Esegue ciascun batch sul pool MRP
+  4. I file usano IF NOT EXISTS per essere idempotenti
+
+File deployati (in ordine):
+  1. create_ordini_emessi.sql
+  2. usp_CreaOrdineFornitore.sql
+  3. usp_AggiornaStatoInvioOrdine.sql
+  4. create_user_preferences.sql
+
+
+================================================================================
+15. PRINCIPI ARCHITETTURALI
+================================================================================
+
+1. UI DATA-DRIVEN:
+   Dopo qualsiasi scrittura, il frontend ri-fetcha dal server e ri-renderizza.
+   MAI manipolare il DOM in risposta a un evento di scrittura.
+
+2. UN SOLO CODICE PER DEV E PRODUZIONE:
+   gb2Routes.js e lo STESSO file usato da server.js e da Vite.
+   NON creare backend separati per lo sviluppo.
+
+3. CONFIG SEPARATO DAL CODICE:
+   db-profiles-mrp.json contiene credenziali e varia per ambiente.
+   E in .gitignore. Ogni installazione ha la sua copia.
+
+4. CROSS-DATABASE MA STESSO SERVER:
+   Le SP vivono su MRP ma scrivono su UJET11 tramite [UJET11].[dbo].*
+   Le preferenze utente stanno in [GB2].[dbo].[UserPreferences]
+   Tutto funziona perche sono sullo stesso server SQL.
+
+5. SILOS AUTOSUFFICIENTE:
+   GB2 non dipende direttamente da altri database per le sue operazioni.
+   Accede a UJET11 per i dati ERP e a MRP per le tabelle custom.
+   Le preferenze utente sono nel proprio silos [GB2].
+
+6. FETCH CON CREDENTIALS:
+   Tutte le fetch() nel frontend DEVONO avere { credentials: 'include' }
+   per inviare il cookie JWT al server di produzione.
+
+
+================================================================================
+16. PROBLEMI NOTI E AVVERTENZE
+================================================================================
+
+CRITICO — TABNUMA NON AGGIORNATA:
+  La SP calcola numord con MAX(td_numord)+1 da testord.
+  BCube usa tabnuma come contatore autoritativo.
+  La SP NON aggiorna tabnuma. Rischio collisione numeri.
+  DA FARE con Fabrizio (DBA).
+
+ATTENZIONE — COLONNE ORDLIST IN PRODUZIONE:
+  ol_numord, ol_anno, ol_serie NON ESISTONO nella tabella ordlist
+  del DB di produzione. Il collegamento proposta→ordine passa per
+  ol_progr tramite ordini_emessi.
+
+ATTENZIONE — PDF SOLO IN MEMORIA:
+  I PDF generati sono tenuti in memoria nel frontend (pdfCache Map).
+  Ricaricando la pagina si perdono. Rigenerabili on-the-fly da
+  GET /ordine-pdf/:anno/:serie/:numord.
+
+NOTA — BACKUP GABRIELE 2.0:
+  La cartella Gabriele2.0/ e stata rimossa dal progetto bobine.
+  Il backup completo e in: C:\Users\depel\Documents\progetto\ujet\Gabriele2.0\
+  NON e piu usata a runtime — serve solo come riferimento storico.
+
+
+================================================================================
+17. GLOSSARIO
+================================================================================
+
+GB2:        Database silos dell'app Gabriele 2.0
+MRP:        Material Requirements Planning / database custom
+UJET11:     Database ERP BCube (sacro, non modificare la struttura)
+BCube:      ERP usato da U.Jet
+UAC:        Ufficio Acquisti (ruolo Base nell'app GB2)
+UAD:        Ufficio Admin (ruolo Admin nell'app GB2)
+Vite:       Dev server per sviluppo locale con hot-reload
+skipAuth:   Flag che disabilita l'autenticazione JWT in dev mode
+FOUC:       Flash of Unstyled Content (problema risolto con localStorage)
+
+Per il glossario BCube completo (codditt, tipork, serie, fase, magaz, artpro,
+ordlist, testord, movord, imperim, anagra, artico, ecc.) consultare
+conoscenze.txt nella root del progetto.
+
+
+================================================================================
+18. PERSONE DI RIFERIMENTO
+================================================================================
+
+Gabriele:     Sviluppatore principale, committente del progetto GB2/MRP Web
+              Daltonico — necessita preset colori personalizzabili
+Fabrizio:     DBA / Esperto database, gestisce il server SQL 192.168.0.163
+              Contatto per: struttura tabelle UJET11, problema tabnuma
+Pietro Tardioli: Responsabile acquisti U.Jet (firma sugli ordini PDF)
+
+
+================================================================================
+FINE DOCUMENTO
+================================================================================

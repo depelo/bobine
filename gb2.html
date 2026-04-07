@@ -50,6 +50,7 @@
             </button>
         </div>
         <div class="mrp-header-right">
+            <button type="button" class="btn-theme-open" id="btnOpenTheme">🎨 Tema</button>
             <nav class="mrp-nav">
                 <button class="mrp-nav-btn active" data-view="parametri">Parametri</button>
                 <button class="mrp-nav-btn" data-view="progressivi">Progressivi</button>
@@ -177,8 +178,6 @@
                         <input type="checkbox" id="chkShowScaduti" style="cursor: pointer; accent-color: var(--primary); transform: scale(1.1);">
                         <label for="chkShowScaduti" style="cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Mostra storico componenti (Scaduti)</label>
                     </div>
-                    <button type="button" class="btn-theme-open" id="btnOpenTheme">🎨 Tema</button>
-
                     <div class="mrp-view-toggle" style="display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin-right: 15px;">
                         <button id="btnViewMatrioska" class="btn-view-mode active" style="padding: 4px 10px; border: none; background: var(--primary); color: white; cursor: pointer; font-size: 12px; font-weight: bold;">≡ Griglia</button>
                         <button id="btnViewSplit" class="btn-view-mode" style="padding: 4px 10px; border: none; background: transparent; color: var(--text); cursor: pointer; font-size: 12px; font-weight: bold;">◫ Esplora</button>
@@ -332,30 +331,7 @@
         </section>
     </main>
 
-    <!-- PANNELLO TEMA COLORI -->
-    <aside class="theme-panel" id="themePanel">
-        <div class="theme-panel-header">
-            <h3>Personalizza Colori</h3>
-            <button class="theme-panel-close" id="themePanelClose">&times;</button>
-        </div>
-        <div class="theme-preset-bar">
-            <label>Preset</label>
-            <select class="theme-preset-select" id="themePresetSelect">
-                <option value="default">Default</option>
-                <option value="deuteranopia">Deuteranopia</option>
-                <option value="protanopia">Protanopia</option>
-                <option value="high-contrast">Alto Contrasto</option>
-                <option value="custom">Personalizzato</option>
-            </select>
-        </div>
-        <div class="theme-groups" id="themeGroups">
-            <!-- Populated dynamically by MrpTheme.openPanel() -->
-        </div>
-        <div class="theme-panel-footer">
-            <button class="theme-btn-reset" id="themeResetAll">Reset</button>
-            <button class="theme-btn-save" id="themeSave">Salva</button>
-        </div>
-    </aside>
+    <!-- Il pannello tema viene creato dinamicamente da gb2-theme.js -->
 
     <!-- MODALE ORDINI/IMPEGNI PRODUZIONE-FORNITORE -->
     <div id="modalOrdiniOverlay" class="mrp-modal-overlay">
