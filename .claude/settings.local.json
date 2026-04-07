@@ -19,7 +19,10 @@
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/config/db.js\")",
       "Bash(for f:*)",
       "Bash(do cp:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(curl -s http://localhost:3000/api/mrp/health)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //PID 5360 //F)"
     ]
   }
 }
