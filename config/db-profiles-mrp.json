@@ -1,0 +1,43 @@
+{
+  "profiles": [
+    {
+      "id": "produzione",
+      "label": "PRODUZIONE",
+      "server": "bcube2",
+      "database_ujet11": "UJET11",
+      "database_mrp": "MRP",
+      "user": "sa",
+      "password": "Risk0804",
+      "color": "#e11d48",
+      "ambiente": "produzione",
+      "email_prova": "",
+      "smtp_host": "",
+      "smtp_port": 587,
+      "smtp_secure": false,
+      "smtp_user": "",
+      "smtp_password": "",
+      "smtp_from_address": "",
+      "smtp_from_name": "U.Jet s.r.l."
+    },
+    {
+      "id": "pablo",
+      "label": "PROVE UJET PABLO",
+      "server": "192.168.0.163",
+      "database_ujet11": "UJET11",
+      "database_mrp": "MRP",
+      "user": "sa",
+      "password": "Risk0804",
+      "color": "#16a34a",
+      "ambiente": "prova",
+      "email_prova": "pabloandresdepalo@gmail.com",
+      "smtp_host": "smtp.office365.com",
+      "smtp_port": 587,
+      "smtp_secure": false,
+      "smtp_user": "gabriel.ilas@ujet.it",
+      "smtp_password": "Rewo+4567",
+      "smtp_from_address": "gabriel.ilas@ujet.it",
+      "smtp_from_name": "U.Jet s.r.l."
+    }
+  ],
+  "activeProfileId": "produzione"
+}

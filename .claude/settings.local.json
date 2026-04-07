@@ -23,7 +23,9 @@
       "Bash(curl -s http://localhost:3000/api/mrp/health)",
       "Bash(netstat -ano)",
       "Bash(taskkill //PID 5360 //F)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(curl -s http://localhost:3001/api/mrp/health)",
+      "Bash(curl -s http://localhost:3001/api/mrp/db/active-profile)"
     ]
   }
 }

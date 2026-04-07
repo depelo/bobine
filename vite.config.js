@@ -4,8 +4,8 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
 /**
- * Plugin Vite che avvia il backend MRP (Gabriele2.0) direttamente nel dev server.
- * Elimina la necessità di lanciare server.js di Gabriele2.0 separatamente.
+ * Plugin Vite che monta il backend GB2/MRP direttamente nel dev server.
+ * Usa gli STESSI file di produzione (gb2Routes.js + config/db-mrp.js).
  */
 function gabrieleBackendPlugin() {
   return {
@@ -15,10 +15,12 @@ function gabrieleBackendPlugin() {
       const mrpApp = express();
       mrpApp.use(express.json());
 
-      const mrpRoutes = require('./Gabriele2.0/routes/mrpRoutes');
-      mrpApp.use('/api/mrp', mrpRoutes);
+      // Stesso file usato in produzione, con skipAuth per dev locale
+      const createGb2Routes = require('./routes/gb2Routes');
+      const router = createGb2Routes({ skipAuth: true });
+      mrpApp.use('/api/mrp', router);
 
-      // Monta Express solo per /api/mrp, lascia tutto il resto al proxy Vite
+      // Intercetta solo /api/mrp, lascia tutto il resto al proxy Vite
       server.middlewares.use((req, res, next) => {
         if (req.url.startsWith('/api/mrp')) {
           mrpApp(req, res, next);
@@ -30,10 +32,9 @@ function gabrieleBackendPlugin() {
       // Auto-deploy SQL
       (async () => {
         try {
-          const { getPoolMRP } = require('./Gabriele2.0/config/db');
-          const { deployMrpObjects } = require('./Gabriele2.0/routes/mrpRoutes');
+          const { getPoolMRP } = require('./config/db-mrp');
           const pool = await getPoolMRP();
-          const results = await deployMrpObjects(pool);
+          const results = await createGb2Routes.deployMrpObjects(pool);
           console.log('[GB2] Auto-deploy SQL:', results.map(r => `${r.file}: ${r.status}`).join(', '));
         } catch (err) {
           console.warn('[GB2] Auto-deploy SQL non riuscito:', err.message);
