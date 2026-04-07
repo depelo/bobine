@@ -1785,6 +1785,7 @@ function buildDynamicMenu() {
 
     let url = '';
     if (aid === 3) url = '/ET.html';
+    if (aid === 4) url = '/gb2.html';
     if (!url) return;
 
     const btn = document.createElement('button');

@@ -23,8 +23,12 @@ function routeUserAfterLogin(user) {
         window.location.href = '/ET.html';
         return;
     }
+    if (user.defaultModuleId === 4) {
+        window.location.href = '/gb2.html';
+        return;
+    }
 
-    // Fallback se il modulo non è 1, 2 o 3
+    // Fallback se il modulo non ha un routing specifico
     if (user.isSuperuser) {
         window.location.href = '/captain.html';
     } else {

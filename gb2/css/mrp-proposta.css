@@ -1,0 +1,601 @@
+/* ============================================
+   MRP PROPOSTA — Layout due colonne, foglio
+   proposta ordini, stati articolo, barre fornitore
+   ============================================ */
+
+.mrp-parametri-layout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+.mrp-parametri-col-left {
+    flex: 0 0 420px;
+    min-width: 380px;
+}
+
+.mrp-parametri-col-right {
+    flex: 1;
+    min-width: 0;
+}
+
+.mrp-proposta-card {
+    max-height: calc(100vh - 120px);
+    display: flex;
+    flex-direction: column;
+}
+
+.mrp-proposta-card .proposta-header .mrp-card-title {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.proposta-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--primary);
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.proposta-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.proposta-stats {
+    display: flex;
+    gap: 16px;
+    padding: 8px 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 8px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.proposta-stat-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.proposta-stat-value {
+    font-weight: bold;
+    color: var(--text);
+}
+
+.proposta-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.proposta-body .proposta-loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+}
+
+#propostaList {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.proposta-fornitore {
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.proposta-fornitore-header {
+    background: var(--primary);
+    color: white;
+    padding: 8px 12px;
+    font-weight: bold;
+    font-size: 0.82rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.proposta-fornitore-header:hover {
+    opacity: 0.9;
+}
+
+.proposta-fornitore-header .forn-toggle {
+    font-size: 0.7rem;
+}
+
+.proposta-fornitore-body {
+    padding: 0;
+}
+
+.proposta-articolo {
+    border-bottom: 1px solid #eee;
+    padding: 6px 10px;
+}
+
+.proposta-articolo:last-child {
+    border-bottom: none;
+}
+
+.proposta-art-header {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+
+.proposta-art-codart {
+    font-weight: bold;
+    color: var(--primary);
+    cursor: pointer;
+}
+
+.proposta-art-codart:hover {
+    text-decoration: underline;
+}
+
+.proposta-art-codalt {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.proposta-art-descr {
+    font-weight: 600;
+}
+
+.proposta-art-flags {
+    display: flex;
+    gap: 4px;
+}
+
+.proposta-flag-esaur {
+    background: #ff9800;
+    color: white;
+    font-size: 0.6rem;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: bold;
+}
+
+.proposta-flag-blocco {
+    background: var(--danger);
+    color: white;
+    font-size: 0.6rem;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: bold;
+}
+
+.proposta-art-fase {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.proposta-art-politica {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.proposta-righe-table {
+    width: 100%;
+    font-size: 0.75rem;
+    border-collapse: collapse;
+    margin: 4px 0;
+}
+
+.proposta-righe-table th {
+    background: #f8f9fa;
+    padding: 3px 6px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    border-bottom: 1px solid #eee;
+}
+
+.proposta-righe-table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.proposta-righe-table .num {
+    text-align: right;
+}
+
+.proposta-art-totale {
+    font-weight: bold;
+    font-size: 0.75rem;
+    padding: 3px 6px;
+    background: #f8f9fa;
+    border-top: 1px solid #ddd;
+}
+
+.proposta-forn-totale {
+    text-align: right;
+    padding: 8px 12px;
+    font-weight: bold;
+    font-size: 0.82rem;
+    background: #f0f7ff;
+    border-top: 2px solid var(--primary);
+}
+
+.proposta-forn-totale .valore {
+    color: var(--primary);
+    font-size: 0.9rem;
+}
+
+@media (max-width: 1200px) {
+    .mrp-parametri-layout {
+        flex-direction: column;
+    }
+    .mrp-parametri-col-left {
+        flex: none;
+        min-width: auto;
+        width: 100%;
+        max-width: 700px;
+    }
+    .mrp-parametri-col-right {
+        width: 100%;
+    }
+    .mrp-proposta-card {
+        max-height: 60vh;
+    }
+}
+
+/* --- STATI ARTICOLO NEL FOGLIO PROPOSTA --- */
+.proposta-art-confermato {
+    background: #f0fdf4 !important;
+    border-left: 4px solid var(--success) !important;
+}
+
+.proposta-art-escluso {
+    background: #fef2f2 !important;
+    border-left: 4px solid var(--danger) !important;
+    opacity: 0.6;
+}
+
+.proposta-art-escluso .proposta-art-header,
+.proposta-art-escluso .proposta-righe-table {
+    text-decoration: line-through;
+    color: var(--text-muted);
+}
+
+/* Badge conferma nell'articolo */
+.proposta-conferma-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-top: 6px;
+}
+
+.proposta-badge-confermato {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+
+.proposta-badge-escluso {
+    background: #fef2f2;
+    color: var(--danger);
+    border: 1px solid #fecaca;
+}
+
+.conferma-icon {
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.btn-modifica-conferma,
+.btn-rimuovi-conferma {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 2px 4px;
+    border-radius: 3px;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+}
+
+.btn-modifica-conferma:hover,
+.btn-rimuovi-conferma:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.05);
+}
+
+/* --- BARRA FORNITORE — STATI --- */
+.proposta-fornitore-header.fornitore-completato {
+    background: var(--success) !important;
+}
+
+.proposta-fornitore-header.fornitore-parziale {
+    background: linear-gradient(90deg, var(--primary) 0%, #16a34a 100%) !important;
+}
+
+.fornitore-stato-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.25);
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+/* --- PULSANTE EMETTI ORDINE sulla barra fornitore completata --- */
+.btn-emetti-ordine {
+    background: white;
+    color: var(--success);
+    border: none;
+    padding: 3px 12px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.72rem;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-emetti-ordine:hover {
+    background: #dcfce7;
+    transform: scale(1.05);
+}
+
+/* Stato ordine gia emesso */
+.proposta-fornitore-header.fornitore-emesso {
+    background: #1e3a5f !important;
+}
+
+.fornitore-emesso-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.3);
+    padding: 2px 10px;
+    border-radius: 10px;
+    margin-left: 8px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.fornitore-email-pending {
+    background: #f59e0b !important;
+}
+
+.btn-invia-email-forn {
+    background: white;
+    color: var(--primary);
+    border: none;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.68rem;
+    cursor: pointer;
+    margin-left: 6px;
+    transition: all 0.15s;
+}
+
+.btn-invia-email-forn:hover {
+    background: #dbeafe;
+}
+
+.btn-scarica-pdf-forn {
+    background: rgba(255,255,255,0.3);
+    color: white;
+    border: none;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.68rem;
+    cursor: pointer;
+    margin-left: 4px;
+    transition: all 0.15s;
+}
+
+.btn-scarica-pdf-forn:hover {
+    background: rgba(255,255,255,0.5);
+}
+
+/* --- Stato "Ordinato" nelle righe articolo --- */
+.proposta-stato-ordinato {
+    color: #1e3a5f;
+    font-weight: 700;
+    font-size: 0.72rem;
+}
+
+.proposta-riga-emessa {
+    background: #eff6ff;
+    color: #64748b;
+}
+
+.proposta-riga-emessa td {
+    opacity: 0.85;
+}
+
+/* --- PULSANTE GLOBALE EMETTI TUTTI --- */
+.proposta-emetti-tutti-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+    border: 2px solid var(--success);
+    border-radius: var(--radius);
+    margin-bottom: 12px;
+}
+
+.proposta-emetti-tutti-bar .emetti-tutti-info {
+    flex: 1;
+    font-size: 0.82rem;
+    color: #166534;
+    font-weight: 600;
+}
+
+.proposta-emetti-tutti-bar .emetti-tutti-info .emetti-count {
+    font-size: 1.1rem;
+    font-weight: 900;
+}
+
+.btn-emetti-tutti {
+    background: var(--success);
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+    font-size: 0.88rem;
+    cursor: pointer;
+    font-family: var(--font);
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-emetti-tutti:hover {
+    background: #15803d;
+    transform: scale(1.02);
+}
+
+.btn-emetti-tutti:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* --- MODALE GENERICA (sostituisce alert/confirm) --- */
+.mrp-modal-generic {
+    max-width: 420px;
+}
+
+.modal-generic-btn {
+    padding: 8px 20px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.88rem;
+    cursor: pointer;
+    font-family: var(--font);
+    border: none;
+    transition: all 0.15s;
+}
+
+.modal-generic-btn-primary {
+    background: var(--primary);
+    color: white;
+}
+
+.modal-generic-btn-primary:hover {
+    opacity: 0.9;
+}
+
+.modal-generic-btn-success {
+    background: var(--success);
+    color: white;
+}
+
+.modal-generic-btn-success:hover {
+    background: #15803d;
+}
+
+.modal-generic-btn-danger {
+    background: var(--danger);
+    color: white;
+}
+
+.modal-generic-btn-danger:hover {
+    opacity: 0.9;
+}
+
+.modal-generic-btn-secondary {
+    background: #e5e7eb;
+    color: var(--text);
+}
+
+.modal-generic-btn-secondary:hover {
+    background: #d1d5db;
+}
+
+/* --- RIEPILOGO EMISSIONE dentro modale --- */
+.emetti-riepilogo-fornitore {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+}
+
+.emetti-riepilogo-table {
+    width: 100%;
+    font-size: 0.82rem;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+}
+
+.emetti-riepilogo-table th {
+    text-align: left;
+    padding: 5px 8px;
+    background: #f8f9fa;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.emetti-riepilogo-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.emetti-riepilogo-table .num {
+    text-align: right;
+}
+
+.emetti-riepilogo-totale {
+    text-align: right;
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding: 8px 0;
+    color: var(--success);
+}
+
+/* --- RISULTATO EMISSIONE --- */
+.risultato-ok-icon {
+    font-size: 3rem;
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.risultato-ordine-num {
+    text-align: center;
+    font-size: 1.2rem;
+    font-weight: 900;
+    color: var(--primary);
+    margin-bottom: 4px;
+}
+
+.risultato-ordine-forn {
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+}

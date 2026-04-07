@@ -11,6 +11,7 @@ const createAuthRoutes = require('./routes/authRoutes');
 const createAdminRoutes = require('./routes/adminRoutes');
 const createBobineRoutes = require('./routes/bobineRoutes');
 const etRoutes = require('./routes/etRoutes');
+const createGb2Routes = require('./routes/gb2Routes');
 
 const app = express();
 app.use(express.json());
@@ -38,6 +39,7 @@ app.use('/api', createAuthRoutes({ io }));
 app.use('/api/admin', createAdminRoutes({ io, activeUserSockets }));
 app.use('/api', createBobineRoutes({ io }));
 app.use('/api', etRoutes);
+app.use('/api/mrp', createGb2Routes({ io }));
 
 io.on('connection', (socket) => {
     let currentUserId = null;
@@ -85,6 +87,16 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', async () => {
     console.log(`Server API in ascolto in HTTPS sulla porta ${PORT} all'indirizzo https://rotoli.ujet.it`);
+
+    // Auto-deploy oggetti SQL del modulo MRP/GB2
+    try {
+        const { getPoolMRP } = require('./config/db');
+        const pool = await getPoolMRP();
+        const results = await createGb2Routes.deployMrpObjects(pool);
+        console.log('[GB2] Auto-deploy SQL completato:', results.map(r => `${r.file}: ${r.status}`).join(', '));
+    } catch (err) {
+        console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);
+    }
 });

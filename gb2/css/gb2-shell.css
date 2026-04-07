@@ -1,0 +1,198 @@
+/* ==========================================================
+   GB2 Shell — Layer 2 integration styles
+   Sidebar drawer, topbar, and layout wrapper for MRP inside PortalUjet
+   ========================================================== */
+
+/* --- Design-system variables (subset from bobine.css) --- */
+:root {
+    --shell-primary: #2563a8;
+    --shell-primary-dark: #1a4d82;
+    --shell-bg: #f0f2f5;
+    --shell-bg-content: #fff;
+    --shell-text: #0d0d0d;
+    --shell-text-muted: #404040;
+    --shell-border: #c5cdd4;
+    --shell-font-family: "Segoe UI", system-ui, Roboto, sans-serif;
+    --shell-radius: 6px;
+    --shell-touch-btn: 52px;
+    --shell-space-10: 10px;
+    --shell-space-12: 10px;
+    --shell-space-16: 12px;
+}
+
+/* --- Utility --- */
+.is-hidden {
+    display: none !important;
+}
+
+/* --- Menu drawer backdrop --- */
+.menu-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 150;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s, visibility 0.2s;
+}
+
+.menu-drawer-backdrop.is-open {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* --- Menu drawer sidebar --- */
+.menu-drawer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 85vw;
+    background: var(--shell-bg-content);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+    z-index: 160;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease-out;
+    padding-top: env(safe-area-inset-top);
+    font-family: var(--shell-font-family);
+}
+
+.menu-drawer.is-open {
+    transform: translateX(0);
+}
+
+.menu-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--shell-space-12) var(--shell-space-16);
+    border-bottom: 1px solid var(--shell-border);
+}
+
+.menu-drawer-title {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--shell-text);
+}
+
+.menu-drawer-close {
+    width: var(--shell-touch-btn);
+    height: var(--shell-touch-btn);
+    border: 0;
+    background: transparent;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--shell-text);
+    padding: 0;
+}
+
+.menu-drawer-close:hover {
+    background: var(--shell-bg);
+}
+
+.menu-drawer-actions {
+    padding: var(--shell-space-16);
+    display: flex;
+    flex-direction: column;
+    gap: var(--shell-space-10);
+}
+
+.menu-drawer-btn {
+    width: 100%;
+    min-height: var(--shell-touch-btn);
+    padding: 0 var(--shell-space-16);
+    border: 2px solid var(--shell-border);
+    background: var(--shell-bg-content);
+    color: var(--shell-text);
+    font-size: 1.125rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: var(--shell-radius);
+    text-align: left;
+    font-family: var(--shell-font-family);
+}
+
+.menu-drawer-btn:hover {
+    background: var(--shell-bg);
+}
+
+.menu-drawer-btn-primary {
+    border-color: var(--shell-primary);
+    background: #e3eef8;
+    color: var(--shell-primary-dark);
+    font-weight: 600;
+}
+
+.menu-drawer-btn-primary:hover {
+    background: #cce0f5;
+}
+
+/* --- GB2 topbar (replaces mrp-header for Layer 2) --- */
+.gb2-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--shell-primary);
+    color: #fff;
+    padding: 0 16px;
+    height: 52px;
+    min-height: 52px;
+    flex-shrink: 0;
+    font-family: var(--shell-font-family);
+}
+
+.gb2-topbar .gb2-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    font-size: 1.6rem;
+    cursor: pointer;
+    border-radius: var(--shell-radius);
+    flex-shrink: 0;
+}
+
+.gb2-topbar .gb2-menu-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.gb2-topbar .gb2-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.gb2-topbar .gb2-subtitle {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    white-space: nowrap;
+    display: none;
+}
+
+@media (min-width: 600px) {
+    .gb2-topbar .gb2-subtitle {
+        display: inline;
+    }
+}
+
+.gb2-topbar .gb2-nav {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+}
+
+/* --- GB2 app wrapper --- */
+.gb2-app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+}

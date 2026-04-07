@@ -1,0 +1,152 @@
+/* ============================================
+   MRP MODALI — Overlay, struttura modale,
+   ordini/impegni colori, legenda, consumi
+   ============================================ */
+
+.mrp-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+}
+/* Il modal generico (conferme/avvisi) deve stare sopra tutti gli altri */
+#modalGenericOverlay {
+    z-index: 1100;
+}
+.mrp-modal-overlay.open {
+    display: flex;
+    animation: fadeUp 0.25s ease-out;
+}
+.mrp-modal {
+    background: var(--bg-content);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    width: 100%;
+    max-width: 1000px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.mrp-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--primary-light);
+}
+.mrp-modal-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--primary-dark);
+}
+.mrp-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.3rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: background 0.15s;
+}
+.mrp-modal-close:hover {
+    background: rgba(0,0,0,0.08);
+    color: var(--danger);
+}
+.mrp-modal-body {
+    padding: 16px 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+.mrp-table-modal th {
+    font-size: 0.75rem;
+    padding: 6px 8px;
+}
+.mrp-table-modal td {
+    font-size: 0.82rem;
+    padding: 6px 8px;
+}
+
+/* --- COLORI PER TIPO ORDINE --- */
+.modal-row-ordforn td { background: #ffffff; }
+.modal-row-ordprod td { background: #fffde7; color: #1e293b; }
+.modal-row-impprod td { background: #fff3e0; color: #4e342e; }
+
+.modal-row-impprod:hover td,
+.modal-row-ordprod:hover td,
+.modal-row-ordforn:hover td { filter: brightness(0.95); }
+
+/* Bottone drill-through */
+.btn-drill-padre {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 5px;
+    line-height: 1;
+    transition: background 0.15s, border-color 0.15s;
+}
+.btn-drill-padre:hover {
+    background: var(--primary-light);
+    border-color: var(--primary);
+}
+
+/* Legenda modale */
+.modal-ordini-legenda {
+    display: flex;
+    gap: 16px;
+    padding: 6px 24px;
+    border-bottom: 1px solid var(--border);
+    background: #fafafa;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.legenda-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.legenda-item::before {
+    content: '';
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    border: 1px solid #ccc;
+}
+.legenda-ordforn::before { background: #ffffff; }
+.legenda-ordprod::before { background: #fffde7; }
+.legenda-impprod::before { background: #fff3e0; }
+
+/* Split View — pannello ordini */
+.split-ordini-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.split-ordini-card .matrioska-table tr.modal-row-impprod td { background: #fff3e0; }
+.split-ordini-card .matrioska-table tr.modal-row-ordprod td { background: #fffde7; }
+.split-ordini-card .matrioska-table tr.modal-row-ordforn td { background: #ffffff; }
+
+/* Tema daltonismo — override colori modale */
+body.theme-colorblind .modal-row-impprod td {
+    background: #e0f2f1 !important;
+    color: #004d40 !important;
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0, 77, 64, 0.04) 10px, rgba(0, 77, 64, 0.04) 20px) !important;
+}
+body.theme-colorblind .modal-row-ordprod td {
+    background: #e3f2fd !important;
+    color: #0d47a1 !important;
+}
+body.theme-colorblind .legenda-impprod::before { background: #e0f2f1; }
+body.theme-colorblind .legenda-ordprod::before { background: #e3f2fd; }

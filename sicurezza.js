@@ -58,6 +58,17 @@ async function initSecurity() {
               return false;
             }
           }
+
+          if (currentPath.includes('gb2')) {
+            const hasGb2Access =
+              Array.isArray(user.authorizedApps) &&
+              user.authorizedApps.some((app) => Number(app.id) === 4);
+            if (!hasGb2Access) {
+              alert('Non sei autorizzato ad accedere al modulo Gabriele 2.0.');
+              window.location.href = '/';
+              return false;
+            }
+          }
         }
       }
 

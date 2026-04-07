@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/depel/.claude/**)",
+      "mcp__mssql-ujet11__test_connection",
+      "mcp__mssql-ujet11__read_data",
+      "Bash(ls -1 /c/Users/depel/Documents/progetto/ujet/bobine/*.js)",
+      "Bash(npm install:*)",
+      "Bash(npx vite:*)",
+      "Bash(timeout 5)",
+      "Read(//c/Users/depel/AppData/Local/Temp/claude/C--Users-depel-Documents-progetto-ujet-bobine/4cce07fb-1274-4941-bb1d-969c63410b0c/tasks/**)",
+      "mcp__mssql-ujet11__list_databases",
+      "Bash(python3 -c:*)",
+      "Bash(node -e:*)",
+      "mcp__mssql-ujet11__create_table",
+      "mcp__mssql-ujet11__drop_table",
+      "Bash(node setup-gb2.js)",
+      "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/routes/gb2Routes.js\")",
+      "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/config/db.js\")",
+      "Bash(for f:*)",
+      "Bash(do cp:*)",
+      "Bash(done)"
+    ]
+  }
+}

@@ -1,0 +1,450 @@
+/* ============================================
+   MRP PROGRESSIVI — Griglia, righe, matrioska,
+   split view, scaduti, daltonismo, blocchi MRP
+   ============================================ */
+
+.mrp-progressivi-card { padding: 16px; }
+
+.mrp-progressivi-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    gap: 12px;
+}
+.mrp-progressivi-title { font-weight: 700; font-size: 1rem; color: var(--text); flex: 1; text-align: center; }
+
+.mrp-table-wrapper {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.mrp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    white-space: nowrap;
+}
+.mrp-table thead { position: sticky; top: 0; z-index: 10; }
+.mrp-table th {
+    background: #334155;
+    color: white;
+    padding: 8px 10px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-right: 1px solid #475569;
+    position: sticky;
+    top: 0;
+}
+.mrp-table td {
+    padding: 6px 10px;
+    border-right: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+/* Colonne numeriche allineate a destra */
+.col-num { text-align: right; }
+.col-row { width: 35px; text-align: center; }
+.col-parte { min-width: 260px; }
+.col-mag { width: 40px; text-align: center; }
+.col-fase { width: 50px; text-align: center; }
+.col-pol { min-width: 200px; }
+.col-um { width: 40px; text-align: center; }
+.col-date { width: 90px; text-align: center; }
+
+/* Stili riga per tipo (replica palette Access) */
+.mrp-table tr.row-padre td { background: transparent; color: var(--text); font-weight: 700; }
+.mrp-table tr.row-magazzino td { background: var(--row-magazzino); color: var(--row-magazzino-text); }
+.mrp-table tr.row-totale td { background: var(--row-totale); color: var(--row-totale-text); font-weight: 700; }
+.mrp-table tr.mrp-row-totale td {
+    background-color: #fef08a;
+    color: var(--row-totale-text);
+    font-weight: 700;
+}
+.mrp-table tr.row-figlio td { background: var(--row-figlio); color: var(--row-figlio-text); }
+.mrp-table tr.row-figlio-alt td { background: var(--row-figlio-alt); }
+.mrp-table tr.row-totale-nero td:last-child { background: #1e293b; color: #fff; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .mrp-main { padding: 12px; }
+    .mrp-card { padding: 20px 16px; }
+    .mrp-field-row { flex-direction: column; align-items: stretch; gap: 4px; }
+    .mrp-label { text-align: left; min-width: auto; }
+    .mrp-field-row-double { flex-direction: column; }
+    .mrp-header { flex-direction: column; gap: 8px; }
+}
+
+/* Stile esaurito */
+.mrp-table tr.row-esaurito td {
+    background: #fff3e0 !important;
+    color: #bf360c !important;
+}
+
+.code-dim {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 0.80rem;
+    font-family: 'Consolas', 'Courier New', monospace;
+}
+
+/* --- MATRIOSKA (tabelle nidificate) --- */
+.btn-matrioska {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-weight: bold;
+}
+.btn-matrioska:hover { background: var(--primary-dark); }
+.btn-matrioska:disabled { opacity: 0.7; cursor: wait; }
+.matrioska-nested-row > td {
+    padding: 0 !important;
+    border: none !important;
+}
+.matrioska-box {
+    margin: 8px 12px 16px 40px;
+    padding: 16px;
+    background-color: #f8fafc;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--primary);
+    border-radius: 6px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+.matrioska-section-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.matrioska-section-title:not(:first-child) {
+    margin-top: 24px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 16px;
+}
+.matrioska-table {
+    width: 100%;
+    background: white;
+    border-collapse: collapse;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.matrioska-table th {
+    background: #e2e8f0;
+    font-size: 11px;
+    padding: 6px;
+    text-align: left;
+}
+.matrioska-table td {
+    border-bottom: 1px solid #e2e8f0;
+    padding: 6px;
+    font-size: 12px;
+}
+.matrioska-table.table-bom-data thead {
+    background: #334155;
+    color: white;
+}
+.matrioska-table.table-bom-data thead th {
+    background: #334155;
+    color: white;
+}
+.matrioska-table tr.row-magazzino td {
+    background: var(--row-magazzino);
+    color: var(--row-magazzino-text);
+}
+.matrioska-table tr.row-esaurito td {
+    background: #fff3e0 !important;
+    color: #bf360c !important;
+}
+.matrioska-table tr.mrp-row-totale td {
+    background-color: #fef08a;
+    font-weight: bold;
+}
+.cell-valore-totale { font-weight: 600; color: var(--primary-dark); }
+
+/* --- SCADUTI (toggle corpo: classe show-scaduti) --- */
+body:not(.show-scaduti) .mrp-table tr.row-scaduto,
+body:not(.show-scaduti) .mrp-table tr.row-scaduto + tr.matrioska-nested-row {
+    display: none !important;
+}
+.mrp-table tr.row-scaduto td {
+    opacity: 0.6;
+}
+.mrp-table tr.row-scaduto .mrp-desc-articolo {
+    text-decoration: line-through;
+    text-decoration-color: var(--danger);
+    font-style: italic;
+}
+.scaduto-badge {
+    font-size: 0.7rem;
+    background: var(--danger);
+    color: white;
+    padding: 2px 4px;
+    border-radius: 3px;
+    margin-left: 6px;
+    font-style: normal;
+    text-decoration: none;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* --- SPLIT VIEW --- */
+.mrp-split-layout {
+    display: flex;
+    gap: 16px;
+    align-items: stretch;
+    min-height: 70vh;
+}
+.split-left-panel {
+    flex: 0 0 35%;
+    background: white;
+    border: 2px solid #94a3b8;
+    border-radius: 6px;
+    min-height: 70vh;
+    max-height: 85vh;
+    overflow-y: auto;
+    padding: 12px;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+    position: sticky;
+    top: 70px;
+}
+.split-right-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.split-detail-card { background: #f8fafc; border: 1px solid #94a3b8; border-radius: 6px; padding: 16px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid var(--primary); }
+.split-detail-header { font-weight: 800; font-size: 15px; color: #0f172a; margin-bottom: 14px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
+.detail-label { color: #475569; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+.detail-value { color: #0f172a; font-weight: 500; font-size: 13px;}
+.tree-node { display: flex; align-items: center; padding: 6px; border-radius: 4px; cursor: pointer; transition: background 0.15s; border: 1px solid transparent; }
+.tree-node:hover { background: #f1f5f9; border-color: #e2e8f0; }
+.tree-node.selected { background: var(--primary); color: white; border-color: var(--primary-dark); font-weight: 600; box-shadow: 0 2px 4px rgba(37,99,168,0.3); }
+.tree-node.selected .code-dim { color: #f1f5f9; opacity: 0.9; }
+.tree-node .code-dim { color: #64748b; font-weight: 500; }
+.tree-toggle-icon { width: 16px; text-align: center; font-weight: bold; font-family: monospace; color: var(--text-muted); margin-right: 4px; }
+.tree-node.selected .tree-toggle-icon { color: white; }
+
+/* TreeView Extra */
+.mrp-tree { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+.mrp-tree ul { list-style: none; padding-left: 20px; margin: 0; border-left: 1px dashed var(--border); margin-left: 7px; }
+.mrp-tree li { margin: 2px 0; position: relative; }
+.split-mrp-card { background: white; border: 1px solid var(--border); border-radius: 4px; overflow-x: auto; overflow-y: visible; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+
+.mrp-nested-mag-click,
+.mrp-totale-click {
+    cursor: pointer;
+}
+.mrp-nested-mag-click:hover td {
+    background-color: var(--primary-light) !important;
+}
+.mrp-totale-click:hover td {
+    filter: brightness(0.95);
+}
+
+/* --- TEMA DALTONISMO --- */
+body.theme-colorblind {
+    --danger: #d55e00;
+    --success: #0072b2;
+    --row-magazzino: #e6f0f9;
+    --row-esaurito: #fef0d9;
+}
+body.theme-colorblind .mrp-table tr.row-esaurito td,
+body.theme-colorblind .matrioska-table tr.row-esaurito td {
+    color: #d55e00 !important;
+    font-weight: 800;
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(213, 94, 0, 0.05) 10px, rgba(213, 94, 0, 0.05) 20px) !important;
+}
+body.theme-colorblind .scaduto-badge {
+    background: #000;
+    color: #fff;
+    border: 1px solid #fff;
+    border-radius: 0;
+}
+body.theme-colorblind .mrp-table tr.row-scaduto .mrp-desc-articolo {
+    text-decoration-color: #000;
+    text-decoration-style: wavy;
+}
+
+/* --- RIGA TOTALE CROSS-FASE (rossa in Access) --- */
+.mrp-table tr.mrp-row-totale-cross td {
+    background: #e53935 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+.matrioska-table tr.mrp-row-totale-cross td {
+    background: #e53935 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+
+/* --- RIGA GENERALE TOTALE (nera con disp verde in Access) --- */
+.mrp-table tr.mrp-row-generale-totale td {
+    background: #1e293b !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+.mrp-row-generale-totale .cell-generale-disp-netta {
+    background: #16a34a !important;
+    color: #ffffff !important;
+    font-weight: 800;
+}
+
+/* Generale TOTALE — scenario esaurimento + sostitutivo */
+.mrp-table tr.mrp-row-generale-totale.mrp-row-generale-totale-sost td {
+    background: #fdd835 !important;
+    color: #000000 !important;
+    font-weight: 700;
+}
+.mrp-row-generale-totale.mrp-row-generale-totale-sost .cell-generale-disp-netta {
+    background: #f9a825 !important;
+    color: #000000 !important;
+    font-weight: 800;
+}
+
+.matrioska-table tr.mrp-row-generale-totale.mrp-row-generale-totale-sost td {
+    background: #fdd835 !important;
+    color: #000000 !important;
+    font-weight: 700;
+}
+
+.split-mrp-section-header td {
+    padding: 0;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+}
+
+/* Blocchi MRP esaurimento / sostitutivo / combinato */
+.mrp-table tr.mrp-row-totale-cross.mrp-blocco-esaurimento td,
+.matrioska-table tr.mrp-row-totale-cross.mrp-blocco-esaurimento td {
+    background: #e65100 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+.mrp-table tr.mrp-row-totale-cross.mrp-blocco-sostitutivo td,
+.matrioska-table tr.mrp-row-totale-cross.mrp-blocco-sostitutivo td {
+    background: #c62828 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+.mrp-table tr.mrp-row-totale-cross.mrp-blocco-combinato td,
+.matrioska-table tr.mrp-row-totale-cross.mrp-blocco-combinato td {
+    background: #ad1457 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+
+.mrp-table tr.row-magazzino.mrp-blocco-esaurimento td,
+.matrioska-table tr.row-magazzino.mrp-blocco-esaurimento td {
+    background: #fff3e0 !important;
+}
+.mrp-table tr.row-magazzino.mrp-blocco-sostitutivo td,
+.matrioska-table tr.row-magazzino.mrp-blocco-sostitutivo td {
+    background: #e8f5e9 !important;
+}
+.mrp-table tr.row-magazzino.mrp-blocco-combinato td,
+.matrioska-table tr.row-magazzino.mrp-blocco-combinato td {
+    background: #fce4ec !important;
+}
+
+.mrp-table tr.mrp-row-totale.mrp-blocco-esaurimento td,
+.matrioska-table tr.mrp-row-totale.mrp-blocco-esaurimento td {
+    background: #ff9800 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+.mrp-table tr.mrp-row-totale.mrp-blocco-sostitutivo td,
+.matrioska-table tr.mrp-row-totale.mrp-blocco-sostitutivo td {
+    background: #ef5350 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+.mrp-table tr.mrp-row-totale.mrp-blocco-combinato td,
+.matrioska-table tr.mrp-row-totale.mrp-blocco-combinato td {
+    background: #e91e63 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+
+.mrp-table tr.mrp-row-articolo.mrp-blocco-esaurimento td {
+    background: #fff8e1 !important;
+}
+.mrp-table tr.mrp-row-articolo.mrp-blocco-sostitutivo td {
+    background: #e8f5e9 !important;
+}
+
+.split-sost-banner {
+    margin: 10px 0 0;
+    padding: 10px 12px;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    border: 1px solid #f9a825;
+    border-radius: 4px;
+    background: #fffde7;
+    color: #333;
+}
+
+/* --- SPLIT VIEW — PANNELLO ORDINI & IMPEGNI --- */
+.split-ordini-header {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+}
+.split-ordini-header:hover { background: #f1f5f9; }
+.split-ordini-header span:first-child {
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+.split-ordini-count {
+    font-size: 12px;
+    color: var(--primary);
+    font-weight: 600;
+    margin-left: 8px;
+}
+.split-ordini-arrow {
+    font-family: monospace;
+    font-weight: bold;
+    color: var(--text-muted);
+}
+.split-ordini-legenda {
+    display: flex;
+    gap: 12px;
+    padding: 4px 14px;
+    background: #fafafa;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.72rem;
+}
+#splitOrdiniContent { max-height: 500px; overflow-y: auto; }
+
+body.theme-colorblind .mrp-table tr.mrp-row-totale-cross td,
+body.theme-colorblind .matrioska-table tr.mrp-row-totale-cross td {
+    background: #d55e00 !important;
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.1) 8px, rgba(255,255,255,0.1) 16px) !important;
+}
+
+body.theme-colorblind .split-ordini-card .matrioska-table tr.modal-row-impprod td {
+    background: #e0f2f1 !important;
+}
+body.theme-colorblind .split-ordini-card .matrioska-table tr.modal-row-ordprod td {
+    background: #e3f2fd !important;
+}
