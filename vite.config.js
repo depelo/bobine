@@ -32,9 +32,9 @@ function gabrieleBackendPlugin() {
       // Auto-deploy SQL
       (async () => {
         try {
-          const { getPoolProd, getActiveProfile } = require('./config/db-mrp');
+          const { getPoolProd } = require('./config/db-mrp');
           const pool = await getPoolProd();
-          const results = await createGb2Routes.deployMrpObjects(pool, getActiveProfile());
+          const results = await createGb2Routes.deployProductionObjects(pool);
           console.log('[GB2] Auto-deploy SQL:', results.map(r => `${r.file}: ${r.status}`).join(', '));
         } catch (err) {
           console.warn('[GB2] Auto-deploy SQL non riuscito:', err.message);

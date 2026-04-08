@@ -1,48 +1,157 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { getPoolMRP, getPoolProd, sql, getActiveProfile, isProduction, switchToTest, switchToProduction, PRODUCTION_PROFILE } = require('../config/db-mrp');
+const { getPoolMRP, getPoolProd, sql, getActiveProfile, isProduction, switchToTest, switchToProduction, setTestHasRiep, getTestHasRiep, PRODUCTION_PROFILE } = require('../config/db-mrp');
 const { encrypt, decrypt } = require('../config/crypto');
 const smtp = require('../config/smtp-mrp');
 const { authenticateToken } = require('../middlewares/auth');
 
-// Calcola il prefisso cross-database per raggiungere UJET11 dal server MRP corrente.
-// - Produzione (MRP su 192.168.0.163, UJET11 su BCUBE2): [BCUBE2].[UJET11].[dbo]
-// - Prova (MRP e UJET11 sullo stesso server):             [UJET11].[dbo]
+// ============================================================
+// DEPLOY E NAMING DEGLI OGGETTI SQL
+// ============================================================
+
+// Calcola il prefisso cross-database per raggiungere UJET11 nelle SP.
+// - Produzione (SP su MRP@163, UJET11 su BCUBE2): [BCUBE2].[UJET11].[dbo]
+// - Prova (SP su MRP@163, UJET11 su server prova): [SERVER_PROVA].[UJET11].[dbo]
 function getUjet11Ref(profile) {
-    const linkedServer = (profile && profile.server_ujet11) ? profile.server_ujet11.trim() : '';
-    const dbName = (profile && profile.database_ujet11) ? profile.database_ujet11.trim() : 'UJET11';
+    if (!profile) return '[UJET11].[dbo]';
+    const linkedServer = (profile.server_ujet11 || profile.server || '').trim();
+    const dbName = (profile.database_ujet11 || 'UJET11').trim();
     if (linkedServer) {
         return `[${linkedServer}].[${dbName}].[dbo]`;
     }
     return `[${dbName}].[dbo]`;
 }
 
-// Deploy oggetti SQL — fuori dalla factory perché serve anche all'avvio del server.
-// Il profilo attivo determina il prefisso {{UJET11_REF}} nelle SP.
-async function deployMrpObjects(poolMRP, profile) {
+// Restituisce il suffisso SP per un profilo: '' per produzione, '_T3' per test ID 3
+function getSpSuffix(profile) {
+    if (!profile || !profile._testDbId) return '';
+    return '_T' + profile._testDbId;
+}
+
+// Nome completo della SP dato il nome base e il profilo attivo
+function getSpName(baseName, profile) {
+    return baseName + getSpSuffix(profile);
+}
+
+// Esegue i batch SQL di un file
+async function executeSqlFile(pool, filePath, replacements) {
+    let sqlText = fs.readFileSync(filePath, 'utf-8');
+    for (const [placeholder, value] of Object.entries(replacements || {})) {
+        sqlText = sqlText.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), value);
+    }
+    const batches = sqlText.split(/^\s*GO\s*$/im).filter(b => b.trim());
+    for (const batch of batches) {
+        if (batch.trim()) {
+            await pool.request().batch(batch);
+        }
+    }
+}
+
+/**
+ * Deploy oggetti SQL di produzione — su MRP@163 e GB2@163.
+ * SP con prefisso [BCUBE2].[UJET11].[dbo], nomi senza suffisso.
+ */
+async function deployProductionObjects(poolProd) {
     const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
-    const files = ['create_ordini_emessi.sql', 'create_test_profiles.sql', 'usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql', 'create_user_preferences.sql'];
+    const profile = getActiveProfile();
     const ujet11Ref = getUjet11Ref(profile);
     const results = [];
-    for (const file of files) {
+
+    // Tabelle GB2 (sempre su pool produzione)
+    for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql']) {
         const filePath = path.join(sqlDir, file);
-        if (!fs.existsSync(filePath)) {
-            results.push({ file, status: 'error', error: `File ${file} non trovato` });
-            continue;
-        }
-        let sqlText = fs.readFileSync(filePath, 'utf-8');
-        // Sostituisci placeholder con il prefisso calcolato dal profilo
-        sqlText = sqlText.replace(/\{\{UJET11_REF\}\}/g, ujet11Ref);
-        const batches = sqlText.split(/^\s*GO\s*$/im).filter(b => b.trim());
-        for (const batch of batches) {
-            if (batch.trim()) {
-                await poolMRP.request().batch(batch);
-            }
-        }
-        results.push({ file, status: 'ok', ujet11Ref });
+        if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
+        try {
+            await executeSqlFile(poolProd, filePath);
+            results.push({ file, status: 'ok' });
+        } catch (err) { results.push({ file, status: 'error', error: err.message }); }
     }
+
+    // Tabelle e SP su MRP (pool produzione)
+    for (const file of ['create_ordini_emessi.sql', 'usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql']) {
+        const filePath = path.join(sqlDir, file);
+        if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
+        try {
+            await executeSqlFile(poolProd, filePath, { '{{UJET11_REF}}': ujet11Ref });
+            results.push({ file, status: 'ok', ujet11Ref });
+        } catch (err) { results.push({ file, status: 'error', error: err.message }); }
+    }
+
     return results;
+}
+
+/**
+ * Deploy oggetti SQL per un profilo di prova.
+ * - SP su MRP@163 con suffisso _T{id} e prefisso [SERVER_PROVA].[UJET11].[dbo]
+ * - Tabella ordini_emessi su UJET11@server_prova (pool test)
+ * Restituisce anche il flag hasRiep (se dbo.Riep esiste nel server di prova).
+ */
+async function deployTestObjects(poolProd, poolTest, testProfile) {
+    const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
+    const suffix = '_T' + testProfile._testDbId;
+    // Per le SP: il server di prova come linked server, UJET11 come database
+    const ujet11Ref = `[${testProfile.server}].[${testProfile.database_ujet11 || 'UJET11'}].[dbo]`;
+    const results = [];
+
+    // 1. Deploy ordini_emessi su UJET11 del server di prova (pool test)
+    const oeFile = path.join(sqlDir, 'create_ordini_emessi.sql');
+    if (fs.existsSync(oeFile)) {
+        try {
+            // Adatta: la tabella va su UJET11 di prova, non MRP
+            let oeSql = fs.readFileSync(oeFile, 'utf-8');
+            // Rimuovi eventuali prefissi [MRP]. — la tabella va nel DB corrente (UJET11)
+            oeSql = oeSql.replace(/\[MRP\]\.\[dbo\]/g, '[dbo]');
+            const batches = oeSql.split(/^\s*GO\s*$/im).filter(b => b.trim());
+            for (const b of batches) { if (b.trim()) await poolTest.request().batch(b); }
+            results.push({ file: 'create_ordini_emessi.sql', status: 'ok', target: 'test_ujet11' });
+        } catch (err) { results.push({ file: 'create_ordini_emessi.sql', status: 'error', error: err.message }); }
+    }
+
+    // 2. Deploy SP su MRP@163 (pool produzione) con suffisso e prefisso server prova
+    for (const file of ['usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql']) {
+        const filePath = path.join(sqlDir, file);
+        if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
+        try {
+            let sqlText = fs.readFileSync(filePath, 'utf-8');
+            sqlText = sqlText.replace(/\{\{UJET11_REF\}\}/g, ujet11Ref);
+            // Rinomina la SP con il suffisso: usp_NomeSP → usp_NomeSP_T{id}
+            sqlText = sqlText.replace(
+                /usp_CreaOrdineFornitore/g, 'usp_CreaOrdineFornitore' + suffix
+            );
+            sqlText = sqlText.replace(
+                /usp_AggiornaStatoInvioOrdine/g, 'usp_AggiornaStatoInvioOrdine' + suffix
+            );
+            const batches = sqlText.split(/^\s*GO\s*$/im).filter(b => b.trim());
+            for (const b of batches) { if (b.trim()) await poolProd.request().batch(b); }
+            results.push({ file, status: 'ok', spSuffix: suffix, ujet11Ref });
+        } catch (err) { results.push({ file, status: 'error', error: err.message }); }
+    }
+
+    // 3. Verifica se dbo.Riep esiste nel server di prova
+    let hasRiep = false;
+    try {
+        const riepCheck = await poolTest.request()
+            .query("SELECT 1 AS ok FROM sys.objects WHERE name='Riep' AND type IN ('U','V')");
+        hasRiep = riepCheck.recordset.length > 0;
+    } catch (_) {}
+
+    return { results, hasRiep };
+}
+
+/**
+ * Rimuove le SP di un profilo di prova eliminato (pulizia).
+ */
+async function dropTestSPs(poolProd, testDbId) {
+    const suffix = '_T' + testDbId;
+    const spNames = ['usp_CreaOrdineFornitore' + suffix, 'usp_AggiornaStatoInvioOrdine' + suffix];
+    for (const sp of spNames) {
+        try {
+            await poolProd.request().batch(
+                `IF EXISTS (SELECT 1 FROM sys.objects WHERE name='${sp}' AND type='P') DROP PROCEDURE dbo.[${sp}]`
+            );
+        } catch (_) {}
+    }
 }
 
 function createGb2Routes({ io, skipAuth } = {}) {
@@ -56,6 +165,12 @@ function createGb2Routes({ io, skipAuth } = {}) {
 // ============================================================
 
 // Helper: legge IDUser dalla sessione (o default per skipAuth/dev)
+// Pool per query su Riep: usa produzione se in prova senza Riep locale
+async function getPoolRiep() {
+    if (isProduction() || getTestHasRiep()) return getPoolMRP();
+    return getPoolProd();
+}
+
 function getUserId(req) {
     return (req.user && req.user.IDUser) || 0;
 }
@@ -114,14 +229,6 @@ router.get('/db/profiles', authMiddleware, async (req, res) => {
 router.post('/db/switch-production', authMiddleware, async (req, res) => {
     try {
         const profile = await switchToProduction();
-        // Re-deploy SP con prefisso produzione
-        try {
-            const pool = await getPoolMRP();
-            await deployMrpObjects(pool, profile);
-            console.log('[GB2] Re-deploy SP dopo switch a PRODUZIONE');
-        } catch (deployErr) {
-            console.warn('[GB2] Re-deploy SP dopo switch non riuscito:', deployErr.message);
-        }
         res.json({ success: true, activeProfile: profile });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -153,6 +260,7 @@ router.post('/db/switch-test', authMiddleware, async (req, res) => {
 
         const testProfile = {
             id: 'test_' + row.ID,
+            _testDbId: row.ID,
             label: row.ProfileLabel,
             server: row.Server,
             database_mrp: row.DatabaseMRP,
@@ -165,13 +273,19 @@ router.post('/db/switch-test', authMiddleware, async (req, res) => {
 
         const profile = await switchToTest(testProfile);
 
-        // Re-deploy SP senza prefisso (prova = locale)
+        // Deploy SP suffissate su MRP@163 + ordini_emessi su UJET11@prova
+        const warnings = [];
         try {
-            const pool = await getPoolMRP();
-            await deployMrpObjects(pool, profile);
-            console.log('[GB2] Re-deploy SP dopo switch a PROVA:', profile.label);
+            const poolTest = await getPoolMRP(); // ora punta a UJET11 del server di prova
+            const deploy = await deployTestObjects(poolProd, poolTest, testProfile);
+            setTestHasRiep(deploy.hasRiep);
+            console.log('[GB2] Deploy test objects per profilo T' + row.ID + ':', deploy.results.map(r => `${r.file}: ${r.status}`).join(', '), '| hasRiep:', deploy.hasRiep);
+            if (!deploy.hasRiep) {
+                warnings.push('La tabella dbo.Riep non esiste nel server di prova. I grafici consumi/previsioni useranno i dati di produzione.');
+            }
         } catch (deployErr) {
-            console.warn('[GB2] Re-deploy SP dopo switch non riuscito:', deployErr.message);
+            console.warn('[GB2] Deploy test objects non riuscito:', deployErr.message);
+            warnings.push('Deploy oggetti di prova non riuscito: ' + deployErr.message);
         }
 
         // Aggiorna IsActive nel DB
@@ -181,7 +295,7 @@ router.post('/db/switch-test', authMiddleware, async (req, res) => {
             .query(`UPDATE [GB2].[dbo].[TestProfiles] SET IsActive = 0 WHERE IDUser = @userId2;
                     UPDATE [GB2].[dbo].[TestProfiles] SET IsActive = 1 WHERE ID = @activeId`);
 
-        res.json({ success: true, activeProfile: profile });
+        res.json({ success: true, activeProfile: profile, warnings });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -302,6 +416,10 @@ router.delete('/db/profiles/:id', authMiddleware, async (req, res) => {
         if (!result.rowsAffected[0]) {
             return res.status(404).json({ error: 'Profilo non trovato' });
         }
+
+        // Pulizia: droppa le SP suffissate di questo profilo
+        try { await dropTestSPs(poolProd, dbId); } catch (_) {}
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1331,7 +1449,7 @@ router.get('/consumi/sprint-multi', authMiddleware, async (req, res) => {
             .slice(0, 20);
         if (!codarts.length) return res.status(400).json({ error: 'codarts richiesto' });
 
-        const pool = await getPoolMRP();
+        const pool = await getPoolRiep();
         const request = pool.request();
         const placeholders = codarts.map((_, i) => `@c${i}`).join(', ');
         codarts.forEach((cod, i) => {
@@ -1393,14 +1511,14 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
             .slice(0, 20);
         if (!codarts.length) return res.status(400).json({ error: 'codarts richiesto' });
 
-        const pool = await getPoolMRP();
-        const request = pool.request();
+        const poolRiep = await getPoolRiep();
+        const poolData = await getPoolMRP();
         const placeholders = codarts.map((_, i) => `@c${i}`).join(', ');
-        codarts.forEach((cod, i) => {
-            request.input(`c${i}`, sql.NVarChar, cod);
-        });
 
-        const result = await request.query(`
+        // Query Riep (potrebbe essere su pool produzione)
+        const reqRiep = poolRiep.request();
+        codarts.forEach((cod, i) => { reqRiep.input(`c${i}`, sql.NVarChar, cod); });
+        const riepResult = await reqRiep.query(`
                 SELECT
                     CONVERT(varchar(10), CONVERT(DATETIME, [Date], 103), 126) AS DataMov,
                     SUM([Qtà]) AS Qta
@@ -1409,8 +1527,12 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
                   AND Tipo_mov IN ('Vendite', 'Scarico_prod')
                   AND CONVERT(DATETIME, [Date], 103) >= DATEADD(year, -10, GETDATE())
                 GROUP BY CONVERT(varchar(10), CONVERT(DATETIME, [Date], 103), 126)
-                ORDER BY DataMov;
+                ORDER BY DataMov`);
 
+        // Query ordlist (sempre sul pool attivo)
+        const reqOrd = poolData.request();
+        codarts.forEach((cod, i) => { reqOrd.input(`c${i}`, sql.NVarChar, cod); });
+        const ordResult = await reqOrd.query(`
                 SELECT
                     CONVERT(varchar(10), ol_datcons, 126) AS DataMov,
                     SUM(ol_quant) AS Qta
@@ -1419,12 +1541,11 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
                   AND ol_tipork = 'Y'
                   AND ol_datcons >= CAST(GETDATE() AS DATE)
                 GROUP BY CONVERT(varchar(10), ol_datcons, 126)
-                ORDER BY DataMov;
-            `);
+                ORDER BY DataMov`);
 
         res.json({
-            past: result.recordsets[0] || [],
-            future: result.recordsets[1] || []
+            past: riepResult.recordset || [],
+            future: ordResult.recordset || []
         });
     } catch (err) {
         console.error('[API] Errore consumi marathon-multi:', err);
@@ -1438,7 +1559,7 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
 router.get('/consumi/sprint/:codart', authMiddleware, async (req, res) => {
     try {
         const codart = req.params.codart;
-        const pool = await getPoolMRP();
+        const pool = await getPoolRiep();
 
         const result = await pool.request()
             .input('codart', sql.NVarChar, codart)
@@ -1491,9 +1612,10 @@ router.get('/consumi/sprint/:codart', authMiddleware, async (req, res) => {
 router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
     try {
         const codart = req.params.codart;
-        const pool = await getPoolMRP();
+        const poolRiepData = await getPoolRiep();
+        const poolData = await getPoolMRP();
 
-        const result = await pool.request()
+        const riepResult = await poolRiepData.request()
             .input('codart', sql.NVarChar, codart)
             .query(`
                 SELECT
@@ -1504,8 +1626,11 @@ router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
                   AND Tipo_mov IN ('Vendite', 'Scarico_prod')
                   AND CONVERT(DATETIME, [Date], 103) >= DATEADD(year, -10, GETDATE())
                 GROUP BY CONVERT(varchar(10), CONVERT(DATETIME, [Date], 103), 126)
-                ORDER BY DataMov;
+                ORDER BY DataMov`);
 
+        const ordResult = await poolData.request()
+            .input('codart', sql.NVarChar, codart)
+            .query(`
                 SELECT
                     CONVERT(varchar(10), ol_datcons, 126) AS DataMov,
                     SUM(ol_quant) AS Qta
@@ -1514,12 +1639,11 @@ router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
                   AND ol_tipork = 'Y'
                   AND ol_datcons >= CAST(GETDATE() AS DATE)
                 GROUP BY CONVERT(varchar(10), ol_datcons, 126)
-                ORDER BY DataMov;
-            `);
+                ORDER BY DataMov`);
 
         res.json({
-            past: result.recordsets[0] || [],
-            future: result.recordsets[1] || []
+            past: riepResult.recordset || [],
+            future: ordResult.recordset || []
         });
     } catch (err) {
         console.error('[API] Errore consumi marathon:', err);
@@ -1733,13 +1857,19 @@ async function checkSpExists(pool, spName) {
     return r.recordset.length > 0;
 }
 
-// Deploy stored procedures dal progetto al DB MRP corrente
+// Deploy stored procedures manuale
 router.post('/deploy-sp', authMiddleware, async (req, res) => {
     try {
-        const poolMRP = await getPoolMRP();
-        const profile = getActiveProfile();
-        const results = await deployMrpObjects(poolMRP, profile);
-        res.json({ success: true, results });
+        const poolProd = await getPoolProd();
+        if (isProduction()) {
+            const results = await deployProductionObjects(poolProd);
+            res.json({ success: true, results });
+        } else {
+            const profile = getActiveProfile();
+            const poolTest = await getPoolMRP();
+            const deploy = await deployTestObjects(poolProd, poolTest, profile);
+            res.json({ success: true, results: deploy.results, hasRiep: deploy.hasRiep });
+        }
     } catch (err) {
         res.status(500).json({ error: err.message, detail: 'Errore durante il deploy delle stored procedure' });
     }
@@ -1748,10 +1878,13 @@ router.post('/deploy-sp', authMiddleware, async (req, res) => {
 // Verifica esistenza SP senza fare nulla
 router.get('/check-sp', authMiddleware, async (req, res) => {
     try {
-        const poolMRP = await getPoolMRP();
-        const spExists = await checkSpExists(poolMRP, 'usp_CreaOrdineFornitore');
-        // Verifica anche che la tabella ordini_emessi esista
-        const tblResult = await poolMRP.request().query(
+        const poolSP = await getPoolProd();
+        const profile = getActiveProfile();
+        const spName = getSpName('usp_CreaOrdineFornitore', profile);
+        const spExists = await checkSpExists(poolSP, spName);
+        // Verifica anche che la tabella ordini_emessi esista (nel pool attivo)
+        const poolData = await getPoolMRP();
+        const tblResult = await poolData.request().query(
             "SELECT OBJECT_ID('dbo.ordini_emessi', 'U') AS id"
         );
         const tblExists = tblResult.recordset[0].id !== null;
@@ -1769,26 +1902,29 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         if (!fornitore_codice) return res.status(400).json({ error: 'fornitore_codice obbligatorio' });
         if (!Array.isArray(articoli) || articoli.length === 0) return res.status(400).json({ error: 'articoli vuoto' });
 
-        const poolMRP = await getPoolMRP();
+        // Le SP vivono sempre su MRP@163 (pool produzione), con suffisso per profili di prova
+        const poolSP = await getPoolProd();
+        const profile = getActiveProfile();
+        const spName = getSpName('usp_CreaOrdineFornitore', profile);
 
         // Check SP esiste
-        const spExists = await checkSpExists(poolMRP, 'usp_CreaOrdineFornitore');
+        const spExists = await checkSpExists(poolSP, spName);
         if (!spExists) {
             return res.status(409).json({
                 error: 'SP_NOT_FOUND',
-                sp: 'usp_CreaOrdineFornitore',
-                message: 'La stored procedure usp_CreaOrdineFornitore non esiste nel database MRP corrente. Deployare prima con POST /api/mrp/deploy-sp'
+                sp: spName,
+                message: `La stored procedure ${spName} non esiste. Deployare prima con POST /api/mrp/deploy-sp`
             });
         }
 
         // Chiama la SP
         const { elaborazione_id } = req.body;
-        const result = await poolMRP.request()
+        const result = await poolSP.request()
             .input('json_articoli', sql.NVarChar(sql.MAX), JSON.stringify(articoli))
             .input('fornitore_codice', sql.Int, parseInt(fornitore_codice, 10))
             .input('operatore', sql.VarChar(20), 'mrpweb')
             .input('elaborazione_id', sql.VarChar(50), elaborazione_id || '')
-            .execute('dbo.usp_CreaOrdineFornitore');
+            .execute('dbo.' + spName);
 
         if (!result.recordsets || !result.recordsets[0] || !result.recordsets[0][0]) {
             return res.status(500).json({ error: 'La stored procedure non ha restituito dati' });
@@ -1834,21 +1970,23 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'Nessun ordine da emettere' });
         }
 
-        const poolMRP = await getPoolMRP();
-        const spExists = await checkSpExists(poolMRP, 'usp_CreaOrdineFornitore');
+        const poolSP = await getPoolProd();
+        const profile = getActiveProfile();
+        const spName = getSpName('usp_CreaOrdineFornitore', profile);
+        const spExists = await checkSpExists(poolSP, spName);
         if (!spExists) {
-            return res.status(409).json({ error: 'SP_NOT_FOUND', sp: 'usp_CreaOrdineFornitore' });
+            return res.status(409).json({ error: 'SP_NOT_FOUND', sp: spName });
         }
 
         const risultati = [];
         for (const ord of ordini) {
             try {
-                const result = await poolMRP.request()
+                const result = await poolSP.request()
                     .input('json_articoli', sql.NVarChar(sql.MAX), JSON.stringify(ord.articoli))
                     .input('fornitore_codice', sql.Int, parseInt(ord.fornitore_codice, 10))
                     .input('operatore', sql.VarChar(20), 'mrpweb')
                     .input('elaborazione_id', sql.VarChar(50), req.body.elaborazione_id || '')
-                    .execute('dbo.usp_CreaOrdineFornitore');
+                    .execute('dbo.' + spName);
 
                 const ordine = result.recordsets[0][0];
                 const righeOrdine = result.recordsets[1] || [];
@@ -2212,17 +2350,18 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             }]
         });
 
-        // Aggiorna stato invio nel DB
+        // Aggiorna stato invio nel DB (SP su MRP@163)
         try {
-            const poolMRP = await getPoolMRP();
-            const spExists = await checkSpExists(poolMRP, 'usp_AggiornaStatoInvioOrdine');
+            const poolSP = await getPoolProd();
+            const spNameAggiorna = getSpName('usp_AggiornaStatoInvioOrdine', getActiveProfile());
+            const spExists = await checkSpExists(poolSP, spNameAggiorna);
             if (spExists) {
-                await poolMRP.request()
+                await poolSP.request()
                     .input('anno', sql.SmallInt, parseInt(anno, 10))
                     .input('serie', sql.VarChar(3), serie)
                     .input('numord', sql.Int, parseInt(numord, 10))
                     .input('stato', sql.VarChar(1), 'S')
-                    .execute('dbo.usp_AggiornaStatoInvioOrdine');
+                    .execute('dbo.' + spNameAggiorna);
             }
         } catch (errAggiorna) {
             console.warn('[Email] Ordine inviato ma errore aggiornamento stato:', errAggiorna.message);
@@ -2251,5 +2390,5 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
     return router;
 }
 
-createGb2Routes.deployMrpObjects = deployMrpObjects;
+createGb2Routes.deployProductionObjects = deployProductionObjects;
 module.exports = createGb2Routes;

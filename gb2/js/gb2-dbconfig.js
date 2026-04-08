@@ -182,6 +182,11 @@ const MrpDbConfig = (() => {
                 if (typeof MrpProposta !== 'undefined' && MrpProposta.init) MrpProposta.init();
 
                 showFormStatus('&#10003; Profilo attivato: ' + data.activeProfile.label, 'var(--success)');
+
+                // Mostra avvisi (es. Riep mancante)
+                if (data.warnings && data.warnings.length > 0) {
+                    showWarningModal(data.warnings);
+                }
             } else {
                 showFormStatus('Errore: ' + (data.error || 'sconosciuto'), 'var(--danger)');
             }
@@ -310,6 +315,19 @@ const MrpDbConfig = (() => {
         } catch (err) {
             showFormStatus(err.message, 'var(--danger)');
         }
+    }
+
+    function showWarningModal(warnings) {
+        const overlay = document.getElementById('modalGenericOverlay');
+        const titolo = document.getElementById('modalGenericTitolo');
+        const icona = document.getElementById('modalGenericIcona');
+        const corpo = document.getElementById('modalGenericCorpo');
+        if (!overlay || !corpo) return;
+
+        titolo.textContent = 'Avviso ambiente di prova';
+        icona.textContent = '\u26A0\uFE0F';
+        corpo.innerHTML = warnings.map(w => '<p style="margin:8px 0; font-size:0.9rem;">' + esc(w) + '</p>').join('');
+        overlay.classList.add('open');
     }
 
     function showFormStatus(msg, color) {

@@ -99,6 +99,12 @@ function isProduction() {
     return activeMode === 'produzione';
 }
 
+// Flag: il server di prova ha dbo.Riep? Se no, i consumi leggono da produzione.
+let testHasRiep = false;
+
+function setTestHasRiep(val) { testHasRiep = !!val; }
+function getTestHasRiep() { return testHasRiep; }
+
 // ============================================================
 // SWITCH A PROVA
 // ============================================================
@@ -111,9 +117,9 @@ async function switchToTest(testProfile) {
     if (switching) throw new Error('Switch già in corso');
     switching = true;
     try {
-        // Tenta connessione PRIMA di committare lo switch
+        // Tenta connessione a UJET11 sul server di prova (accesso diretto, senza viste MRP)
         const newPool = await new sql.ConnectionPool(
-            buildPoolConfig(testProfile.server, testProfile.database_mrp, testProfile.user, testProfile.password)
+            buildPoolConfig(testProfile.server, testProfile.database_ujet11 || 'UJET11', testProfile.user, testProfile.password)
         ).connect();
 
         // Connessione riuscita — chiudi pool prova precedente (se c'è)
@@ -167,5 +173,7 @@ module.exports = {
     isProduction,
     switchToTest,
     switchToProduction,
+    setTestHasRiep,
+    getTestHasRiep,
     PRODUCTION_PROFILE
 };
