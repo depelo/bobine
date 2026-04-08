@@ -674,8 +674,8 @@
                     const nome = f.NomeForm ?? values[1] ?? codice;
                     const noteRaw = f.Note ?? "";
                     const note = noteRaw ? ` - [${noteRaw}]` : "";
-                    const isSelected = (String(codice) === String(defaultVal)) ? "selected" : "";
-                    opts += `<option value="${codice}" ${isSelected}>${codice} - ${nome}${note}</option>`;
+                    const isSelected = (String(nome) === String(defaultVal)) ? "selected" : "";
+                    opts += `<option value="${nome}" ${isSelected}>${codice} - ${nome}${note}</option>`;
                 });
                 valueCell.innerHTML = `<select name="${field}" class="form-select form-select-sm">${opts}</select>`;
             } else {
@@ -778,8 +778,8 @@
                     const nome = f.NomeForm ?? values[1] ?? codice;
                     const noteRaw = f.Note ?? "";
                     const note = noteRaw ? ` - [${noteRaw}]` : "";
-                    const isSelected = (String(codice) === String(defaultVal)) ? "selected" : "";
-                    opts += `<option value="${codice}" ${isSelected}>${codice} - ${nome}${note}</option>`;
+                    const isSelected = (String(nome) === String(defaultVal)) ? "selected" : "";
+                    opts += `<option value="${nome}" ${isSelected}>${codice} - ${nome}${note}</option>`;
                 });
                 valueCell.innerHTML = `<select name="${field}" class="form-select form-select-sm">${opts}</select>`;
             } else {
