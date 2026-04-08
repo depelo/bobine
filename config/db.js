@@ -7,7 +7,7 @@ const dbUser = process.env.DB_USER || 'sa';
 const dbConfig = {
     user: dbUser,
     password: process.env.DB_PASSWORD_GA || 'Risk0804',
-    server: 'localhost',
+    server: process.env.DB_SERVER_GA || 'localhost',
     database: 'GA',
     options: {
         encrypt: false,
@@ -19,7 +19,7 @@ const dbConfig = {
 const dbConfigPE = {
     user: dbUser,
     password: process.env.DB_PASSWORD_PE || 'Risk0804',
-    server: '192.168.0.163',
+    server: process.env.DB_SERVER_PE || '192.168.0.163',
     database: 'PE',
     options: {
         encrypt: false,
