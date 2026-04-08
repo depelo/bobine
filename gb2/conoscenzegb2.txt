@@ -309,7 +309,8 @@ GET  /progressivi/expand         Espansione dettaglio progressivi
 --- ORDINI E IMPEGNI ---
 GET  /ordini-dettaglio           Dettaglio ordini
 GET  /ordini-rmp                 Ordini RMP (restituisce anche ol_codart per navigazione)
-GET  /ordini-padre               Ordini padre
+GET  /ordini-padre               Ordini padre (da movord, per modale dettaglio)
+GET  /ordini-padre-rmp           Ordini padre (da ordlist via ol_olprogr, per modale RMP)
 GET  /proposta-ordini            Proposte ordine raggruppate per fornitore
 
 --- CONSUMI STORICI (usano getPoolRiep per fallback produzione) ---
@@ -398,14 +399,22 @@ Generato/Confermato. Le righe sono cliccabili:
     Chiude il modale e carica i progressivi del componente cliccato.
     Replica il bottone [3] "Progressivi Componente" dell'Access (frmTreeRMPcomp).
 
-  Click su bottone drill (solo tipo Y) -> apriDrillPadre(codart, magaz, fase)
-    Mostra gli ordini padre che consumano quel componente.
+  Click su bottone drill (solo tipo Y) -> apriDrillPadreRmp(codart, magaz, fase)
+    Usa endpoint /ordini-padre-rmp (self-join su ordlist via ol_olprogr).
+    DIVERSO da /ordini-padre che usa movord — gli impegni Y spesso
+    esistono solo in ordlist, non in movord.
     Bottone "Indietro" riporta al modale RMP (non al dettaglio ordini).
 
 Contesto modale (currentModalContext):
   In modalita RMP: { type: 'rmp', codart, fase }
   Il bottone Indietro controlla currentModalContext.type per sapere se
   tornare al modale RMP o al modale dettaglio ordini.
+
+IMPORTANTE — DUE TABELLE, DUE RELAZIONI PADRE-FIGLIO:
+  ordlist: ol_progr (PK) <-> ol_olprogr (FK padre) — dati MRP generati da BCube
+  movord:  mo_riga/numord/serie/anno/tipork <-> mo_rigaor/numordor/serieor/annoor/tiporkor
+  Il modale RMP lavora su ordlist, quindi il drill padre deve usare ordlist.
+  Il modale dettaglio ordini lavora su movord, quindi usa movord.
 
 
 ================================================================================

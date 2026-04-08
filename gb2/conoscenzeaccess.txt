@@ -228,6 +228,13 @@ qryEstArt_ord:
 qryEstArt_ordPadre:
   Self-join movord su mo_rigaor/mo_numordor/mo_serieor/mo_annoor/mo_tiporkor.
   Filtro: padre con mo_flevas = 'C' (in corso).
+  NOTA: usato dal modale dettaglio ordini, NON dal modale RMP.
+
+qryEstArt_listPadre:
+  Self-join ordlist su ol_progr = ol_olprogr.
+  Usato da frmListProdPadre (drill padre dal modale RMP).
+  CRITICO: gli impegni Y spesso esistono SOLO in ordlist, non in movord.
+  La web app usa /ordini-padre-rmp per questo (non /ordini-padre).
 
 qryordlist:
   Aggregazione ordlist per progressivi (OPC/OP/IPC/IP calcolati con IIf).

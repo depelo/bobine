@@ -1440,6 +1440,65 @@ router.get('/ordini-padre', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// API 7B: ORDINI PADRE da ordlist (self-join ol_olprogr → ol_progr)
+// Usato dal modale RMP. Diverso da /ordini-padre che usa movord.
+// ============================================================
+router.get('/ordini-padre-rmp', authMiddleware, async (req, res) => {
+    try {
+        const { codart, magaz, fase } = req.query;
+        if (!codart) return res.status(400).json({ error: 'codart richiesto' });
+
+        const pool = await getPoolMRP(getUserId(req));
+        const request = pool.request()
+            .input('codart', sql.NVarChar, codart);
+
+        let filtri = '';
+        if (magaz) {
+            request.input('magaz', sql.SmallInt, parseInt(magaz));
+            filtri += ' AND figlio.ol_magaz = @magaz';
+        }
+        if (fase && fase !== 'All') {
+            request.input('fase', sql.SmallInt, parseInt(fase));
+            filtri += ' AND figlio.ol_fase = @fase';
+        }
+
+        const result = await request.query(`
+            SELECT
+                figlio.ol_codart,
+                figlio.ol_magaz,
+                figlio.ol_fase,
+                figlio.ol_quant   AS figlio_quant,
+                figlio.ol_datcons AS figlio_datcons,
+                padre.ol_codart   AS padre_codart,
+                padre.ol_tipork   AS padre_tipork,
+                padre.ol_magaz    AS padre_magaz,
+                padre.ol_fase     AS padre_fase,
+                padre.ol_quant    AS padre_quant,
+                padre.ol_datcons  AS padre_datcons,
+                CASE WHEN padre.ol_stato = 'S' THEN 'Confermato' ELSE 'Generato' END AS padre_conf_gen,
+                ar.ar_descr       AS padre_descr,
+                ar.ar_codalt      AS padre_codalt,
+                mt.cb_modesrk     AS padre_desc_tipo,
+                an.an_descr1      AS padre_fornitore
+            FROM dbo.ordlist figlio
+            INNER JOIN dbo.ordlist padre ON figlio.ol_olprogr = padre.ol_progr
+            INNER JOIN dbo.artico ar ON padre.ol_codart = ar.ar_codart
+            INNER JOIN dbo.__MOTIPORK mt ON padre.ol_tipork = mt.cb_motipork
+            LEFT JOIN dbo.anagra an ON padre.ol_conto = an.an_conto
+            WHERE figlio.ol_codart = @codart
+              AND figlio.ol_tipork IN ('Y','R')
+              ${filtri}
+            ORDER BY padre.ol_tipork, padre.ol_codart, padre.ol_magaz, padre.ol_fase, padre.ol_datcons
+        `);
+
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('[API] Errore ordini-padre-rmp:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
 // API 8A-multi: CONSUMI SPRINT multi-articolo (esaurimento + sostitutivo)
 // ============================================================
 router.get('/consumi/sprint-multi', authMiddleware, async (req, res) => {
