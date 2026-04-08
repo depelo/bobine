@@ -83,6 +83,10 @@
 .modal-row-ordprod:hover td,
 .modal-row-ordforn:hover td { filter: brightness(0.95); }
 
+/* Righe RMP cliccabili */
+.rmp-row-clickable { cursor: pointer; }
+.rmp-row-clickable:hover td { filter: brightness(0.90); }
+
 /* Bottone drill-through */
 .btn-drill-padre {
     background: none;

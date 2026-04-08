@@ -179,6 +179,12 @@ const MrpProgressivi = (() => {
                 if (drillBtn) {
                     e.preventDefault();
                     apriDrillPadre(drillBtn.dataset.codart, drillBtn.dataset.magaz, drillBtn.dataset.fase);
+                    return;
+                }
+                const rmpRow = e.target.closest('.rmp-row-clickable');
+                if (rmpRow) {
+                    e.preventDefault();
+                    navigaProgressiviDaRmp(rmpRow.dataset.codart);
                 }
             });
         }
@@ -188,7 +194,9 @@ const MrpProgressivi = (() => {
         if (modalOrdiniBtnBack) {
             modalOrdiniBtnBack.addEventListener('click', () => {
                 ripristinaHeaderModale();
-                if (currentModalContext) {
+                if (currentModalContext && currentModalContext.type === 'rmp') {
+                    apriModaleOrdiniRmp(currentModalContext.codart, currentModalContext.fase);
+                } else if (currentModalContext) {
                     const { codart, magaz, fase } = currentModalContext;
                     const filtro = document.getElementById('modalFiltroMagToggle');
                     modalOrdiniBtnBack.style.display = 'none';
@@ -2292,7 +2300,7 @@ const MrpProgressivi = (() => {
         const tbody = document.getElementById('modalOrdiniBody');
         const loading = document.getElementById('modalOrdiniLoading');
 
-        currentModalContext = null;
+        currentModalContext = { type: 'rmp', codart, fase };
         if (btnBack) btnBack.style.display = 'none';
         if (filtroLabel) filtroLabel.style.display = 'none';
 
@@ -2361,11 +2369,18 @@ const MrpProgressivi = (() => {
                 else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') tr.className = 'modal-row-ordprod';
                 else tr.className = 'modal-row-ordforn';
 
+                tr.classList.add('rmp-row-clickable');
+                tr.dataset.codart = o.ol_codart || codart;
+
+                const drillBtn = o.ol_tipork === 'Y'
+                    ? `<button class="btn-drill-padre" title="Mostra ordini produzione padre" data-codart="${esc(o.ol_codart || codart)}" data-magaz="${esc(String(o.ol_magaz || ''))}" data-fase="${esc(String(o.ol_fase || ''))}">🔍</button>`
+                    : '';
+
                 const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
                 const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.conf_gen || '')}</span>`;
 
                 tr.innerHTML = `
-                <td></td>
+                <td style="text-align:center">${drillBtn}</td>
                 <td style="text-align:center">${badge}</td>
                 <td>${esc(o.desc_tipo || o.ol_tipork)}</td>
                 <td>${esc(o.anno)}</td>
@@ -2383,6 +2398,25 @@ const MrpProgressivi = (() => {
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>';
+        }
+    }
+
+    async function navigaProgressiviDaRmp(codartTarget) {
+        chiudiModale();
+        const inputCodart = document.getElementById('inputCodart');
+        if (inputCodart) inputCodart.value = codartTarget;
+        try {
+            const params = new URLSearchParams({ codart: codartTarget, magaz: '', fase: '', modo: '2', sintetico: '0' });
+            const res = await fetch(`${MrpApp.API_BASE}/progressivi?${params}`, { credentials: 'include' });
+            const data = await res.json();
+            if (res.ok) {
+                MrpApp.state.parametri = { codart: codartTarget, magaz: '', fase: '', modo: '2', sintetico: '0' };
+                MrpApp.state.ultimoRisultato = data;
+                render(data);
+                MrpApp.switchView('progressivi');
+            }
+        } catch (err) {
+            console.error('[RMP] Errore navigazione progressivi:', err);
         }
     }
 

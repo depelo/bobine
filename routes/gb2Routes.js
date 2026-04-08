@@ -1,9 +1,9 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { getPoolMRP, getPoolProd, sql, getActiveProfile, isProduction, switchToTest, switchToProduction, setTestHasRiep, getTestHasRiep, PRODUCTION_PROFILE } = require('../config/db-mrp');
+const { getPoolMRP, getPoolProd, sql, getActiveProfile, isProduction, switchToTest, switchToProduction, setTestHasRiep, getTestHasRiep, PRODUCTION_PROFILE } = require('../config/db-gb2');
 const { encrypt, decrypt } = require('../config/crypto');
-const smtp = require('../config/smtp-mrp');
+const smtp = require('../config/smtp-gb2');
 const { authenticateToken } = require('../middlewares/auth');
 
 // ============================================================
@@ -1328,6 +1328,7 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
 
         const result = await request.query(`
             SELECT
+                ol.ol_codart,
                 ol.ol_tipork,
                 ol.ol_magaz,
                 ol.ol_fase,
