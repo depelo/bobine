@@ -62,7 +62,6 @@ function buildConfig(profile, dbName) {
 // STATO DEL MODULO
 // ============================================================
 
-let poolUJET11 = null;
 let poolMRP = null;
 let switching = false;
 
@@ -76,15 +75,6 @@ console.log('[DB] Profilo attivo al caricamento:', currentProfile.label, '—', 
 // ============================================================
 // POOL GETTER (lazy init con guard mutex)
 // ============================================================
-
-async function getPoolUJET11() {
-    if (switching) throw new Error('Switch profilo in corso, riprova tra un momento');
-    if (!poolUJET11) {
-        poolUJET11 = await new sql.ConnectionPool(buildConfig(currentProfile, currentProfile.database_ujet11)).connect();
-        console.log('[DB] Pool UJET11 connesso —', currentProfile.database_ujet11);
-    }
-    return poolUJET11;
-}
 
 async function getPoolMRP() {
     if (switching) throw new Error('Switch profilo in corso, riprova tra un momento');
@@ -116,10 +106,8 @@ async function switchProfile(profileId) {
         const target = profiles.profiles.find(p => p.id === profileId);
         if (!target) throw new Error('Profilo non trovato: ' + profileId);
 
-        // Chiudi pool esistenti
-        if (poolUJET11) { try { await poolUJET11.close(); } catch(e) {} }
-        if (poolMRP)    { try { await poolMRP.close(); } catch(e) {} }
-        poolUJET11 = null;
+        // Chiudi pool esistente
+        if (poolMRP) { try { await poolMRP.close(); } catch(e) {} }
         poolMRP = null;
 
         // Aggiorna profilo attivo nel file e in memoria
@@ -127,9 +115,8 @@ async function switchProfile(profileId) {
         profiles.activeProfileId = profileId;
         saveProfiles(profiles);
 
-        // Pre-crea i pool subito (no lazy) per evitare errori sulla prima richiesta post-switch
-        poolUJET11 = await new sql.ConnectionPool(buildConfig(target, target.database_ujet11)).connect();
-        poolMRP    = await new sql.ConnectionPool(buildConfig(target, target.database_mrp)).connect();
+        // Pre-crea il pool subito (no lazy) per evitare errori sulla prima richiesta post-switch
+        poolMRP = await new sql.ConnectionPool(buildConfig(target, target.database_mrp)).connect();
 
         console.log('[DB] Switch a profilo:', target.label, '—', target.server);
         return sanitizeProfile(target);
@@ -185,7 +172,6 @@ function deleteProfile(profileId) {
 }
 
 module.exports = {
-    getPoolUJET11,
     getPoolMRP,
     sql,
     getActiveProfile,

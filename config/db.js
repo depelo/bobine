@@ -41,19 +41,6 @@ const dbConfigMRP = {
     }
 };
 
-/** Database UJET11 su 192.168.0.163 (dati BCube, produzione) */
-const dbConfigUJET11 = {
-    user: dbUser,
-    password: process.env.DB_PASSWORD_UJET11 || process.env.DB_PASSWORD_MRP || 'Risk0804',
-    server: process.env.DB_SERVER_UJET11 || '192.168.0.163',
-    database: process.env.DB_NAME_UJET11 || 'UJET11',
-    options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        useUTC: false
-    }
-};
-
 /** Database ET su BCUBE2 (metadati tabella fisica UJ_Etichette, ecc.) */
 const dbConfigET = {
     user: dbUser,
@@ -79,9 +66,6 @@ const poolMRPConnect = poolMRP.connect();
 const poolET = new sql.ConnectionPool(dbConfigET);
 const poolETConnect = poolET.connect();
 
-const poolUJET11 = new sql.ConnectionPool(dbConfigUJET11);
-const poolUJET11Connect = poolUJET11.connect();
-
 module.exports = {
     sql,
     getPoolGA: async () => {
@@ -99,9 +83,5 @@ module.exports = {
     getPoolET: async () => {
         await poolETConnect;
         return poolET;
-    },
-    getPoolUJET11: async () => {
-        await poolUJET11Connect;
-        return poolUJET11;
     }
 };

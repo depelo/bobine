@@ -25,7 +25,8 @@
       "Bash(taskkill //PID 5360 //F)",
       "Bash(echo \"EXIT:$?\")",
       "Bash(curl -s http://localhost:3001/api/mrp/health)",
-      "Bash(curl -s http://localhost:3001/api/mrp/db/active-profile)"
+      "Bash(curl -s http://localhost:3001/api/mrp/db/active-profile)",
+      "Bash(python -c \":*)"
     ]
   }
 }

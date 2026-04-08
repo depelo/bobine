@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { getPoolUJET11, getPoolMRP, sql, getActiveProfile, getAllProfiles, switchProfile, addProfile, updateProfile, deleteProfile } = require('../config/db-mrp');
+const { getPoolMRP, sql, getActiveProfile, getAllProfiles, switchProfile, addProfile, updateProfile, deleteProfile } = require('../config/db-mrp');
 const smtp = require('../config/smtp-mrp');
 const { authenticateToken } = require('../middlewares/auth');
 
@@ -141,7 +141,7 @@ router.post('/db/test-connection', authMiddleware, async (req, res) => {
 router.get('/articoli/search', authMiddleware, async (req, res) => {
     try {
         const { q, field } = req.query; // field: 'codart' | 'codalt' | 'descr'
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
 
         let where = '';
         if (q && q.trim()) {
@@ -182,7 +182,7 @@ router.get('/articoli/search', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/articoli/:codart/fasi', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const result = await pool.request()
             .input('codart', sql.NVarChar, req.params.codart)
             .query(`
@@ -204,7 +204,7 @@ router.get('/articoli/:codart/fasi', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/magazzini', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const result = await pool.request()
             .query(`
                 SELECT tb_codmaga, tb_desmaga
@@ -666,7 +666,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
 
         const artResult = await pool.request()
             .input('codart', sql.NVarChar, codart)
@@ -858,7 +858,7 @@ router.get('/progressivi/expand', authMiddleware, async (req, res) => {
         const { codart, livello } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const liv = parseInt(livello, 10) || 1;
         const righe = [];
 
@@ -934,7 +934,7 @@ router.get('/ordini-dettaglio', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 
@@ -999,7 +999,7 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
         const { codart, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const request = pool.request().input('codart', sql.NVarChar, codart);
 
         let filtri = '';
@@ -1053,7 +1053,7 @@ router.get('/ordini-padre', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 
@@ -1132,7 +1132,7 @@ router.get('/consumi/sprint-multi', authMiddleware, async (req, res) => {
             .slice(0, 20);
         if (!codarts.length) return res.status(400).json({ error: 'codarts richiesto' });
 
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const request = pool.request();
         const placeholders = codarts.map((_, i) => `@c${i}`).join(', ');
         codarts.forEach((cod, i) => {
@@ -1144,18 +1144,18 @@ router.get('/consumi/sprint-multi', authMiddleware, async (req, res) => {
                 DECLARE @AnnoCorrente INT = YEAR(@Oggi);
 
                 SELECT
-                    ISNULL(SUM(CASE WHEN CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -12, @Oggi) AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qtà] ELSE 0 END), 0) AS R12,
-                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qtà] ELSE 0 END), 0) AS YTD,
-                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente - 1 AND CONVERT(DATETIME, [Date], 103) <= DATEADD(year, -1, @Oggi) THEN [Qtà] ELSE 0 END), 0) AS LYTD
+                    ISNULL(SUM(CASE WHEN CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -12, @Oggi) AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qt] ELSE 0 END), 0) AS R12,
+                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qt] ELSE 0 END), 0) AS YTD,
+                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente - 1 AND CONVERT(DATETIME, [Date], 103) <= DATEADD(year, -1, @Oggi) THEN [Qt] ELSE 0 END), 0) AS LYTD
                 INTO #TempKPI
-                FROM Analisi_scorte.dbo.View_100_riep
+                FROM dbo.Riep
                 WHERE Codart IN (${placeholders}) AND Tipo_mov IN ('Vendite', 'Scarico_prod');
 
                 SELECT
                     CONVERT(varchar(7), CONVERT(DATETIME, [Date], 103), 126) AS Mese,
-                    SUM([Qtà]) AS Totale
+                    SUM([Qt]) AS Totale
                 INTO #TempTrend
-                FROM Analisi_scorte.dbo.View_100_riep
+                FROM dbo.Riep
                 WHERE Codart IN (${placeholders})
                   AND Tipo_mov IN ('Vendite', 'Scarico_prod')
                   AND CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -24, @Oggi)
@@ -1194,7 +1194,7 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
             .slice(0, 20);
         if (!codarts.length) return res.status(400).json({ error: 'codarts richiesto' });
 
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const request = pool.request();
         const placeholders = codarts.map((_, i) => `@c${i}`).join(', ');
         codarts.forEach((cod, i) => {
@@ -1204,8 +1204,8 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
         const result = await request.query(`
                 SELECT
                     CONVERT(varchar(10), CONVERT(DATETIME, [Date], 103), 126) AS DataMov,
-                    SUM([Qtà]) AS Qta
-                FROM Analisi_scorte.dbo.View_100_riep
+                    SUM([Qt]) AS Qta
+                FROM dbo.Riep
                 WHERE Codart IN (${placeholders})
                   AND Tipo_mov IN ('Vendite', 'Scarico_prod')
                   AND CONVERT(DATETIME, [Date], 103) >= DATEADD(year, -10, GETDATE())
@@ -1234,12 +1234,12 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// API 8A: CONSUMI SPRINT (KPI + trend veloce, cross-DB Analisi_scorte)
+// API 8A: CONSUMI SPRINT (KPI + trend veloce, vista Riep su MRP)
 // ============================================================
 router.get('/consumi/sprint/:codart', authMiddleware, async (req, res) => {
     try {
         const codart = req.params.codart;
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
 
         const result = await pool.request()
             .input('codart', sql.NVarChar, codart)
@@ -1248,18 +1248,18 @@ router.get('/consumi/sprint/:codart', authMiddleware, async (req, res) => {
                 DECLARE @AnnoCorrente INT = YEAR(@Oggi);
 
                 SELECT
-                    ISNULL(SUM(CASE WHEN CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -12, @Oggi) AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qtà] ELSE 0 END), 0) AS R12,
-                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qtà] ELSE 0 END), 0) AS YTD,
-                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente - 1 AND CONVERT(DATETIME, [Date], 103) <= DATEADD(year, -1, @Oggi) THEN [Qtà] ELSE 0 END), 0) AS LYTD
+                    ISNULL(SUM(CASE WHEN CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -12, @Oggi) AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qt] ELSE 0 END), 0) AS R12,
+                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qt] ELSE 0 END), 0) AS YTD,
+                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente - 1 AND CONVERT(DATETIME, [Date], 103) <= DATEADD(year, -1, @Oggi) THEN [Qt] ELSE 0 END), 0) AS LYTD
                 INTO #TempKPI
-                FROM Analisi_scorte.dbo.View_100_riep
+                FROM dbo.Riep
                 WHERE Codart = @codart AND Tipo_mov IN ('Vendite', 'Scarico_prod');
 
                 SELECT
                     CONVERT(varchar(7), CONVERT(DATETIME, [Date], 103), 126) AS Mese,
-                    SUM([Qtà]) AS Totale
+                    SUM([Qt]) AS Totale
                 INTO #TempTrend
-                FROM Analisi_scorte.dbo.View_100_riep
+                FROM dbo.Riep
                 WHERE Codart = @codart
                   AND Tipo_mov IN ('Vendite', 'Scarico_prod')
                   AND CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -24, @Oggi)
@@ -1292,15 +1292,15 @@ router.get('/consumi/sprint/:codart', authMiddleware, async (req, res) => {
 router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
     try {
         const codart = req.params.codart;
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
 
         const result = await pool.request()
             .input('codart', sql.NVarChar, codart)
             .query(`
                 SELECT
                     CONVERT(varchar(10), CONVERT(DATETIME, [Date], 103), 126) AS DataMov,
-                    SUM([Qtà]) AS Qta
-                FROM Analisi_scorte.dbo.View_100_riep
+                    SUM([Qt]) AS Qta
+                FROM dbo.Riep
                 WHERE Codart = @codart
                   AND Tipo_mov IN ('Vendite', 'Scarico_prod')
                   AND CONVERT(DATETIME, [Date], 103) >= DATEADD(year, -10, GETDATE())
@@ -1333,7 +1333,7 @@ router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/proposta-ordini', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const result = await pool.request().query(`
             SELECT
                 ol.ol_progr,
@@ -1433,7 +1433,7 @@ function getPoliticaRiordino(art) {
 // ============================================================
 router.get('/health', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const result = await pool.request().query('SELECT 1 AS ok');
         const poolMRP = await getPoolMRP();
         const resultMRP = await poolMRP.request().query('SELECT 1 AS ok');
@@ -1694,7 +1694,7 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
 router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) => {
     try {
         const { anno, serie, numord } = req.params;
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
 
         // Leggi testata
         const testata = await pool.request()
@@ -1726,7 +1726,7 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
         try {
             const pag = await pool.request()
                 .input('codpaga', sql.SmallInt, testata.recordset[0].td_codpaga)
-                .query("SELECT cp_descr FROM dbo.codpaga WHERE cp_codpaga = @codpaga");
+                .query("SELECT tb_descr AS cp_descr FROM dbo.tabpaga WHERE tb_codpaga = @codpaga");
             if (pag.recordset.length) pag_descr = pag.recordset[0].cp_descr || '';
         } catch (_) { /* codpaga potrebbe non esistere */ }
 
@@ -1794,7 +1794,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         }
 
         // Leggi dati ordine per email (fornitore, articoli)
-        const pool = await getPoolUJET11();
+        const pool = await getPoolMRP();
         const testataRes = await pool.request()
             .input('anno', sql.SmallInt, parseInt(anno, 10))
             .input('serie', sql.VarChar(3), serie)
