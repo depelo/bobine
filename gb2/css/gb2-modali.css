@@ -86,6 +86,8 @@
 /* Righe RMP cliccabili */
 .rmp-row-clickable { cursor: pointer; }
 .rmp-row-clickable:hover td { filter: brightness(0.90); }
+.rmp-drill-row { cursor: pointer; }
+.rmp-drill-row:hover td { filter: brightness(0.85); }
 
 /* Bottone drill-through */
 .btn-drill-padre {

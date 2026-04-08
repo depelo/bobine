@@ -187,6 +187,12 @@ const MrpProgressivi = (() => {
                     apriDrillPadre(drillBtn.dataset.codart, drillBtn.dataset.magaz, drillBtn.dataset.fase);
                     return;
                 }
+                const drillRow = e.target.closest('.rmp-drill-row');
+                if (drillRow) {
+                    e.preventDefault();
+                    apriDrillPadreRmp(drillRow.dataset.codart, drillRow.dataset.magaz, drillRow.dataset.fase);
+                    return;
+                }
                 const rmpRow = e.target.closest('.rmp-row-clickable');
                 if (rmpRow) {
                     e.preventDefault();
@@ -199,8 +205,15 @@ const MrpProgressivi = (() => {
         const modalOrdiniBtnBack = document.getElementById('modalOrdiniBtnBack');
         if (modalOrdiniBtnBack) {
             modalOrdiniBtnBack.addEventListener('click', () => {
-                ripristinaHeaderModale();
-                if (currentModalContext && currentModalContext.type === 'rmp') {
+                const activeTab = document.querySelector('.modal-ordini-tabs .modal-tab.active');
+                const isRmpTab = activeTab && activeTab.id === 'modalTabRmp';
+                if (isRmpTab && currentModalContext) {
+                    // Torna al tab RMP (lista impegni)
+                    const { codart, fase } = currentModalContext;
+                    caricaRmpModale(codart, fase || '');
+                    const btnBack = document.getElementById('modalOrdiniBtnBack');
+                    if (btnBack) btnBack.style.display = 'none';
+                } else if (currentModalContext && currentModalContext.type === 'rmp') {
                     apriModaleOrdiniRmp(currentModalContext.codart, currentModalContext.fase);
                 } else if (currentModalContext) {
                     const { codart, magaz, fase } = currentModalContext;
@@ -1663,7 +1676,6 @@ const MrpProgressivi = (() => {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (thead) {
             thead.innerHTML = `
-                <th style="width:30px;"></th>
                 <th>Mag</th>
                 <th>Fase</th>
                 <th>Data Cons.</th>
@@ -1690,7 +1702,7 @@ const MrpProgressivi = (() => {
             const failed = allData.find(x => x && x.ok === false);
             if (failed) {
                 loading.style.display = 'none';
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--danger)">Errore: ${esc((failed.err || {}).error || '')}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--danger)">Errore: ${esc((failed.err || {}).error || '')}</td></tr>`;
                 return;
             }
 
@@ -1698,26 +1710,29 @@ const MrpProgressivi = (() => {
             loading.style.display = 'none';
 
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun dato RMP trovato</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun dato RMP trovato</td></tr>';
                 return;
             }
 
             data.forEach(o => {
                 const tr = document.createElement('tr');
 
-                if (o.ol_tipork === 'Y') tr.className = 'modal-row-impprod';
-                else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') tr.className = 'modal-row-ordprod';
-                else tr.className = 'modal-row-ordforn';
-
-                const drillBtn = o.ol_tipork === 'Y'
-                    ? `<button class="btn-drill-padre-rmp" title="Mostra ordini produzione padre" data-codart="${esc(o.ol_codart || codart)}" data-magaz="${esc(String(o.ol_magaz || ''))}" data-fase="${esc(String(o.ol_fase || ''))}">🔍</button>`
-                    : '';
+                if (o.ol_tipork === 'Y') {
+                    tr.className = 'modal-row-impprod rmp-drill-row';
+                    tr.dataset.codart = o.ol_codart || codart;
+                    tr.dataset.magaz = String(o.ol_magaz || '');
+                    tr.dataset.fase = String(o.ol_fase || '');
+                    tr.title = 'Clicca per vedere gli ordini produzione padre';
+                } else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') {
+                    tr.className = 'modal-row-ordprod';
+                } else {
+                    tr.className = 'modal-row-ordforn';
+                }
 
                 const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
                 const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.conf_gen || '')}</span>`;
 
                 tr.innerHTML = `
-                    <td style="text-align:center">${drillBtn}</td>
                     <td style="text-align:center">${esc(o.ol_magaz)}</td>
                     <td style="text-align:center">${esc(o.ol_fase)}</td>
                     <td>${fmtDate(o.ol_datcons)}</td>
@@ -1730,7 +1745,7 @@ const MrpProgressivi = (() => {
             });
         } catch (err) {
             loading.style.display = 'none';
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>';
         }
     }
 
@@ -1826,15 +1841,14 @@ const MrpProgressivi = (() => {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (thead) {
             thead.innerHTML = `
-            <th style="width:30px;"></th>
-            <th>Stato</th>
-            <th>Operazione</th>
-            <th>Cod. Art. Padre</th>
-            <th>Descrizione Articolo</th>
+            <th>Cod. Art.</th>
             <th>Mag</th>
             <th>Fase</th>
+            <th>Descrizione Articolo</th>
             <th>Data Cons.</th>
-            <th>Q.tà</th>
+            <th>Operazione</th>
+            <th>Q.tà Ordinata</th>
+            <th>Stato</th>
             <th>Fornitore</th>
         `;
         }
@@ -1852,11 +1866,11 @@ const MrpProgressivi = (() => {
             loading.style.display = 'none';
 
             if (!res.ok) {
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--danger)">Errore: ${esc(data.error || '')}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger)">Errore: ${esc(data.error || '')}</td></tr>`;
                 return;
             }
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun ordine produzione padre trovato</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun ordine produzione padre trovato</td></tr>';
                 return;
             }
 
@@ -1870,22 +1884,21 @@ const MrpProgressivi = (() => {
                 const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.padre_conf_gen || '')}</span>`;
 
                 tr.innerHTML = `
-                    <td></td>
-                    <td style="text-align:center">${badge}</td>
-                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
                     <td><strong>${esc(o.padre_codart)}</strong></td>
-                    <td>${esc(o.padre_descr)}</td>
                     <td style="text-align:center">${esc(o.padre_magaz)}</td>
                     <td style="text-align:center">${esc(o.padre_fase)}</td>
-                    <td>${fmtDate(o.padre_datcons)}</td>
-                    <td style="text-align:right">${fmt(o.padre_quant)}</td>
+                    <td>${esc(o.padre_descr)}</td>
+                    <td>${fmtDate(o.datcons)}</td>
+                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
+                    <td style="text-align:right"><strong>${fmt(o.quantita)}</strong></td>
+                    <td style="text-align:center">${badge}</td>
                     <td>${esc(o.padre_fornitore || '')}</td>
                 `;
                 tbody.appendChild(tr);
             });
         } catch (err) {
             loading.style.display = 'none';
-            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
         }
     }
 

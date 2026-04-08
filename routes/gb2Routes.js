@@ -1465,21 +1465,16 @@ router.get('/ordini-padre-rmp', authMiddleware, async (req, res) => {
 
         const result = await request.query(`
             SELECT
-                figlio.ol_codart,
-                figlio.ol_magaz,
-                figlio.ol_fase,
-                figlio.ol_quant   AS figlio_quant,
-                figlio.ol_datcons AS figlio_datcons,
                 padre.ol_codart   AS padre_codart,
-                padre.ol_tipork   AS padre_tipork,
                 padre.ol_magaz    AS padre_magaz,
                 padre.ol_fase     AS padre_fase,
-                padre.ol_quant    AS padre_quant,
-                padre.ol_datcons  AS padre_datcons,
-                CASE WHEN padre.ol_stato = 'S' THEN 'Confermato' ELSE 'Generato' END AS padre_conf_gen,
                 ar.ar_descr       AS padre_descr,
                 ar.ar_codalt      AS padre_codalt,
+                figlio.ol_datcons AS datcons,
+                padre.ol_tipork   AS padre_tipork,
                 mt.cb_modesrk     AS padre_desc_tipo,
+                SUM(figlio.ol_quant) AS quantita,
+                CASE WHEN padre.ol_stato = 'S' THEN 'Confermato' ELSE 'Generato' END AS padre_conf_gen,
                 an.an_descr1      AS padre_fornitore
             FROM dbo.ordlist figlio
             INNER JOIN dbo.ordlist padre ON figlio.ol_olprogr = padre.ol_progr
@@ -1489,7 +1484,9 @@ router.get('/ordini-padre-rmp', authMiddleware, async (req, res) => {
             WHERE figlio.ol_codart = @codart
               AND figlio.ol_tipork IN ('Y','R')
               ${filtri}
-            ORDER BY padre.ol_tipork, padre.ol_codart, padre.ol_magaz, padre.ol_fase, padre.ol_datcons
+            GROUP BY padre.ol_codart, padre.ol_magaz, padre.ol_fase, ar.ar_descr, ar.ar_codalt,
+                     figlio.ol_datcons, padre.ol_tipork, mt.cb_modesrk, padre.ol_stato, an.an_descr1
+            ORDER BY padre.ol_tipork, padre.ol_codart, padre.ol_magaz, padre.ol_fase, figlio.ol_datcons
         `);
 
         res.json(result.recordset);
