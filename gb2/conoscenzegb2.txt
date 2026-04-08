@@ -63,7 +63,7 @@ Stack:
   - PDF: PDFKit (server-side)
   - Email: Nodemailer
   - Libreria DB: mssql (node-mssql)
-  - Dev server: Vite (porta 3000)
+  - Dev locale: server.js + PM2 (stessi file di produzione)
   - Crittografia: AES-256-GCM (config/crypto.js)
 
 Server:
@@ -144,7 +144,7 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
   routes/
     gb2Routes.js              # TUTTE le API REST (~2400 righe). File centrale.
                               # Factory function: createGb2Routes({ io, skipAuth })
-                              # skipAuth=true in dev (Vite), false in produzione
+                              # skipAuth usato solo in contesti di test specifici
 
   config/
     db-gb2.js                 # Pool MRP: produzione hardcoded da .env, prova dinamico
@@ -186,7 +186,6 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
     pdfOrdine.js              # Generazione PDF ordine fornitore
 
   setup-gb2.js                # Script one-time: crea DB GB2, registra modulo in GA
-  vite.config.js              # Dev server con plugin backend integrato
   ecosystem.config.js         # Configurazione PM2 (fork mode, 1 istanza)
 
 FILE IN .GITIGNORE:
@@ -279,7 +278,7 @@ File: routes/gb2Routes.js (~2400 righe)
 
 Factory function: createGb2Routes({ io, skipAuth })
   - io: istanza Socket.io (per eventi real-time)
-  - skipAuth: se true, disabilita authenticateToken (usato in dev con Vite)
+  - skipAuth: se true, disabilita authenticateToken (usato in contesti di test)
 
 Import: config/db-gb2.js (pool MRP produzione + prova)
 Import: config/crypto.js (crittografia password)
@@ -618,31 +617,34 @@ Mapping URL per modulo:
 
 
 ================================================================================
-14. SVILUPPO LOCALE CON VITE
+14. SVILUPPO LOCALE
 ================================================================================
 
-File: vite.config.js
-
-Il plugin Vite monta lo STESSO gb2Routes.js usato in produzione.
+Lo sviluppo locale usa direttamente server.js (lo stesso di produzione) con PM2.
 Non esiste un backend separato per lo sviluppo — un solo codice.
-skipAuth: true → le rotte non richiedono JWT in dev locale.
+La differenza tra produzione e sviluppo e' gestita dal file .env (vedi .env.example).
 
-PROXY:
-  /api/mrp/* → gestito internamente dal plugin (Express dentro Vite)
-  /api/*     → proxyato a https://rotoli.ujet.it (login, sessione, ecc.)
-  /socket.io → proxyato a https://rotoli.ujet.it (WebSocket)
+SETUP:
+  - Certificati SSL locali generati con mkcert in certificati/certsvil/
+  - VPN WireGuard attiva per accesso ai database su 192.168.0.163
+  - Porta configurabile via .env (default sviluppo: 3000)
 
 LANCIARE IN DEV:
-  cd C:\Users\depel\Documents\progetto\ujet\bobine
-  npx vite
-  → Apre su http://localhost:3000
+  cd C:\Users\TUO_UTENTE\Documents\progetto\ujet\bobine
+  npx pm2 start ecosystem.config.js
+  → Apre su https://localhost:3000
+
+RELOAD DOPO MODIFICA:
+  npx pm2 reload portalujet
+
+Vedi GUIDA-SVILUPPO-LOCALE.txt per il setup completo.
 
 
 ================================================================================
 15. AUTO-DEPLOY SQL
 ================================================================================
 
-AVVIO (produzione — server.js e Vite):
+AVVIO (produzione e sviluppo — server.js):
   Chiama deployProductionObjects(poolProd):
   1. Tabelle GB2: create_test_profiles.sql, create_user_preferences.sql
   2. Tabelle MRP: create_ordini_emessi.sql
@@ -676,7 +678,7 @@ SP CON PLACEHOLDER:
    MAI manipolare il DOM in risposta a un evento di scrittura.
 
 2. UN SOLO CODICE PER DEV E PRODUZIONE:
-   gb2Routes.js e lo STESSO file usato da server.js e da Vite.
+   gb2Routes.js e lo STESSO file usato in produzione e in sviluppo locale.
    NON creare backend separati per lo sviluppo.
 
 3. CONFIG SEPARATO DAL CODICE:
@@ -737,8 +739,7 @@ UJET11:     Database ERP BCube (sacro, non modificare la struttura)
 BCube:      ERP usato da U.Jet
 UAC:        Ufficio Acquisti (ruolo Base nell'app GB2)
 UAD:        Ufficio Admin (ruolo Admin nell'app GB2)
-Vite:       Dev server per sviluppo locale con hot-reload
-skipAuth:   Flag che disabilita l'autenticazione JWT in dev mode
+skipAuth:   Flag che disabilita l'autenticazione JWT in contesti di test
 FOUC:       Flash of Unstyled Content (problema risolto con localStorage)
 poolProd:   Pool fisso verso MRP su 192.168.0.163 (sempre attivo)
 poolTest:   Pool dinamico verso UJET11 sul server di prova

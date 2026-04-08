@@ -4,3 +4,6 @@
 2026-04-08 17:42:37: Server API in ascolto in HTTPS sulla porta 3000 all'indirizzo https://rotoli.ujet.it
 2026-04-08 17:42:37: [DB] Pool PRODUZIONE connesso — 192.168.0.163/MRP (max 30)
 2026-04-08 17:42:40: [GB2] Auto-deploy SQL completato: create_test_profiles.sql: ok, create_user_preferences.sql: ok, create_ordini_emessi.sql: ok, usp_CreaOrdineFornitore.sql: ok, usp_AggiornaStatoInvioOrdine.sql: ok
+2026-04-08 17:53:28: [DB] User 0 switch a PROVA: PABLO — 192.168.0.163
+2026-04-08 17:53:29: [GB2] Deploy test objects per profilo T1: create_ordini_emessi.sql: ok, usp_CreaOrdineFornitore.sql: error, usp_AggiornaStatoInvioOrdine.sql: ok | hasRiep: false
+2026-04-08 18:02:24: [DB] User 0 switch a PRODUZIONE

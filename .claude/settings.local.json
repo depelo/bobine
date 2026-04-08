@@ -28,7 +28,9 @@
       "Bash(curl -s http://localhost:3001/api/mrp/db/active-profile)",
       "Bash(python -c \":*)",
       "mcp__mssql-ujet11__describe_table",
-      "Bash(find \"C:/Users/depel/Documents/progetto/ujet/bobine\" -type f -name \".gitignore\" -exec cat {} \\\\;)"
+      "Bash(find \"C:/Users/depel/Documents/progetto/ujet/bobine\" -type f -name \".gitignore\" -exec cat {} \\\\;)",
+      "Bash(xargs grep:*)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }
