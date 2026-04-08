@@ -2,7 +2,7 @@
   CONOSCENZE PROGETTO GB2 (Gabriele 2.0) — APP MRP WEB
   Modulo integrato nell'ecosistema PortalUjet
   Documento destinato a un'IA che prende in mano il progetto
-  Data: 7 Aprile 2026
+  Data: 8 Aprile 2026
 ================================================================================
 
 INDICE
@@ -17,14 +17,15 @@ INDICE
 8. FLUSSO EMISSIONE ORDINI FORNITORE
 9. GENERAZIONE PDF E INVIO EMAIL
 10. GESTIONE PROFILI DB (MULTI-AMBIENTE)
-11. SISTEMA TEMI E COLORI PERSONALIZZABILI
-12. INTEGRAZIONE LAYER 2 (PORTALUJET)
-13. SVILUPPO LOCALE CON VITE
-14. AUTO-DEPLOY SQL
-15. PRINCIPI ARCHITETTURALI
-16. PROBLEMI NOTI E AVVERTENZE
-17. GLOSSARIO
-18. PERSONE DI RIFERIMENTO
+11. ARCHITETTURA PRODUZIONE VS PROVA
+12. SISTEMA TEMI E COLORI PERSONALIZZABILI
+13. INTEGRAZIONE LAYER 2 (PORTALUJET)
+14. SVILUPPO LOCALE CON VITE
+15. AUTO-DEPLOY SQL
+16. PRINCIPI ARCHITETTURALI
+17. PROBLEMI NOTI E AVVERTENZE
+18. GLOSSARIO
+19. PERSONE DI RIFERIMENTO
 
 
 ================================================================================
@@ -63,6 +64,7 @@ Stack:
   - Email: Nodemailer
   - Libreria DB: mssql (node-mssql)
   - Dev server: Vite (porta 3000)
+  - Crittografia: AES-256-GCM (config/crypto.js)
 
 Server:
   - 192.168.0.163 (PC-SVILUPPO): server dove gira l'app (server.js/PM2, porta 443).
@@ -72,28 +74,32 @@ Server:
     reali usati dai 40 dipendenti. L'app NON si connette direttamente a bcube2.
 
 Database utilizzati:
-  - MRP (su 192.168.0.163): database operativo dell'app. Contiene:
+  - MRP (su 192.168.0.163): database operativo PRODUZIONE. Contiene:
     - Tabelle custom: ordini_emessi
     - Stored procedures: usp_CreaOrdineFornitore, usp_AggiornaStatoInvioOrdine
+    - SP di prova suffissate: usp_CreaOrdineFornitore_T{id}, ecc.
     - 21 VISTE che espongono le tabelle di UJET11 su bcube2 (create da Fabrizio)
-  - GB2 (su 192.168.0.163): silos dell'app (Operators per visti, UserPreferences)
-  - UJET11 (su bcube2): dati ERP BCube reali — accessibile SOLO tramite le viste MRP
+  - GB2 (su 192.168.0.163): silos dell'app (Operators, UserPreferences, TestProfiles)
+  - UJET11 (su bcube2): dati ERP BCube reali — in produzione accessibile via viste MRP
+  - UJET11 (su server di prova): copia locale — in prova accessibile DIRETTAMENTE
 
 Gestione connessioni:
-  - config/db-mrp.js: UN SOLO pool verso il database MRP su 192.168.0.163
-  - NON esiste piu un pool UJET11 separato — eliminato dopo la creazione delle viste
+  - config/db-mrp.js gestisce DUE pool:
+    - poolProd: pool fisso verso MRP su 192.168.0.163 (produzione, sempre attivo)
+    - poolTest: pool dinamico verso UJET11 sul server di prova (creato allo switch)
+  - getPoolMRP(): restituisce il pool attivo (produzione o prova)
+  - getPoolProd(): restituisce SEMPRE il pool produzione (per SP, GB2, TestProfiles)
+  - getPoolRiep(): restituisce il pool giusto per le query su dbo.Riep (vedi sez. 11)
   - config/db.js (principale): pool per GA, PE, ET, BOB (NON usato da GB2)
   - Le rotte GB2 usano SOLO db-mrp.js, MAI db.js
-  - Per accedere a [GB2] si usa cross-database dal pool MRP
 
-ARCHITETTURA VISTE MRP (CRITICO):
+ARCHITETTURA VISTE MRP (SOLO PRODUZIONE):
   Le 21 viste nel database [MRP] su 192.168.0.163 fungono da ponte trasparente
   verso il database UJET11 di PRODUZIONE su bcube2. Ogni vista ha lo stesso nome
-  e le stesse colonne della tabella originale in UJET11 (es. [MRP].[dbo].[artico]
-  corrisponde a [BCUBE2].[UJET11].[dbo].[artico]).
+  e le stesse colonne della tabella originale in UJET11.
 
-  Questo permette all'app di usare UN SOLO pool (MRP) per tutto: le query nel
-  codice scrivono semplicemente "dbo.artico" e la vista le redirige a bcube2.
+  QUESTE VISTE SERVONO SOLO IN PRODUZIONE. In prova, il pool si connette
+  direttamente a UJET11 sul server di prova, bypassando completamente MRP e le viste.
 
   LISTA COMPLETA DELLE 21 VISTE (tutte puntano a BCUBE2):
     artico, anagra, artfasi, artpro, artmaga, artdef, artdefx,
@@ -101,22 +107,10 @@ ARCHITETTURA VISTE MRP (CRITICO):
     tabmaga, tabnuma, tabciva, tabpaga,
     listprod, zzassdisp,
     __MOTIPORK, __MMTIPORK,
-    Riep (punta a BCUBE2.Analisi_scorte.dbo.Riep)
+    Riep (punta a BCUBE2.Analisi_scorte.dbo.Riep — tabella ETL di Fabrizio)
 
   REGOLA INVIOLABILE: le viste devono SEMPRE puntare a [BCUBE2].[UJET11].[dbo].*
-  (cross-server). Se una vista punta a [UJET11].[dbo].* senza prefisso server,
-  legge la COPIA locale di test, NON i dati reali di produzione.
-
-  Se si aggiunge una nuova vista, usare SEMPRE il pattern:
-    CREATE VIEW [dbo].[nome_vista] AS SELECT * FROM [BCUBE2].[UJET11].[dbo].[tabella]
-
-  Per verificare che tutte le viste puntino a bcube2:
-    SELECT o.name, d.referenced_server_name
-    FROM [MRP].sys.sql_expression_dependencies d
-    JOIN [MRP].sys.objects o ON d.referencing_id = o.object_id
-    WHERE o.type = 'V'
-    ORDER BY o.name
-  Tutte devono avere referenced_server_name = 'BCUBE2'.
+  (cross-server). NON modificarle mai per profili di prova — la prova non usa le viste.
 
 
 ================================================================================
@@ -126,14 +120,14 @@ ARCHITETTURA VISTE MRP (CRITICO):
 I file di GB2 sono distribuiti nella root del progetto bobine:
 
   routes/
-    gb2Routes.js              # TUTTE le API REST (~1950 righe). File centrale.
+    gb2Routes.js              # TUTTE le API REST (~2400 righe). File centrale.
                               # Factory function: createGb2Routes({ io, skipAuth })
                               # skipAuth=true in dev (Vite), false in produzione
 
   config/
     db-mrp.js                 # Pool MRP: produzione hardcoded da .env, prova dinamico
     crypto.js                 # Crittografia AES-256-GCM per password profili di prova
-    smtp-mrp.js               # Gestione SMTP: produzione da .env, prova da profilo attivo
+    smtp-mrp.js               # Gestione SMTP per operatore (da [GB2].[dbo].[UserPreferences])
 
   gb2/
     conoscenzegb2.txt         # Questo file
@@ -155,23 +149,23 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
       gb2-parametri.js        # Logica form parametri: combo articoli, fasi, magazzini
       gb2-progressivi.js      # Logica griglia progressivi e chart
       gb2-proposta.js         # Logica proposte ordine: rendering, conferma, emissione
-      gb2-dbconfig.js         # Logica configurazione profili DB e SMTP
+      gb2-dbconfig.js         # Logica configurazione profili DB e SMTP personale
 
   gb2.html                    # Pagina unica SPA (header, nav, views, modali)
 
   sql/mrp/
     create_ordini_emessi.sql  # DDL tabella registro emissioni
-    create_user_preferences.sql # DDL tabella preferenze utente (colori, label)
-    usp_CreaOrdineFornitore.sql # SP creazione ordine atomico
-    usp_AggiornaStatoInvioOrdine.sql # SP aggiornamento stato invio
+    create_user_preferences.sql # DDL tabella preferenze utente (colori, label, SMTP)
     create_test_profiles.sql  # DDL tabella profili di prova per operatore
+    usp_CreaOrdineFornitore.sql # SP creazione ordine atomico (con placeholder {{UJET11_REF}})
+    usp_AggiornaStatoInvioOrdine.sql # SP aggiornamento stato invio
 
   utils/
     pdfOrdine.js              # Generazione PDF ordine fornitore
 
   setup-gb2.js                # Script one-time: crea DB GB2, registra modulo in GA
-
   vite.config.js              # Dev server con plugin backend integrato
+  ecosystem.config.js         # Configurazione PM2 (fork mode, 1 istanza)
 
 FILE IN .GITIGNORE:
   - .env (contiene credenziali produzione, chiave crittografia)
@@ -195,13 +189,12 @@ FILE IN .GITIGNORE:
   artpro (ap_*)         Progressivi articolo/magazzino
   tabmaga (tb_*)        Anagrafica magazzini
   tabciva (ci_*)        Aliquote IVA
-  tabnuma               Numeratori BCube
-  Analisi_scorte        Vista BCube per consumi storici
+  tabnuma               Numeratori BCube (autoritativo per numord)
+  tabpaga               Condizioni di pagamento
 
-  Per i dettagli delle colonne, consultare conoscenze.txt nella root
-  del progetto (sezione "Gabriele2.0/conoscenze.txt").
+  Per i dettagli delle colonne, consultare conoscenze.txt nella root.
 
---- DATABASE MRP (tabelle custom) ---
+--- DATABASE MRP (su 192.168.0.163 — tabelle custom + viste) ---
 
   ordini_emessi         Registro emissioni ordini dal MRP web
     id                  PK identity
@@ -212,7 +205,7 @@ FILE IN .GITIGNORE:
     elaborazione_id     Identificativo elaborazione MRP (YYYYMMDDHHMMSS)
     data_emissione, operatore
 
---- DATABASE GB2 (silos app) ---
+--- DATABASE GB2 (silos app su 192.168.0.163) ---
 
   Operators             Tabella Visto (permessi)
     IDOperator          PK identity
@@ -220,12 +213,39 @@ FILE IN .GITIGNORE:
     Admin               BIT (1=UAD/Admin, 0=UAC/Base)
     IsActive            BIT (default 1, soft-delete)
 
-  UserPreferences       Preferenze utente (colori, label)
+  UserPreferences       Preferenze utente (colori, label, SMTP)
     IDUser              PK (stesso di GA.Users.IDUser)
     ColorPreset         VARCHAR(50) — 'default'|'deuteranopia'|'protanopia'|'high-contrast'|'custom'
     CustomColors        NVARCHAR(MAX) — JSON con override colori CSS
     CustomLabels        NVARCHAR(MAX) — JSON con nomi personalizzati delle variabili
+    SmtpHost            VARCHAR(100) — server SMTP dell'operatore
+    SmtpPort            INT — porta (default 587)
+    SmtpSecure          BIT — SSL on/off
+    SmtpUser            VARCHAR(100) — utente SMTP
+    SmtpPassword        VARBINARY(512) — password crittata AES-256-GCM
+    SmtpFromAddress     VARCHAR(255) — email mittente (Da:)
+    SmtpFromName        VARCHAR(100) — nome mittente
     UpdatedAt           DATETIME
+
+  TestProfiles          Profili di prova per operatore (server DB)
+    ID                  PK identity
+    IDUser              FK verso GA.Users.IDUser
+    ProfileLabel        VARCHAR(100) — etichetta visuale
+    Server              VARCHAR(100) — IP/hostname del server di prova
+    DatabaseMRP         VARCHAR(50) — default 'MRP' (non usato per pool, ma per SP)
+    DatabaseUJET11      VARCHAR(50) — default 'UJET11'
+    DbUser              VARCHAR(50) — utente SQL Server
+    DbPassword          VARBINARY(512) — password crittata AES-256-GCM
+    EmailProva          VARCHAR(255) — redirect email ordini in prova
+    Color               VARCHAR(20) — colore badge header
+    IsActive            BIT — profilo attualmente attivo per questo utente
+    CreatedAt, UpdatedAt  DATETIME
+
+--- DATABASE Analisi_scorte (su bcube2 — di Fabrizio, sola lettura) ---
+
+  Riep                  Tabella ETL con storico movimenti aggregati (345k righe)
+                        Alimenta i grafici consumi/previsioni dell'app
+                        Accessibile via vista [MRP].[dbo].[Riep] in produzione
 
 
 ================================================================================
@@ -233,23 +253,25 @@ FILE IN .GITIGNORE:
 ================================================================================
 
 Tutte le API sono montate su /api/mrp nel server.js principale.
-File: routes/gb2Routes.js (~1950 righe)
+File: routes/gb2Routes.js (~2400 righe)
 
 Factory function: createGb2Routes({ io, skipAuth })
   - io: istanza Socket.io (per eventi real-time)
   - skipAuth: se true, disabilita authenticateToken (usato in dev con Vite)
 
-Import: config/db-mrp.js (pool UJET11 + MRP + profili)
-Import: config/smtp-mrp.js (invio email)
+Import: config/db-mrp.js (pool MRP produzione + prova)
+Import: config/crypto.js (crittografia password)
+Import: config/smtp-mrp.js (SMTP per operatore)
 Import: middlewares/auth.js (authenticateToken)
 
 --- PROFILI DB ---
 GET  /db/active-profile          Profilo attivo (label, server, colore, ambiente)
-GET  /db/profiles                Lista tutti i profili (senza password)
-POST /db/switch                  Switch profilo attivo {profileId}
-POST /db/profiles                Crea profilo
-PUT  /db/profiles/:id            Aggiorna profilo
-DELETE /db/profiles/:id          Elimina profilo (non quello attivo)
+GET  /db/profiles                Produzione + profili prova dell'operatore loggato
+POST /db/switch-production       Switch a produzione (doppia conferma lato frontend)
+POST /db/switch-test             Switch a prova {testProfileId} — deploy SP + check Riep
+POST /db/profiles                Crea profilo di prova (password crittata)
+PUT  /db/profiles/:id            Aggiorna profilo di prova
+DELETE /db/profiles/:id          Elimina profilo + droppa SP suffissate
 POST /db/test-connection         Test connessione senza switchare
 
 --- RICERCA ARTICOLI ---
@@ -268,31 +290,33 @@ GET  /ordini-rmp                 Ordini RMP
 GET  /ordini-padre               Ordini padre
 GET  /proposta-ordini            Proposte ordine raggruppate per fornitore
 
---- CONSUMI STORICI ---
-GET  /consumi/sprint-multi       Consumi ultimi 6 mesi (multi-articolo)
-GET  /consumi/marathon-multi     Consumi ultimi 24 mesi (multi-articolo)
-GET  /consumi/sprint/:codart     Consumi sprint singolo articolo
-GET  /consumi/marathon/:codart   Consumi marathon singolo articolo
+--- CONSUMI STORICI (usano getPoolRiep per fallback produzione) ---
+GET  /consumi/sprint-multi       KPI consumi multi-articolo
+GET  /consumi/marathon-multi     Storico + impegni multi-articolo
+GET  /consumi/sprint/:codart     KPI consumi singolo articolo
+GET  /consumi/marathon/:codart   Storico 10 anni + impegni futuri
 
---- EMISSIONE ORDINI ---
+--- EMISSIONE ORDINI (SP su poolProd con suffisso) ---
 POST /emetti-ordine              Emette ordine fornitore singolo
 POST /emetti-ordini-batch        Emette ordini per piu fornitori
 
 --- PDF ---
 GET  /ordine-pdf/:anno/:serie/:numord    Genera/scarica PDF ordine
 
---- EMAIL ---
-POST /invia-ordine-email         Invia ordine via email al fornitore
-GET  /smtp/status                Stato configurazione SMTP
+--- SMTP (per operatore, da UserPreferences) ---
+GET  /smtp/config                Legge config SMTP dell'operatore loggato
+POST /smtp/config                Salva config SMTP (password crittata)
 POST /smtp/test                  Test connessione SMTP
 
+--- EMAIL ---
+POST /invia-ordine-email         Invia ordine via email (usa SMTP dell'operatore)
+
 --- PREFERENZE UTENTE ---
-GET  /user/preferences           Legge preferenze colori/label da [GB2].[dbo].[UserPreferences]
+GET  /user/preferences           Legge preferenze colori/label
 POST /user/preferences           Salva preferenze (MERGE/upsert)
-                                 Se req.user non esiste (dev mode), ritorna default/no-op
 
 --- SISTEMA ---
-GET  /health                     Health check (verifica connessione UJET11 + MRP)
+GET  /health                     Health check
 POST /deploy-sp                  Forza deploy manuale oggetti SQL
 GET  /check-sp                   Verifica esistenza stored procedures
 
@@ -308,7 +332,7 @@ La SPA ha un unico file HTML (gb2.html) con due "views" switchabili via nav:
 Moduli JavaScript (pattern IIFE, ciascuno espone un oggetto globale):
   - MrpApp           Stato globale, routing views, API_BASE ('/api/mrp'), init
   - MrpTheme         Sistema temi colori (30 variabili CSS, preset, editing)
-  - MrpDbConfig      Gestione profili DB e SMTP
+  - MrpDbConfig      Gestione profili DB + configurazione SMTP personale
   - MrpParametri     Gestione form parametri, combo autocomplete
   - MrpProgressivi   Griglia progressivi, chart consumi, pannello decisionale
   - MrpProposta      Proposte ordine, conferma, emissione, rendering fornitore
@@ -323,18 +347,8 @@ Ordine di caricamento script (in gb2.html, fondo body):
   7. gb2-bootstrap.js     (Layer 2: sidebar, menu dinamico — ultimo)
 
 Catena di inizializzazione:
-  DOMContentLoaded → MrpApp.init() → MrpTheme.init() → MrpDbConfig.init() → MrpParametri.init()
-  securityReady (da sicurezza.js) → gb2-bootstrap → buildDynamicMenu()
-
-Stato globale (MrpApp.state):
-  - articoloSelezionato: oggetto articolo selezionato
-  - parametri: { codart, magaz, fase, modo, sintetico }
-  - ultimoRisultato: ultimo risultato query
-  - ordiniConfermati: Map<key, dati> (chiave = "fornitore|codart|fase|magaz")
-  - propostaCorrente: contesto riga proposta navigata ai progressivi
-
-NOTA: Tutte le fetch() devono avere { credentials: 'include' } per inviare
-il cookie JWT al server di produzione.
+  DOMContentLoaded -> MrpApp.init() -> MrpTheme.init() -> MrpDbConfig.init() -> MrpParametri.init()
+  securityReady (da sicurezza.js) -> gb2-bootstrap -> buildDynamicMenu()
 
 
 ================================================================================
@@ -345,18 +359,10 @@ Elaborazione per singolo articolo (funzione caricaMRP):
   1. Legge giacenza base da artpro (ap_esist, ap_ordin, ap_impeg)
   2. Legge ordini fornitore aperti da movord (tipork='O', serie='F')
   3. Legge ordini MRP da ordlist (tipork='O','H','Y')
-  4. Legge emissioni gia fatte da MRP.ordini_emessi (sottrae da ap_ordin)
+  4. Legge emissioni gia fatte da ordini_emessi (sottrae da ap_ordin)
   5. Calcola progressivo per magazzino/fase con disponibilita
   6. Gestisce articoli esauriti con sostitutivo (blocchi esaurimento/sostitutivo/combinato)
   7. Restituisce array di righe tipizzate: padre, magazzino, totale, figlio, ecc.
-
-Funzioni helper critiche (NON modificare la logica):
-  - caricaMRP()                    Cuore del calcolo MRP
-  - normalizzaMagazzinoPerChiave() Aggregazione per chiave magaz_fase
-  - costruisciCombinatoRighe()     Merge esaurito + sostitutivo
-  - taggaMrpBlocco()               Etichettatura blocchi
-  - buildGeneraleTotaleRow()       Riga totale generale
-  - getPoliticaRiordino()          Decodifica politica riordino articolo
 
 
 ================================================================================
@@ -368,14 +374,18 @@ Passo 1 — Conferma (client-side):
   Dati in MrpApp.state.ordiniConfermati. NIENTE va in DB in questa fase.
 
 Passo 2 — Emissione (POST /emetti-ordine):
-  Chiama stored procedure [MRP].[dbo].[usp_CreaOrdineFornitore] che:
+  Chiama SP usp_CreaOrdineFornitore (o usp_CreaOrdineFornitore_T{id} in prova).
+  La SP usa il placeholder {{UJET11_REF}} risolto al deploy:
+  - Produzione: [BCUBE2].[UJET11].[dbo] (scrive su UJET11 di produzione)
+  - Prova T3:   [SERVER_PROVA].[UJET11].[dbo] (scrive su UJET11 di prova)
+  La SP:
   a) Parsa JSON articoli con OPENJSON
   b) Arricchisce da artico (descrizione, IVA)
   c) Calcola castelletto IVA
   d) LOCK applicativo (sp_getapplock) per serializzare numerazione
-  e) Calcola numord = MAX(td_numord)+1 da testord
+  e) Legge numord da tabnuma (fonte autoritativa BCube) e la aggiorna
   f) INSERT testord + movord su UJET11
-  g) INSERT ordini_emessi su MRP
+  g) INSERT ordini_emessi (registro locale)
   h) Restituisce testata + righe per il PDF
 
 Passo 3 — PDF generato server-side con PDFKit, ritornato come base64.
@@ -383,6 +393,7 @@ Passo 3 — PDF generato server-side con PDFKit, ritornato come base64.
 Passo 4 — UI: ri-fetch dati dal server (data-driven, mai manipolazione DOM diretta).
 
 Passo 5 — Email (opzionale): POST /invia-ordine-email con PDF allegato.
+  Usa la configurazione SMTP dell'operatore loggato (da UserPreferences).
 
 
 ================================================================================
@@ -394,12 +405,15 @@ Il PDF replica il layout degli ordini BCube originali.
 Se l'ambiente e "prova", il PDF ha filigrana "[PROVA]".
 
 SMTP: config/smtp-mrp.js
-Produzione: configurazione SMTP da .env (SMTP_HOST, SMTP_PORT, ecc.).
-Prova: configurazione SMTP dal profilo di prova attivo in [GB2].[dbo].[TestProfiles].
-Il campo EmailProva redirige tutte le email a un indirizzo di test.
+Ogni operatore ha la PROPRIA configurazione SMTP in [GB2].[dbo].[UserPreferences].
+4 operatori dell'ufficio acquisti → 4 email diverse (es. gabriel@ujet.it, marco@ujet.it).
+Le password SMTP sono crittate AES-256-GCM (config/crypto.js).
+In prova, il campo EmailProva del profilo redirige tutte le email a un indirizzo di test.
 
-NOTA FUTURA: l'SMTP dovrebbe diventare per-utente, non per-profilo.
-Ogni operatore ha la sua email aziendale (es. gabriel.ilas@ujet.it).
+API SMTP (per operatore):
+  GET  /smtp/config  — legge la config SMTP dell'operatore loggato
+  POST /smtp/config  — salva/aggiorna (password crittata se fornita)
+  POST /smtp/test    — verifica connessione SMTP
 
 
 ================================================================================
@@ -408,25 +422,100 @@ Ogni operatore ha la sua email aziendale (es. gabriel.ilas@ujet.it).
 
 File: config/db-mrp.js, config/crypto.js
 
-PRODUZIONE: configurazione hardcoded da .env, pool fisso, non modificabile da UI.
-PROVA: profili per operatore in [GB2].[dbo].[TestProfiles], pool dinamico.
-Switch a caldo: tenta connessione al nuovo server, se ok chiude vecchio pool.
+PRODUZIONE:
+  Configurazione hardcoded da .env, pool fisso MRP@192.168.0.163.
+  NON modificabile da UI. Le credenziali non transitano mai via API.
+  Variabili .env: DB_SERVER_MRP, DB_SERVER_UJET11, DB_NAME_MRP,
+                  DB_UJET11, DB_USER_MRP, DB_PASSWORD_MRP
 
-Ogni profilo contiene:
-  - id, label, server, database_ujet11, database_mrp
-  - user, password (SQL Server auth)
-  - color (per il badge visuale nell'header)
-  - ambiente ('produzione' | 'prova')
-  - smtp_* (configurazione email legata all'ambiente)
-  - email_prova (redirect email in ambiente di prova)
+PROVA:
+  Profili per operatore in [GB2].[dbo].[TestProfiles] (password crittate AES).
+  Ogni operatore puo avere piu profili di prova su server diversi.
+  Pool dinamico: si connette a UJET11 sul server di prova (accesso diretto,
+  senza viste MRP). Switch a caldo: tenta connessione, se ok chiude vecchio pool.
 
-IMPORTANTE: le password dei profili di prova sono crittate AES-256-GCM (config/crypto.js).
-La chiave di crittografia e in .env (DB_ENCRYPTION_KEY, 64 hex = 32 byte).
-Le credenziali di produzione sono in .env e non transitano mai via API.
+  Chiave di crittografia: .env DB_ENCRYPTION_KEY (64 hex = 32 byte).
+  NON CAMBIARE MAI dopo il primo uso — le password salvate diventano illeggibili.
+
+SWITCH PROFILO:
+  POST /db/switch-production  — torna a produzione
+  POST /db/switch-test        — connette a server di prova + deploy SP suffissate
+
+  Al switch a prova:
+  1. Connessione a UJET11 sul server di prova (pool test)
+  2. Deploy tabella ordini_emessi su UJET11 di prova (auto-deploy)
+  3. Deploy SP suffissate su MRP@163 (es. usp_CreaOrdineFornitore_T3)
+  4. Check esistenza dbo.Riep sul server di prova
+  5. Se Riep manca → warning all'operatore (modale, non alert)
+
+  Al switch a produzione:
+  1. Chiude pool test
+  2. Riattiva pool produzione (MRP@163)
+  3. Le SP di produzione sono gia deployate (nessun re-deploy)
 
 
 ================================================================================
-11. SISTEMA TEMI E COLORI PERSONALIZZABILI
+11. ARCHITETTURA PRODUZIONE VS PROVA
+================================================================================
+
+Questa sezione e CRITICA per capire come l'app gestisce i due ambienti.
+
+PRODUZIONE:
+  Pool          → MRP su 192.168.0.163
+  Query dati    → dbo.artico, dbo.anagra, ecc. = VISTE in MRP → [BCUBE2].[UJET11]
+  SP            → usp_CreaOrdineFornitore (senza suffisso) su MRP@163
+                  Scrive su [BCUBE2].[UJET11].[dbo].[testord], [movord], [tabnuma]
+  Riep          → vista MRP → [BCUBE2].[Analisi_scorte].[dbo].[Riep]
+
+PROVA (profilo test ID=3, server=192.168.1.50):
+  Pool          → UJET11 su 192.168.1.50 (DIRETTO, niente viste)
+  Query dati    → dbo.artico, dbo.anagra, ecc. = TABELLE REALI in UJET11
+  SP            → usp_CreaOrdineFornitore_T3 su MRP@163 (suffisso _T3)
+                  Scrive su [192.168.1.50].[UJET11].[dbo].[testord], [movord], [tabnuma]
+  Riep          → se dbo.Riep esiste in UJET11@prova: usa quella
+                  se non esiste: fallback a MRP@163 (dati produzione) + avviso
+
+PERCHE LE VISTE NON SERVONO IN PROVA:
+  In produzione, UJET11 e su un server diverso (bcube2) da MRP (163).
+  Le viste in MRP fanno da ponte cross-server.
+  In prova, il pool si connette DIRETTAMENTE a UJET11 sul server di prova.
+  "dbo.artico" diventa la tabella reale, non una vista. Il codice delle route
+  e identico — cambia solo dove punta il pool.
+
+SP CON SUFFISSO UNIVOCO:
+  Ogni profilo di prova genera SP con suffisso _T{ID} su MRP@163:
+  - usp_CreaOrdineFornitore_T3
+  - usp_AggiornaStatoInvioOrdine_T3
+  Le SP usano {{UJET11_REF}} risolto al deploy: [SERVER_PROVA].[UJET11].[dbo]
+  Cosi convivono tutte su MRP senza conflitti.
+  Quando un profilo viene eliminato, le SP suffissate vengono droppate (pulizia).
+
+  Le route chiamano getSpName('usp_CreaOrdineFornitore', profile) che restituisce
+  il nome con o senza suffisso in base al profilo attivo.
+  Le SP vengono SEMPRE chiamate dal pool produzione (getPoolProd) perche risiedono
+  su MRP@163, non sul server di prova.
+
+RIEP (CASO SPECIALE):
+  Riep e una tabella ETL in [BCUBE2].[Analisi_scorte].[dbo].[Riep] (345k righe).
+  NON e una tabella UJET11, quindi non esiste automaticamente sui server di prova.
+  getPoolRiep() gestisce il fallback:
+  - Produzione o prova con Riep: usa il pool attivo
+  - Prova senza Riep: usa il pool produzione (dati reali, sola lettura)
+  Il flag testHasRiep e impostato al momento dello switch.
+
+TABELLA ordini_emessi IN PROVA:
+  La tabella ordini_emessi normalmente vive su MRP. In prova, viene auto-deployata
+  su UJET11 del server di prova (l'operatore lavora tutto dentro UJET11).
+
+PROBLEMA APERTO — POOL CONDIVISO:
+  Il pool attivo (produzione/prova) e globale: se un operatore switcha a prova,
+  TUTTI gli utenti connessi usano il pool di prova. Per ora GB2 e usata da un
+  operatore alla volta. Per uso concorrente multi-operatore servira un pool per
+  sessione/utente.
+
+
+================================================================================
+12. SISTEMA TEMI E COLORI PERSONALIZZABILI
 ================================================================================
 
 File: gb2/js/gb2-theme.js, gb2/css/gb2-theme.css, gb2/css/gb2-theme-presets.css
@@ -454,22 +543,9 @@ PRESET DISPONIBILI:
   - protanopia: ottimizzato per cecita al rosso
   - high-contrast: massimo contrasto, bordi netti
 
-FUNZIONALITA:
-  - Pannello slide-in laterale destro (bottone "Tema" nell'header)
-  - Preset selezionabile da dropdown
-  - Ogni colore personalizzabile con swatch + input hex
-  - Label dei colori rinominabili con doppio click (salvate in CustomLabels)
-  - Auto-save alla chiusura del pannello
-  - Editing contestuale: click su riga tabella (con pannello aperto) → mini-picker
-  - FOUC prevention: carica da localStorage sincronamente, poi aggiorna dal server
-  - Persistenza: [GB2].[dbo].[UserPreferences] via /api/mrp/user/preferences
-
-NOTA TECNICA: in dev mode (Vite con skipAuth), req.user non esiste.
-Gli endpoint preferenze ritornano default e accettano save come no-op.
-
 
 ================================================================================
-12. INTEGRAZIONE LAYER 2 (PORTALUJET)
+13. INTEGRAZIONE LAYER 2 (PORTALUJET)
 ================================================================================
 
 gb2.html e un'app Layer 2 dell'ecosistema PortalUjet:
@@ -478,8 +554,7 @@ gb2.html e un'app Layer 2 dell'ecosistema PortalUjet:
   - Carica socket.io per eventi real-time
   - Ha la sidebar a scomparsa (menu-drawer) con link alle altre app
   - Il menu e costruito dinamicamente da window.SecurityData.user.authorizedApps
-  - Il check RBAC in sicurezza.js verifica che l'utente abbia IDModule=4 nelle authorizedApps
-  - La navigazione cross-app e aggiornata in: bobine.js, ET.html, captain.html, portal.js
+  - Il check RBAC in sicurezza.js verifica che l'utente abbia IDModule=4
 
 Mapping URL per modulo:
   IDModule 1 → /bobine.html
@@ -487,36 +562,21 @@ Mapping URL per modulo:
   IDModule 3 → /ET.html
   IDModule 4 → /gb2.html
 
-Post-login routing (portal.js):
-  defaultModuleId = 4 → redirect a /gb2.html
-
 
 ================================================================================
-13. SVILUPPO LOCALE CON VITE
+14. SVILUPPO LOCALE CON VITE
 ================================================================================
 
 File: vite.config.js
 
-Vite e il dev server per lo sviluppo locale. Permette di lavorare sul frontend
-con hot-reload senza dover lanciare il server di produzione.
-
-ARCHITETTURA UNIFICATA:
-  Il plugin Vite monta lo STESSO gb2Routes.js usato in produzione.
-  Non esiste un backend separato per lo sviluppo — un solo codice.
-
-  Il plugin passa skipAuth: true, quindi le rotte non richiedono JWT.
-  Questo significa che in dev locale non serve autenticazione.
+Il plugin Vite monta lo STESSO gb2Routes.js usato in produzione.
+Non esiste un backend separato per lo sviluppo — un solo codice.
+skipAuth: true → le rotte non richiedono JWT in dev locale.
 
 PROXY:
   /api/mrp/* → gestito internamente dal plugin (Express dentro Vite)
-  /api/*     → proxyato a https://rotoli.ujet.it (login, sessione, bobine, ecc.)
+  /api/*     → proxyato a https://rotoli.ujet.it (login, sessione, ecc.)
   /socket.io → proxyato a https://rotoli.ujet.it (WebSocket)
-
-NOTA SUL LOGIN IN DEV:
-  Il login in dev avviene via proxy verso rotoli.ujet.it. Se il server
-  non e raggiungibile (fuori rete UJET senza VPN), il login non funziona.
-  Se una sessione precedente ha un cookie JWT valido, l'utente entra
-  senza password — questo e normale, non e un bug di sicurezza.
 
 LANCIARE IN DEV:
   cd C:\Users\depel\Documents\progetto\ujet\bobine
@@ -525,24 +585,36 @@ LANCIARE IN DEV:
 
 
 ================================================================================
-14. AUTO-DEPLOY SQL
+15. AUTO-DEPLOY SQL
 ================================================================================
 
-All'avvio (sia server.js che Vite), viene chiamata deployMrpObjects(pool):
-  1. Legge tutti i file dalla cartella sql/mrp/
-  2. Splitta per "GO" (separatore batch SQL Server)
-  3. Esegue ciascun batch sul pool MRP
-  4. I file usano IF NOT EXISTS per essere idempotenti
+AVVIO (produzione — server.js e Vite):
+  Chiama deployProductionObjects(poolProd):
+  1. Tabelle GB2: create_test_profiles.sql, create_user_preferences.sql
+  2. Tabelle MRP: create_ordini_emessi.sql
+  3. SP MRP: usp_CreaOrdineFornitore.sql (placeholder {{UJET11_REF}} → [BCUBE2].[UJET11].[dbo])
+  4. SP MRP: usp_AggiornaStatoInvioOrdine.sql
+  Tutti i file usano IF NOT EXISTS per essere idempotenti.
 
-File deployati (in ordine):
-  1. create_ordini_emessi.sql
-  2. usp_CreaOrdineFornitore.sql
-  3. usp_AggiornaStatoInvioOrdine.sql
-  4. create_user_preferences.sql
+SWITCH A PROVA:
+  Chiama deployTestObjects(poolProd, poolTest, testProfile):
+  1. ordini_emessi su UJET11 del server di prova (pool test)
+  2. SP suffissate _T{id} su MRP@163 (pool produzione) con {{UJET11_REF}} → [SERVER].[UJET11].[dbo]
+  3. Check dbo.Riep nel server di prova
+
+ELIMINAZIONE PROFILO:
+  Chiama dropTestSPs(poolProd, testDbId):
+  Droppa usp_CreaOrdineFornitore_T{id} e usp_AggiornaStatoInvioOrdine_T{id} da MRP.
+
+SP CON PLACEHOLDER:
+  I file SQL delle SP usano {{UJET11_REF}} al posto del riferimento cross-database.
+  Il deploy lo sostituisce con il valore calcolato dal profilo attivo:
+  - Produzione: [BCUBE2].[UJET11].[dbo]  (server_ujet11 da .env)
+  - Prova T3 su 192.168.1.50: [192.168.1.50].[UJET11].[dbo]  (server dal profilo)
 
 
 ================================================================================
-15. PRINCIPI ARCHITETTURALI
+16. PRINCIPI ARCHITETTURALI
 ================================================================================
 
 1. UI DATA-DRIVEN:
@@ -556,31 +628,34 @@ File deployati (in ordine):
 3. CONFIG SEPARATO DAL CODICE:
    Produzione da .env (hardcoded, non modificabile da UI).
    Profili di prova per operatore in [GB2].[dbo].[TestProfiles].
+   SMTP per operatore in [GB2].[dbo].[UserPreferences].
 
-4. CROSS-DATABASE MA STESSO SERVER:
-   Le SP vivono su MRP ma scrivono su UJET11 tramite [UJET11].[dbo].*
-   Le preferenze utente stanno in [GB2].[dbo].[UserPreferences]
-   Tutto funziona perche sono sullo stesso server SQL.
+4. SP SEMPRE SU MRP@163:
+   Le stored procedures vivono sempre nel database MRP su 192.168.0.163.
+   In produzione: nomi senza suffisso (usp_CreaOrdineFornitore).
+   In prova: nomi con suffisso _T{id} (usp_CreaOrdineFornitore_T3).
+   Le route le chiamano SEMPRE via pool produzione (getPoolProd).
 
-5. SILOS AUTOSUFFICIENTE:
-   GB2 non dipende direttamente da altri database per le sue operazioni.
-   Accede a UJET11 per i dati ERP e a MRP per le tabelle custom.
-   Le preferenze utente sono nel proprio silos [GB2].
+5. PROVA = ACCESSO DIRETTO A UJET11:
+   Il pool di prova si connette a UJET11 sul server di prova.
+   Le viste MRP NON sono coinvolte. "dbo.artico" e la tabella reale.
 
-6. FETCH CON CREDENTIALS:
-   Tutte le fetch() nel frontend DEVONO avere { credentials: 'include' }
-   per inviare il cookie JWT al server di produzione.
+6. CRITTOGRAFIA PASSWORD:
+   Password profili di prova e SMTP crittate AES-256-GCM (config/crypto.js).
+   Chiave in .env (DB_ENCRYPTION_KEY). NON cambiarla dopo il primo uso.
+
+7. SMTP PER OPERATORE:
+   Ogni operatore configura il proprio SMTP in UserPreferences.
+   L'email dell'ordine parte dall'email dell'operatore che la invia.
 
 
 ================================================================================
-16. PROBLEMI NOTI E AVVERTENZE
+17. PROBLEMI NOTI E AVVERTENZE
 ================================================================================
 
-CRITICO — TABNUMA NON AGGIORNATA:
-  La SP calcola numord con MAX(td_numord)+1 da testord.
-  BCube usa tabnuma come contatore autoritativo.
-  La SP NON aggiorna tabnuma. Rischio collisione numeri.
-  DA FARE con Fabrizio (DBA).
+ATTENZIONE — POOL CONDIVISO:
+  Il pool attivo e globale. Se un operatore switcha a prova, tutti vedono
+  i dati di prova. Per uso multi-operatore servira un pool per sessione.
 
 ATTENZIONE — COLONNE ORDLIST IN PRODUZIONE:
   ol_numord, ol_anno, ol_serie NON ESISTONO nella tabella ordlist
@@ -589,21 +664,20 @@ ATTENZIONE — COLONNE ORDLIST IN PRODUZIONE:
 
 ATTENZIONE — PDF SOLO IN MEMORIA:
   I PDF generati sono tenuti in memoria nel frontend (pdfCache Map).
-  Ricaricando la pagina si perdono. Rigenerabili on-the-fly da
-  GET /ordine-pdf/:anno/:serie/:numord.
+  Ricaricando la pagina si perdono. Rigenerabili da GET /ordine-pdf/.
 
-NOTA — BACKUP GABRIELE 2.0:
-  La cartella Gabriele2.0/ e stata rimossa dal progetto bobine.
-  Il backup completo e in: C:\Users\depel\Documents\progetto\ujet\Gabriele2.0\
-  NON e piu usata a runtime — serve solo come riferimento storico.
+NOTA — COLONNA Riep:
+  La colonna nella vista/tabella Riep si chiama "Qta" con accento (ASCII 224).
+  Il driver tedious la restituisce come "Qt" nel JSON, ma nelle query SQL
+  va usata come [Qta] per evitare "Invalid column name".
 
 
 ================================================================================
-17. GLOSSARIO
+18. GLOSSARIO
 ================================================================================
 
 GB2:        Database silos dell'app Gabriele 2.0
-MRP:        Material Requirements Planning / database custom
+MRP:        Material Requirements Planning / database custom su 192.168.0.163
 UJET11:     Database ERP BCube (sacro, non modificare la struttura)
 BCube:      ERP usato da U.Jet
 UAC:        Ufficio Acquisti (ruolo Base nell'app GB2)
@@ -611,20 +685,21 @@ UAD:        Ufficio Admin (ruolo Admin nell'app GB2)
 Vite:       Dev server per sviluppo locale con hot-reload
 skipAuth:   Flag che disabilita l'autenticazione JWT in dev mode
 FOUC:       Flash of Unstyled Content (problema risolto con localStorage)
-
-Per il glossario BCube completo (codditt, tipork, serie, fase, magaz, artpro,
-ordlist, testord, movord, imperim, anagra, artico, ecc.) consultare
-conoscenze.txt nella root del progetto.
+poolProd:   Pool fisso verso MRP su 192.168.0.163 (sempre attivo)
+poolTest:   Pool dinamico verso UJET11 sul server di prova
+getPoolRiep: Pool per query su Riep (fallback a produzione se manca in prova)
+_T{id}:     Suffisso SP per profili di prova (es. usp_CreaOrdineFornitore_T3)
+{{UJET11_REF}}: Placeholder nelle SP, risolto al deploy col prefisso cross-database
 
 
 ================================================================================
-18. PERSONE DI RIFERIMENTO
+19. PERSONE DI RIFERIMENTO
 ================================================================================
 
 Gabriele:     Sviluppatore principale, committente del progetto GB2/MRP Web
               Daltonico — necessita preset colori personalizzabili
 Fabrizio:     DBA / Esperto database, gestisce il server SQL 192.168.0.163
-              Contatto per: struttura tabelle UJET11, problema tabnuma
+              Ha creato le 21 viste in MRP e la tabella Riep in Analisi_scorte
 Pietro Tardioli: Responsabile acquisti U.Jet (firma sugli ordini PDF)
 
 
