@@ -1,10 +1,13 @@
 -- ============================================================
 -- SP: usp_CreaOrdineFornitore
--- Database: MRP (cross-database verso [UJET11].[dbo].*)
+-- Database: MRP (cross-database verso UJET11)
 -- Scopo: Crea un ordine fornitore atomico (testord + movord)
 --         con lock applicativo per gestire concorrenza
 -- ============================================================
--- Deploy: eseguire su MRP
+-- Deploy: eseguire su MRP — il placeholder {{UJET11_REF}}
+--         viene sostituito al deploy in base al profilo attivo:
+--         Produzione: [BCUBE2].[UJET11].[dbo]
+--         Prova:      [UJET11].[dbo]  (locale al server di prova)
 -- Compatibilita: SQL Server 2016+ (OPENJSON richiede compat level 130)
 -- ============================================================
 
@@ -127,7 +130,7 @@ BEGIN
         a.ar_controa = COALESCE(ar.ar_controa, 0),
         a.valore     = a.quantita * a.prezzo
     FROM #articoli a
-    LEFT JOIN [UJET11].[dbo].[artico] ar ON a.codart = ar.ar_codart;
+    LEFT JOIN {{UJET11_REF}}.[artico] ar ON a.codart = ar.ar_codart;
 
     -- Fallback per contocontr: prende da ultimo ordine dello stesso articolo
     UPDATE a
@@ -135,7 +138,7 @@ BEGIN
     FROM #articoli a
     OUTER APPLY (
         SELECT TOP 1 mo.mo_contocontr
-        FROM [UJET11].[dbo].[movord] mo
+        FROM {{UJET11_REF}}.[movord] mo
         WHERE mo.mo_codart = a.codart
           AND mo.mo_tipork = 'O'
           AND mo.mo_contocontr > 0
@@ -161,7 +164,7 @@ BEGIN
         @forn_codbanc = COALESCE(an_codbanc, 0),
         @forn_email   = COALESCE(an_email, ''),
         @forn_fax     = COALESCE(an_faxtlx, '')
-    FROM [UJET11].[dbo].[anagra]
+    FROM {{UJET11_REF}}.[anagra]
     WHERE an_conto = @fornitore_codice;
 
     IF @forn_nome IS NULL OR @forn_nome = ''
@@ -171,15 +174,14 @@ BEGIN
         RETURN;
     END
 
-    -- Descrizione condizioni di pagamento (tabella potrebbe non esistere)
+    -- Descrizione condizioni di pagamento
     SET @pag_descr = '';
     BEGIN TRY
-        -- Prova prima codpaga, poi tabpaga, poi tabcpag (nomi comuni BCube)
-        IF OBJECT_ID('[UJET11].[dbo].[codpaga]', 'U') IS NOT NULL
-            EXEC sp_executesql N'SELECT @d = COALESCE(cp_descr, '''') FROM [UJET11].[dbo].[codpaga] WHERE cp_codpaga = @c',
+        IF OBJECT_ID('{{UJET11_REF}}.[codpaga]', 'U') IS NOT NULL
+            EXEC sp_executesql N'SELECT @d = COALESCE(cp_descr, '''') FROM {{UJET11_REF}}.[codpaga] WHERE cp_codpaga = @c',
                 N'@c SMALLINT, @d VARCHAR(100) OUTPUT', @c = @forn_codpag, @d = @pag_descr OUTPUT;
-        ELSE IF OBJECT_ID('[UJET11].[dbo].[tabpaga]', 'U') IS NOT NULL
-            EXEC sp_executesql N'SELECT @d = COALESCE(tp_descr, '''') FROM [UJET11].[dbo].[tabpaga] WHERE tp_codpaga = @c',
+        ELSE IF OBJECT_ID('{{UJET11_REF}}.[tabpaga]', 'U') IS NOT NULL
+            EXEC sp_executesql N'SELECT @d = COALESCE(tp_descr, '''') FROM {{UJET11_REF}}.[tabpaga] WHERE tp_codpaga = @c',
                 N'@c SMALLINT, @d VARCHAR(100) OUTPUT', @c = @forn_codpag, @d = @pag_descr OUTPUT;
     END TRY
     BEGIN CATCH
@@ -195,28 +197,23 @@ BEGIN
     SELECT TOP 1 @primo_magaz = magaz FROM #articoli ORDER BY riga;
 
     -- Castelletto IVA (supporta fino a 8 aliquote diverse)
-    -- Lookup percentuale IVA da tabciva - robusto contro nomi colonna diversi
     CREATE TABLE #iva_lookup (
         codiva      SMALLINT PRIMARY KEY,
         perc_iva    DECIMAL(5,2)
     );
 
-    -- Tenta il lookup IVA (se tabciva esiste con i nomi colonna giusti)
     BEGIN TRY
-        IF OBJECT_ID('[UJET11].[dbo].[tabciva]', 'U') IS NOT NULL
+        IF OBJECT_ID('{{UJET11_REF}}.[tabciva]', 'U') IS NOT NULL
         BEGIN
-            -- Prova ci_codiva / ci_perc (convenzione BCube standard)
             EXEC sp_executesql N'
                 INSERT INTO #iva_lookup (codiva, perc_iva)
                 SELECT DISTINCT a.ar_codiva, COALESCE(iv.ci_perc, 22.00)
                 FROM #articoli a
-                LEFT JOIN [UJET11].[dbo].[tabciva] iv ON a.ar_codiva = iv.ci_codiva
+                LEFT JOIN {{UJET11_REF}}.[tabciva] iv ON a.ar_codiva = iv.ci_codiva
             ';
         END
     END TRY
     BEGIN CATCH
-        -- Se i nomi colonna sono diversi, fallback: calcola dal codice
-        -- Convenzione comune: codice 122 = 22%, 110 = 10%, 104 = 4%
         DELETE FROM #iva_lookup;
     END CATCH
 
@@ -242,7 +239,7 @@ BEGIN
     SET @tot_doc = @tot_merce + @tot_imposta;
 
     -- ============================================================
-    -- 5. LOCK + INSERT (sezione critica)
+    -- 5. LOCK + NUMERAZIONE DA TABNUMA + INSERT (sezione critica)
     -- ============================================================
     BEGIN TRANSACTION;
 
@@ -259,18 +256,44 @@ BEGIN
         RETURN;
     END
 
-    -- Prossimo numero ordine
-    SELECT @numord = ISNULL(MAX(td_numord), 0) + 1
-    FROM [UJET11].[dbo].[testord]
-    WHERE codditt = @codditt
-      AND td_tipork = 'O'
-      AND td_anno = @anno
-      AND td_serie = @serie;
+    -- Prossimo numero ordine da tabnuma (fonte autoritativa BCube)
+    SELECT @numord = tb_numprog + 1
+    FROM {{UJET11_REF}}.[tabnuma]
+    WHERE codditt  = @codditt
+      AND tb_numtipo  = 'O'
+      AND tb_numserie = @serie
+      AND tb_numcodl  = @anno;
+
+    -- Se non esiste riga in tabnuma per quest'anno, fallback da testord + crea riga
+    IF @numord IS NULL
+    BEGIN
+        SELECT @numord = ISNULL(MAX(td_numord), 0) + 1
+        FROM {{UJET11_REF}}.[testord]
+        WHERE codditt   = @codditt
+          AND td_tipork  = 'O'
+          AND td_anno    = @anno
+          AND td_serie   = @serie;
+
+        INSERT INTO {{UJET11_REF}}.[tabnuma]
+            (codditt, tb_numtipo, tb_numserie, tb_numcodl, tb_numprog)
+        VALUES
+            (@codditt, 'O', @serie, @anno, @numord);
+    END
+    ELSE
+    BEGIN
+        -- Aggiorna tabnuma con il nuovo progressivo
+        UPDATE {{UJET11_REF}}.[tabnuma]
+        SET tb_numprog = @numord
+        WHERE codditt  = @codditt
+          AND tb_numtipo  = 'O'
+          AND tb_numserie = @serie
+          AND tb_numcodl  = @anno;
+    END
 
     -- ============================================================
     -- 5a. INSERT testord
     -- ============================================================
-    INSERT INTO [UJET11].[dbo].[testord] (
+    INSERT INTO {{UJET11_REF}}.[testord] (
         codditt, td_tipork, td_anno, td_serie, td_numord,
         td_conto, td_datord, td_tipobf, td_datcons,
         td_codpaga, td_datapag,
@@ -317,7 +340,7 @@ BEGIN
     -- ============================================================
     -- 5b. INSERT movord (N righe)
     -- ============================================================
-    INSERT INTO [UJET11].[dbo].[movord] (
+    INSERT INTO {{UJET11_REF}}.[movord] (
         codditt, mo_tipork, mo_anno, mo_serie, mo_numord, mo_riga,
         mo_codart, mo_datcons, mo_magaz, mo_unmis,
         mo_descr, mo_desint,

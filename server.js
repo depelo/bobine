@@ -101,9 +101,9 @@ server.listen(PORT, '0.0.0.0', async () => {
 
     // Auto-deploy oggetti SQL del modulo MRP/GB2
     try {
-        const { getPoolMRP } = require('./config/db-mrp');
+        const { getPoolMRP, getActiveProfile } = require('./config/db-mrp');
         const pool = await getPoolMRP();
-        const results = await createGb2Routes.deployMrpObjects(pool);
+        const results = await createGb2Routes.deployMrpObjects(pool, getActiveProfile());
         console.log('[GB2] Auto-deploy SQL completato:', results.map(r => `${r.file}: ${r.status}`).join(', '));
     } catch (err) {
         console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);

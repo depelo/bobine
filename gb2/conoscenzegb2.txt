@@ -64,16 +64,59 @@ Stack:
   - Libreria DB: mssql (node-mssql)
   - Dev server: Vite (porta 3000)
 
+Server:
+  - 192.168.0.163 (PC-SVILUPPO): server dove gira l'app (server.js/PM2, porta 443).
+    Ospita i database: MRP, GB2, GA, BOB, CAP, PE. Ha anche una COPIA di UJET11
+    che e solo per test/sviluppo — NON contiene dati reali.
+  - bcube2: server ERP di produzione. Ospita il VERO database UJET11 con i dati
+    reali usati dai 40 dipendenti. L'app NON si connette direttamente a bcube2.
+
 Database utilizzati:
-  - UJET11: dati ERP BCube (articoli, ordini, magazzini, movimenti)
-  - MRP: tabelle custom (ordini_emessi, stored procedures)
-  - GB2: silos dell'app (Operators per i visti, UserPreferences per le preferenze)
+  - MRP (su 192.168.0.163): database operativo dell'app. Contiene:
+    - Tabelle custom: ordini_emessi
+    - Stored procedures: usp_CreaOrdineFornitore, usp_AggiornaStatoInvioOrdine
+    - 21 VISTE che espongono le tabelle di UJET11 su bcube2 (create da Fabrizio)
+  - GB2 (su 192.168.0.163): silos dell'app (Operators per visti, UserPreferences)
+  - UJET11 (su bcube2): dati ERP BCube reali — accessibile SOLO tramite le viste MRP
 
 Gestione connessioni:
-  - config/db-mrp.js: pool dedicati per UJET11 e MRP con profili dinamici
+  - config/db-mrp.js: UN SOLO pool verso il database MRP su 192.168.0.163
+  - NON esiste piu un pool UJET11 separato — eliminato dopo la creazione delle viste
   - config/db.js (principale): pool per GA, PE, ET, BOB (NON usato da GB2)
   - Le rotte GB2 usano SOLO db-mrp.js, MAI db.js
   - Per accedere a [GB2] si usa cross-database dal pool MRP
+
+ARCHITETTURA VISTE MRP (CRITICO):
+  Le 21 viste nel database [MRP] su 192.168.0.163 fungono da ponte trasparente
+  verso il database UJET11 di PRODUZIONE su bcube2. Ogni vista ha lo stesso nome
+  e le stesse colonne della tabella originale in UJET11 (es. [MRP].[dbo].[artico]
+  corrisponde a [BCUBE2].[UJET11].[dbo].[artico]).
+
+  Questo permette all'app di usare UN SOLO pool (MRP) per tutto: le query nel
+  codice scrivono semplicemente "dbo.artico" e la vista le redirige a bcube2.
+
+  LISTA COMPLETA DELLE 21 VISTE (tutte puntano a BCUBE2):
+    artico, anagra, artfasi, artpro, artmaga, artdef, artdefx,
+    movord, movdis, movmag, ordlist, testord,
+    tabmaga, tabnuma, tabciva, tabpaga,
+    listprod, zzassdisp,
+    __MOTIPORK, __MMTIPORK,
+    Riep (punta a BCUBE2.Analisi_scorte.dbo.Riep)
+
+  REGOLA INVIOLABILE: le viste devono SEMPRE puntare a [BCUBE2].[UJET11].[dbo].*
+  (cross-server). Se una vista punta a [UJET11].[dbo].* senza prefisso server,
+  legge la COPIA locale di test, NON i dati reali di produzione.
+
+  Se si aggiunge una nuova vista, usare SEMPRE il pattern:
+    CREATE VIEW [dbo].[nome_vista] AS SELECT * FROM [BCUBE2].[UJET11].[dbo].[tabella]
+
+  Per verificare che tutte le viste puntino a bcube2:
+    SELECT o.name, d.referenced_server_name
+    FROM [MRP].sys.sql_expression_dependencies d
+    JOIN [MRP].sys.objects o ON d.referencing_id = o.object_id
+    WHERE o.type = 'V'
+    ORDER BY o.name
+  Tutte devono avere referenced_server_name = 'BCUBE2'.
 
 
 ================================================================================
@@ -88,7 +131,7 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
                               # skipAuth=true in dev (Vite), false in produzione
 
   config/
-    db-mrp.js                 # Pool UJET11 + MRP con profili dinamici e switch
+    db-mrp.js                 # Pool MRP (unico) con profili dinamici e switch
     db-profiles-mrp.json      # File persistente profili DB (in .gitignore!)
     smtp-mrp.js               # Gestione SMTP legata ai profili DB
 

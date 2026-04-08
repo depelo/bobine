@@ -15,6 +15,7 @@ function loadProfiles() {
                 id: 'produzione',
                 label: 'PRODUZIONE',
                 server: process.env.DB_SERVER || 'localhost',
+                server_ujet11: process.env.DB_SERVER_UJET11 || '',
                 database_ujet11: process.env.DB_UJET11 || 'UJET11',
                 database_mrp: process.env.DB_MRP || 'MRP',
                 user: process.env.DB_USER || 'sa',

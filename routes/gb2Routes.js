@@ -5,10 +5,24 @@ const { getPoolMRP, sql, getActiveProfile, getAllProfiles, switchProfile, addPro
 const smtp = require('../config/smtp-mrp');
 const { authenticateToken } = require('../middlewares/auth');
 
-// Deploy oggetti SQL — fuori dalla factory perché serve anche all'avvio del server
-async function deployMrpObjects(poolMRP) {
+// Calcola il prefisso cross-database per raggiungere UJET11 dal server MRP corrente.
+// - Produzione (MRP su 192.168.0.163, UJET11 su BCUBE2): [BCUBE2].[UJET11].[dbo]
+// - Prova (MRP e UJET11 sullo stesso server):             [UJET11].[dbo]
+function getUjet11Ref(profile) {
+    const linkedServer = (profile && profile.server_ujet11) ? profile.server_ujet11.trim() : '';
+    const dbName = (profile && profile.database_ujet11) ? profile.database_ujet11.trim() : 'UJET11';
+    if (linkedServer) {
+        return `[${linkedServer}].[${dbName}].[dbo]`;
+    }
+    return `[${dbName}].[dbo]`;
+}
+
+// Deploy oggetti SQL — fuori dalla factory perché serve anche all'avvio del server.
+// Il profilo attivo determina il prefisso {{UJET11_REF}} nelle SP.
+async function deployMrpObjects(poolMRP, profile) {
     const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
     const files = ['create_ordini_emessi.sql', 'usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql', 'create_user_preferences.sql'];
+    const ujet11Ref = getUjet11Ref(profile);
     const results = [];
     for (const file of files) {
         const filePath = path.join(sqlDir, file);
@@ -16,14 +30,16 @@ async function deployMrpObjects(poolMRP) {
             results.push({ file, status: 'error', error: `File ${file} non trovato` });
             continue;
         }
-        const sqlText = fs.readFileSync(filePath, 'utf-8');
+        let sqlText = fs.readFileSync(filePath, 'utf-8');
+        // Sostituisci placeholder con il prefisso calcolato dal profilo
+        sqlText = sqlText.replace(/\{\{UJET11_REF\}\}/g, ujet11Ref);
         const batches = sqlText.split(/^\s*GO\s*$/im).filter(b => b.trim());
         for (const batch of batches) {
             if (batch.trim()) {
                 await poolMRP.request().batch(batch);
             }
         }
-        results.push({ file, status: 'ok' });
+        results.push({ file, status: 'ok', ujet11Ref });
     }
     return results;
 }
@@ -60,6 +76,14 @@ router.post('/db/switch', authMiddleware, async (req, res) => {
         const { profileId } = req.body;
         if (!profileId) return res.status(400).json({ error: 'profileId richiesto' });
         const profile = await switchProfile(profileId);
+        // Re-deploy SP con il prefisso UJET11 del nuovo profilo
+        try {
+            const pool = await getPoolMRP();
+            await deployMrpObjects(pool, profile);
+            console.log('[GB2] Re-deploy SP dopo switch a profilo:', profile.label);
+        } catch (deployErr) {
+            console.warn('[GB2] Re-deploy SP dopo switch non riuscito:', deployErr.message);
+        }
         res.json({ success: true, activeProfile: profile });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1538,7 +1562,8 @@ async function checkSpExists(pool, spName) {
 router.post('/deploy-sp', authMiddleware, async (req, res) => {
     try {
         const poolMRP = await getPoolMRP();
-        const results = await deployMrpObjects(poolMRP);
+        const profile = getActiveProfile();
+        const results = await deployMrpObjects(poolMRP, profile);
         res.json({ success: true, results });
     } catch (err) {
         res.status(500).json({ error: err.message, detail: 'Errore durante il deploy delle stored procedure' });

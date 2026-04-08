@@ -26,7 +26,8 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(curl -s http://localhost:3001/api/mrp/health)",
       "Bash(curl -s http://localhost:3001/api/mrp/db/active-profile)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "mcp__mssql-ujet11__describe_table"
     ]
   }
 }
