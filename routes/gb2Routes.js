@@ -570,12 +570,13 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
         ORDER BY ap.ap_magaz, ap.ap_fase
     `);
 
-    // Leggi quantita emesse dalla nostra app (ordini_emessi su MRP)
-    // per aggiornare il campo "ordinato" oltre lo snapshot di BCube
+    // Leggi quantita emesse dalla nostra app (ordini_emessi su MRP@163)
+    // per aggiornare il campo "ordinato" oltre lo snapshot di BCube.
+    // Usa sempre getPoolProd() perche' ordini_emessi risiede solo in MRP, mai in UJET11 di prova.
     let emessiPerMagFase = new Map(); // key "magaz_fase" -> somma quantita_ordinata
     try {
-        const poolMRP = await getPoolMRP(getUserId(req));
-        const emRes = await poolMRP.request()
+        const poolEmessi = await getPoolProd();
+        const emRes = await poolEmessi.request()
             .input('codart_em', sql.NVarChar, codart)
             .query(`
                 SELECT ol_magaz, ol_fase, SUM(quantita_ordinata) AS qta_emessa

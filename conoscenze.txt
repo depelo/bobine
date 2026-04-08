@@ -74,7 +74,8 @@ Il backend **non è più un monolite** in un singolo file di migliaia di righe. 
 ### 2.1 Ruolo di `server.js` (PortalUjet Gateway)
 Il file **`server.js`** funge da **composizione minima** del gateway:
 - Inizializzazione Express (middleware globali: JSON, CORS, cookie parser, file statici dalla root del progetto).
-- Terminazione **HTTPS** e avvio listener sulla porta configurata (es. 443).
+- **Cache-Control `no-cache`** sui file `.js`, `.css`, `.html` per forzare il browser a rivalidare sempre i file statici con il server (previene problemi di cache stale dopo deploy).
+- Terminazione **HTTPS** e avvio listener sulla porta configurata (default 443, configurabile via `PORT` nel `.env`).
 - Istanza **Socket.io** agganciata al server HTTPS e gestione eventi di presenza / sicurezza in tempo reale (stanze Captain, kick, sipario, ecc.).
 
 **Non** si aggiungono nuove rotte HTTP direttamente in `server.js` salvo eccezioni architetturali esplicitamente approvate. La logica di business risiede nei router.

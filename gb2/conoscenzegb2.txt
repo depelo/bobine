@@ -378,13 +378,19 @@ Catena di inizializzazione:
 ================================================================================
 
 Elaborazione per singolo articolo (funzione caricaMRP):
-  1. Legge giacenza base da artpro (ap_esist, ap_ordin, ap_impeg)
+  1. Legge giacenza base da artpro (ap_esist, ap_ordin, ap_impeg) — usa il pool passato come parametro
   2. Legge ordini fornitore aperti da movord (tipork='O', serie='F')
   3. Legge ordini MRP da ordlist (tipork='O','H','Y')
-  4. Legge emissioni gia fatte da ordini_emessi (sottrae da ap_ordin)
+  4. Legge emissioni gia fatte da ordini_emessi — usa SEMPRE getPoolProd() perche'
+     ordini_emessi risiede esclusivamente nel database MRP su 163, mai in UJET11 di prova.
+     BUG FIX (2026-04-08): prima usava getUserId(req) dove req non esisteva nel contesto
+     della funzione, causando il fallimento silenzioso della query (try/catch vuoto).
   5. Calcola progressivo per magazzino/fase con disponibilita
   6. Gestisce articoli esauriti con sostitutivo (blocchi esaurimento/sostitutivo/combinato)
   7. Restituisce array di righe tipizzate: padre, magazzino, totale, figlio, ecc.
+
+REGOLA: caricaMRP riceve il pool come parametro (puo' essere produzione o prova per le
+tabelle UJET11), ma per ordini_emessi usa SEMPRE getPoolProd() — mai il pool passato.
 
 
 ================================================================================
@@ -757,6 +763,59 @@ Gabriele:     Sviluppatore principale, committente del progetto GB2/MRP Web
 Fabrizio:     DBA / Esperto database, gestisce il server SQL 192.168.0.163
               Ha creato le 21 viste in MRP e la tabella Riep in Analisi_scorte
 Pietro Tardioli: Responsabile acquisti U.Jet (firma sugli ordini PDF)
+
+
+================================================================================
+20. SVILUPPO LOCALE E DEPLOY
+================================================================================
+
+TEAM: Davide (casa), Fabrizio (casa), Andrea (casa). Produzione su 192.168.0.163.
+VPN: Tutti usano WireGuard (WG-MVPN-SSL) per raggiungere i database su 163 e BCUBE2.
+
+ARCHITETTURA SVILUPPO LOCALE (da aprile 2026):
+  - Vite dev server RIMOSSO — ogni dev esegue direttamente server.js con PM2
+  - Certificati SSL locali generati con mkcert in certificati/certsvil/
+  - Configurazione ambiente tramite .env (vedi .env.example per template)
+  - Differenze tra produzione e sviluppo gestite interamente da .env:
+    * SSL_CERT_DIR: produzione C:\Acme\certificati_ssl, sviluppo ./certificati/certsvil
+    * PORT: produzione 443, sviluppo 3000
+    * DB_SERVER_GA: produzione localhost (Node gira su 163), sviluppo 192.168.0.163
+    * DB_SERVER_PE: 192.168.0.163 in entrambi
+  - .env escluso da git (.gitignore), .env.example committato
+
+CACHE BROWSER:
+  server.js imposta Cache-Control: no-cache sui file .js, .css, .html per forzare
+  il browser a rivalidare sempre con il server. Questo previene problemi di file
+  stale dopo deploy (bug scoperto: il browser serviva JS vecchi causando rendering
+  incompleto della griglia MRP).
+
+COMANDI SVILUPPO (vedi GUIDA-SVILUPPO-LOCALE.txt):
+  Prima volta:    npx pm2 start ecosystem.config.js
+  Dopo modifica:  npx pm2 reload portalujet
+  Log:            npx pm2 logs portalujet
+  Stop:           npx pm2 stop portalujet
+
+
+================================================================================
+21. BUG FIX LOG
+================================================================================
+
+2026-04-08: caricaMRP — getUserId(req) dove req non esiste
+  File: gb2Routes.js, funzione caricaMRP (ex riga 577)
+  Problema: la funzione caricaMRP(pool, codart, ...) non riceve req come parametro.
+    getUserId(req) lanciava errore, catturato silenziosamente dal try/catch vuoto.
+    La query su ordini_emessi non veniva mai eseguita.
+  Effetto: le quantita emesse dagli ordini GB2 non venivano sommate a ap_ordin.
+  Fix: sostituito getPoolMRP(getUserId(req)) con getPoolProd(), perche' ordini_emessi
+    risiede sempre e solo nel database MRP su 163.
+
+2026-04-08: Cache browser — file JS stale dopo modifiche
+  File: server.js
+  Problema: Express serviva file statici senza header Cache-Control, il browser
+    cachava aggressivamente i .js/.css. Dopo deploy/modifica, il browser serviva
+    i file vecchi causando rendering incompleto (es. griglia MRP senza righe magazzino).
+  Fix: aggiunto middleware Cache-Control: no-cache per .js, .css, .html prima di
+    express.static. Il browser cachea ma rivalidata sempre col server (304 se invariato).
 
 
 ================================================================================
