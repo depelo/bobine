@@ -224,4 +224,76 @@ router.post('/etichette/salva', authenticateToken, async (req, res) => {
     }
 });
 
+// --- CRUD TABELLA FORM (PULITO E CORRETTO) ---
+
+router.get('/forms', authenticateToken, async (req, res) => {
+    try {
+        const pool = await getPoolPE();
+        const result = await pool.request().query(`
+            SELECT IDForm, Form, Valido, Note 
+            FROM [PE].[dbo].[Form] 
+            ORDER BY IDForm DESC
+        `);
+        res.json(result.recordset || []);
+    } catch (err) {
+        console.error('GET /forms error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/forms', authenticateToken, async (req, res) => {
+    try {
+        const pool = await getPoolPE();
+        await pool.request()
+            .input('Form', sql.VarChar, req.body.Form)
+            .input('Valido', sql.Bit, req.body.Valido ? 1 : 0)
+            .input('Note', sql.VarChar, req.body.Note || '')
+            .query(`
+                INSERT INTO [PE].[dbo].[Form] (Form, Valido, Note) 
+                VALUES (@Form, @Valido, @Note)
+            `);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('POST /forms error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.put('/forms/:id', authenticateToken, async (req, res) => {
+    try {
+        const pool = await getPoolPE();
+        await pool.request()
+            .input('id', sql.Int, req.params.id)
+            .input('Form', sql.VarChar, req.body.Form)
+            .input('Valido', sql.Bit, req.body.Valido ? 1 : 0)
+            .input('Note', sql.VarChar, req.body.Note || '')
+            .query(`
+                UPDATE [PE].[dbo].[Form] 
+                SET Form = @Form, Valido = @Valido, Note = @Note 
+                WHERE IDForm = @id
+            `);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('PUT /forms error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete('/forms/:id', authenticateToken, async (req, res) => {
+    try {
+        const pool = await getPoolPE();
+        await pool.request()
+            .input('id', sql.Int, req.params.id)
+            .query(`
+                UPDATE [PE].[dbo].[Form] 
+                SET Valido = 0 
+                WHERE IDForm = @id
+            `);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('DELETE /forms error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
