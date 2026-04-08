@@ -6,6 +6,9 @@ const cookieParser = require('cookie-parser');
 const https = require('https');
 const fs = require('fs');
 const { Server } = require('socket.io');
+const { setupWorker } = require('@socket.io/sticky');
+const { createAdapter } = require('@socket.io/cluster-adapter');
+const cluster = require('cluster');
 
 const createAuthRoutes = require('./routes/authRoutes');
 const createAdminRoutes = require('./routes/adminRoutes');
@@ -32,6 +35,10 @@ const io = new Server(server, {
         methods: ['GET', 'POST']
     }
 });
+
+// Cluster adapter: sincronizza eventi Socket.io tra worker PM2
+io.adapter(createAdapter());
+setupWorker(io);
 
 const activeUserSockets = new Map();
 
@@ -87,16 +94,33 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(PORT, '0.0.0.0', async () => {
-    console.log(`Server API in ascolto in HTTPS sulla porta ${PORT} all'indirizzo https://rotoli.ujet.it`);
+// Gestione graceful shutdown per PM2 reload
+process.on('SIGINT', () => {
+    console.log('[PM2] SIGINT ricevuto, chiusura graceful...');
+    server.close(() => {
+        process.exit(0);
+    });
+    // Forza chiusura dopo 4 secondi se le connessioni non si chiudono
+    setTimeout(() => process.exit(0), 4000);
+});
 
-    // Auto-deploy oggetti SQL del modulo MRP/GB2
-    try {
-        const { getPoolMRP } = require('./config/db-mrp');
-        const pool = await getPoolMRP();
-        const results = await createGb2Routes.deployMrpObjects(pool);
-        console.log('[GB2] Auto-deploy SQL completato:', results.map(r => `${r.file}: ${r.status}`).join(', '));
-    } catch (err) {
-        console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);
+server.listen(PORT, '0.0.0.0', async () => {
+    console.log(`[Worker ${cluster.worker?.id || 'single'}] Server API in ascolto in HTTPS sulla porta ${PORT}`);
+
+    // Auto-deploy oggetti SQL del modulo MRP/GB2 (solo dal primo worker)
+    if (!cluster.worker || cluster.worker.id === 1) {
+        try {
+            const { getPoolMRP } = require('./config/db-mrp');
+            const pool = await getPoolMRP();
+            const results = await createGb2Routes.deployMrpObjects(pool);
+            console.log('[GB2] Auto-deploy SQL completato:', results.map(r => `${r.file}: ${r.status}`).join(', '));
+        } catch (err) {
+            console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);
+        }
+    }
+
+    // Segnala a PM2 che il worker e pronto (per wait_ready in ecosystem.config.js)
+    if (typeof process.send === 'function') {
+        process.send('ready');
     }
 });
