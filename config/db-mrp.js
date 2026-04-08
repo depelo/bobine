@@ -1,17 +1,20 @@
 /**
- * Gestione pool MRP.
+ * Gestione pool MRP — architettura per utente.
  *
- * PRODUZIONE: configurazione hardcoded da .env, pool fisso.
- * PROVA:      profili per operatore in [GB2].[dbo].[TestProfiles],
- *             pool dinamico creato al momento dello switch.
+ * PRODUZIONE: pool fisso condiviso (MRP@163, max 30 connessioni).
+ *             Tutti gli operatori in produzione usano lo stesso pool.
  *
- * Per ora il pool attivo è globale (condiviso tra tutti gli utenti).
- * TODO: pool per sessione/utente per uso contemporaneo multi-operatore.
+ * PROVA: un pool dedicato per ogni utente (UJET11@server_prova, max 5 connessioni).
+ *        Lo switch di un operatore NON impatta gli altri.
+ *        Pool chiusi automaticamente dopo 30 minuti di inattivita.
+ *
+ * Ogni operatore ha il suo "stato" (profilo attivo, hasRiep) in userStates Map.
+ * Le route passano userId a getPoolMRP(userId) per ottenere il pool giusto.
  */
 const sql = require('mssql');
 
 // ============================================================
-// CONFIGURAZIONE PRODUZIONE (da .env, immutabile)
+// CONFIGURAZIONE (da .env)
 // ============================================================
 
 const PRODUCTION_PROFILE = {
@@ -27,7 +30,12 @@ const PRODUCTION_PROFILE = {
     ambiente: 'produzione'
 };
 
-function buildPoolConfig(server, database, user, password) {
+const POOL_MAX_PROD = 30;   // Condiviso tra tutti gli operatori in produzione
+const POOL_MAX_TEST = 5;    // Uno per operatore, 1-2 connessioni reali
+const POOL_IDLE_MS = 30000; // Timeout connessione inattiva dentro il pool
+const USER_POOL_TTL = 30 * 60 * 1000; // 30 minuti: chiudi pool utente se inattivo
+
+function buildPoolConfig(server, database, user, password, maxConns) {
     return {
         server,
         database,
@@ -39,131 +47,194 @@ function buildPoolConfig(server, database, user, password) {
             enableArithAbort: true
         },
         pool: {
-            max: 10,
+            max: maxConns || POOL_MAX_TEST,
             min: 0,
-            idleTimeoutMillis: 30000
+            idleTimeoutMillis: POOL_IDLE_MS
         }
     };
 }
 
 // ============================================================
-// STATO DEL MODULO
+// POOL PRODUZIONE — singleton condiviso (MRP@163)
 // ============================================================
 
-let poolProd = null;   // Pool produzione (lazy, fisso)
-let poolTest = null;   // Pool prova (dinamico, un solo attivo alla volta)
-let activeMode = 'produzione'; // 'produzione' | 'prova'
-let activeTestProfile = null;  // Dati profilo di prova attivo (senza password)
-let switching = false;
-
-console.log('[DB] Configurazione produzione:', PRODUCTION_PROFILE.label, '—', PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp);
-
-// ============================================================
-// POOL PRODUZIONE (lazy, singleton)
-// ============================================================
+let poolProd = null;
 
 async function getPoolProd() {
     if (!poolProd) {
         poolProd = await new sql.ConnectionPool(
-            buildPoolConfig(PRODUCTION_PROFILE.server, PRODUCTION_PROFILE.database_mrp, PRODUCTION_PROFILE.user, PRODUCTION_PROFILE.password)
+            buildPoolConfig(PRODUCTION_PROFILE.server, PRODUCTION_PROFILE.database_mrp,
+                PRODUCTION_PROFILE.user, PRODUCTION_PROFILE.password, POOL_MAX_PROD)
         ).connect();
-        console.log('[DB] Pool PRODUZIONE connesso —', PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp);
+        console.log('[DB] Pool PRODUZIONE connesso — ' + PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp + ' (max ' + POOL_MAX_PROD + ')');
     }
     return poolProd;
 }
 
+console.log('[DB] Configurazione produzione:', PRODUCTION_PROFILE.label, '—', PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp);
+
 // ============================================================
-// POOL ATTIVO (produzione o prova)
+// STATO PER UTENTE — Map<userId, UserState>
 // ============================================================
 
-async function getPoolMRP() {
-    if (switching) throw new Error('Switch profilo in corso, riprova tra un momento');
-    if (activeMode === 'prova' && poolTest) return poolTest;
+/**
+ * Ogni utente ha il suo stato:
+ * {
+ *   pool:       ConnectionPool | null    — pool verso UJET11 del server di prova
+ *   profile:    Object | null            — profilo di prova attivo (senza password)
+ *   hasRiep:    boolean                  — dbo.Riep esiste nel server di prova?
+ *   lastActive: number                   — timestamp ultimo utilizzo (per cleanup)
+ *   switching:  boolean                  — mutex per switch in corso
+ * }
+ */
+const userStates = new Map();
+
+function getUserState(userId) {
+    if (!userStates.has(userId)) {
+        userStates.set(userId, {
+            pool: null,
+            profile: null,
+            hasRiep: false,
+            lastActive: Date.now(),
+            switching: false
+        });
+    }
+    const state = userStates.get(userId);
+    state.lastActive = Date.now();
+    return state;
+}
+
+// ============================================================
+// POOL PER UTENTE — getPoolMRP(userId)
+// ============================================================
+
+/**
+ * Restituisce il pool attivo per l'utente:
+ * - Se l'utente ha un pool di prova attivo → restituisce quello
+ * - Altrimenti → restituisce il pool produzione (condiviso)
+ *
+ * @param {number} userId — IDUser dell'operatore (0 = default/dev)
+ */
+async function getPoolMRP(userId) {
+    const state = getUserState(userId || 0);
+    if (state.switching) throw new Error('Switch profilo in corso, riprova tra un momento');
+    if (state.pool) return state.pool;
     return getPoolProd();
 }
 
 // ============================================================
-// PROFILO ATTIVO
+// PROFILO ATTIVO PER UTENTE
 // ============================================================
 
-function getActiveProfile() {
-    if (activeMode === 'prova' && activeTestProfile) {
-        return activeTestProfile;
-    }
-    // Produzione — ritorna senza password
+function getActiveProfile(userId) {
+    const state = getUserState(userId || 0);
+    if (state.profile) return state.profile;
     const { password, ...safe } = PRODUCTION_PROFILE;
     return safe;
 }
 
-function isProduction() {
-    return activeMode === 'produzione';
+function isProduction(userId) {
+    const state = getUserState(userId || 0);
+    return !state.profile;
 }
 
-// Flag: il server di prova ha dbo.Riep? Se no, i consumi leggono da produzione.
-let testHasRiep = false;
+function setTestHasRiep(userId, val) {
+    const state = getUserState(userId || 0);
+    state.hasRiep = !!val;
+}
 
-function setTestHasRiep(val) { testHasRiep = !!val; }
-function getTestHasRiep() { return testHasRiep; }
+function getTestHasRiep(userId) {
+    const state = getUserState(userId || 0);
+    return state.hasRiep;
+}
 
 // ============================================================
-// SWITCH A PROVA
+// SWITCH A PROVA — per utente
 // ============================================================
 
-/**
- * Switcha a un profilo di prova. Riceve i dati già decriptati.
- * @param {Object} testProfile - { id, label, server, database_mrp, database_ujet11, user, password, color, email_prova, ... }
- */
-async function switchToTest(testProfile) {
-    if (switching) throw new Error('Switch già in corso');
-    switching = true;
+async function switchToTest(userId, testProfile) {
+    const state = getUserState(userId || 0);
+    if (state.switching) throw new Error('Switch gia in corso');
+    state.switching = true;
     try {
-        // Tenta connessione a UJET11 sul server di prova (accesso diretto, senza viste MRP)
+        // Tenta connessione a UJET11 sul server di prova
         const newPool = await new sql.ConnectionPool(
-            buildPoolConfig(testProfile.server, testProfile.database_ujet11 || 'UJET11', testProfile.user, testProfile.password)
+            buildPoolConfig(testProfile.server, testProfile.database_ujet11 || 'UJET11',
+                testProfile.user, testProfile.password, POOL_MAX_TEST)
         ).connect();
 
-        // Connessione riuscita — chiudi pool prova precedente (se c'è)
-        if (poolTest) { try { await poolTest.close(); } catch(e) {} }
-        poolTest = newPool;
-        activeMode = 'prova';
+        // Connessione riuscita — chiudi pool precedente di questo utente
+        if (state.pool) { try { await state.pool.close(); } catch(e) {} }
+        state.pool = newPool;
+        state.hasRiep = false;
 
         // Salva profilo attivo senza password
         const { password, DbPassword, ...safe } = testProfile;
-        activeTestProfile = { ...safe, ambiente: 'prova' };
+        state.profile = { ...safe, ambiente: 'prova' };
 
-        console.log('[DB] Switch a PROVA:', testProfile.label, '—', testProfile.server);
-        return activeTestProfile;
+        console.log('[DB] User ' + userId + ' switch a PROVA:', testProfile.label, '—', testProfile.server);
+        return state.profile;
     } catch (err) {
         throw new Error('Impossibile connettersi al server di prova (' + testProfile.server + '): ' + err.message);
     } finally {
-        switching = false;
+        state.switching = false;
     }
 }
 
 // ============================================================
-// SWITCH A PRODUZIONE
+// SWITCH A PRODUZIONE — per utente
 // ============================================================
 
-async function switchToProduction() {
-    if (switching) throw new Error('Switch già in corso');
-    switching = true;
+async function switchToProduction(userId) {
+    const state = getUserState(userId || 0);
+    if (state.switching) throw new Error('Switch gia in corso');
+    state.switching = true;
     try {
-        // Chiudi pool prova
-        if (poolTest) { try { await poolTest.close(); } catch(e) {} }
-        poolTest = null;
-        activeTestProfile = null;
-        activeMode = 'produzione';
+        if (state.pool) { try { await state.pool.close(); } catch(e) {} }
+        state.pool = null;
+        state.profile = null;
+        state.hasRiep = false;
 
-        // Assicurati che il pool produzione sia attivo
         await getPoolProd();
 
-        console.log('[DB] Switch a PRODUZIONE');
+        console.log('[DB] User ' + userId + ' switch a PRODUZIONE');
         const { password, ...safe } = PRODUCTION_PROFILE;
         return safe;
     } finally {
-        switching = false;
+        state.switching = false;
     }
 }
+
+// ============================================================
+// CLEANUP — chiude pool inattivi ogni 5 minuti
+// ============================================================
+
+setInterval(async () => {
+    const now = Date.now();
+    for (const [userId, state] of userStates.entries()) {
+        if (state.pool && (now - state.lastActive) > USER_POOL_TTL) {
+            console.log('[DB] Cleanup: chiudo pool inattivo per user ' + userId + ' (inattivo da ' + Math.round((now - state.lastActive) / 60000) + ' min)');
+            try { await state.pool.close(); } catch(e) {}
+            state.pool = null;
+            state.profile = null;
+            state.hasRiep = false;
+        }
+    }
+}, 5 * 60 * 1000); // ogni 5 minuti
+
+// ============================================================
+// GRACEFUL SHUTDOWN — chiude tutti i pool
+// ============================================================
+
+async function closeAll() {
+    if (poolProd) { try { await poolProd.close(); } catch(e) {} }
+    for (const [, state] of userStates.entries()) {
+        if (state.pool) { try { await state.pool.close(); } catch(e) {} }
+    }
+}
+
+process.on('SIGINT', closeAll);
+process.on('SIGTERM', closeAll);
 
 module.exports = {
     sql,

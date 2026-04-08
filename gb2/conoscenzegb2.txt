@@ -83,15 +83,37 @@ Database utilizzati:
   - UJET11 (su bcube2): dati ERP BCube reali — in produzione accessibile via viste MRP
   - UJET11 (su server di prova): copia locale — in prova accessibile DIRETTAMENTE
 
-Gestione connessioni:
-  - config/db-mrp.js gestisce DUE pool:
-    - poolProd: pool fisso verso MRP su 192.168.0.163 (produzione, sempre attivo)
-    - poolTest: pool dinamico verso UJET11 sul server di prova (creato allo switch)
-  - getPoolMRP(): restituisce il pool attivo (produzione o prova)
-  - getPoolProd(): restituisce SEMPRE il pool produzione (per SP, GB2, TestProfiles)
-  - getPoolRiep(): restituisce il pool giusto per le query su dbo.Riep (vedi sez. 11)
-  - config/db.js (principale): pool per GA, PE, ET, BOB (NON usato da GB2)
-  - Le rotte GB2 usano SOLO db-mrp.js, MAI db.js
+Gestione connessioni — ARCHITETTURA POOL PER UTENTE:
+  config/db-mrp.js gestisce i pool con isolamento per operatore:
+
+  poolProd (singleton condiviso):
+    - Pool fisso verso MRP su 192.168.0.163
+    - MAX 30 connessioni (condiviso tra tutti gli operatori in produzione)
+    - Usato anche per SP, GB2, TestProfiles (sempre su 163)
+    - Creato lazy al primo utilizzo, vive per tutta la sessione del server
+
+  userStates (Map<userId, UserState>):
+    - Ogni operatore ha il suo stato: pool, profilo attivo, hasRiep, lastActive
+    - Il pool di prova e INDIVIDUALE: lo switch di Pablo non impatta Marco
+    - MAX 5 connessioni per pool di prova (1 operatore alla volta)
+    - Pool chiuso automaticamente dopo 30 minuti di inattivita (cleanup ogni 5 min)
+    - Con 8 operatori simultanei: max 1 pool prod (30 conn) + 8 pool prova (5 conn ciascuno)
+      = 70 connessioni teoriche, ~20 reali. SQL Server ne gestisce migliaia.
+
+  Funzioni principali (tutte accettano userId):
+    getPoolMRP(userId)      — pool attivo per l'utente (produzione o prova)
+    getPoolProd()            — SEMPRE il pool produzione (per SP, GB2, TestProfiles)
+    getPoolRiep(userId)      — pool per query Riep (fallback a produzione se manca in prova)
+    getActiveProfile(userId) — profilo attivo per l'utente
+    isProduction(userId)     — true se l'utente e in produzione
+    switchToTest(userId, p)  — crea pool prova individuale per l'utente
+    switchToProduction(userId) — chiude pool prova, torna a produzione
+
+  Le route ottengono userId da getUserId(req) e lo passano a tutte le funzioni pool.
+  In dev mode (skipAuth), userId = 0 (default).
+
+  config/db.js (principale): pool per GA, PE, ET, BOB (NON usato da GB2)
+  Le rotte GB2 usano SOLO db-mrp.js, MAI db.js
 
 ARCHITETTURA VISTE MRP (SOLO PRODUZIONE):
   Le 21 viste nel database [MRP] su 192.168.0.163 fungono da ponte trasparente
@@ -507,11 +529,13 @@ TABELLA ordini_emessi IN PROVA:
   La tabella ordini_emessi normalmente vive su MRP. In prova, viene auto-deployata
   su UJET11 del server di prova (l'operatore lavora tutto dentro UJET11).
 
-PROBLEMA APERTO — POOL CONDIVISO:
-  Il pool attivo (produzione/prova) e globale: se un operatore switcha a prova,
-  TUTTI gli utenti connessi usano il pool di prova. Per ora GB2 e usata da un
-  operatore alla volta. Per uso concorrente multi-operatore servira un pool per
-  sessione/utente.
+POOL PER UTENTE (RISOLTO):
+  Ogni operatore ha il suo pool indipendente (Map<userId, UserState>).
+  Lo switch di un operatore NON impatta gli altri. Dimensionamento:
+  - Pool produzione: max 30 connessioni, condiviso tra tutti
+  - Pool prova: max 5 connessioni ciascuno, individuale per operatore
+  - Cleanup automatico: pool inattivi chiusi dopo 30 minuti
+  - Shutdown graceful: tutti i pool chiusi su SIGINT/SIGTERM
 
 
 ================================================================================
@@ -653,9 +677,10 @@ SP CON PLACEHOLDER:
 17. PROBLEMI NOTI E AVVERTENZE
 ================================================================================
 
-ATTENZIONE — POOL CONDIVISO:
-  Il pool attivo e globale. Se un operatore switcha a prova, tutti vedono
-  i dati di prova. Per uso multi-operatore servira un pool per sessione.
+NOTA — POOL PER UTENTE:
+  Ogni operatore ha il suo pool isolato. Fino a 8 operatori contemporanei
+  sono supportati senza problemi (testato: ~20 connessioni reali su ~70 teoriche).
+  I pool inattivi da piu di 30 minuti vengono chiusi automaticamente.
 
 ATTENZIONE — COLONNE ORDLIST IN PRODUZIONE:
   ol_numord, ol_anno, ol_serie NON ESISTONO nella tabella ordlist

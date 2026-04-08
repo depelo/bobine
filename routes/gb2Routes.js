@@ -166,8 +166,8 @@ function createGb2Routes({ io, skipAuth } = {}) {
 
 // Helper: legge IDUser dalla sessione (o default per skipAuth/dev)
 // Pool per query su Riep: usa produzione se in prova senza Riep locale
-async function getPoolRiep() {
-    if (isProduction() || getTestHasRiep()) return getPoolMRP();
+async function getPoolRiep(userId) {
+    if (isProduction(userId) || getTestHasRiep(userId)) return getPoolMRP(userId);
     return getPoolProd();
 }
 
@@ -178,7 +178,7 @@ function getUserId(req) {
 // Profilo attivo (usato dal frontend per il badge)
 router.get('/db/active-profile', authMiddleware, (req, res) => {
     try {
-        res.json(getActiveProfile());
+        res.json(getActiveProfile(getUserId(req)));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -228,7 +228,7 @@ router.get('/db/profiles', authMiddleware, async (req, res) => {
 // Switch a produzione
 router.post('/db/switch-production', authMiddleware, async (req, res) => {
     try {
-        const profile = await switchToProduction();
+        const profile = await switchToProduction(getUserId(req));
         res.json({ success: true, activeProfile: profile });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -271,14 +271,15 @@ router.post('/db/switch-test', authMiddleware, async (req, res) => {
             email_prova: row.EmailProva || ''
         };
 
-        const profile = await switchToTest(testProfile);
+        const uid = getUserId(req);
+        const profile = await switchToTest(uid, testProfile);
 
         // Deploy SP suffissate su MRP@163 + ordini_emessi su UJET11@prova
         const warnings = [];
         try {
-            const poolTest = await getPoolMRP(); // ora punta a UJET11 del server di prova
+            const poolTest = await getPoolMRP(uid); // ora punta a UJET11 del server di prova
             const deploy = await deployTestObjects(poolProd, poolTest, testProfile);
-            setTestHasRiep(deploy.hasRiep);
+            setTestHasRiep(uid, deploy.hasRiep);
             console.log('[GB2] Deploy test objects per profilo T' + row.ID + ':', deploy.results.map(r => `${r.file}: ${r.status}`).join(', '), '| hasRiep:', deploy.hasRiep);
             if (!deploy.hasRiep) {
                 warnings.push('La tabella dbo.Riep non esiste nel server di prova. I grafici consumi/previsioni useranno i dati di produzione.');
@@ -458,7 +459,7 @@ router.post('/db/test-connection', authMiddleware, async (req, res) => {
 router.get('/articoli/search', authMiddleware, async (req, res) => {
     try {
         const { q, field } = req.query; // field: 'codart' | 'codalt' | 'descr'
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
 
         let where = '';
         if (q && q.trim()) {
@@ -499,7 +500,7 @@ router.get('/articoli/search', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/articoli/:codart/fasi', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const result = await pool.request()
             .input('codart', sql.NVarChar, req.params.codart)
             .query(`
@@ -521,7 +522,7 @@ router.get('/articoli/:codart/fasi', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/magazzini', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const result = await pool.request()
             .query(`
                 SELECT tb_codmaga, tb_desmaga
@@ -573,7 +574,7 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
     // per aggiornare il campo "ordinato" oltre lo snapshot di BCube
     let emessiPerMagFase = new Map(); // key "magaz_fase" -> somma quantita_ordinata
     try {
-        const poolMRP = await getPoolMRP();
+        const poolMRP = await getPoolMRP(getUserId(req));
         const emRes = await poolMRP.request()
             .input('codart_em', sql.NVarChar, codart)
             .query(`
@@ -983,7 +984,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
 
         const artResult = await pool.request()
             .input('codart', sql.NVarChar, codart)
@@ -1175,7 +1176,7 @@ router.get('/progressivi/expand', authMiddleware, async (req, res) => {
         const { codart, livello } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const liv = parseInt(livello, 10) || 1;
         const righe = [];
 
@@ -1251,7 +1252,7 @@ router.get('/ordini-dettaglio', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 
@@ -1316,7 +1317,7 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
         const { codart, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const request = pool.request().input('codart', sql.NVarChar, codart);
 
         let filtri = '';
@@ -1370,7 +1371,7 @@ router.get('/ordini-padre', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 
@@ -1449,7 +1450,7 @@ router.get('/consumi/sprint-multi', authMiddleware, async (req, res) => {
             .slice(0, 20);
         if (!codarts.length) return res.status(400).json({ error: 'codarts richiesto' });
 
-        const pool = await getPoolRiep();
+        const pool = await getPoolRiep(getUserId(req));
         const request = pool.request();
         const placeholders = codarts.map((_, i) => `@c${i}`).join(', ');
         codarts.forEach((cod, i) => {
@@ -1511,8 +1512,9 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
             .slice(0, 20);
         if (!codarts.length) return res.status(400).json({ error: 'codarts richiesto' });
 
-        const poolRiep = await getPoolRiep();
-        const poolData = await getPoolMRP();
+        const uid = getUserId(req);
+        const poolRiep = await getPoolRiep(uid);
+        const poolData = await getPoolMRP(uid);
         const placeholders = codarts.map((_, i) => `@c${i}`).join(', ');
 
         // Query Riep (potrebbe essere su pool produzione)
@@ -1559,7 +1561,7 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
 router.get('/consumi/sprint/:codart', authMiddleware, async (req, res) => {
     try {
         const codart = req.params.codart;
-        const pool = await getPoolRiep();
+        const pool = await getPoolRiep(getUserId(req));
 
         const result = await pool.request()
             .input('codart', sql.NVarChar, codart)
@@ -1612,8 +1614,9 @@ router.get('/consumi/sprint/:codart', authMiddleware, async (req, res) => {
 router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
     try {
         const codart = req.params.codart;
-        const poolRiepData = await getPoolRiep();
-        const poolData = await getPoolMRP();
+        const uid = getUserId(req);
+        const poolRiepData = await getPoolRiep(uid);
+        const poolData = await getPoolMRP(uid);
 
         const riepResult = await poolRiepData.request()
             .input('codart', sql.NVarChar, codart)
@@ -1656,7 +1659,7 @@ router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/proposta-ordini', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const result = await pool.request().query(`
             SELECT
                 ol.ol_progr,
@@ -1690,7 +1693,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
         // Arricchisci con info emissioni da ordini_emessi (DB MRP)
         let emissioni = [];
         try {
-            const poolMRP = await getPoolMRP();
+            const poolMRP = await getPoolMRP(getUserId(req));
             const emRes = await poolMRP.request().query(`
                 SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata, data_emissione
                 FROM dbo.ordini_emessi
@@ -1756,9 +1759,9 @@ function getPoliticaRiordino(art) {
 // ============================================================
 router.get('/health', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const result = await pool.request().query('SELECT 1 AS ok');
-        const poolMRP = await getPoolMRP();
+        const poolMRP = await getPoolMRP(getUserId(req));
         const resultMRP = await poolMRP.request().query('SELECT 1 AS ok');
         res.json({
             status: 'ok',
@@ -1781,7 +1784,7 @@ router.get('/user/preferences', authMiddleware, async (req, res) => {
         if (!userId) {
             return res.json({ colorPreset: 'default', customColors: {}, customLabels: {} });
         }
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const result = await pool.request()
             .input('userId', sql.Int, userId)
             .query('SELECT ColorPreset, CustomColors, CustomLabels FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @userId');
@@ -1814,7 +1817,7 @@ router.post('/user/preferences', authMiddleware, async (req, res) => {
             return res.json({ success: true });
         }
         const { colorPreset, customColors, customLabels } = req.body;
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
 
         const colorsJson = JSON.stringify(customColors || {});
         const labelsJson = JSON.stringify(customLabels || {});
@@ -1861,12 +1864,13 @@ async function checkSpExists(pool, spName) {
 router.post('/deploy-sp', authMiddleware, async (req, res) => {
     try {
         const poolProd = await getPoolProd();
-        if (isProduction()) {
+        const uid = getUserId(req);
+        if (isProduction(uid)) {
             const results = await deployProductionObjects(poolProd);
             res.json({ success: true, results });
         } else {
-            const profile = getActiveProfile();
-            const poolTest = await getPoolMRP();
+            const profile = getActiveProfile(uid);
+            const poolTest = await getPoolMRP(uid);
             const deploy = await deployTestObjects(poolProd, poolTest, profile);
             res.json({ success: true, results: deploy.results, hasRiep: deploy.hasRiep });
         }
@@ -1879,11 +1883,12 @@ router.post('/deploy-sp', authMiddleware, async (req, res) => {
 router.get('/check-sp', authMiddleware, async (req, res) => {
     try {
         const poolSP = await getPoolProd();
-        const profile = getActiveProfile();
+        const uid = getUserId(req);
+        const profile = getActiveProfile(uid);
         const spName = getSpName('usp_CreaOrdineFornitore', profile);
         const spExists = await checkSpExists(poolSP, spName);
         // Verifica anche che la tabella ordini_emessi esista (nel pool attivo)
-        const poolData = await getPoolMRP();
+        const poolData = await getPoolMRP(uid);
         const tblResult = await poolData.request().query(
             "SELECT OBJECT_ID('dbo.ordini_emessi', 'U') AS id"
         );
@@ -1904,7 +1909,7 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
 
         // Le SP vivono sempre su MRP@163 (pool produzione), con suffisso per profili di prova
         const poolSP = await getPoolProd();
-        const profile = getActiveProfile();
+        const profile = getActiveProfile(getUserId(req));
         const spName = getSpName('usp_CreaOrdineFornitore', profile);
 
         // Check SP esiste
@@ -1934,7 +1939,7 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         const righeOrdine = result.recordsets[1] || [];
 
         // Genera PDF (con watermark se in ambiente prova)
-        const dbProfile = getActiveProfile();
+        const dbProfile = getActiveProfile(getUserId(req));
         const ambiente = dbProfile.ambiente || 'produzione';
         const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente });
 
@@ -1971,7 +1976,7 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
         }
 
         const poolSP = await getPoolProd();
-        const profile = getActiveProfile();
+        const profile = getActiveProfile(getUserId(req));
         const spName = getSpName('usp_CreaOrdineFornitore', profile);
         const spExists = await checkSpExists(poolSP, spName);
         if (!spExists) {
@@ -1990,7 +1995,7 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
 
                 const ordine = result.recordsets[0][0];
                 const righeOrdine = result.recordsets[1] || [];
-                const dbProf = getActiveProfile();
+                const dbProf = getActiveProfile(getUserId(req));
                 const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: dbProf.ambiente || 'produzione' });
 
                 risultati.push({
@@ -2032,7 +2037,7 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
 router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) => {
     try {
         const { anno, serie, numord } = req.params;
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
 
         // Leggi testata
         const testata = await pool.request()
@@ -2226,7 +2231,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         }
 
         // Leggi dati ordine per email (fornitore, articoli)
-        const pool = await getPoolMRP();
+        const pool = await getPoolMRP(getUserId(req));
         const testataRes = await pool.request()
             .input('anno', sql.SmallInt, parseInt(anno, 10))
             .input('serie', sql.VarChar(3), serie)
@@ -2255,7 +2260,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         const destinatariReali = emailDest.split(';').map(e => e.trim()).filter(Boolean);
 
         // Redirect email in ambiente prova
-        const dbProfile = getActiveProfile();
+        const dbProfile = getActiveProfile(getUserId(req));
         const ambiente = dbProfile.ambiente || 'produzione';
         let destinatari = destinatariReali;
         let emailReale = destinatariReali.join(', ');
@@ -2353,7 +2358,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         // Aggiorna stato invio nel DB (SP su MRP@163)
         try {
             const poolSP = await getPoolProd();
-            const spNameAggiorna = getSpName('usp_AggiornaStatoInvioOrdine', getActiveProfile());
+            const spNameAggiorna = getSpName('usp_AggiornaStatoInvioOrdine', getActiveProfile(getUserId(req)));
             const spExists = await checkSpExists(poolSP, spNameAggiorna);
             if (spExists) {
                 await poolSP.request()
