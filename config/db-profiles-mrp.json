@@ -1,0 +1,15 @@
+{
+  "profiles": [
+    {
+      "id": "produzione",
+      "label": "PRODUZIONE",
+      "server": "localhost",
+      "database_ujet11": "UJET11",
+      "database_mrp": "MRP",
+      "user": "sa",
+      "password": "",
+      "color": "#e11d48"
+    }
+  ],
+  "activeProfileId": "produzione"
+}

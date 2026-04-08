@@ -83,9 +83,7 @@ router.get('/db/profiles', authMiddleware, async (req, res) => {
         const result = await poolProd.request()
             .input('userId', sql.Int, userId)
             .query(`SELECT ID, IDUser, ProfileLabel, Server, DatabaseMRP, DatabaseUJET11,
-                           DbUser, SmtpHost, SmtpPort, SmtpSecure, SmtpUser,
-                           SmtpFromAddress, SmtpFromName, EmailProva, Color, IsActive,
-                           CreatedAt, UpdatedAt
+                           DbUser, EmailProva, Color, IsActive, CreatedAt, UpdatedAt
                     FROM [GB2].[dbo].[TestProfiles]
                     WHERE IDUser = @userId
                     ORDER BY ProfileLabel`);
@@ -99,12 +97,6 @@ router.get('/db/profiles', authMiddleware, async (req, res) => {
                 database_mrp: row.DatabaseMRP,
                 database_ujet11: row.DatabaseUJET11,
                 user: row.DbUser,
-                smtp_host: row.SmtpHost || '',
-                smtp_port: row.SmtpPort || 587,
-                smtp_secure: !!row.SmtpSecure,
-                smtp_user: row.SmtpUser || '',
-                smtp_from_address: row.SmtpFromAddress || '',
-                smtp_from_name: row.SmtpFromName || 'U.Jet s.r.l.',
                 email_prova: row.EmailProva || '',
                 color: row.Color || '#16a34a',
                 is_active: !!row.IsActive,
@@ -168,19 +160,8 @@ router.post('/db/switch-test', authMiddleware, async (req, res) => {
             user: row.DbUser,
             password: decryptedPassword,
             color: row.Color || '#16a34a',
-            email_prova: row.EmailProva || '',
-            smtp_host: row.SmtpHost || '',
-            smtp_port: row.SmtpPort || 587,
-            smtp_secure: !!row.SmtpSecure,
-            smtp_user: row.SmtpUser || '',
-            smtp_from_address: row.SmtpFromAddress || '',
-            smtp_from_name: row.SmtpFromName || 'U.Jet s.r.l.'
+            email_prova: row.EmailProva || ''
         };
-
-        // Decritta smtp_password se presente
-        if (row.SmtpPassword) {
-            testProfile.smtp_password = decrypt(row.SmtpPassword);
-        }
 
         const profile = await switchToTest(testProfile);
 
@@ -211,15 +192,13 @@ router.post('/db/profiles', authMiddleware, async (req, res) => {
     try {
         const userId = getUserId(req);
         const { label, server, database_mrp, database_ujet11, user, password,
-                smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password,
-                smtp_from_address, smtp_from_name, email_prova, color } = req.body;
+                email_prova, color } = req.body;
 
         if (!label || !server || !user || !password) {
             return res.status(400).json({ error: 'label, server, user e password sono obbligatori' });
         }
 
         const encPassword = encrypt(password);
-        const encSmtpPassword = smtp_password ? encrypt(smtp_password) : null;
 
         const poolProd = await getPoolProd();
         const result = await poolProd.request()
@@ -230,23 +209,14 @@ router.post('/db/profiles', authMiddleware, async (req, res) => {
             .input('dbUjet', sql.VarChar(50), database_ujet11 || 'UJET11')
             .input('dbUser', sql.VarChar(50), user)
             .input('dbPass', sql.VarBinary(512), encPassword)
-            .input('smtpHost', sql.VarChar(100), smtp_host || null)
-            .input('smtpPort', sql.Int, smtp_port || 587)
-            .input('smtpSecure', sql.Bit, smtp_secure ? 1 : 0)
-            .input('smtpUser', sql.VarChar(100), smtp_user || null)
-            .input('smtpPass', sql.VarBinary(512), encSmtpPassword)
-            .input('smtpFrom', sql.VarChar(255), smtp_from_address || null)
-            .input('smtpName', sql.VarChar(100), smtp_from_name || 'U.Jet s.r.l.')
             .input('emailProva', sql.VarChar(255), email_prova || null)
             .input('color', sql.VarChar(20), color || '#16a34a')
             .query(`INSERT INTO [GB2].[dbo].[TestProfiles]
                     (IDUser, ProfileLabel, Server, DatabaseMRP, DatabaseUJET11,
-                     DbUser, DbPassword, SmtpHost, SmtpPort, SmtpSecure, SmtpUser, SmtpPassword,
-                     SmtpFromAddress, SmtpFromName, EmailProva, Color)
+                     DbUser, DbPassword, EmailProva, Color)
                     OUTPUT INSERTED.ID
                     VALUES (@userId, @label, @server, @dbMrp, @dbUjet,
-                            @dbUser, @dbPass, @smtpHost, @smtpPort, @smtpSecure, @smtpUser, @smtpPass,
-                            @smtpFrom, @smtpName, @emailProva, @color)`);
+                            @dbUser, @dbPass, @emailProva, @color)`);
 
         const newId = result.recordset[0].ID;
         res.json({
@@ -273,7 +243,7 @@ router.put('/db/profiles/:id', authMiddleware, async (req, res) => {
         const check = await poolProd.request()
             .input('id', sql.Int, dbId)
             .input('userId', sql.Int, userId)
-            .query('SELECT ID, DbPassword, SmtpPassword FROM [GB2].[dbo].[TestProfiles] WHERE ID = @id AND IDUser = @userId');
+            .query('SELECT ID, DbPassword FROM [GB2].[dbo].[TestProfiles] WHERE ID = @id AND IDUser = @userId');
 
         if (!check.recordset.length) {
             return res.status(404).json({ error: 'Profilo non trovato' });
@@ -281,12 +251,10 @@ router.put('/db/profiles/:id', authMiddleware, async (req, res) => {
 
         const existing = check.recordset[0];
         const { label, server, database_mrp, database_ujet11, user, password,
-                smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password,
-                smtp_from_address, smtp_from_name, email_prova, color } = req.body;
+                email_prova, color } = req.body;
 
         // Se password vuota, mantieni quella esistente
         const encPassword = (password && password.trim()) ? encrypt(password) : existing.DbPassword;
-        const encSmtpPassword = (smtp_password && smtp_password.trim()) ? encrypt(smtp_password) : existing.SmtpPassword;
 
         await poolProd.request()
             .input('id', sql.Int, dbId)
@@ -296,22 +264,12 @@ router.put('/db/profiles/:id', authMiddleware, async (req, res) => {
             .input('dbUjet', sql.VarChar(50), database_ujet11 || 'UJET11')
             .input('dbUser', sql.VarChar(50), user)
             .input('dbPass', sql.VarBinary(512), encPassword)
-            .input('smtpHost', sql.VarChar(100), smtp_host || null)
-            .input('smtpPort', sql.Int, smtp_port || 587)
-            .input('smtpSecure', sql.Bit, smtp_secure ? 1 : 0)
-            .input('smtpUser', sql.VarChar(100), smtp_user || null)
-            .input('smtpPass', sql.VarBinary(512), encSmtpPassword)
-            .input('smtpFrom', sql.VarChar(255), smtp_from_address || null)
-            .input('smtpName', sql.VarChar(100), smtp_from_name || 'U.Jet s.r.l.')
             .input('emailProva', sql.VarChar(255), email_prova || null)
             .input('color', sql.VarChar(20), color || '#16a34a')
             .query(`UPDATE [GB2].[dbo].[TestProfiles]
                     SET ProfileLabel = @label, Server = @server,
                         DatabaseMRP = @dbMrp, DatabaseUJET11 = @dbUjet,
                         DbUser = @dbUser, DbPassword = @dbPass,
-                        SmtpHost = @smtpHost, SmtpPort = @smtpPort, SmtpSecure = @smtpSecure,
-                        SmtpUser = @smtpUser, SmtpPassword = @smtpPass,
-                        SmtpFromAddress = @smtpFrom, SmtpFromName = @smtpName,
                         EmailProva = @emailProva, Color = @color,
                         UpdatedAt = GETDATE()
                     WHERE ID = @id`);
@@ -2001,18 +1959,109 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
 });
 
 // ============================================================
-// API: CONFIGURAZIONE SMTP (legata al profilo DB attivo)
+// API: CONFIGURAZIONE SMTP PER OPERATORE
+// Ogni operatore ha la propria config SMTP in [GB2].[dbo].[UserPreferences]
 // ============================================================
 
-router.get('/smtp/status', authMiddleware, (req, res) => {
+// Leggi config SMTP dell'operatore loggato
+router.get('/smtp/config', authMiddleware, async (req, res) => {
     try {
-        res.json({ configured: smtp.isConfigured(), config: smtp.getSmtpConfig() });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+        const userId = getUserId(req);
+        const poolProd = await getPoolProd();
+        const result = await poolProd.request()
+            .input('userId', sql.Int, userId)
+            .query(`SELECT SmtpHost, SmtpPort, SmtpSecure, SmtpUser,
+                           SmtpFromAddress, SmtpFromName
+                    FROM [GB2].[dbo].[UserPreferences]
+                    WHERE IDUser = @userId`);
+
+        if (!result.recordset.length) {
+            return res.json({ configured: false, config: {} });
+        }
+
+        const row = result.recordset[0];
+        const config = {
+            host: row.SmtpHost || '',
+            port: row.SmtpPort || 587,
+            secure: !!row.SmtpSecure,
+            user: row.SmtpUser || '',
+            from_address: row.SmtpFromAddress || '',
+            from_name: row.SmtpFromName || 'U.Jet s.r.l.'
+        };
+        res.json({ configured: !!(config.host && config.from_address), config });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
+// Salva config SMTP dell'operatore loggato
+router.post('/smtp/config', authMiddleware, async (req, res) => {
+    try {
+        const userId = getUserId(req);
+        const { host, port, secure, user, password, from_address, from_name } = req.body;
+
+        const encPassword = (password && password.trim()) ? encrypt(password) : null;
+        const poolProd = await getPoolProd();
+
+        // Upsert: se la riga UserPreferences esiste, aggiorna; altrimenti crea
+        const exists = await poolProd.request()
+            .input('userId', sql.Int, userId)
+            .query('SELECT 1 FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @userId');
+
+        if (exists.recordset.length) {
+            const req2 = poolProd.request()
+                .input('userId', sql.Int, userId)
+                .input('host', sql.VarChar(100), host || null)
+                .input('port', sql.Int, port || 587)
+                .input('secure', sql.Bit, secure ? 1 : 0)
+                .input('user', sql.VarChar(100), user || null)
+                .input('from_address', sql.VarChar(255), from_address || null)
+                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.');
+
+            let pwdClause = '';
+            if (encPassword) {
+                req2.input('pwd', sql.VarBinary(512), encPassword);
+                pwdClause = ', SmtpPassword = @pwd';
+            }
+
+            await req2.query(`UPDATE [GB2].[dbo].[UserPreferences]
+                SET SmtpHost = @host, SmtpPort = @port, SmtpSecure = @secure,
+                    SmtpUser = @user, SmtpFromAddress = @from_address,
+                    SmtpFromName = @from_name${pwdClause}, UpdatedAt = GETDATE()
+                WHERE IDUser = @userId`);
+        } else {
+            const req2 = poolProd.request()
+                .input('userId', sql.Int, userId)
+                .input('host', sql.VarChar(100), host || null)
+                .input('port', sql.Int, port || 587)
+                .input('secure', sql.Bit, secure ? 1 : 0)
+                .input('user', sql.VarChar(100), user || null)
+                .input('pwd', sql.VarBinary(512), encPassword)
+                .input('from_address', sql.VarChar(255), from_address || null)
+                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.');
+
+            await req2.query(`INSERT INTO [GB2].[dbo].[UserPreferences]
+                (IDUser, SmtpHost, SmtpPort, SmtpSecure, SmtpUser, SmtpPassword,
+                 SmtpFromAddress, SmtpFromName)
+                VALUES (@userId, @host, @port, @secure, @user, @pwd, @from_address, @from_name)`);
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Test connessione SMTP dell'operatore loggato
 router.post('/smtp/test', authMiddleware, async (req, res) => {
     try {
-        await smtp.testConnection();
+        const userId = getUserId(req);
+        const smtpConfig = await smtp.getSmtpConfigForUser(userId);
+        if (!smtpConfig || !smtpConfig.host) {
+            return res.status(400).json({ success: false, error: 'SMTP non configurato. Configura prima host e credenziali.' });
+        }
+        const transporter = smtp.createTransporterFromConfig(smtpConfig);
+        await transporter.verify();
         res.json({ success: true, message: 'Connessione SMTP verificata con successo' });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -2031,8 +2080,11 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'anno, serie e numord sono obbligatori' });
         }
 
-        if (!smtp.isConfigured()) {
-            return res.status(409).json({ error: 'SMTP_NOT_CONFIGURED', message: 'Nessun profilo SMTP configurato. Configurare prima nelle impostazioni.' });
+        // Carica config SMTP dell'operatore loggato
+        const userId = getUserId(req);
+        const smtpConfig = await smtp.getSmtpConfigForUser(userId);
+        if (!smtpConfig || !smtpConfig.host || !smtpConfig.from_address) {
+            return res.status(409).json({ error: 'SMTP_NOT_CONFIGURED', message: 'SMTP non configurato per il tuo utente. Configura host e email mittente nelle impostazioni.' });
         }
 
         // Leggi dati ordine per email (fornitore, articoli)
@@ -2142,8 +2194,14 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             <p>Cordiali saluti,<br><strong>U.Jet s.r.l.</strong></p>
         `;
 
-        // Invia
-        const info = await smtp.inviaEmail({
+        // Invia con SMTP dell'operatore
+        const transporter = smtp.createTransporterFromConfig(smtpConfig);
+        const from = smtpConfig.from_name
+            ? `"${smtpConfig.from_name}" <${smtpConfig.from_address}>`
+            : smtpConfig.from_address;
+
+        const info = await transporter.sendMail({
+            from,
             to: destinatari.join(', '),
             subject: oggetto,
             html: corpoHtml,

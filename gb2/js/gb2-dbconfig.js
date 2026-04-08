@@ -325,31 +325,24 @@ const MrpDbConfig = (() => {
     }
 
     // --------------------------------------------------------
-    // SMTP (solo per profili di prova — produzione usa .env)
+    // SMTP — configurazione personale dell'operatore
+    // Indipendente dal profilo DB (ogni operatore ha la sua email)
     // --------------------------------------------------------
 
     async function loadSmtpForm() {
         try {
-            const res = await fetch(API + '/active-profile');
-            const profile = await res.json();
-            const isProd = profile.id === 'produzione';
+            const res = await fetch('/api/mrp/smtp/config');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const c = data.config || {};
 
-            const label = document.getElementById('smtpCurrentProfile');
-            if (label) label.innerHTML = 'Profilo attivo: <strong>' + esc(profile.label || profile.id) + '</strong>';
-
-            const smtpSection = document.getElementById('smtpSection');
-            if (isProd && smtpSection) {
-                smtpSection.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">La configurazione SMTP di produzione e gestita dal file .env sul server. Non modificabile da qui.</p>';
-                return;
-            }
-
-            document.getElementById('smtpFormHost').value = profile.smtp_host || '';
-            document.getElementById('smtpFormPort').value = profile.smtp_port || 587;
-            document.getElementById('smtpFormSecure').checked = profile.smtp_secure === true;
-            document.getElementById('smtpFormUser').value = profile.smtp_user || '';
+            document.getElementById('smtpFormHost').value = c.host || '';
+            document.getElementById('smtpFormPort').value = c.port || 587;
+            document.getElementById('smtpFormSecure').checked = c.secure === true;
+            document.getElementById('smtpFormUser').value = c.user || '';
             document.getElementById('smtpFormPassword').value = '';
-            document.getElementById('smtpFormFromAddress').value = profile.smtp_from_address || '';
-            document.getElementById('smtpFormFromName').value = profile.smtp_from_name || 'U.Jet s.r.l.';
+            document.getElementById('smtpFormFromAddress').value = c.from_address || '';
+            document.getElementById('smtpFormFromName').value = c.from_name || 'U.Jet s.r.l.';
         } catch (err) {
             console.error('[SMTP] Errore caricamento:', err);
         }
@@ -358,45 +351,26 @@ const MrpDbConfig = (() => {
     async function saveSmtp() {
         const statusEl = document.getElementById('smtpFormStatus');
         try {
-            const activeRes = await fetch(API + '/active-profile');
-            const active = await activeRes.json();
+            const smtpData = {
+                host: document.getElementById('smtpFormHost').value.trim(),
+                port: parseInt(document.getElementById('smtpFormPort').value, 10) || 587,
+                secure: document.getElementById('smtpFormSecure').checked,
+                user: document.getElementById('smtpFormUser').value.trim(),
+                from_address: document.getElementById('smtpFormFromAddress').value.trim(),
+                from_name: document.getElementById('smtpFormFromName').value.trim() || 'U.Jet s.r.l.'
+            };
 
-            if (active.id === 'produzione') {
-                statusEl.textContent = 'SMTP di produzione non modificabile da qui';
+            const pwd = document.getElementById('smtpFormPassword').value;
+            if (pwd) smtpData.password = pwd;
+
+            if (!smtpData.host || !smtpData.from_address) {
+                statusEl.textContent = 'Host SMTP e email mittente sono obbligatori';
                 statusEl.style.color = 'var(--warning)';
                 return;
             }
 
-            const dbId = active._dbId;
-            if (!dbId) {
-                statusEl.textContent = 'Profilo attivo non ha un ID DB valido';
-                statusEl.style.color = 'var(--danger)';
-                return;
-            }
-
-            const smtpData = {
-                smtp_host: document.getElementById('smtpFormHost').value.trim(),
-                smtp_port: parseInt(document.getElementById('smtpFormPort').value, 10) || 587,
-                smtp_secure: document.getElementById('smtpFormSecure').checked,
-                smtp_user: document.getElementById('smtpFormUser').value.trim(),
-                smtp_from_address: document.getElementById('smtpFormFromAddress').value.trim(),
-                smtp_from_name: document.getElementById('smtpFormFromName').value.trim() || 'U.Jet s.r.l.'
-            };
-
-            const pwd = document.getElementById('smtpFormPassword').value;
-            if (pwd) smtpData.smtp_password = pwd;
-
-            // Per salvare SMTP serve passare anche i campi obbligatori del profilo
-            const profile = _cachedProfiles.find(p => p._dbId === dbId);
-            if (profile) {
-                smtpData.label = profile.label;
-                smtpData.server = profile.server;
-                smtpData.user = profile.user;
-                smtpData.database_ujet11 = profile.database_ujet11;
-            }
-
-            const res = await fetch(API + '/profiles/' + dbId, {
-                method: 'PUT',
+            const res = await fetch('/api/mrp/smtp/config', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(smtpData)
             });

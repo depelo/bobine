@@ -27,3 +27,26 @@ BEGIN
     ADD CustomLabels NVARCHAR(MAX) NOT NULL DEFAULT '{}';
     PRINT 'Colonna CustomLabels aggiunta.';
 END
+GO
+
+-- ============================================================
+-- Colonne SMTP per operatore (configurazione email personale)
+-- Ogni operatore ha la propria email dalla quale partono gli ordini
+-- Le password sono crittate AES lato applicazione (Node.js)
+-- ============================================================
+IF NOT EXISTS (
+    SELECT 1 FROM [GB2].sys.columns
+    WHERE object_id = OBJECT_ID('[GB2].[dbo].[UserPreferences]')
+      AND name = 'SmtpHost'
+)
+BEGIN
+    ALTER TABLE [GB2].[dbo].[UserPreferences] ADD
+        SmtpHost        VARCHAR(100)  NULL,
+        SmtpPort        INT           NOT NULL DEFAULT 587,
+        SmtpSecure      BIT           NOT NULL DEFAULT 0,
+        SmtpUser        VARCHAR(100)  NULL,
+        SmtpPassword    VARBINARY(512) NULL,
+        SmtpFromAddress VARCHAR(255)  NULL,
+        SmtpFromName    VARCHAR(100)  NULL DEFAULT 'U.Jet s.r.l.';
+    PRINT 'Colonne SMTP aggiunte a UserPreferences.';
+END

@@ -1,92 +1,66 @@
 /**
- * Gestione SMTP — legge la configurazione dal profilo attivo.
- * Produzione: da .env (SMTP_HOST, SMTP_PORT, ecc.)
- * Prova: dal profilo di prova in memoria (caricato da [GB2].[dbo].[TestProfiles])
+ * Gestione SMTP — configurazione per operatore.
+ * Ogni operatore ha la propria config SMTP in [GB2].[dbo].[UserPreferences].
+ * Le password sono crittate AES (config/crypto.js).
  */
 
 const nodemailer = require('nodemailer');
-const { getActiveProfile, isProduction } = require('./db-mrp');
+const { getPoolProd, sql } = require('./db-mrp');
+const { decrypt } = require('./crypto');
 
 /**
- * Restituisce la config SMTP dal profilo attivo.
+ * Legge la config SMTP di un operatore dal DB.
+ * @param {number} userId - IDUser dell'operatore
+ * @returns {Object|null} { host, port, secure, user, password, from_address, from_name }
  */
-function getSmtpConfig() {
-    if (isProduction()) {
-        return {
-            host: process.env.SMTP_HOST || '',
-            port: parseInt(process.env.SMTP_PORT, 10) || 587,
-            secure: process.env.SMTP_SECURE === 'true',
-            user: process.env.SMTP_USER || '',
-            password: process.env.SMTP_PASSWORD || '',
-            from_address: process.env.SMTP_FROM_ADDRESS || '',
-            from_name: process.env.SMTP_FROM_NAME || 'U.Jet s.r.l.'
-        };
+async function getSmtpConfigForUser(userId) {
+    const pool = await getPoolProd();
+    const result = await pool.request()
+        .input('userId', sql.Int, userId)
+        .query(`SELECT SmtpHost, SmtpPort, SmtpSecure, SmtpUser, SmtpPassword,
+                       SmtpFromAddress, SmtpFromName
+                FROM [GB2].[dbo].[UserPreferences]
+                WHERE IDUser = @userId`);
+
+    if (!result.recordset.length) return null;
+
+    const row = result.recordset[0];
+    if (!row.SmtpHost) return null;
+
+    return {
+        host: row.SmtpHost,
+        port: row.SmtpPort || 587,
+        secure: !!row.SmtpSecure,
+        user: row.SmtpUser || '',
+        password: row.SmtpPassword ? decrypt(row.SmtpPassword) : '',
+        from_address: row.SmtpFromAddress || '',
+        from_name: row.SmtpFromName || 'U.Jet s.r.l.'
+    };
+}
+
+/**
+ * Crea un transporter nodemailer da una config SMTP.
+ * @param {Object} config - output di getSmtpConfigForUser
+ */
+function createTransporterFromConfig(config) {
+    if (!config || !config.host) {
+        throw new Error('Host SMTP non configurato');
     }
 
-    // Profilo di prova — i dati SMTP sono nel profilo attivo in memoria
-    const profile = getActiveProfile();
-    return {
-        host: profile.smtp_host || '',
-        port: parseInt(profile.smtp_port, 10) || 587,
-        secure: profile.smtp_secure === true,
-        user: profile.smtp_user || '',
-        password: profile.smtp_password || '',
-        from_address: profile.smtp_from_address || '',
-        from_name: profile.smtp_from_name || 'U.Jet s.r.l.'
-    };
-}
-
-function isConfigured() {
-    const c = getSmtpConfig();
-    return c && c.host && c.from_address;
-}
-
-function createTransporter() {
-    const c = getSmtpConfig();
-    if (!c) throw new Error('Nessun profilo DB attivo');
-    if (!c.host) throw new Error('Host SMTP non configurato nel profilo DB');
-
     const opts = {
-        host: c.host,
-        port: c.port || 587,
-        secure: c.secure || false
+        host: config.host,
+        port: config.port || 587,
+        secure: config.secure || false
     };
 
-    if (c.user && c.password) {
-        opts.auth = { user: c.user, pass: c.password };
+    if (config.user && config.password) {
+        opts.auth = { user: config.user, pass: config.password };
     }
 
     return nodemailer.createTransport(opts);
 }
 
-async function testConnection() {
-    const transporter = createTransporter();
-    await transporter.verify();
-    return true;
-}
-
-async function inviaEmail({ to, subject, html, attachments }) {
-    const c = getSmtpConfig();
-    if (!c) throw new Error('SMTP non configurato nel profilo DB');
-
-    const transporter = createTransporter();
-    const from = c.from_name ? `"${c.from_name}" <${c.from_address}>` : c.from_address;
-
-    const info = await transporter.sendMail({
-        from,
-        to,
-        subject,
-        html,
-        attachments
-    });
-
-    return info;
-}
-
 module.exports = {
-    getSmtpConfig,
-    isConfigured,
-    createTransporter,
-    testConnection,
-    inviaEmail
+    getSmtpConfigForUser,
+    createTransporterFromConfig
 };

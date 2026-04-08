@@ -1,7 +1,8 @@
 -- ============================================================
 -- Tabella: [GB2].[dbo].[TestProfiles]
--- Profili di prova per operatore (server, credenziali, SMTP)
+-- Profili di prova per operatore (server + credenziali DB)
 -- Le password sono crittate AES lato applicazione (Node.js)
+-- SMTP NON e qui — e in UserPreferences (per operatore, non per profilo)
 -- ============================================================
 
 IF NOT EXISTS (
@@ -18,13 +19,6 @@ BEGIN
         DatabaseUJET11  VARCHAR(50) NOT NULL DEFAULT 'UJET11',
         DbUser          VARCHAR(50) NOT NULL,
         DbPassword      VARBINARY(512) NOT NULL,
-        SmtpHost        VARCHAR(100) NULL,
-        SmtpPort        INT NOT NULL DEFAULT 587,
-        SmtpSecure      BIT NOT NULL DEFAULT 0,
-        SmtpUser        VARCHAR(100) NULL,
-        SmtpPassword    VARBINARY(512) NULL,
-        SmtpFromAddress VARCHAR(255) NULL,
-        SmtpFromName    VARCHAR(100) NULL DEFAULT 'U.Jet s.r.l.',
         EmailProva      VARCHAR(255) NULL,
         Color           VARCHAR(20) NOT NULL DEFAULT '#16a34a',
         IsActive        BIT NOT NULL DEFAULT 0,
