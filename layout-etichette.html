@@ -182,8 +182,8 @@
                 <td>${item.Note || ''}</td>
                 <td><span class="badge ${valido ? 'bg-success' : 'bg-secondary'}">${valido ? 'Attivo' : 'Inattivo'}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary me-2" onclick='editForm(${JSON.stringify(item)})' disabled title="Aggiornare backend su VM">Modifica</button>
-                    <button class="btn btn-sm btn-outline-danger" onclick='deleteForm(${id})' disabled title="Aggiornare backend su VM">Elimina</button>
+                    <button class="btn btn-sm btn-outline-primary me-2" onclick='editForm(${JSON.stringify(item)})'>Modifica</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick='deleteForm(${id})'>Elimina</button>
                 </td>
             `;
             tbody.appendChild(tr);
