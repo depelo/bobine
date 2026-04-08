@@ -1,0 +1,332 @@
+================================================================================
+CONOSCENZE ACCESS - FLUSSO NAVIGAZIONE RMP NELL'MRP.ACCDB ORIGINALE
+================================================================================
+Creato: 2026-04-08
+Scopo: documentare il flusso di esplorazione che l'operatore aveva in Access
+       dalla griglia progressivi fino al dettaglio ordini/impegni RMP,
+       per guidare lo sviluppo delle funzionalita mancanti nella web app GB2.
+
+================================================================================
+1. PANORAMICA DEL FLUSSO DI NAVIGAZIONE ACCESS
+================================================================================
+
+L'operatore in Access seguiva questo percorso:
+
+  frmParRMP (ricerca articolo)
+      |
+      v
+  Griglia Progressivi (artpro + ordlist aggregata)
+      |
+      +---> Click su riga magazzino ---> frmOrdProd (dettaglio ordini da movord)
+      |                                      |
+      |                                      +---> frmListProdPadre (drill padre)
+      |
+      +---> Click su TOTALE ------------> frmListProd (lista RMP = il nostro modale)
+                                              |
+                                              +---> frmTreeRMPcomp (albero distinta dell'ordine)
+                                              |        |
+                                              |        +---> 10 bottoni di navigazione
+                                              |
+                                              +---> frmListProdPadre (drill padre)
+
+================================================================================
+2. FORM frmListProd - LISTA RMP (= nostro modale "Situazione RMP")
+================================================================================
+
+RecordSource: qryEstArt_list
+Composizione: 11 TextBox, 0 ComboBox, 2 Bottoni
+
+Campi visualizzati:
+  - ol_codart        codice articolo
+  - ar_descr         descrizione articolo
+  - ar_codalt        codice alternativo
+  - ol_datcons       data consegna
+  - Conf_gen         "Conferm." o "Generato" (calcolato da ol_stato)
+  - an_descr1        ragione sociale fornitore
+  - cb_modesrk       descrizione tipo operazione (decodifica di ol_tipork)
+  - SommaDiol_quant  quantita residua (SUM di ol_quant)
+
+Query sottostante (qryEstArt_list):
+  SELECT artico.ar_codalt,
+         ordlist.ol_tipork AS mo_tipork,
+         ordlist.ol_codart, ordlist.ol_magaz, ordlist.ol_fase,
+         ordlist.ol_datcons, artico.ar_descr,
+         ordlist.ol_oranno, ordlist.ol_orserie, ordlist.ol_ornum, ordlist.ol_orriga,
+         Sum(ordlist.ol_quant) AS SommaDiol_quant,
+         anagra.an_descr1, dbo___MOTIPORK.cb_modesrk,
+         ordlist.ol_stasino, ordlist.ol_ump, ordlist.ol_stato, ordlist.ol_perqta,
+         IIf([ol_stato]="S","Conferm.","Generato") AS Conf_gen
+  FROM ((ordlist
+    INNER JOIN dbo___MOTIPORK ON ordlist.ol_tipork = dbo___MOTIPORK.cb_motipork)
+    INNER JOIN artico ON ordlist.ol_codart = artico.ar_codart)
+    INNER JOIN anagra ON ordlist.ol_conto = anagra.an_conto
+  GROUP BY ar_codalt, ol_tipork, ol_codart, ol_magaz, ol_fase, ol_datcons,
+           ar_descr, ol_oranno, ol_orserie, ol_ornum, ol_orriga,
+           an_descr1, cb_modesrk, ol_stasino, ol_ump, ol_stato, ol_perqta, Conf_gen
+  HAVING ol_tipork IN ('H','O','R','Y')
+  ORDER BY ol_tipork, ol_codart, ol_magaz, ol_fase, ol_datcons
+
+I 2 BOTTONI di frmListProd:
+  1) Apri albero distinta ordine -> frmTreeRMPcomp
+     Passava il contesto della riga selezionata (ol_codart, ol_magaz, ol_fase,
+     ol_oranno, ol_orserie, ol_ornum, ol_orriga) per mostrare l'albero
+     della distinta base legato a quello specifico ordine/impegno.
+
+  2) Drill padre -> frmListProdPadre
+     Risaliva all'ordine padre tramite self-join su ordlist
+     (ol_progr = ol_olprogr).
+
+================================================================================
+3. FORM frmListProdPadre - DETTAGLIO PADRE
+================================================================================
+
+RecordSource: qryEstArt_listPadre
+Composizione: 15 TextBox, 0 ComboBox, 0 Bottoni (sola lettura)
+
+Campi visualizzati:
+  - ordlist_1.ol_codart    codice articolo PADRE
+  - artico_1.ar_descr      descrizione padre
+  - artico_1.ar_codalt      codice alt padre
+  - ordlist.ol_fase         fase del componente
+  - ordlist.ol_magaz        magazzino del componente
+  - ol_datcons              data consegna
+  - conf_gen                Confermato/Generato del padre
+  - an_descr1               fornitore del padre
+
+Query sottostante (qryEstArt_listPadre):
+  Self-join su ordlist: ordlist.ol_progr = ordlist_1.ol_olprogr
+  Questo lega un impegno di produzione (Y) al suo ordine padre (H)
+  tramite il campo ol_progr/ol_olprogr.
+
+================================================================================
+4. FORM frmTreeRMPcomp - ALBERO DISTINTA DELL'ORDINE (10 bottoni)
+================================================================================
+
+Composizione: 1 TextBox, 0 ComboBox, 10 Bottoni
+Questo era il CENTRO OPERATIVO dell'MRP in Access.
+
+Il TreeView (controllo TList7) mostrava la distinta base gerarchica
+nel contesto di un ordine/impegno specifico. Non era la distinta
+generica dell'articolo, ma quella filtrata per il documento RMP.
+
+I 10 BOTTONI (ricostruiti dal contesto delle query e form correlati):
+
+  [1] ESPANDI TUTTO
+      Espandeva tutti i nodi dell'albero fino all'ultimo livello.
+
+  [2] COMPRIMI TUTTO
+      Richiudeva l'albero al livello radice.
+
+  [3] PROGRESSIVI COMPONENTE
+      Cliccando su un nodo figlio, apriva i progressivi di quel componente
+      (stessa vista griglia, ma per il codart del figlio selezionato).
+      Equivale a: frmParRMP con il codart del componente.
+
+  [4] DETTAGLIO ORDINE / MOVORD
+      Apriva frmOrdProd (RecordSource: qryEstArt_ord) con il dettaglio
+      delle righe ordine da movord per quel nodo:
+        - mo_anno, mo_serie, mo_numord, mo_riga
+        - mo_quant, mo_quaeva, mo_flevas
+        - mo_datcons
+        - an_descr1 (fornitore)
+        - cb_modesrk (tipo operazione)
+        - ar_sostit, ar_sostituito, ar_inesaur (info esaurimento)
+
+  [5] ORDINI PADRE
+      Apriva frmListProdPadre per il componente selezionato nel tree,
+      usando qryEstArt_ordPadre (self-join su movord tramite
+      mo_rigaor/mo_numordor/mo_serieor/mo_annoor/mo_tiporkor).
+
+  [6] RMP COMPONENTE
+      Apriva la stessa frmListProd (lista RMP) ma filtrata sul codart
+      del componente selezionato nell'albero. Ricorsione: da un RMP
+      si poteva navigare l'RMP di un suo componente.
+
+  [7] LISTA PRODUZIONE (listprod)
+      Query qry_listprod: mostrava i cicli di lavorazione (lp_codlpro,
+      lp_codart, lp_fase, lp_quant dalla tabella listprod/dbo_listprod).
+      Utile per vedere COME si produce quel componente.
+
+  [8] IMPIEGHI
+      Form frmImpiego (RecordSource: tabella Impegno).
+      Mostrava in quanti prodotti padre e' usato quel componente
+      (Num_Cmp = conteggio, Cod_Prod, ArtAlt, Descrizione).
+      Query QryImpiego + QryNumImp su movdis raggruppata.
+
+  [9] SCHEDE PRODUZIONE
+      Form frm_schedeprod (RS: Q_schede_prod).
+      Accedeva alla tabella dbo_allole per i documenti allegati
+      all'ordine (ao_nomedoc = nome file scheda produzione).
+
+  [10] STAMPA / EXPORT
+       Probabile funzione di stampa/export del tree o del dettaglio.
+
+================================================================================
+5. FORM frmOrdProd - DETTAGLIO ORDINI (da movord)
+================================================================================
+
+RecordSource: qryEstArt_ord
+Composizione: 18 TextBox, 0 ComboBox, 3 Bottoni
+
+Campi:
+  - ar_descr, ar_codalt         anagrafica articolo
+  - ar_sostit, ar_sostituito    info sostituzione
+  - ar_inesaur                  flag esaurimento
+  - mo_anno, mo_serie, mo_numord  riferimento documento BCube
+  - mo_riga                     riga del documento
+  - mo_datcons                  data consegna
+  - mo_quant                    quantita ordinata
+  - mo_quaeva                   quantita evasa
+  - mo_flevas                   stato evasione (C=in corso, S=evaso)
+  - an_descr1                   fornitore
+  - cb_modesrk                  tipo operazione decodificato
+
+Filtro: mo_tipork IN ('H','O','R','Y') AND mo_flevas <> 'S' (esclusi evasi)
+
+I 3 BOTTONI:
+  1) Drill al padre (qryEstArt_ordPadre su movord self-join)
+  2) Apri progressivi dell'articolo
+  3) Stampa/export
+
+================================================================================
+6. FORM frmTreeRMP e frmTreeRMPcompHH - VARIANTI
+================================================================================
+
+frmTreeRMP [1txt/0cbo/2btn]:
+  Versione semplificata del tree RMP con solo 2 bottoni
+  (probabilmente espandi/comprimi o progressivi/padre).
+
+frmTreeRMPcompHH [1txt/0cbo/10btn]:
+  Versione HH (storica/confronto) dell'albero RMP completo.
+  Stessi 10 bottoni ma lavorava sulle tabelle HH_ARTPRO
+  (snapshot storico dei progressivi) anziche sulle tabelle live.
+
+frmTreeArtPro [1txt/0cbo/3btn]:
+  Albero progressivi semplice (non nel contesto RMP).
+
+frmTreeArtProHH [1txt/0cbo/9btn]:
+  Albero progressivi storico.
+
+================================================================================
+7. QUERY CHIAVE PER IL FLUSSO RMP
+================================================================================
+
+qryEstArt_list:
+  Lista RMP aggregata da ordlist. JOIN artico + anagra + __MOTIPORK.
+  Campo calcolato Conf_gen = IIf(ol_stato="S","Conferm.","Generato").
+  Campi documento: ol_oranno, ol_orserie, ol_ornum, ol_orriga.
+  Filtro: ol_tipork IN ('H','O','R','Y').
+
+qryEstArt_listPadre:
+  Self-join ordlist su ol_progr = ol_olprogr.
+  Mostra il padre (ordlist_1) che ha generato l'impegno (ordlist).
+
+qryEstArt_ord:
+  Dettaglio righe da movord+testord+anagra per un articolo.
+  Filtro: tipork IN ('H','O','R','Y') AND flevas <> 'S'.
+
+qryEstArt_ordPadre:
+  Self-join movord su mo_rigaor/mo_numordor/mo_serieor/mo_annoor/mo_tiporkor.
+  Filtro: padre con mo_flevas = 'C' (in corso).
+  NOTA: usato dal modale dettaglio ordini, NON dal modale RMP.
+
+qryEstArt_listPadre:
+  Self-join ordlist su ol_progr = ol_olprogr.
+  Usato da frmListProdPadre (drill padre dal modale RMP).
+  CRITICO: gli impegni Y spesso esistono SOLO in ordlist, non in movord.
+  La web app usa /ordini-padre-rmp per questo (non /ordini-padre).
+
+qryordlist:
+  Aggregazione ordlist per progressivi (OPC/OP/IPC/IP calcolati con IIf).
+  Filtro: ol_tipork IN ('H','O','Y').
+
+qry_AGG_P_ORDLIST:
+  INSERT INTO P_ORDLIST (tabella locale Access) con stessa logica di qryordlist.
+  P_ORDLIST era una cache locale per velocizzare i calcoli progressivi.
+
+Q_splist:
+  Riaggregazione di P_ORDLIST per mag/fase (totali per la griglia).
+
+================================================================================
+8. TABELLE COINVOLTE NEL FLUSSO
+================================================================================
+
+UJET11 (via ODBC/linked tables):
+  ordlist      Righe MRP generate da BCube (ol_codart, ol_magaz, ol_fase,
+               ol_tipork, ol_stato, ol_datcons, ol_quant, ol_conto,
+               ol_oranno, ol_orserie, ol_ornum, ol_orriga,
+               ol_progr, ol_olprogr, ol_stasino, ol_ump, ol_perqta)
+  movord       Righe ordine effettive (mo_* campi)
+  testord      Testate ordine (td_* campi)
+  artico       Anagrafica articoli
+  artpro       Progressivi per articolo/mag/fase
+  artfasi      Fasi per articolo
+  anagra       Anagrafica clienti/fornitori
+  __MOTIPORK   Decodifica tipi operazione
+  movdis       Distinta base (figli)
+  tabmaga      Anagrafica magazzini
+  listprod     Cicli di lavorazione
+  allole       Allegati/documenti ordine (schede produzione)
+
+LOCALE Access:
+  P_ORDLIST    Cache locale aggregata da ordlist (svuotata e riempita ad ogni calcolo)
+  Impegno      Risultato query impieghi componente
+
+================================================================================
+9. MAPPING CON LA NOSTRA APP WEB GB2
+================================================================================
+
+COSA GIA ABBIAMO:
+  - Griglia progressivi                  -> GET /progressivi (caricaMRP)
+  - Modale lista RMP (frmListProd)        -> GET /ordini-rmp + modale in mrp-progressivi.js
+  - Dettaglio ordini (frmOrdProd)         -> GET /ordini-dettaglio + modale ordini
+  - Drill padre (frmListProdPadre)        -> GET /ordini-padre + pulsante nel modale
+  - Espansione distinta base              -> GET /progressivi/expand
+  - Analisi consumi                       -> GET /consumi/* + modale BI Chart.js
+
+COSA MANCA (il flusso si interrompe nel modale RMP):
+  [A] Click su riga Generato/Confermato nel modale RMP
+      -> Non succede nulla. In Access apriva frmTreeRMPcomp.
+
+  [B] Navigazione da riga RMP ai progressivi del componente
+      -> Bottone [3] di frmTreeRMPcomp. Non implementato come azione
+         diretta dal modale RMP.
+
+  [C] Dettaglio documento BCube dalla riga RMP
+      -> I campi ol_oranno, ol_orserie, ol_ornum, ol_orriga sono gia
+         restituiti da /ordini-rmp ma NON visualizzati nel modale.
+
+  [D] Lista produzione / cicli lavorazione
+      -> Bottone [7], query su listprod. Non implementato.
+
+  [E] Impieghi (in quanti padri compare un componente)
+      -> Bottone [8], query su movdis. Non implementato.
+
+  [F] Schede produzione (allegati)
+      -> Bottone [9], accesso a allole. Non implementato.
+
+  [G] Confronto storico HH
+      -> frmTreeRMPcompHH. Non implementato.
+
+================================================================================
+10. VALORI CHIAVE E DECODIFICHE
+================================================================================
+
+ol_tipork (tipo operazione nella ordlist):
+  'O' = Ordine fornitore       -> checkbox "Ord. Fornitore" nel modale
+  'H' = Ordine produzione      -> checkbox "Ord. Produzione" nel modale
+  'Y' = Impegno produzione     -> checkbox "Imp. Produzione" nel modale
+  'R' = Altro (incluso in aggregazioni)
+
+ol_stato:
+  'S' = Confermato (badge arancione nel modale)
+  altro/vuoto = Generato (badge verde nel modale)
+
+mo_flevas (stato evasione in movord):
+  'S' = Evaso (escluso dai dettagli attivi)
+  'C' = In corso
+
+Relazioni padre-figlio:
+  In ordlist: ol_progr (PK riga) <-> ol_olprogr (FK al padre)
+  In movord:  mo_riga/mo_numord/mo_serie/mo_anno/mo_tipork (figlio)
+              <-> mo_rigaor/mo_numordor/mo_serieor/mo_annoor/mo_tiporkor (padre)

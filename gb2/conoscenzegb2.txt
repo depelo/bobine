@@ -84,7 +84,7 @@ Database utilizzati:
   - UJET11 (su server di prova): copia locale — in prova accessibile DIRETTAMENTE
 
 Gestione connessioni — ARCHITETTURA POOL PER UTENTE:
-  config/db-mrp.js gestisce i pool con isolamento per operatore:
+  config/db-gb2.js gestisce i pool con isolamento per operatore:
 
   poolProd (singleton condiviso):
     - Pool fisso verso MRP su 192.168.0.163
@@ -113,7 +113,7 @@ Gestione connessioni — ARCHITETTURA POOL PER UTENTE:
   In dev mode (skipAuth), userId = 0 (default).
 
   config/db.js (principale): pool per GA, PE, ET, BOB (NON usato da GB2)
-  Le rotte GB2 usano SOLO db-mrp.js, MAI db.js
+  Le rotte GB2 usano SOLO db-gb2.js, MAI db.js
 
 ARCHITETTURA VISTE MRP (SOLO PRODUZIONE):
   Le 21 viste nel database [MRP] su 192.168.0.163 fungono da ponte trasparente
@@ -147,9 +147,9 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
                               # skipAuth=true in dev (Vite), false in produzione
 
   config/
-    db-mrp.js                 # Pool MRP: produzione hardcoded da .env, prova dinamico
+    db-gb2.js                 # Pool MRP: produzione hardcoded da .env, prova dinamico
     crypto.js                 # Crittografia AES-256-GCM per password profili di prova
-    smtp-mrp.js               # Gestione SMTP per operatore (da [GB2].[dbo].[UserPreferences])
+    smtp-gb2.js               # Gestione SMTP per operatore (da [GB2].[dbo].[UserPreferences])
 
   gb2/
     conoscenzegb2.txt         # Questo file
@@ -281,9 +281,9 @@ Factory function: createGb2Routes({ io, skipAuth })
   - io: istanza Socket.io (per eventi real-time)
   - skipAuth: se true, disabilita authenticateToken (usato in dev con Vite)
 
-Import: config/db-mrp.js (pool MRP produzione + prova)
+Import: config/db-gb2.js (pool MRP produzione + prova)
 Import: config/crypto.js (crittografia password)
-Import: config/smtp-mrp.js (SMTP per operatore)
+Import: config/smtp-gb2.js (SMTP per operatore)
 Import: middlewares/auth.js (authenticateToken)
 
 --- PROFILI DB ---
@@ -308,8 +308,9 @@ GET  /progressivi/expand         Espansione dettaglio progressivi
 
 --- ORDINI E IMPEGNI ---
 GET  /ordini-dettaglio           Dettaglio ordini
-GET  /ordini-rmp                 Ordini RMP
-GET  /ordini-padre               Ordini padre
+GET  /ordini-rmp                 Ordini RMP (restituisce anche ol_codart per navigazione)
+GET  /ordini-padre               Ordini padre (da movord, per modale dettaglio)
+GET  /ordini-padre-rmp           Ordini padre (da ordlist via ol_olprogr, per modale RMP)
 GET  /proposta-ordini            Proposte ordine raggruppate per fornitore
 
 --- CONSUMI STORICI (usano getPoolRiep per fallback produzione) ---
@@ -388,6 +389,35 @@ Elaborazione per singolo articolo (funzione caricaMRP):
 
 
 ================================================================================
+7b. NAVIGAZIONE DAL MODALE RMP (Generati/Confermati)
+================================================================================
+
+Il modale RMP (apriModaleOrdiniRmp) mostra righe da ordlist con badge
+Generato/Confermato. Le righe sono cliccabili:
+
+  Click su riga (qualsiasi tipo) -> navigaProgressiviDaRmp(codart)
+    Chiude il modale e carica i progressivi del componente cliccato.
+    Replica il bottone [3] "Progressivi Componente" dell'Access (frmTreeRMPcomp).
+
+  Click su bottone drill (solo tipo Y) -> apriDrillPadreRmp(codart, magaz, fase)
+    Usa endpoint /ordini-padre-rmp (self-join su ordlist via ol_olprogr).
+    DIVERSO da /ordini-padre che usa movord — gli impegni Y spesso
+    esistono solo in ordlist, non in movord.
+    Bottone "Indietro" riporta al modale RMP (non al dettaglio ordini).
+
+Contesto modale (currentModalContext):
+  In modalita RMP: { type: 'rmp', codart, fase }
+  Il bottone Indietro controlla currentModalContext.type per sapere se
+  tornare al modale RMP o al modale dettaglio ordini.
+
+IMPORTANTE — DUE TABELLE, DUE RELAZIONI PADRE-FIGLIO:
+  ordlist: ol_progr (PK) <-> ol_olprogr (FK padre) — dati MRP generati da BCube
+  movord:  mo_riga/numord/serie/anno/tipork <-> mo_rigaor/numordor/serieor/annoor/tiporkor
+  Il modale RMP lavora su ordlist, quindi il drill padre deve usare ordlist.
+  Il modale dettaglio ordini lavora su movord, quindi usa movord.
+
+
+================================================================================
 8. FLUSSO EMISSIONE ORDINI FORNITORE
 ================================================================================
 
@@ -426,7 +456,7 @@ File: utils/pdfOrdine.js
 Il PDF replica il layout degli ordini BCube originali.
 Se l'ambiente e "prova", il PDF ha filigrana "[PROVA]".
 
-SMTP: config/smtp-mrp.js
+SMTP: config/smtp-gb2.js
 Ogni operatore ha la PROPRIA configurazione SMTP in [GB2].[dbo].[UserPreferences].
 4 operatori dell'ufficio acquisti → 4 email diverse (es. gabriel@ujet.it, marco@ujet.it).
 Le password SMTP sono crittate AES-256-GCM (config/crypto.js).
@@ -442,7 +472,7 @@ API SMTP (per operatore):
 10. GESTIONE PROFILI DB (MULTI-AMBIENTE)
 ================================================================================
 
-File: config/db-mrp.js, config/crypto.js
+File: config/db-gb2.js, config/crypto.js
 
 PRODUZIONE:
   Configurazione hardcoded da .env, pool fisso MRP@192.168.0.163.

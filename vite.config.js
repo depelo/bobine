@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 
 /**
  * Plugin Vite che monta il backend GB2/MRP direttamente nel dev server.
- * Usa gli STESSI file di produzione (gb2Routes.js + config/db-mrp.js).
+ * Usa gli STESSI file di produzione (gb2Routes.js + config/db-gb2.js).
  */
 function gabrieleBackendPlugin() {
   return {
@@ -32,7 +32,7 @@ function gabrieleBackendPlugin() {
       // Auto-deploy SQL
       (async () => {
         try {
-          const { getPoolProd } = require('./config/db-mrp');
+          const { getPoolProd } = require('./config/db-gb2');
           const pool = await getPoolProd();
           const results = await createGb2Routes.deployProductionObjects(pool);
           console.log('[GB2] Auto-deploy SQL:', results.map(r => `${r.file}: ${r.status}`).join(', '));

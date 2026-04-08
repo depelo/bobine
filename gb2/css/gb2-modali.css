@@ -83,6 +83,10 @@
 .modal-row-ordprod:hover td,
 .modal-row-ordforn:hover td { filter: brightness(0.95); }
 
+/* Righe RMP cliccabili */
+.rmp-row-clickable { cursor: pointer; }
+.rmp-row-clickable:hover td { filter: brightness(0.90); }
+
 /* Bottone drill-through */
 .btn-drill-padre {
     background: none;
@@ -94,9 +98,21 @@
     line-height: 1;
     transition: background 0.15s, border-color 0.15s;
 }
-.btn-drill-padre:hover {
+.btn-drill-padre:hover,
+.btn-drill-padre-rmp:hover {
     background: var(--primary-light);
     border-color: var(--primary);
+}
+
+.btn-drill-padre-rmp {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 5px;
+    line-height: 1;
+    transition: background 0.15s, border-color 0.15s;
 }
 
 /* Legenda modale */

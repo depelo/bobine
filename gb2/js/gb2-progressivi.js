@@ -175,10 +175,22 @@ const MrpProgressivi = (() => {
         const tblModal = document.getElementById('tblModalOrdini');
         if (tblModal) {
             tblModal.addEventListener('click', (e) => {
+                const drillBtnRmp = e.target.closest('.btn-drill-padre-rmp');
+                if (drillBtnRmp) {
+                    e.preventDefault();
+                    apriDrillPadreRmp(drillBtnRmp.dataset.codart, drillBtnRmp.dataset.magaz, drillBtnRmp.dataset.fase);
+                    return;
+                }
                 const drillBtn = e.target.closest('.btn-drill-padre');
                 if (drillBtn) {
                     e.preventDefault();
                     apriDrillPadre(drillBtn.dataset.codart, drillBtn.dataset.magaz, drillBtn.dataset.fase);
+                    return;
+                }
+                const rmpRow = e.target.closest('.rmp-row-clickable');
+                if (rmpRow) {
+                    e.preventDefault();
+                    navigaProgressiviDaRmp(rmpRow.dataset.codart);
                 }
             });
         }
@@ -188,7 +200,9 @@ const MrpProgressivi = (() => {
         if (modalOrdiniBtnBack) {
             modalOrdiniBtnBack.addEventListener('click', () => {
                 ripristinaHeaderModale();
-                if (currentModalContext) {
+                if (currentModalContext && currentModalContext.type === 'rmp') {
+                    apriModaleOrdiniRmp(currentModalContext.codart, currentModalContext.fase);
+                } else if (currentModalContext) {
                     const { codart, magaz, fase } = currentModalContext;
                     const filtro = document.getElementById('modalFiltroMagToggle');
                     modalOrdiniBtnBack.style.display = 'none';
@@ -1678,6 +1692,83 @@ const MrpProgressivi = (() => {
         }
     }
 
+    async function apriDrillPadreRmp(codart, magaz, fase) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        const loading = document.getElementById('modalOrdiniLoading');
+        const titolo = document.getElementById('modalOrdiniTitolo');
+        const btnBack = document.getElementById('modalOrdiniBtnBack');
+        const filtroLabel = document.getElementById('modalFiltroMagLabel');
+
+        if (btnBack) btnBack.style.display = 'inline-flex';
+        if (filtroLabel) filtroLabel.style.display = 'none';
+        titolo.textContent = `Produzione che consuma: ${codart} — Mag: ${magaz || 'Tutti'}`;
+
+        const thead = document.querySelector('#tblModalOrdini thead tr');
+        if (thead) {
+            thead.innerHTML = `
+            <th style="width:30px;"></th>
+            <th>Stato</th>
+            <th>Operazione</th>
+            <th>Cod. Art. Padre</th>
+            <th>Descrizione Articolo</th>
+            <th>Mag</th>
+            <th>Fase</th>
+            <th>Data Cons.</th>
+            <th>Q.tà</th>
+            <th>Fornitore</th>
+        `;
+        }
+
+        tbody.innerHTML = '';
+        loading.style.display = 'block';
+
+        try {
+            const params = new URLSearchParams({ codart });
+            if (magaz) params.set('magaz', magaz);
+            if (fase) params.set('fase', fase);
+
+            const res = await fetch(`${MrpApp.API_BASE}/ordini-padre-rmp?${params}`, { credentials: 'include' });
+            const data = await res.json();
+            loading.style.display = 'none';
+
+            if (!res.ok) {
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--danger)">Errore: ${esc(data.error || '')}</td></tr>`;
+                return;
+            }
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun ordine produzione padre trovato</td></tr>';
+                return;
+            }
+
+            data.forEach(o => {
+                const tr = document.createElement('tr');
+                tr.className = 'modal-row-ordprod';
+                tr.classList.add('rmp-row-clickable');
+                tr.dataset.codart = o.padre_codart;
+
+                const badgeColor = o.padre_conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
+                const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.padre_conf_gen || '')}</span>`;
+
+                tr.innerHTML = `
+                    <td></td>
+                    <td style="text-align:center">${badge}</td>
+                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
+                    <td><strong>${esc(o.padre_codart)}</strong></td>
+                    <td>${esc(o.padre_descr)}</td>
+                    <td style="text-align:center">${esc(o.padre_magaz)}</td>
+                    <td style="text-align:center">${esc(o.padre_fase)}</td>
+                    <td>${fmtDate(o.padre_datcons)}</td>
+                    <td style="text-align:right">${fmt(o.padre_quant)}</td>
+                    <td>${esc(o.padre_fornitore || '')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (err) {
+            loading.style.display = 'none';
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
+        }
+    }
+
     function ripristinaHeaderModale() {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (!thead) return;
@@ -2292,7 +2383,7 @@ const MrpProgressivi = (() => {
         const tbody = document.getElementById('modalOrdiniBody');
         const loading = document.getElementById('modalOrdiniLoading');
 
-        currentModalContext = null;
+        currentModalContext = { type: 'rmp', codart, fase };
         if (btnBack) btnBack.style.display = 'none';
         if (filtroLabel) filtroLabel.style.display = 'none';
 
@@ -2361,11 +2452,18 @@ const MrpProgressivi = (() => {
                 else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') tr.className = 'modal-row-ordprod';
                 else tr.className = 'modal-row-ordforn';
 
+                tr.classList.add('rmp-row-clickable');
+                tr.dataset.codart = o.ol_codart || codart;
+
+                const drillBtn = o.ol_tipork === 'Y'
+                    ? `<button class="btn-drill-padre-rmp" title="Mostra ordini produzione padre" data-codart="${esc(o.ol_codart || codart)}" data-magaz="${esc(String(o.ol_magaz || ''))}" data-fase="${esc(String(o.ol_fase || ''))}">🔍</button>`
+                    : '';
+
                 const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
                 const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.conf_gen || '')}</span>`;
 
                 tr.innerHTML = `
-                <td></td>
+                <td style="text-align:center">${drillBtn}</td>
                 <td style="text-align:center">${badge}</td>
                 <td>${esc(o.desc_tipo || o.ol_tipork)}</td>
                 <td>${esc(o.anno)}</td>
@@ -2383,6 +2481,25 @@ const MrpProgressivi = (() => {
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>';
+        }
+    }
+
+    async function navigaProgressiviDaRmp(codartTarget) {
+        chiudiModale();
+        const inputCodart = document.getElementById('inputCodart');
+        if (inputCodart) inputCodart.value = codartTarget;
+        try {
+            const params = new URLSearchParams({ codart: codartTarget, magaz: '', fase: '', modo: '2', sintetico: '0' });
+            const res = await fetch(`${MrpApp.API_BASE}/progressivi?${params}`, { credentials: 'include' });
+            const data = await res.json();
+            if (res.ok) {
+                MrpApp.state.parametri = { codart: codartTarget, magaz: '', fase: '', modo: '2', sintetico: '0' };
+                MrpApp.state.ultimoRisultato = data;
+                render(data);
+                MrpApp.switchView('progressivi');
+            }
+        } catch (err) {
+            console.error('[RMP] Errore navigazione progressivi:', err);
         }
     }
 

@@ -5,7 +5,7 @@
  */
 
 const nodemailer = require('nodemailer');
-const { getPoolProd, sql } = require('./db-mrp');
+const { getPoolProd, sql } = require('./db-gb2');
 const { decrypt } = require('./crypto');
 
 /**
