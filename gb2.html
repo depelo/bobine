@@ -468,10 +468,6 @@
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
-                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">ID (univoco, no spazi)</label>
-                            <input type="text" id="dbFormId" class="mrp-control" placeholder="es: test, staging..." />
-                        </div>
-                        <div>
                             <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Etichetta</label>
                             <input type="text" id="dbFormLabel" class="mrp-control" placeholder="es: TEST, STAGING..." />
                         </div>
@@ -480,33 +476,22 @@
                             <input type="text" id="dbFormServer" class="mrp-control" placeholder="192.168.1.100" />
                         </div>
                         <div>
+                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Database UJET11</label>
+                            <input type="text" id="dbFormUjet11" class="mrp-control" placeholder="UJET11" value="UJET11" />
+                        </div>
+                        <div>
                             <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Colore badge</label>
                             <input type="color" id="dbFormColor" value="#16a34a" style="width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;" />
                         </div>
                         <div>
-                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Database UJET11</label>
-                            <input type="text" id="dbFormUjet11" class="mrp-control" placeholder="UJET11" />
-                        </div>
-                        <div>
-                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Database MRP</label>
-                            <input type="text" id="dbFormMrp" class="mrp-control" placeholder="MRP" />
-                        </div>
-                        <div>
-                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Utente</label>
+                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Utente DB</label>
                             <input type="text" id="dbFormUser" class="mrp-control" placeholder="sa" />
                         </div>
                         <div>
-                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Password</label>
+                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Password DB</label>
                             <input type="password" id="dbFormPassword" class="mrp-control" placeholder="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;" />
                         </div>
-                        <div>
-                            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Ambiente</label>
-                            <select id="dbFormAmbiente" class="mrp-control" style="height: 36px;">
-                                <option value="prova">Prova</option>
-                                <option value="produzione">Produzione</option>
-                            </select>
-                        </div>
-                        <div id="dbFormEmailProvaWrap">
+                        <div style="grid-column: 1 / -1;">
                             <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Email di prova</label>
                             <input type="email" id="dbFormEmailProva" class="mrp-control" placeholder="tuoindirizzo@email.com" />
                             <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">Le email ordini verranno inviate qui invece che ai fornitori</div>
@@ -521,12 +506,12 @@
                     <div id="dbFormStatus" style="margin-top: 8px; font-size: 0.8rem;"></div>
                 </div>
 
-                <!-- Configurazione SMTP (legata al profilo DB) -->
-                <div class="mrp-card" style="padding: 16px; border: 2px dashed var(--border); margin-top: 16px;">
+                <!-- Configurazione SMTP (solo per profili di prova — produzione usa .env) -->
+                <div id="smtpSection" class="mrp-card" style="padding: 16px; border: 2px dashed var(--border); margin-top: 16px;">
                     <h4 style="margin-bottom: 12px; font-size: 0.95rem; color: var(--primary);">
                         Configurazione SMTP
                         <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400; margin-left: 8px;">
-                            (legata al profilo DB attivo)
+                            (profilo di prova attivo)
                         </span>
                     </h4>
                     <div id="smtpCurrentProfile" style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;"></div>

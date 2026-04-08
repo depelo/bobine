@@ -1,27 +1,34 @@
 /**
- * Gestione SMTP — legge la configurazione dal profilo DB attivo.
- * I campi smtp_* vivono dentro db-profiles.json (legati al profilo DB).
+ * Gestione SMTP — legge la configurazione dal profilo attivo.
+ * Produzione: da .env (SMTP_HOST, SMTP_PORT, ecc.)
+ * Prova: dal profilo di prova in memoria (caricato da [GB2].[dbo].[TestProfiles])
  */
 
 const nodemailer = require('nodemailer');
-const db = require('./db-mrp');
+const { getActiveProfile, isProduction } = require('./db-mrp');
 
 /**
- * Restituisce la config SMTP dal profilo DB attivo (versione raw con password)
+ * Restituisce la config SMTP dal profilo attivo.
  */
 function getSmtpConfig() {
-    // Leggi direttamente dal file per avere smtp_password
-    const fs = require('fs');
-    const path = require('path');
-    const raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'db-profiles-mrp.json'), 'utf-8'));
-    const activeId = raw.activeProfileId;
-    const profile = raw.profiles.find(p => p.id === activeId);
-    if (!profile) return null;
+    if (isProduction()) {
+        return {
+            host: process.env.SMTP_HOST || '',
+            port: parseInt(process.env.SMTP_PORT, 10) || 587,
+            secure: process.env.SMTP_SECURE === 'true',
+            user: process.env.SMTP_USER || '',
+            password: process.env.SMTP_PASSWORD || '',
+            from_address: process.env.SMTP_FROM_ADDRESS || '',
+            from_name: process.env.SMTP_FROM_NAME || 'U.Jet s.r.l.'
+        };
+    }
 
+    // Profilo di prova — i dati SMTP sono nel profilo attivo in memoria
+    const profile = getActiveProfile();
     return {
         host: profile.smtp_host || '',
         port: parseInt(profile.smtp_port, 10) || 587,
-        secure: profile.smtp_secure === true || profile.smtp_secure === 'true',
+        secure: profile.smtp_secure === true,
         user: profile.smtp_user || '',
         password: profile.smtp_password || '',
         from_address: profile.smtp_from_address || '',

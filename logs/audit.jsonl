@@ -76,3 +76,6 @@
 {"timestamp":"2026-04-08T08:17:15.039Z","toolName":"read_data","environment":"default","result":{"success":true,"recordCount":1},"durationMs":442,"sessionId":"38389be0-e2da-4271-8c96-2d991bc12824"}
 {"timestamp":"2026-04-08T08:31:34.150Z","toolName":"describe_table","environment":"default","result":{"success":true},"durationMs":1113,"sessionId":"17bc69cf-2427-4095-8bf3-30e73623fcea"}
 {"timestamp":"2026-04-08T08:31:43.412Z","toolName":"read_data","environment":"default","result":{"success":true,"recordCount":22},"durationMs":303,"sessionId":"17bc69cf-2427-4095-8bf3-30e73623fcea"}
+{"timestamp":"2026-04-08T08:44:09.731Z","toolName":"describe_table","environment":"default","result":{"success":false,"error":"DATABASE_ACCESS_DENIED"},"durationMs":650,"sessionId":"17bc69cf-2427-4095-8bf3-30e73623fcea"}
+{"timestamp":"2026-04-08T08:44:15.359Z","toolName":"read_data","environment":"default","result":{"success":true,"recordCount":1},"durationMs":254,"sessionId":"17bc69cf-2427-4095-8bf3-30e73623fcea"}
+{"timestamp":"2026-04-08T08:45:18.870Z","toolName":"read_data","environment":"default","result":{"success":true,"recordCount":35},"durationMs":973,"sessionId":"17bc69cf-2427-4095-8bf3-30e73623fcea"}

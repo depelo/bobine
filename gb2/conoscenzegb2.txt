@@ -131,9 +131,9 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
                               # skipAuth=true in dev (Vite), false in produzione
 
   config/
-    db-mrp.js                 # Pool MRP (unico) con profili dinamici e switch
-    db-profiles-mrp.json      # File persistente profili DB (in .gitignore!)
-    smtp-mrp.js               # Gestione SMTP legata ai profili DB
+    db-mrp.js                 # Pool MRP: produzione hardcoded da .env, prova dinamico
+    crypto.js                 # Crittografia AES-256-GCM per password profili di prova
+    smtp-mrp.js               # Gestione SMTP: produzione da .env, prova da profilo attivo
 
   gb2/
     conoscenzegb2.txt         # Questo file
@@ -164,6 +164,7 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
     create_user_preferences.sql # DDL tabella preferenze utente (colori, label)
     usp_CreaOrdineFornitore.sql # SP creazione ordine atomico
     usp_AggiornaStatoInvioOrdine.sql # SP aggiornamento stato invio
+    create_test_profiles.sql  # DDL tabella profili di prova per operatore
 
   utils/
     pdfOrdine.js              # Generazione PDF ordine fornitore
@@ -173,8 +174,7 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
   vite.config.js              # Dev server con plugin backend integrato
 
 FILE IN .GITIGNORE:
-  - config/db-profiles-mrp.json (contiene credenziali, varia per ambiente)
-  - .env
+  - .env (contiene credenziali produzione, chiave crittografia)
   - node_modules/
 
 
@@ -394,9 +394,9 @@ Il PDF replica il layout degli ordini BCube originali.
 Se l'ambiente e "prova", il PDF ha filigrana "[PROVA]".
 
 SMTP: config/smtp-mrp.js
-La configurazione SMTP e integrata nei profili DB (db-profiles-mrp.json).
-Ogni profilo puo avere i propri server SMTP e credenziali.
-Il campo email_prova redirige tutte le email a un indirizzo di test.
+Produzione: configurazione SMTP da .env (SMTP_HOST, SMTP_PORT, ecc.).
+Prova: configurazione SMTP dal profilo di prova attivo in [GB2].[dbo].[TestProfiles].
+Il campo EmailProva redirige tutte le email a un indirizzo di test.
 
 NOTA FUTURA: l'SMTP dovrebbe diventare per-utente, non per-profilo.
 Ogni operatore ha la sua email aziendale (es. gabriel.ilas@ujet.it).
@@ -406,10 +406,11 @@ Ogni operatore ha la sua email aziendale (es. gabriel.ilas@ujet.it).
 10. GESTIONE PROFILI DB (MULTI-AMBIENTE)
 ================================================================================
 
-File: config/db-mrp.js, config/db-profiles-mrp.json
+File: config/db-mrp.js, config/crypto.js
 
-Il sistema supporta piu ambienti (produzione, prova, sviluppo).
-Switch a caldo: chiude pool, aggiorna profilo, ricrea pool.
+PRODUZIONE: configurazione hardcoded da .env, pool fisso, non modificabile da UI.
+PROVA: profili per operatore in [GB2].[dbo].[TestProfiles], pool dinamico.
+Switch a caldo: tenta connessione al nuovo server, se ok chiude vecchio pool.
 
 Ogni profilo contiene:
   - id, label, server, database_ujet11, database_mrp
@@ -419,8 +420,9 @@ Ogni profilo contiene:
   - smtp_* (configurazione email legata all'ambiente)
   - email_prova (redirect email in ambiente di prova)
 
-IMPORTANTE: db-profiles-mrp.json e in .gitignore perche contiene credenziali
-e varia tra ambienti. Ogni installazione mantiene la propria copia.
+IMPORTANTE: le password dei profili di prova sono crittate AES-256-GCM (config/crypto.js).
+La chiave di crittografia e in .env (DB_ENCRYPTION_KEY, 64 hex = 32 byte).
+Le credenziali di produzione sono in .env e non transitano mai via API.
 
 
 ================================================================================
@@ -552,8 +554,8 @@ File deployati (in ordine):
    NON creare backend separati per lo sviluppo.
 
 3. CONFIG SEPARATO DAL CODICE:
-   db-profiles-mrp.json contiene credenziali e varia per ambiente.
-   E in .gitignore. Ogni installazione ha la sua copia.
+   Produzione da .env (hardcoded, non modificabile da UI).
+   Profili di prova per operatore in [GB2].[dbo].[TestProfiles].
 
 4. CROSS-DATABASE MA STESSO SERVER:
    Le SP vivono su MRP ma scrivono su UJET11 tramite [UJET11].[dbo].*

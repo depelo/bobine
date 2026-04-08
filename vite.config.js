@@ -32,8 +32,8 @@ function gabrieleBackendPlugin() {
       // Auto-deploy SQL
       (async () => {
         try {
-          const { getPoolMRP, getActiveProfile } = require('./config/db-mrp');
-          const pool = await getPoolMRP();
+          const { getPoolProd, getActiveProfile } = require('./config/db-mrp');
+          const pool = await getPoolProd();
           const results = await createGb2Routes.deployMrpObjects(pool, getActiveProfile());
           console.log('[GB2] Auto-deploy SQL:', results.map(r => `${r.file}: ${r.status}`).join(', '));
         } catch (err) {

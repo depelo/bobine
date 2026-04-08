@@ -1,51 +1,38 @@
+/**
+ * Gestione pool MRP.
+ *
+ * PRODUZIONE: configurazione hardcoded da .env, pool fisso.
+ * PROVA:      profili per operatore in [GB2].[dbo].[TestProfiles],
+ *             pool dinamico creato al momento dello switch.
+ *
+ * Per ora il pool attivo è globale (condiviso tra tutti gli utenti).
+ * TODO: pool per sessione/utente per uso contemporaneo multi-operatore.
+ */
 const sql = require('mssql');
-const fs = require('fs');
-const path = require('path');
-
-const PROFILES_PATH = path.join(__dirname, 'db-profiles-mrp.json');
 
 // ============================================================
-// GESTIONE FILE PROFILI
+// CONFIGURAZIONE PRODUZIONE (da .env, immutabile)
 // ============================================================
 
-function loadProfiles() {
-    if (!fs.existsSync(PROFILES_PATH)) {
-        const defaultProfiles = {
-            profiles: [{
-                id: 'produzione',
-                label: 'PRODUZIONE',
-                server: process.env.DB_SERVER || 'localhost',
-                server_ujet11: process.env.DB_SERVER_UJET11 || '',
-                database_ujet11: process.env.DB_UJET11 || 'UJET11',
-                database_mrp: process.env.DB_MRP || 'MRP',
-                user: process.env.DB_USER || 'sa',
-                password: process.env.DB_PASSWORD || '',
-                color: '#e11d48'
-            }],
-            activeProfileId: 'produzione'
-        };
-        fs.writeFileSync(PROFILES_PATH, JSON.stringify(defaultProfiles, null, 2));
-        console.log('[DB] db-profiles.json creato dal .env');
-        return defaultProfiles;
-    }
-    return JSON.parse(fs.readFileSync(PROFILES_PATH, 'utf-8'));
-}
+const PRODUCTION_PROFILE = {
+    id: 'produzione',
+    label: 'PRODUZIONE',
+    server: process.env.DB_SERVER_MRP || '192.168.0.163',
+    server_ujet11: process.env.DB_SERVER_UJET11 || 'BCUBE2',
+    database_mrp: process.env.DB_NAME_MRP || 'MRP',
+    database_ujet11: process.env.DB_UJET11 || 'UJET11',
+    user: process.env.DB_USER_MRP || 'sa',
+    password: process.env.DB_PASSWORD_MRP || '',
+    color: '#e11d48',
+    ambiente: 'produzione'
+};
 
-function saveProfiles(data) {
-    fs.writeFileSync(PROFILES_PATH, JSON.stringify(data, null, 2));
-}
-
-function sanitizeProfile(profile) {
-    const { password, smtp_password, ...safe } = profile;
-    return safe;
-}
-
-function buildConfig(profile, dbName) {
+function buildPoolConfig(server, database, user, password) {
     return {
-        server: profile.server,
-        database: dbName,
-        user: profile.user,
-        password: profile.password,
+        server,
+        database,
+        user,
+        password,
         options: {
             encrypt: false,
             trustServerCertificate: true,
@@ -63,122 +50,122 @@ function buildConfig(profile, dbName) {
 // STATO DEL MODULO
 // ============================================================
 
-let poolMRP = null;
+let poolProd = null;   // Pool produzione (lazy, fisso)
+let poolTest = null;   // Pool prova (dinamico, un solo attivo alla volta)
+let activeMode = 'produzione'; // 'produzione' | 'prova'
+let activeTestProfile = null;  // Dati profilo di prova attivo (senza password)
 let switching = false;
 
-// Carica il profilo attivo all'avvio del modulo (solo currentProfile, i pool restano lazy)
-const _initialProfiles = loadProfiles();
-let currentProfile = _initialProfiles.profiles.find(p => p.id === _initialProfiles.activeProfileId)
-    || _initialProfiles.profiles[0];
-
-console.log('[DB] Profilo attivo al caricamento:', currentProfile.label, '—', currentProfile.server);
+console.log('[DB] Configurazione produzione:', PRODUCTION_PROFILE.label, '—', PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp);
 
 // ============================================================
-// POOL GETTER (lazy init con guard mutex)
+// POOL PRODUZIONE (lazy, singleton)
+// ============================================================
+
+async function getPoolProd() {
+    if (!poolProd) {
+        poolProd = await new sql.ConnectionPool(
+            buildPoolConfig(PRODUCTION_PROFILE.server, PRODUCTION_PROFILE.database_mrp, PRODUCTION_PROFILE.user, PRODUCTION_PROFILE.password)
+        ).connect();
+        console.log('[DB] Pool PRODUZIONE connesso —', PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp);
+    }
+    return poolProd;
+}
+
+// ============================================================
+// POOL ATTIVO (produzione o prova)
 // ============================================================
 
 async function getPoolMRP() {
     if (switching) throw new Error('Switch profilo in corso, riprova tra un momento');
-    if (!poolMRP) {
-        poolMRP = await new sql.ConnectionPool(buildConfig(currentProfile, currentProfile.database_mrp)).connect();
-        console.log('[DB] Pool MRP connesso —', currentProfile.database_mrp);
-    }
-    return poolMRP;
+    if (activeMode === 'prova' && poolTest) return poolTest;
+    return getPoolProd();
 }
 
 // ============================================================
-// API PROFILI
+// PROFILO ATTIVO
 // ============================================================
 
 function getActiveProfile() {
-    return sanitizeProfile(currentProfile);
+    if (activeMode === 'prova' && activeTestProfile) {
+        return activeTestProfile;
+    }
+    // Produzione — ritorna senza password
+    const { password, ...safe } = PRODUCTION_PROFILE;
+    return safe;
 }
 
-function getAllProfiles() {
-    const profiles = loadProfiles();
-    return profiles.profiles.map(sanitizeProfile);
+function isProduction() {
+    return activeMode === 'produzione';
 }
 
-async function switchProfile(profileId) {
+// ============================================================
+// SWITCH A PROVA
+// ============================================================
+
+/**
+ * Switcha a un profilo di prova. Riceve i dati già decriptati.
+ * @param {Object} testProfile - { id, label, server, database_mrp, database_ujet11, user, password, color, email_prova, ... }
+ */
+async function switchToTest(testProfile) {
     if (switching) throw new Error('Switch già in corso');
     switching = true;
     try {
-        const profiles = loadProfiles();
-        const target = profiles.profiles.find(p => p.id === profileId);
-        if (!target) throw new Error('Profilo non trovato: ' + profileId);
+        // Tenta connessione PRIMA di committare lo switch
+        const newPool = await new sql.ConnectionPool(
+            buildPoolConfig(testProfile.server, testProfile.database_mrp, testProfile.user, testProfile.password)
+        ).connect();
 
-        // Chiudi pool esistente
-        if (poolMRP) { try { await poolMRP.close(); } catch(e) {} }
-        poolMRP = null;
+        // Connessione riuscita — chiudi pool prova precedente (se c'è)
+        if (poolTest) { try { await poolTest.close(); } catch(e) {} }
+        poolTest = newPool;
+        activeMode = 'prova';
 
-        // Aggiorna profilo attivo nel file e in memoria
-        currentProfile = target;
-        profiles.activeProfileId = profileId;
-        saveProfiles(profiles);
+        // Salva profilo attivo senza password
+        const { password, DbPassword, ...safe } = testProfile;
+        activeTestProfile = { ...safe, ambiente: 'prova' };
 
-        // Pre-crea il pool subito (no lazy) per evitare errori sulla prima richiesta post-switch
-        poolMRP = await new sql.ConnectionPool(buildConfig(target, target.database_mrp)).connect();
-
-        console.log('[DB] Switch a profilo:', target.label, '—', target.server);
-        return sanitizeProfile(target);
+        console.log('[DB] Switch a PROVA:', testProfile.label, '—', testProfile.server);
+        return activeTestProfile;
+    } catch (err) {
+        throw new Error('Impossibile connettersi al server di prova (' + testProfile.server + '): ' + err.message);
     } finally {
         switching = false;
     }
 }
 
-function addProfile(profileData) {
-    const profiles = loadProfiles();
-    if (profiles.profiles.some(p => p.id === profileData.id)) {
-        throw new Error('Profilo con id "' + profileData.id + '" già esistente');
+// ============================================================
+// SWITCH A PRODUZIONE
+// ============================================================
+
+async function switchToProduction() {
+    if (switching) throw new Error('Switch già in corso');
+    switching = true;
+    try {
+        // Chiudi pool prova
+        if (poolTest) { try { await poolTest.close(); } catch(e) {} }
+        poolTest = null;
+        activeTestProfile = null;
+        activeMode = 'produzione';
+
+        // Assicurati che il pool produzione sia attivo
+        await getPoolProd();
+
+        console.log('[DB] Switch a PRODUZIONE');
+        const { password, ...safe } = PRODUCTION_PROFILE;
+        return safe;
+    } finally {
+        switching = false;
     }
-    profiles.profiles.push(profileData);
-    saveProfiles(profiles);
-    return sanitizeProfile(profileData);
-}
-
-function updateProfile(profileId, data) {
-    const profiles = loadProfiles();
-    const idx = profiles.profiles.findIndex(p => p.id === profileId);
-    if (idx === -1) throw new Error('Profilo non trovato: ' + profileId);
-
-    const existing = profiles.profiles[idx];
-
-    // Se password non fornita o vuota, mantieni quella esistente
-    if (!data.password || data.password.trim() === '') {
-        data.password = existing.password;
-    }
-
-    // Merge: id non modificabile
-    profiles.profiles[idx] = { ...existing, ...data, id: existing.id };
-    saveProfiles(profiles);
-
-    // Aggiorna currentProfile in memoria se è quello attivo
-    // (il pool continua a funzionare fino al prossimo switch)
-    if (currentProfile && currentProfile.id === profileId) {
-        currentProfile = profiles.profiles[idx];
-    }
-
-    return sanitizeProfile(profiles.profiles[idx]);
-}
-
-function deleteProfile(profileId) {
-    const profiles = loadProfiles();
-    if (profiles.activeProfileId === profileId) {
-        throw new Error('Impossibile eliminare il profilo attivo');
-    }
-    const idx = profiles.profiles.findIndex(p => p.id === profileId);
-    if (idx === -1) throw new Error('Profilo non trovato: ' + profileId);
-    profiles.profiles.splice(idx, 1);
-    saveProfiles(profiles);
 }
 
 module.exports = {
-    getPoolMRP,
     sql,
+    getPoolMRP,
+    getPoolProd,
     getActiveProfile,
-    getAllProfiles,
-    switchProfile,
-    addProfile,
-    updateProfile,
-    deleteProfile
+    isProduction,
+    switchToTest,
+    switchToProduction,
+    PRODUCTION_PROFILE
 };

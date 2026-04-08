@@ -1,6 +1,7 @@
 /**
  * MRP DB Config — gestione profili connessione database.
- * Badge sempre visibile nell'header + modale configurazione.
+ * Produzione: hardcoded, non modificabile.
+ * Prova: profili per operatore salvati in [GB2].[dbo].[TestProfiles].
  */
 const MrpDbConfig = (() => {
     const API = '/api/mrp/db';
@@ -22,13 +23,12 @@ const MrpDbConfig = (() => {
 
             document.getElementById('dbBadgeDot').style.background = profile.color || '#16a34a';
             document.getElementById('dbBadgeLabel').textContent = profile.label || profile.id;
-            document.getElementById('dbBadgeServer').textContent = profile.server + ' / ' + profile.database_ujet11;
+            document.getElementById('dbBadgeServer').textContent = profile.server + ' / ' + (profile.database_mrp || 'MRP');
 
             const header = document.querySelector('.mrp-header');
             header.style.borderBottomColor = profile.color || 'var(--border)';
             header.style.borderBottomWidth = '3px';
 
-            // Aggiorna banner ambiente
             aggiornaAmbienteBanner(profile);
         } catch (err) {
             console.error('[DbConfig] Errore refresh badge:', err);
@@ -44,7 +44,6 @@ const MrpDbConfig = (() => {
 
         const ambiente = profile.ambiente || 'produzione';
 
-        // Rendi accessibile globalmente per gli altri moduli
         window.MrpAmbiente = {
             ambiente: ambiente,
             email_prova: profile.email_prova || ''
@@ -94,6 +93,9 @@ const MrpDbConfig = (() => {
         document.getElementById('modalDbOverlay').classList.remove('open');
     }
 
+    // Cache profili caricati per edit/switch
+    let _cachedProfiles = [];
+
     async function loadProfilesList() {
         try {
             const [profilesRes, activeRes] = await Promise.all([
@@ -102,9 +104,12 @@ const MrpDbConfig = (() => {
             ]);
             const profiles = await profilesRes.json();
             const active = await activeRes.json();
+            _cachedProfiles = profiles;
+
             const container = document.getElementById('dbProfilesList');
 
             container.innerHTML = profiles.map(p => {
+                const isProd = p.id === 'produzione';
                 const isActive = p.id === active.id;
                 return `
                 <div style="display:flex; align-items:center; gap:12px; padding:10px 14px;
@@ -115,18 +120,18 @@ const MrpDbConfig = (() => {
                     <div style="flex:1;">
                         <strong style="color:${p.color || 'var(--text)'};">${esc(p.label)}</strong>
                         <span style="font-size:0.8rem; color:var(--text-muted); margin-left:8px;">
-                            ${esc(p.server)} / ${esc(p.database_ujet11)}
+                            ${esc(p.server)} / ${esc(p.database_mrp || 'MRP')}
                         </span>
-                        ${p.ambiente === 'prova'
-                            ? '<span style="font-size:0.7rem; background:#f59e0b; color:white; padding:2px 8px; border-radius:10px; margin-left:6px;">PROVA</span>'
-                            : '<span style="font-size:0.7rem; background:#dc2626; color:white; padding:2px 8px; border-radius:10px; margin-left:6px;">PRODUZIONE</span>'
+                        ${isProd
+                            ? '<span style="font-size:0.7rem; background:#dc2626; color:white; padding:2px 8px; border-radius:10px; margin-left:6px;">PRODUZIONE</span>'
+                            : '<span style="font-size:0.7rem; background:#f59e0b; color:white; padding:2px 8px; border-radius:10px; margin-left:6px;">PROVA</span>'
                         }
                         ${isActive ? '<span style="font-size:0.75rem; background:#16a34a; color:white; padding:2px 8px; border-radius:10px; margin-left:4px;">ATTIVO</span>' : ''}
                     </div>
                     <div style="display:flex; gap:6px;">
                         ${!isActive ? `<button class="mrp-btn-primary" style="font-size:0.75rem; padding:4px 10px;" onclick="MrpDbConfig.switchTo('${esc(p.id)}')">Attiva</button>` : ''}
-                        <button class="mrp-btn-secondary" style="font-size:0.75rem; padding:4px 10px;" onclick="MrpDbConfig.editProfile('${esc(p.id)}')">&#9998;</button>
-                        ${!isActive ? `<button class="mrp-btn-secondary" style="font-size:0.75rem; padding:4px 10px; color:var(--danger);" onclick="MrpDbConfig.removeProfile('${esc(p.id)}')">&#128465;</button>` : ''}
+                        ${!isProd ? `<button class="mrp-btn-secondary" style="font-size:0.75rem; padding:4px 10px;" onclick="MrpDbConfig.editProfile('${esc(p.id)}')">&#9998;</button>` : ''}
+                        ${!isProd && !isActive ? `<button class="mrp-btn-secondary" style="font-size:0.75rem; padding:4px 10px; color:var(--danger);" onclick="MrpDbConfig.removeProfile(${p._dbId})">&#128465;</button>` : ''}
                     </div>
                 </div>`;
             }).join('');
@@ -136,39 +141,44 @@ const MrpDbConfig = (() => {
     }
 
     async function switchTo(profileId) {
-        // Recupera info profilo target per doppia conferma su produzione
-        let targetAmbiente = 'prova';
-        try {
-            const profRes = await fetch(API + '/profiles');
-            const profili = await profRes.json();
-            const target = profili.find(p => p.id === profileId);
-            if (target) targetAmbiente = target.ambiente || 'produzione';
-        } catch (_) {}
+        const isProd = profileId === 'produzione';
+        const profile = _cachedProfiles.find(p => p.id === profileId);
 
-        if (targetAmbiente === 'produzione') {
+        if (isProd) {
             if (!confirm('\u26A0\uFE0F Stai per passare all\'ambiente di PRODUZIONE.\nGli ordini emessi saranno REALI e le email arriveranno ai FORNITORI.\n\nContinuare?')) return;
             if (!confirm('\u26A1 CONFERMA DEFINITIVA:\nSei SICURO di voler operare in PRODUZIONE?')) return;
         } else {
-            if (!confirm('Switchare al profilo "' + profileId + '"?\nI dati attualmente visualizzati verranno cancellati.')) return;
+            const label = profile ? profile.label : profileId;
+            if (!confirm('Switchare al profilo "' + label + '"?\nI dati attualmente visualizzati verranno cancellati.')) return;
         }
+
         try {
-            const res = await fetch(API + '/switch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ profileId })
-            });
+            let res;
+            if (isProd) {
+                res = await fetch(API + '/switch-production', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}'
+                });
+            } else {
+                const dbId = profile ? profile._dbId : null;
+                if (!dbId) { showFormStatus('Profilo non trovato', 'var(--danger)'); return; }
+                res = await fetch(API + '/switch-test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ testProfileId: dbId })
+                });
+            }
             const data = await res.json();
             if (data.success) {
                 await refreshBadge();
                 await loadProfilesList();
 
-                // Pulisci i dati della vista progressivi (erano del DB precedente)
                 const tbody = document.getElementById('tblProgressiviBody');
                 if (tbody) tbody.innerHTML = '';
                 const splitTree = document.getElementById('splitTreeBody');
                 if (splitTree) splitTree.innerHTML = '';
 
-                // Reinizializza la proposta ordini
                 if (typeof MrpProposta !== 'undefined' && MrpProposta.init) MrpProposta.init();
 
                 showFormStatus('&#10003; Profilo attivato: ' + data.activeProfile.label, 'var(--success)');
@@ -181,47 +191,31 @@ const MrpDbConfig = (() => {
     }
 
     async function editProfile(profileId) {
-        try {
-            const res = await fetch(API + '/profiles');
-            const profiles = await res.json();
-            const p = profiles.find(x => x.id === profileId);
-            if (!p) return;
+        const p = _cachedProfiles.find(x => x.id === profileId);
+        if (!p || p.id === 'produzione') return;
 
-            document.getElementById('dbFormEditId').value = p.id;
-            document.getElementById('dbFormId').value = p.id;
-            document.getElementById('dbFormId').disabled = true;
-            document.getElementById('dbFormLabel').value = p.label;
-            document.getElementById('dbFormServer').value = p.server;
-            document.getElementById('dbFormUjet11').value = p.database_ujet11;
-            document.getElementById('dbFormMrp').value = p.database_mrp || '';
-            document.getElementById('dbFormUser').value = p.user || '';
-            document.getElementById('dbFormPassword').value = '';
-            document.getElementById('dbFormColor').value = p.color || '#16a34a';
-            document.getElementById('dbFormAmbiente').value = p.ambiente || 'prova';
-            document.getElementById('dbFormEmailProva').value = p.email_prova || '';
-            toggleEmailProvaVisibility();
-            document.getElementById('dbFormTitle').textContent = 'Modifica profilo: ' + p.label;
-            document.getElementById('btnDbCancelEdit').style.display = '';
-        } catch (err) {
-            console.error('[DbConfig] editProfile error:', err);
-        }
+        document.getElementById('dbFormEditId').value = p._dbId || '';
+        document.getElementById('dbFormLabel').value = p.label;
+        document.getElementById('dbFormServer').value = p.server;
+        document.getElementById('dbFormUjet11').value = p.database_ujet11 || 'UJET11';
+        document.getElementById('dbFormUser').value = p.user || '';
+        document.getElementById('dbFormPassword').value = '';
+        document.getElementById('dbFormColor').value = p.color || '#16a34a';
+        document.getElementById('dbFormEmailProva').value = p.email_prova || '';
+        document.getElementById('dbFormTitle').textContent = 'Modifica profilo: ' + p.label;
+        document.getElementById('btnDbCancelEdit').style.display = '';
     }
 
     function resetForm() {
         document.getElementById('dbFormEditId').value = '';
-        document.getElementById('dbFormId').value = '';
-        document.getElementById('dbFormId').disabled = false;
         document.getElementById('dbFormLabel').value = '';
         document.getElementById('dbFormServer').value = '';
-        document.getElementById('dbFormUjet11').value = '';
-        document.getElementById('dbFormMrp').value = '';
+        document.getElementById('dbFormUjet11').value = 'UJET11';
         document.getElementById('dbFormUser').value = '';
         document.getElementById('dbFormPassword').value = '';
         document.getElementById('dbFormColor').value = '#16a34a';
-        document.getElementById('dbFormAmbiente').value = 'prova';
         document.getElementById('dbFormEmailProva').value = '';
-        toggleEmailProvaVisibility();
-        document.getElementById('dbFormTitle').textContent = 'Nuovo profilo';
+        document.getElementById('dbFormTitle').textContent = 'Nuovo profilo di prova';
         document.getElementById('btnDbCancelEdit').style.display = 'none';
         document.getElementById('dbFormStatus').textContent = '';
     }
@@ -229,27 +223,23 @@ const MrpDbConfig = (() => {
     async function saveProfile() {
         const editId = document.getElementById('dbFormEditId').value;
         const profileData = {
-            id: document.getElementById('dbFormId').value.trim().toLowerCase().replace(/\s+/g, '_'),
             label: document.getElementById('dbFormLabel').value.trim().toUpperCase(),
             server: document.getElementById('dbFormServer').value.trim(),
-            database_ujet11: document.getElementById('dbFormUjet11').value.trim(),
-            database_mrp: document.getElementById('dbFormMrp').value.trim(),
+            database_ujet11: document.getElementById('dbFormUjet11').value.trim() || 'UJET11',
             user: document.getElementById('dbFormUser').value.trim(),
             password: document.getElementById('dbFormPassword').value,
             color: document.getElementById('dbFormColor').value,
-            ambiente: document.getElementById('dbFormAmbiente').value,
             email_prova: document.getElementById('dbFormEmailProva').value.trim()
         };
 
-        if (!profileData.id || !profileData.label || !profileData.server || !profileData.database_ujet11) {
-            showFormStatus('Compila almeno ID, Etichetta, Server e DB UJET11', 'var(--warning)');
+        if (!profileData.label || !profileData.server || !profileData.user) {
+            showFormStatus('Compila almeno Etichetta, Server e Utente DB', 'var(--warning)');
             return;
         }
 
         try {
             let res;
             if (editId) {
-                // Se password vuota in modifica, non inviarla (mantiene quella esistente)
                 if (!profileData.password) delete profileData.password;
                 res = await fetch(API + '/profiles/' + editId, {
                     method: 'PUT',
@@ -258,7 +248,7 @@ const MrpDbConfig = (() => {
                 });
             } else {
                 if (!profileData.password) {
-                    showFormStatus('La password è obbligatoria per un nuovo profilo', 'var(--warning)');
+                    showFormStatus('La password e obbligatoria per un nuovo profilo', 'var(--warning)');
                     return;
                 }
                 res = await fetch(API + '/profiles', {
@@ -272,7 +262,6 @@ const MrpDbConfig = (() => {
                 showFormStatus('Profilo salvato', 'var(--success)');
                 resetForm();
                 await loadProfilesList();
-                await refreshBadge();
             } else {
                 showFormStatus(data.error || 'Errore', 'var(--danger)');
             }
@@ -281,10 +270,10 @@ const MrpDbConfig = (() => {
         }
     }
 
-    async function removeProfile(profileId) {
-        if (!confirm('Eliminare il profilo "' + profileId + '"?')) return;
+    async function removeProfile(dbId) {
+        if (!confirm('Eliminare questo profilo di prova?')) return;
         try {
-            const res = await fetch(API + '/profiles/' + profileId, { method: 'DELETE' });
+            const res = await fetch(API + '/profiles/' + dbId, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) {
                 await loadProfilesList();
@@ -299,20 +288,16 @@ const MrpDbConfig = (() => {
     async function testConnection() {
         showFormStatus('Test connessione in corso...', 'var(--warning)');
         try {
-            const editId = document.getElementById('dbFormEditId').value;
-            const password = document.getElementById('dbFormPassword').value;
-
-            // Se in edit mode e password vuota, manda il profileId
-            // così il backend usa le credenziali salvate
             const payload = {
                 server: document.getElementById('dbFormServer').value.trim(),
-                database_ujet11: document.getElementById('dbFormUjet11').value.trim(),
+                database_mrp: 'MRP',
                 user: document.getElementById('dbFormUser').value.trim(),
-                password
+                password: document.getElementById('dbFormPassword').value
             };
-            if (editId && !password) {
-                payload.profileId = editId;
-                delete payload.password;
+
+            if (!payload.server || !payload.user || !payload.password) {
+                showFormStatus('Server, utente e password richiesti per il test', 'var(--warning)');
+                return;
             }
 
             const res = await fetch(API + '/test-connection', {
@@ -321,11 +306,7 @@ const MrpDbConfig = (() => {
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-            if (data.success) {
-                showFormStatus(data.message, 'var(--success)');
-            } else {
-                showFormStatus(data.message, 'var(--danger)');
-            }
+            showFormStatus(data.message, data.success ? 'var(--success)' : 'var(--danger)');
         } catch (err) {
             showFormStatus(err.message, 'var(--danger)');
         }
@@ -333,7 +314,7 @@ const MrpDbConfig = (() => {
 
     function showFormStatus(msg, color) {
         const el = document.getElementById('dbFormStatus');
-        el.textContent = msg;
+        el.innerHTML = msg;
         el.style.color = color || 'var(--text)';
     }
 
@@ -343,30 +324,30 @@ const MrpDbConfig = (() => {
         return d.innerHTML;
     }
 
-    function toggleEmailProvaVisibility() {
-        const ambiente = document.getElementById('dbFormAmbiente').value;
-        const wrap = document.getElementById('dbFormEmailProvaWrap');
-        if (wrap) {
-            wrap.style.display = ambiente === 'prova' ? '' : 'none';
-        }
-    }
-
     // --------------------------------------------------------
-    // SMTP (legato al profilo DB attivo)
+    // SMTP (solo per profili di prova — produzione usa .env)
     // --------------------------------------------------------
 
     async function loadSmtpForm() {
         try {
             const res = await fetch(API + '/active-profile');
             const profile = await res.json();
+            const isProd = profile.id === 'produzione';
+
             const label = document.getElementById('smtpCurrentProfile');
             if (label) label.innerHTML = 'Profilo attivo: <strong>' + esc(profile.label || profile.id) + '</strong>';
+
+            const smtpSection = document.getElementById('smtpSection');
+            if (isProd && smtpSection) {
+                smtpSection.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">La configurazione SMTP di produzione e gestita dal file .env sul server. Non modificabile da qui.</p>';
+                return;
+            }
 
             document.getElementById('smtpFormHost').value = profile.smtp_host || '';
             document.getElementById('smtpFormPort').value = profile.smtp_port || 587;
             document.getElementById('smtpFormSecure').checked = profile.smtp_secure === true;
             document.getElementById('smtpFormUser').value = profile.smtp_user || '';
-            document.getElementById('smtpFormPassword').value = '';  // mai pre-compilare password
+            document.getElementById('smtpFormPassword').value = '';
             document.getElementById('smtpFormFromAddress').value = profile.smtp_from_address || '';
             document.getElementById('smtpFormFromName').value = profile.smtp_from_name || 'U.Jet s.r.l.';
         } catch (err) {
@@ -377,9 +358,21 @@ const MrpDbConfig = (() => {
     async function saveSmtp() {
         const statusEl = document.getElementById('smtpFormStatus');
         try {
-            // Leggi il profilo attivo per sapere quale aggiornare
             const activeRes = await fetch(API + '/active-profile');
             const active = await activeRes.json();
+
+            if (active.id === 'produzione') {
+                statusEl.textContent = 'SMTP di produzione non modificabile da qui';
+                statusEl.style.color = 'var(--warning)';
+                return;
+            }
+
+            const dbId = active._dbId;
+            if (!dbId) {
+                statusEl.textContent = 'Profilo attivo non ha un ID DB valido';
+                statusEl.style.color = 'var(--danger)';
+                return;
+            }
 
             const smtpData = {
                 smtp_host: document.getElementById('smtpFormHost').value.trim(),
@@ -393,7 +386,16 @@ const MrpDbConfig = (() => {
             const pwd = document.getElementById('smtpFormPassword').value;
             if (pwd) smtpData.smtp_password = pwd;
 
-            const res = await fetch(API + '/profiles/' + active.id, {
+            // Per salvare SMTP serve passare anche i campi obbligatori del profilo
+            const profile = _cachedProfiles.find(p => p._dbId === dbId);
+            if (profile) {
+                smtpData.label = profile.label;
+                smtpData.server = profile.server;
+                smtpData.user = profile.user;
+                smtpData.database_ujet11 = profile.database_ujet11;
+            }
+
+            const res = await fetch(API + '/profiles/' + dbId, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(smtpData)
@@ -442,9 +444,10 @@ const MrpDbConfig = (() => {
         document.getElementById('btnDbSave').addEventListener('click', saveProfile);
         document.getElementById('btnDbTestConn').addEventListener('click', testConnection);
         document.getElementById('btnDbCancelEdit').addEventListener('click', resetForm);
-        document.getElementById('dbFormAmbiente').addEventListener('change', toggleEmailProvaVisibility);
-        document.getElementById('btnSmtpSave').addEventListener('click', saveSmtp);
-        document.getElementById('btnSmtpTest').addEventListener('click', testSmtp);
+        const btnSmtpSave = document.getElementById('btnSmtpSave');
+        if (btnSmtpSave) btnSmtpSave.addEventListener('click', saveSmtp);
+        const btnSmtpTest = document.getElementById('btnSmtpTest');
+        if (btnSmtpTest) btnSmtpTest.addEventListener('click', testSmtp);
     }
 
     return { init, refreshBadge, switchTo, editProfile, removeProfile };

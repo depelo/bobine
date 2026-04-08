@@ -1,7 +1,8 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { getPoolMRP, sql, getActiveProfile, getAllProfiles, switchProfile, addProfile, updateProfile, deleteProfile } = require('../config/db-mrp');
+const { getPoolMRP, getPoolProd, sql, getActiveProfile, isProduction, switchToTest, switchToProduction, PRODUCTION_PROFILE } = require('../config/db-mrp');
+const { encrypt, decrypt } = require('../config/crypto');
 const smtp = require('../config/smtp-mrp');
 const { authenticateToken } = require('../middlewares/auth');
 
@@ -21,7 +22,7 @@ function getUjet11Ref(profile) {
 // Il profilo attivo determina il prefisso {{UJET11_REF}} nelle SP.
 async function deployMrpObjects(poolMRP, profile) {
     const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
-    const files = ['create_ordini_emessi.sql', 'usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql', 'create_user_preferences.sql'];
+    const files = ['create_ordini_emessi.sql', 'create_test_profiles.sql', 'usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql', 'create_user_preferences.sql'];
     const ujet11Ref = getUjet11Ref(profile);
     const results = [];
     for (const file of files) {
@@ -50,7 +51,14 @@ function createGb2Routes({ io, skipAuth } = {}) {
 
 // ============================================================
 // API: GESTIONE PROFILI CONNESSIONE DB
+// Produzione: hardcoded da .env (PRODUCTION_PROFILE)
+// Prova: per operatore, da [GB2].[dbo].[TestProfiles]
 // ============================================================
+
+// Helper: legge IDUser dalla sessione (o default per skipAuth/dev)
+function getUserId(req) {
+    return (req.user && req.user.IDUser) || 0;
+}
 
 // Profilo attivo (usato dal frontend per il badge)
 router.get('/db/active-profile', authMiddleware, (req, res) => {
@@ -61,26 +69,64 @@ router.get('/db/active-profile', authMiddleware, (req, res) => {
     }
 });
 
-// Lista tutti i profili
-router.get('/db/profiles', authMiddleware, (req, res) => {
+// Lista profili dell'operatore: produzione (sempre) + i suoi profili di prova dal DB
+router.get('/db/profiles', authMiddleware, async (req, res) => {
     try {
-        res.json(getAllProfiles());
+        const userId = getUserId(req);
+        const poolProd = await getPoolProd();
+
+        // Profilo produzione (senza password)
+        const { password: _, ...prodSafe } = PRODUCTION_PROFILE;
+        const profiles = [prodSafe];
+
+        // Profili di prova dell'operatore
+        const result = await poolProd.request()
+            .input('userId', sql.Int, userId)
+            .query(`SELECT ID, IDUser, ProfileLabel, Server, DatabaseMRP, DatabaseUJET11,
+                           DbUser, SmtpHost, SmtpPort, SmtpSecure, SmtpUser,
+                           SmtpFromAddress, SmtpFromName, EmailProva, Color, IsActive,
+                           CreatedAt, UpdatedAt
+                    FROM [GB2].[dbo].[TestProfiles]
+                    WHERE IDUser = @userId
+                    ORDER BY ProfileLabel`);
+
+        for (const row of result.recordset) {
+            profiles.push({
+                id: 'test_' + row.ID,
+                _dbId: row.ID,
+                label: row.ProfileLabel,
+                server: row.Server,
+                database_mrp: row.DatabaseMRP,
+                database_ujet11: row.DatabaseUJET11,
+                user: row.DbUser,
+                smtp_host: row.SmtpHost || '',
+                smtp_port: row.SmtpPort || 587,
+                smtp_secure: !!row.SmtpSecure,
+                smtp_user: row.SmtpUser || '',
+                smtp_from_address: row.SmtpFromAddress || '',
+                smtp_from_name: row.SmtpFromName || 'U.Jet s.r.l.',
+                email_prova: row.EmailProva || '',
+                color: row.Color || '#16a34a',
+                is_active: !!row.IsActive,
+                ambiente: 'prova'
+            });
+        }
+
+        res.json(profiles);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Switch profilo attivo
-router.post('/db/switch', authMiddleware, async (req, res) => {
+// Switch a produzione
+router.post('/db/switch-production', authMiddleware, async (req, res) => {
     try {
-        const { profileId } = req.body;
-        if (!profileId) return res.status(400).json({ error: 'profileId richiesto' });
-        const profile = await switchProfile(profileId);
-        // Re-deploy SP con il prefisso UJET11 del nuovo profilo
+        const profile = await switchToProduction();
+        // Re-deploy SP con prefisso produzione
         try {
             const pool = await getPoolMRP();
             await deployMrpObjects(pool, profile);
-            console.log('[GB2] Re-deploy SP dopo switch a profilo:', profile.label);
+            console.log('[GB2] Re-deploy SP dopo switch a PRODUZIONE');
         } catch (deployErr) {
             console.warn('[GB2] Re-deploy SP dopo switch non riuscito:', deployErr.message);
         }
@@ -90,34 +136,214 @@ router.post('/db/switch', authMiddleware, async (req, res) => {
     }
 });
 
-// Aggiungi profilo
-router.post('/db/profiles', authMiddleware, (req, res) => {
+// Switch a profilo di prova (per ID dalla tabella TestProfiles)
+router.post('/db/switch-test', authMiddleware, async (req, res) => {
     try {
-        const profileData = req.body;
-        if (!profileData.id || !profileData.label || !profileData.server) {
-            return res.status(400).json({ error: 'id, label e server sono obbligatori' });
+        const { testProfileId } = req.body;
+        if (!testProfileId) return res.status(400).json({ error: 'testProfileId richiesto' });
+
+        const userId = getUserId(req);
+        const poolProd = await getPoolProd();
+
+        // Leggi il profilo dal DB (inclusa password crittata)
+        const result = await poolProd.request()
+            .input('id', sql.Int, testProfileId)
+            .input('userId', sql.Int, userId)
+            .query(`SELECT * FROM [GB2].[dbo].[TestProfiles]
+                    WHERE ID = @id AND IDUser = @userId`);
+
+        if (!result.recordset.length) {
+            return res.status(404).json({ error: 'Profilo di prova non trovato' });
         }
-        const profile = addProfile(profileData);
-        res.json({ success: true, profile });
+
+        const row = result.recordset[0];
+        const decryptedPassword = decrypt(row.DbPassword);
+
+        const testProfile = {
+            id: 'test_' + row.ID,
+            label: row.ProfileLabel,
+            server: row.Server,
+            database_mrp: row.DatabaseMRP,
+            database_ujet11: row.DatabaseUJET11,
+            user: row.DbUser,
+            password: decryptedPassword,
+            color: row.Color || '#16a34a',
+            email_prova: row.EmailProva || '',
+            smtp_host: row.SmtpHost || '',
+            smtp_port: row.SmtpPort || 587,
+            smtp_secure: !!row.SmtpSecure,
+            smtp_user: row.SmtpUser || '',
+            smtp_from_address: row.SmtpFromAddress || '',
+            smtp_from_name: row.SmtpFromName || 'U.Jet s.r.l.'
+        };
+
+        // Decritta smtp_password se presente
+        if (row.SmtpPassword) {
+            testProfile.smtp_password = decrypt(row.SmtpPassword);
+        }
+
+        const profile = await switchToTest(testProfile);
+
+        // Re-deploy SP senza prefisso (prova = locale)
+        try {
+            const pool = await getPoolMRP();
+            await deployMrpObjects(pool, profile);
+            console.log('[GB2] Re-deploy SP dopo switch a PROVA:', profile.label);
+        } catch (deployErr) {
+            console.warn('[GB2] Re-deploy SP dopo switch non riuscito:', deployErr.message);
+        }
+
+        // Aggiorna IsActive nel DB
+        await poolProd.request()
+            .input('activeId', sql.Int, testProfileId)
+            .input('userId2', sql.Int, userId)
+            .query(`UPDATE [GB2].[dbo].[TestProfiles] SET IsActive = 0 WHERE IDUser = @userId2;
+                    UPDATE [GB2].[dbo].[TestProfiles] SET IsActive = 1 WHERE ID = @activeId`);
+
+        res.json({ success: true, activeProfile: profile });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Aggiorna profilo
-router.put('/db/profiles/:id', authMiddleware, (req, res) => {
+// Crea profilo di prova
+router.post('/db/profiles', authMiddleware, async (req, res) => {
     try {
-        const profile = updateProfile(req.params.id, req.body);
-        res.json({ success: true, profile });
+        const userId = getUserId(req);
+        const { label, server, database_mrp, database_ujet11, user, password,
+                smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password,
+                smtp_from_address, smtp_from_name, email_prova, color } = req.body;
+
+        if (!label || !server || !user || !password) {
+            return res.status(400).json({ error: 'label, server, user e password sono obbligatori' });
+        }
+
+        const encPassword = encrypt(password);
+        const encSmtpPassword = smtp_password ? encrypt(smtp_password) : null;
+
+        const poolProd = await getPoolProd();
+        const result = await poolProd.request()
+            .input('userId', sql.Int, userId)
+            .input('label', sql.VarChar(100), label)
+            .input('server', sql.VarChar(100), server)
+            .input('dbMrp', sql.VarChar(50), database_mrp || 'MRP')
+            .input('dbUjet', sql.VarChar(50), database_ujet11 || 'UJET11')
+            .input('dbUser', sql.VarChar(50), user)
+            .input('dbPass', sql.VarBinary(512), encPassword)
+            .input('smtpHost', sql.VarChar(100), smtp_host || null)
+            .input('smtpPort', sql.Int, smtp_port || 587)
+            .input('smtpSecure', sql.Bit, smtp_secure ? 1 : 0)
+            .input('smtpUser', sql.VarChar(100), smtp_user || null)
+            .input('smtpPass', sql.VarBinary(512), encSmtpPassword)
+            .input('smtpFrom', sql.VarChar(255), smtp_from_address || null)
+            .input('smtpName', sql.VarChar(100), smtp_from_name || 'U.Jet s.r.l.')
+            .input('emailProva', sql.VarChar(255), email_prova || null)
+            .input('color', sql.VarChar(20), color || '#16a34a')
+            .query(`INSERT INTO [GB2].[dbo].[TestProfiles]
+                    (IDUser, ProfileLabel, Server, DatabaseMRP, DatabaseUJET11,
+                     DbUser, DbPassword, SmtpHost, SmtpPort, SmtpSecure, SmtpUser, SmtpPassword,
+                     SmtpFromAddress, SmtpFromName, EmailProva, Color)
+                    OUTPUT INSERTED.ID
+                    VALUES (@userId, @label, @server, @dbMrp, @dbUjet,
+                            @dbUser, @dbPass, @smtpHost, @smtpPort, @smtpSecure, @smtpUser, @smtpPass,
+                            @smtpFrom, @smtpName, @emailProva, @color)`);
+
+        const newId = result.recordset[0].ID;
+        res.json({
+            success: true,
+            profile: {
+                id: 'test_' + newId, _dbId: newId, label, server,
+                database_mrp: database_mrp || 'MRP', database_ujet11: database_ujet11 || 'UJET11',
+                user, color: color || '#16a34a', email_prova: email_prova || '', ambiente: 'prova'
+            }
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Elimina profilo
-router.delete('/db/profiles/:id', authMiddleware, (req, res) => {
+// Aggiorna profilo di prova
+router.put('/db/profiles/:id', authMiddleware, async (req, res) => {
     try {
-        deleteProfile(req.params.id);
+        const dbId = parseInt(req.params.id, 10);
+        const userId = getUserId(req);
+        const poolProd = await getPoolProd();
+
+        // Verifica che il profilo appartenga all'utente
+        const check = await poolProd.request()
+            .input('id', sql.Int, dbId)
+            .input('userId', sql.Int, userId)
+            .query('SELECT ID, DbPassword, SmtpPassword FROM [GB2].[dbo].[TestProfiles] WHERE ID = @id AND IDUser = @userId');
+
+        if (!check.recordset.length) {
+            return res.status(404).json({ error: 'Profilo non trovato' });
+        }
+
+        const existing = check.recordset[0];
+        const { label, server, database_mrp, database_ujet11, user, password,
+                smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password,
+                smtp_from_address, smtp_from_name, email_prova, color } = req.body;
+
+        // Se password vuota, mantieni quella esistente
+        const encPassword = (password && password.trim()) ? encrypt(password) : existing.DbPassword;
+        const encSmtpPassword = (smtp_password && smtp_password.trim()) ? encrypt(smtp_password) : existing.SmtpPassword;
+
+        await poolProd.request()
+            .input('id', sql.Int, dbId)
+            .input('label', sql.VarChar(100), label)
+            .input('server', sql.VarChar(100), server)
+            .input('dbMrp', sql.VarChar(50), database_mrp || 'MRP')
+            .input('dbUjet', sql.VarChar(50), database_ujet11 || 'UJET11')
+            .input('dbUser', sql.VarChar(50), user)
+            .input('dbPass', sql.VarBinary(512), encPassword)
+            .input('smtpHost', sql.VarChar(100), smtp_host || null)
+            .input('smtpPort', sql.Int, smtp_port || 587)
+            .input('smtpSecure', sql.Bit, smtp_secure ? 1 : 0)
+            .input('smtpUser', sql.VarChar(100), smtp_user || null)
+            .input('smtpPass', sql.VarBinary(512), encSmtpPassword)
+            .input('smtpFrom', sql.VarChar(255), smtp_from_address || null)
+            .input('smtpName', sql.VarChar(100), smtp_from_name || 'U.Jet s.r.l.')
+            .input('emailProva', sql.VarChar(255), email_prova || null)
+            .input('color', sql.VarChar(20), color || '#16a34a')
+            .query(`UPDATE [GB2].[dbo].[TestProfiles]
+                    SET ProfileLabel = @label, Server = @server,
+                        DatabaseMRP = @dbMrp, DatabaseUJET11 = @dbUjet,
+                        DbUser = @dbUser, DbPassword = @dbPass,
+                        SmtpHost = @smtpHost, SmtpPort = @smtpPort, SmtpSecure = @smtpSecure,
+                        SmtpUser = @smtpUser, SmtpPassword = @smtpPass,
+                        SmtpFromAddress = @smtpFrom, SmtpFromName = @smtpName,
+                        EmailProva = @emailProva, Color = @color,
+                        UpdatedAt = GETDATE()
+                    WHERE ID = @id`);
+
+        res.json({
+            success: true,
+            profile: {
+                id: 'test_' + dbId, _dbId: dbId, label, server,
+                database_mrp: database_mrp || 'MRP', database_ujet11: database_ujet11 || 'UJET11',
+                user, color: color || '#16a34a', email_prova: email_prova || '', ambiente: 'prova'
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Elimina profilo di prova
+router.delete('/db/profiles/:id', authMiddleware, async (req, res) => {
+    try {
+        const dbId = parseInt(req.params.id, 10);
+        const userId = getUserId(req);
+        const poolProd = await getPoolProd();
+
+        const result = await poolProd.request()
+            .input('id', sql.Int, dbId)
+            .input('userId', sql.Int, userId)
+            .query('DELETE FROM [GB2].[dbo].[TestProfiles] WHERE ID = @id AND IDUser = @userId');
+
+        if (!result.rowsAffected[0]) {
+            return res.status(404).json({ error: 'Profilo non trovato' });
+        }
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -125,25 +351,16 @@ router.delete('/db/profiles/:id', authMiddleware, (req, res) => {
 });
 
 // Test connessione (senza switchare)
-// Accetta { server, database_ujet11, user, password } oppure { profileId } per usare credenziali salvate
 router.post('/db/test-connection', authMiddleware, async (req, res) => {
     let testPool = null;
     try {
-        let { server, database_ujet11, user, password, profileId } = req.body;
-
-        // Se profileId fornito e password vuota, usa le credenziali salvate del profilo
-        if (profileId && !password) {
-            const profiles = require('../config/db-profiles-mrp.json');
-            const profile = profiles.profiles.find(p => p.id === profileId);
-            if (!profile) return res.status(400).json({ success: false, message: 'Profilo non trovato: ' + profileId });
-            server = server || profile.server;
-            database_ujet11 = database_ujet11 || profile.database_ujet11;
-            user = user || profile.user;
-            password = profile.password;
+        const { server, database_mrp, user, password } = req.body;
+        if (!server || !user || !password) {
+            return res.status(400).json({ success: false, message: 'server, user e password richiesti' });
         }
 
         testPool = new sql.ConnectionPool({
-            server, database: database_ujet11, user, password,
+            server, database: database_mrp || 'MRP', user, password,
             options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
             connectionTimeout: 5000
         });
@@ -1168,16 +1385,16 @@ router.get('/consumi/sprint-multi', authMiddleware, async (req, res) => {
                 DECLARE @AnnoCorrente INT = YEAR(@Oggi);
 
                 SELECT
-                    ISNULL(SUM(CASE WHEN CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -12, @Oggi) AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qt] ELSE 0 END), 0) AS R12,
-                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qt] ELSE 0 END), 0) AS YTD,
-                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente - 1 AND CONVERT(DATETIME, [Date], 103) <= DATEADD(year, -1, @Oggi) THEN [Qt] ELSE 0 END), 0) AS LYTD
+                    ISNULL(SUM(CASE WHEN CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -12, @Oggi) AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qtà] ELSE 0 END), 0) AS R12,
+                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qtà] ELSE 0 END), 0) AS YTD,
+                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente - 1 AND CONVERT(DATETIME, [Date], 103) <= DATEADD(year, -1, @Oggi) THEN [Qtà] ELSE 0 END), 0) AS LYTD
                 INTO #TempKPI
                 FROM dbo.Riep
                 WHERE Codart IN (${placeholders}) AND Tipo_mov IN ('Vendite', 'Scarico_prod');
 
                 SELECT
                     CONVERT(varchar(7), CONVERT(DATETIME, [Date], 103), 126) AS Mese,
-                    SUM([Qt]) AS Totale
+                    SUM([Qtà]) AS Totale
                 INTO #TempTrend
                 FROM dbo.Riep
                 WHERE Codart IN (${placeholders})
@@ -1228,7 +1445,7 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
         const result = await request.query(`
                 SELECT
                     CONVERT(varchar(10), CONVERT(DATETIME, [Date], 103), 126) AS DataMov,
-                    SUM([Qt]) AS Qta
+                    SUM([Qtà]) AS Qta
                 FROM dbo.Riep
                 WHERE Codart IN (${placeholders})
                   AND Tipo_mov IN ('Vendite', 'Scarico_prod')
@@ -1272,16 +1489,16 @@ router.get('/consumi/sprint/:codart', authMiddleware, async (req, res) => {
                 DECLARE @AnnoCorrente INT = YEAR(@Oggi);
 
                 SELECT
-                    ISNULL(SUM(CASE WHEN CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -12, @Oggi) AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qt] ELSE 0 END), 0) AS R12,
-                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qt] ELSE 0 END), 0) AS YTD,
-                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente - 1 AND CONVERT(DATETIME, [Date], 103) <= DATEADD(year, -1, @Oggi) THEN [Qt] ELSE 0 END), 0) AS LYTD
+                    ISNULL(SUM(CASE WHEN CONVERT(DATETIME, [Date], 103) >= DATEADD(month, -12, @Oggi) AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qtà] ELSE 0 END), 0) AS R12,
+                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente AND CONVERT(DATETIME, [Date], 103) <= @Oggi THEN [Qtà] ELSE 0 END), 0) AS YTD,
+                    ISNULL(SUM(CASE WHEN YEAR(CONVERT(DATETIME, [Date], 103)) = @AnnoCorrente - 1 AND CONVERT(DATETIME, [Date], 103) <= DATEADD(year, -1, @Oggi) THEN [Qtà] ELSE 0 END), 0) AS LYTD
                 INTO #TempKPI
                 FROM dbo.Riep
                 WHERE Codart = @codart AND Tipo_mov IN ('Vendite', 'Scarico_prod');
 
                 SELECT
                     CONVERT(varchar(7), CONVERT(DATETIME, [Date], 103), 126) AS Mese,
-                    SUM([Qt]) AS Totale
+                    SUM([Qtà]) AS Totale
                 INTO #TempTrend
                 FROM dbo.Riep
                 WHERE Codart = @codart
@@ -1323,7 +1540,7 @@ router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
             .query(`
                 SELECT
                     CONVERT(varchar(10), CONVERT(DATETIME, [Date], 103), 126) AS DataMov,
-                    SUM([Qt]) AS Qta
+                    SUM([Qtà]) AS Qta
                 FROM dbo.Riep
                 WHERE Codart = @codart
                   AND Tipo_mov IN ('Vendite', 'Scarico_prod')
