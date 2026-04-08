@@ -109,7 +109,7 @@ router.post('/db/test-connection', authMiddleware, async (req, res) => {
 
         // Se profileId fornito e password vuota, usa le credenziali salvate del profilo
         if (profileId && !password) {
-            const profiles = require('../config/db-profiles.json');
+            const profiles = require('../config/db-profiles-mrp.json');
             const profile = profiles.profiles.find(p => p.id === profileId);
             if (!profile) return res.status(400).json({ success: false, message: 'Profilo non trovato: ' + profileId });
             server = server || profile.server;
