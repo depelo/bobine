@@ -347,10 +347,16 @@
                 </label>
                 <button type="button" id="modalOrdiniClose" class="mrp-modal-close">✕</button>
             </div>
-            <div class="modal-ordini-legenda">
-                <span class="legenda-item legenda-ordforn">Ord. Fornitore</span>
-                <span class="legenda-item legenda-ordprod">Ord. Produzione</span>
-                <span class="legenda-item legenda-impprod">Imp. Produzione</span>
+            <div class="modal-ordini-toolbar">
+                <div class="modal-ordini-tabs">
+                    <button type="button" id="modalTabOrdini" class="modal-tab active">Ordini/Impegni</button>
+                    <button type="button" id="modalTabRmp" class="modal-tab">RMP (Generati/Confermati)</button>
+                </div>
+                <div class="modal-ordini-legenda">
+                    <span class="legenda-item legenda-ordforn">Ord. Fornitore</span>
+                    <span class="legenda-item legenda-ordprod">Ord. Produzione</span>
+                    <span class="legenda-item legenda-impprod">Imp. Produzione</span>
+                </div>
             </div>
             <div class="mrp-modal-body">
                 <div id="modalOrdiniLoading" style="text-align:center;padding:24px;color:var(--text-muted);">Caricamento...</div>

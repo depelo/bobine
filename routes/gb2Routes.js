@@ -1333,11 +1333,11 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
                 ol.ol_tipork,
                 ol.ol_magaz,
                 ol.ol_fase,
+                ol.ol_datcons,
                 ol.ol_oranno AS anno,
                 ol.ol_orserie AS serie,
                 ol.ol_ornum AS numord,
                 ol.ol_orriga AS riga,
-                MIN(ol.ol_datcons) AS datcons,
                 SUM(ol.ol_quant) AS quantita,
                 mt.cb_modesrk AS desc_tipo,
                 an.an_descr1 AS fornitore,
@@ -1350,9 +1350,9 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
               AND ol.ol_tipork IN ('H','O','R','Y')
               ${filtri}
             GROUP BY ol.ol_codart, ol.ol_magaz, ol.ol_fase, ol.ol_tipork, mt.cb_modesrk,
-                     ol.ol_oranno, ol.ol_orserie, ol.ol_ornum, ol.ol_orriga,
+                     ol.ol_datcons, ol.ol_oranno, ol.ol_orserie, ol.ol_ornum, ol.ol_orriga,
                      an.an_descr1, ol.ol_stato
-            ORDER BY ol.ol_tipork, ol.ol_magaz, ol.ol_fase, MIN(ol.ol_datcons)
+            ORDER BY ol.ol_tipork, ol.ol_codart, ol.ol_magaz, ol.ol_fase, ol.ol_datcons
         `);
 
         res.json(result.recordset);
