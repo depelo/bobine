@@ -1774,26 +1774,176 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
             ORDER BY ol.ol_conto, ol.ol_codart, ol.ol_datcons
         `);
 
-        // Arricchisci con info emissioni da ordini_emessi (DB MRP)
+        // ─── Rilevazione Elaborazione MRP ───
+        const userId = getUserId(req);
+        const profile = getActiveProfile(userId);
+        const ambiente = (profile && profile.ambiente) || 'produzione';
+        let elaborazione = null;
+
+        try {
+            // 1) Fingerprint: valore ol_ultagg più frequente (= batch MRP notturno)
+            const fpRes = await pool.request().query(`
+                SELECT TOP 1 ol_ultagg AS fingerprint, COUNT(*) AS cnt
+                FROM dbo.ordlist WHERE ol_tipork = 'O'
+                GROUP BY ol_ultagg ORDER BY cnt DESC
+            `);
+
+            if (fpRes.recordset.length > 0) {
+                const fingerprint = fpRes.recordset[0].fingerprint;
+                const poolGB2 = await getPoolProd();
+
+                // 2) Check se elaborazione già registrata
+                let elabRes = await poolGB2.request()
+                    .input('fp', sql.DateTime, fingerprint)
+                    .input('amb', sql.VarChar(20), ambiente)
+                    .query(`
+                        SELECT ID, TotaleProposte, TotaleGestite, Fingerprint, RilevatoIl
+                        FROM [GB2].[dbo].[ElaborazioniMRP]
+                        WHERE Fingerprint = @fp AND Ambiente = @amb
+                    `);
+
+                let elabId;
+                if (elabRes.recordset.length === 0) {
+                    // 3) Nuova elaborazione: INSERT + Snapshot proposte
+                    try {
+                        const insRes = await poolGB2.request()
+                            .input('fp', sql.DateTime, fingerprint)
+                            .input('tot', sql.Int, result.recordset.length)
+                            .input('uid', sql.Int, userId)
+                            .input('amb', sql.VarChar(20), ambiente)
+                            .query(`
+                                INSERT INTO [GB2].[dbo].[ElaborazioniMRP]
+                                    (Fingerprint, TotaleProposte, TotaleGestite, IDUser, Ambiente)
+                                VALUES (@fp, @tot, 0, @uid, @amb);
+                                SELECT SCOPE_IDENTITY() AS newId;
+                            `);
+                        elabId = insRes.recordset[0].newId;
+                    } catch (dupErr) {
+                        // Concorrenza: altro utente ha inserito la stessa fingerprint
+                        if (dupErr.number === 2601 || dupErr.number === 2627) {
+                            const retry = await poolGB2.request()
+                                .input('fp', sql.DateTime, fingerprint)
+                                .input('amb', sql.VarChar(20), ambiente)
+                                .query(`SELECT ID FROM [GB2].[dbo].[ElaborazioniMRP] WHERE Fingerprint=@fp AND Ambiente=@amb`);
+                            elabId = retry.recordset[0].ID;
+                        } else {
+                            throw dupErr;
+                        }
+                    }
+
+                    // Bulk INSERT snapshot (chunked a 100 righe)
+                    const rows = result.recordset;
+                    const CHUNK = 100;
+                    for (let i = 0; i < rows.length; i += CHUNK) {
+                        const chunk = rows.slice(i, i + CHUNK);
+                        const values = chunk.map((r, idx) =>
+                            `(@eid, @progr${idx}, @codart${idx}, @conto${idx}, @magaz${idx}, @fase${idx}, @quant${idx}, @datcons${idx}, @unmis${idx})`
+                        ).join(',');
+                        const rq = poolGB2.request().input('eid', sql.Int, elabId);
+                        chunk.forEach((r, idx) => {
+                            rq.input(`progr${idx}`, sql.Int, r.ol_progr);
+                            rq.input(`codart${idx}`, sql.VarChar(50), r.ol_codart);
+                            rq.input(`conto${idx}`, sql.Int, r.fornitore_codice);
+                            rq.input(`magaz${idx}`, sql.SmallInt, r.ol_magaz || 1);
+                            rq.input(`fase${idx}`, sql.SmallInt, r.ol_fase || 0);
+                            rq.input(`quant${idx}`, sql.Decimal(18, 9), r.ol_quant || 0);
+                            rq.input(`datcons${idx}`, sql.DateTime, r.ol_datcons || null);
+                            rq.input(`unmis${idx}`, sql.VarChar(10), r.ol_unmis || null);
+                        });
+                        await rq.query(`
+                            INSERT INTO [GB2].[dbo].[SnapshotProposte]
+                                (ElaborazioneID, ol_progr, ol_codart, ol_conto, ol_magaz, ol_fase, ol_quant, ol_datcons, ol_unmis)
+                            VALUES ${values}
+                        `);
+                    }
+
+                    elaborazione = { id: elabId, fingerprint, totaleProposte: rows.length, totaleGestite: 0 };
+                } else {
+                    // Elaborazione esistente
+                    elabId = elabRes.recordset[0].ID;
+                    elaborazione = {
+                        id: elabId,
+                        fingerprint: elabRes.recordset[0].Fingerprint,
+                        totaleProposte: elabRes.recordset[0].TotaleProposte,
+                        totaleGestite: elabRes.recordset[0].TotaleGestite
+                    };
+                }
+
+                // 4) Riconciliazione: marca le proposte già emesse in questa elaborazione
+                try {
+                    const emessiRes = await pool.request()
+                        .input('eid', sql.VarChar(50), String(elabId))
+                        .query(`SELECT id, ol_progr FROM dbo.ordini_emessi WHERE elaborazione_id = @eid`);
+
+                    if (emessiRes.recordset.length > 0) {
+                        for (const em of emessiRes.recordset) {
+                            await poolGB2.request()
+                                .input('eid', sql.Int, elabId)
+                                .input('progr', sql.Int, em.ol_progr)
+                                .input('oeId', sql.Int, em.id)
+                                .query(`
+                                    UPDATE [GB2].[dbo].[SnapshotProposte]
+                                    SET Gestita = 1, OrdineEmessoID = @oeId, UpdatedAt = GETDATE()
+                                    WHERE ElaborazioneID = @eid AND ol_progr = @progr AND Gestita = 0
+                                `);
+                        }
+                        // Aggiorna contatore
+                        const cntRes = await poolGB2.request()
+                            .input('eid', sql.Int, elabId)
+                            .query(`SELECT COUNT(*) AS cnt FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID=@eid AND Gestita=1`);
+                        const gestite = cntRes.recordset[0].cnt;
+                        await poolGB2.request()
+                            .input('eid', sql.Int, elabId)
+                            .input('gestite', sql.Int, gestite)
+                            .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
+                        elaborazione.totaleGestite = gestite;
+                    }
+                } catch (ricErr) {
+                    console.warn('[API] Riconciliazione snapshot fallita (continuo):', ricErr.message);
+                }
+            }
+        } catch (elabErr) {
+            console.warn('[API] Rilevazione elaborazione fallita (continuo senza):', elabErr.message);
+        }
+
+        // ─── Arricchimento emissioni ───
+        // ordini_emessi vive SEMPRE in MRP@163 (dove girano le SP), indipendentemente
+        // dal profilo attivo. Usiamo getPoolProd() per evitare di cercare nel DB test.
         let emissioni = [];
         try {
-            const poolMRP = await getPoolMRP(getUserId(req));
-            const emRes = await poolMRP.request().query(`
-                SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata, data_emissione
+            const poolEmissioni = await getPoolProd();
+            const emRes = await poolEmissioni.request()
+                .input('amb', sql.VarChar(20), ambiente)
+                .query(`
+                SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
+                       data_emissione, elaborazione_id,
+                       ISNULL(email_inviata, 0) AS email_inviata,
+                       email_inviata_il
                 FROM dbo.ordini_emessi
+                WHERE ISNULL(ambiente, 'produzione') = @amb
             `);
             emissioni = emRes.recordset;
         } catch (e) {
-            console.warn('[API] ordini_emessi non disponibile (continuo senza):', e.message);
+            // Fallback: colonne email_inviata/ambiente potrebbero non esistere ancora
+            try {
+                const poolEmissioni = await getPoolProd();
+                const emRes2 = await poolEmissioni.request().query(`
+                    SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
+                           data_emissione, elaborazione_id,
+                           0 AS email_inviata, NULL AS email_inviata_il
+                    FROM dbo.ordini_emessi
+                `);
+                emissioni = emRes2.recordset;
+            } catch (e2) {
+                console.warn('[API] ordini_emessi non disponibile (continuo senza):', e2.message);
+            }
         }
 
-        // Mappa ol_progr -> emissione
         const emissioniMap = new Map();
         for (const em of emissioni) {
             emissioniMap.set(em.ol_progr, em);
         }
 
-        // Annota ogni riga ordlist con info emissione
         const righe = result.recordset.map(r => {
             const em = emissioniMap.get(r.ol_progr);
             if (em) {
@@ -1803,13 +1953,16 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 r.ord_numord = em.ord_numord;
                 r.quantita_ordinata = em.quantita_ordinata;
                 r.data_emissione = em.data_emissione;
+                r.elaborazione_id = em.elaborazione_id;
+                r.email_inviata = !!em.email_inviata;
+                r.email_inviata_il = em.email_inviata_il;
             } else {
                 r.emesso = false;
             }
             return r;
         });
 
-        res.json(righe);
+        res.json({ elaborazione, righe });
     } catch (err) {
         console.error('[API] Errore proposta-ordini:', err);
         res.status(500).json({ error: err.message });
@@ -2027,6 +2180,54 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         const ambiente = dbProfile.ambiente || 'produzione';
         const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente });
 
+        // Marca l'ambiente sulle righe ordini_emessi appena create dalla SP
+        try {
+            await poolSP.request()
+                .input('anno', sql.SmallInt, ordine.anno)
+                .input('serie', sql.VarChar(3), ordine.serie)
+                .input('numord', sql.Int, ordine.numord)
+                .input('ambiente', sql.VarChar(20), ambiente)
+                .query(`UPDATE dbo.ordini_emessi SET ambiente=@ambiente WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+        } catch (ambErr) {
+            console.warn('[Emetti Ordine] Update ambiente fallito (colonna potrebbe non esistere):', ambErr.message);
+        }
+
+        // Aggiorna SnapshotProposte: segna le proposte come gestite
+        if (elaborazione_id) {
+            try {
+                const poolGB2 = await getPoolProd();
+                // Recupera gli ordini_emessi appena inseriti dalla SP
+                const oeRes = await poolSP.request()
+                    .input('anno', sql.SmallInt, ordine.anno)
+                    .input('serie', sql.VarChar(3), ordine.serie)
+                    .input('numord', sql.Int, ordine.numord)
+                    .query(`SELECT id, ol_progr FROM dbo.ordini_emessi WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+
+                for (const oe of oeRes.recordset) {
+                    await poolGB2.request()
+                        .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                        .input('progr', sql.Int, oe.ol_progr)
+                        .input('oeId', sql.Int, oe.id)
+                        .query(`
+                            UPDATE [GB2].[dbo].[SnapshotProposte]
+                            SET Gestita = 1, OrdineEmessoID = @oeId, UpdatedAt = GETDATE()
+                            WHERE ElaborazioneID = @eid AND ol_progr = @progr
+                        `);
+                }
+
+                // Aggiorna contatore gestite
+                const cntRes = await poolGB2.request()
+                    .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                    .query(`SELECT COUNT(*) AS cnt FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID=@eid AND Gestita=1`);
+                await poolGB2.request()
+                    .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                    .input('gestite', sql.Int, cntRes.recordset[0].cnt)
+                    .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
+            } catch (snapErr) {
+                console.warn('[Emetti Ordine] Aggiornamento snapshot fallito (continuo):', snapErr.message);
+            }
+        }
+
         res.json({
             success: true,
             ambiente,
@@ -2080,7 +2281,18 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
                 const ordine = result.recordsets[0][0];
                 const righeOrdine = result.recordsets[1] || [];
                 const dbProf = getActiveProfile(getUserId(req));
-                const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: dbProf.ambiente || 'produzione' });
+                const ambienteBatch = dbProf.ambiente || 'produzione';
+                const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: ambienteBatch });
+
+                // Marca ambiente
+                try {
+                    await poolSP.request()
+                        .input('anno', sql.SmallInt, ordine.anno)
+                        .input('serie', sql.VarChar(3), ordine.serie)
+                        .input('numord', sql.Int, ordine.numord)
+                        .input('ambiente', sql.VarChar(20), ambienteBatch)
+                        .query(`UPDATE dbo.ordini_emessi SET ambiente=@ambiente WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+                } catch (_) {}
 
                 risultati.push({
                     success: true,
@@ -2456,6 +2668,22 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             console.warn('[Email] Ordine inviato ma errore aggiornamento stato:', errAggiorna.message);
         }
 
+        // Aggiorna tracciamento email in ordini_emessi (sempre su MRP@163)
+        try {
+            const poolOE = await getPoolProd();
+            await poolOE.request()
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .query(`
+                    UPDATE dbo.ordini_emessi
+                    SET email_inviata = 1, email_inviata_il = GETDATE()
+                    WHERE ord_anno = @anno AND ord_serie = @serie AND ord_numord = @numord
+                `);
+        } catch (errEmail) {
+            console.warn('[Email] Tracciamento email_inviata fallito:', errEmail.message);
+        }
+
         const risposta = {
             success: true,
             message_id: info.messageId,
@@ -2473,6 +2701,255 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
     } catch (err) {
         console.error('[Invia Email] Errore:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// API: STORICO ORDINI EMESSI
+// ============================================================
+router.get('/storico-ordini', authMiddleware, async (req, res) => {
+    try {
+        // ordini_emessi + testord + anagra vivono in MRP@163 (sempre, anche per profili prova)
+        const pool = await getPoolProd();
+        const { elaborazione_id, fornitore, da, a } = req.query;
+        const profile = getActiveProfile(getUserId(req));
+        const ambiente = (profile && profile.ambiente) || 'produzione';
+
+        let where = '1=1';
+        const rq = pool.request();
+
+        // Filtra per ambiente corrente (produzione/prova)
+        // Usa try nella query principale; nel fallback si omette se colonna non esiste
+        let hasAmbienteFilter = true;
+        where += ' AND ISNULL(oe.ambiente, \'produzione\') = @ambiente';
+        rq.input('ambiente', sql.VarChar(20), ambiente);
+
+        if (elaborazione_id) {
+            where += ' AND oe.elaborazione_id = @eid';
+            rq.input('eid', sql.VarChar(50), elaborazione_id);
+        }
+        if (fornitore) {
+            where += ' AND oe.ol_conto = @forn';
+            rq.input('forn', sql.Int, parseInt(fornitore, 10));
+        }
+        if (da) {
+            where += ' AND oe.data_emissione >= @da';
+            rq.input('da', sql.DateTime, new Date(da));
+        }
+        if (a) {
+            where += ' AND oe.data_emissione <= @a';
+            rq.input('a', sql.DateTime, new Date(a));
+        }
+
+        // Query con fallback per colonne email (potrebbero non esistere ancora)
+        let queryResult;
+        try {
+            queryResult = await rq.query(`
+                SELECT
+                    oe.ord_anno, oe.ord_serie, oe.ord_numord,
+                    oe.ol_conto AS fornitore_codice,
+                    MAX(an.an_descr1) AS fornitore_nome,
+                    MIN(oe.data_emissione) AS data_emissione,
+                    oe.elaborazione_id,
+                    COUNT(*) AS num_righe,
+                    MAX(t.td_totdoc) AS totale_documento,
+                    oe.operatore,
+                    MAX(CAST(ISNULL(oe.email_inviata, 0) AS INT)) AS email_inviata,
+                    MAX(oe.email_inviata_il) AS email_inviata_il
+                FROM dbo.ordini_emessi oe
+                LEFT JOIN dbo.testord t
+                    ON t.codditt='UJET11' AND t.td_tipork='O'
+                    AND t.td_anno=oe.ord_anno AND t.td_serie=oe.ord_serie AND t.td_numord=oe.ord_numord
+                LEFT JOIN dbo.anagra an ON oe.ol_conto = an.an_conto
+                WHERE ${where}
+                GROUP BY oe.ord_anno, oe.ord_serie, oe.ord_numord, oe.ol_conto, oe.elaborazione_id, oe.operatore
+                ORDER BY MIN(oe.data_emissione) DESC
+            `);
+        } catch (colErr) {
+            // Fallback senza colonne email/ambiente (pre-deploy: colonne non esistono ancora)
+            const where2 = where.replace(/ AND ISNULL\(oe\.ambiente.*?@ambiente\)/, '');
+            const rq2 = pool.request();
+            if (elaborazione_id) rq2.input('eid', sql.VarChar(50), elaborazione_id);
+            if (fornitore) rq2.input('forn', sql.Int, parseInt(fornitore, 10));
+            if (da) rq2.input('da', sql.DateTime, new Date(da));
+            if (a) rq2.input('a', sql.DateTime, new Date(a));
+            queryResult = await rq2.query(`
+                SELECT
+                    oe.ord_anno, oe.ord_serie, oe.ord_numord,
+                    oe.ol_conto AS fornitore_codice,
+                    MAX(an.an_descr1) AS fornitore_nome,
+                    MIN(oe.data_emissione) AS data_emissione,
+                    oe.elaborazione_id,
+                    COUNT(*) AS num_righe,
+                    MAX(t.td_totdoc) AS totale_documento,
+                    oe.operatore,
+                    0 AS email_inviata,
+                    NULL AS email_inviata_il
+                FROM dbo.ordini_emessi oe
+                LEFT JOIN dbo.testord t
+                    ON t.codditt='UJET11' AND t.td_tipork='O'
+                    AND t.td_anno=oe.ord_anno AND t.td_serie=oe.ord_serie AND t.td_numord=oe.ord_numord
+                LEFT JOIN dbo.anagra an ON oe.ol_conto = an.an_conto
+                WHERE ${where2}
+                GROUP BY oe.ord_anno, oe.ord_serie, oe.ord_numord, oe.ol_conto, oe.elaborazione_id, oe.operatore
+                ORDER BY MIN(oe.data_emissione) DESC
+            `);
+        }
+
+        res.json({ ordini: queryResult.recordset });
+    } catch (err) {
+        console.error('[Storico Ordini] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Dettaglio singolo ordine (per riapertura modale risultato)
+router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req, res) => {
+    try {
+        const { anno, serie, numord } = req.params;
+        // testord/movord/anagra/ordini_emessi sono su MRP@163 (sempre)
+        const pool = await getPoolProd();
+
+        // Testata ordine + fornitore
+        const testata = await pool.request()
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .query(`
+                SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
+                       t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
+                       t.td_datcons, t.td_codpaga, t.td_porto AS porto,
+                       t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                       a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
+                       a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
+                       a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
+                       a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
+                       t.td_totdoc - t.td_totmerce AS totale_imposta
+                FROM dbo.testord t
+                LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+                  AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
+            `);
+
+        if (!testata.recordset.length) {
+            return res.status(404).json({ error: 'Ordine non trovato' });
+        }
+
+        // Descrizione pagamento
+        let pag_descr = '';
+        try {
+            const pag = await pool.request()
+                .input('codpaga', sql.SmallInt, testata.recordset[0].td_codpaga)
+                .query("SELECT tb_descr AS cp_descr FROM dbo.tabpaga WHERE tb_codpaga = @codpaga");
+            if (pag.recordset.length) pag_descr = pag.recordset[0].cp_descr || '';
+        } catch (_) {}
+
+        const ordine = { ...testata.recordset[0], pagamento_descr: pag_descr };
+
+        // Righe ordine
+        const righeRes = await pool.request()
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .query(`
+                SELECT mo_riga, mo_codart, mo_descr, mo_desint, mo_unmis,
+                       mo_quant, mo_prezzo, mo_valore, mo_datcons, mo_fase, mo_magaz
+                FROM dbo.movord
+                WHERE codditt = 'UJET11' AND mo_tipork = 'O'
+                  AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord
+                ORDER BY mo_riga
+            `);
+
+        // Stato email da ordini_emessi
+        let emailInviata = false, emailInviataIl = null;
+        try {
+            const oeRes = await pool.request()
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .query(`
+                    SELECT TOP 1 ISNULL(email_inviata, 0) AS email_inviata, email_inviata_il
+                    FROM dbo.ordini_emessi
+                    WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord
+                `);
+            if (oeRes.recordset.length) {
+                emailInviata = !!oeRes.recordset[0].email_inviata;
+                emailInviataIl = oeRes.recordset[0].email_inviata_il;
+            }
+        } catch (_) {}
+
+        // Genera PDF
+        const dbProfile = getActiveProfile(getUserId(req));
+        const ambiente = (dbProfile && dbProfile.ambiente) || 'produzione';
+        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset, { ambiente });
+
+        res.json({
+            success: true,
+            ambiente,
+            ordine: {
+                anno: ordine.anno,
+                serie: ordine.serie,
+                numord: ordine.numord,
+                fornitore_codice: ordine.fornitore_codice,
+                fornitore_nome: ordine.fornitore_nome,
+                fornitore_email: ordine.fornitore_email,
+                totale_merce: ordine.totale_merce,
+                totale_documento: ordine.totale_documento,
+                data_ordine: ordine.data_ordine,
+                num_righe: righeRes.recordset.length,
+                email_inviata: emailInviata,
+                email_inviata_il: emailInviataIl
+            },
+            righe: righeRes.recordset,
+            pdf_base64: pdfBuffer.toString('base64'),
+            pdf_filename: `OrdineForn${ordine.anno}${ordine.serie}${String(ordine.numord).padStart(6,'0')}.pdf`
+        });
+    } catch (err) {
+        console.error('[Ordine Dettaglio] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Controllo duplicati pre-emissione
+router.post('/controlla-duplicato', authMiddleware, async (req, res) => {
+    try {
+        const { fornitore_codice, elaborazione_id, articoli } = req.body;
+        if (!fornitore_codice || !elaborazione_id || !Array.isArray(articoli)) {
+            return res.json({ hasDuplicati: false, duplicati: [] });
+        }
+
+        // ordini_emessi è sempre su MRP@163
+        const pool = await getPoolProd();
+        const oeRes = await pool.request()
+            .input('forn', sql.Int, parseInt(fornitore_codice, 10))
+            .input('eid', sql.VarChar(50), String(elaborazione_id))
+            .query(`
+                SELECT ol_codart, ol_fase, ol_magaz, ord_numord, ord_serie, data_emissione
+                FROM dbo.ordini_emessi
+                WHERE ol_conto = @forn AND elaborazione_id = @eid
+            `);
+
+        // Confronta con articoli richiesti
+        const emessiSet = new Set(oeRes.recordset.map(r => `${r.ol_codart}|${r.ol_fase}|${r.ol_magaz}`));
+        const duplicati = [];
+        for (const art of articoli) {
+            const key = `${art.codart}|${art.fase || 0}|${art.magaz || 1}`;
+            if (emessiSet.has(key)) {
+                const match = oeRes.recordset.find(r => `${r.ol_codart}|${r.ol_fase}|${r.ol_magaz}` === key);
+                duplicati.push({
+                    codart: art.codart,
+                    fase: art.fase || 0,
+                    magaz: art.magaz || 1,
+                    ordine: `${match.ord_numord}/${match.ord_serie}`,
+                    data: match.data_emissione
+                });
+            }
+        }
+
+        res.json({ hasDuplicati: duplicati.length > 0, duplicati });
+    } catch (err) {
+        console.error('[Controlla Duplicato] Errore:', err);
+        res.json({ hasDuplicati: false, duplicati: [] });
     }
 });
 

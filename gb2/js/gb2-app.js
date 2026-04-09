@@ -22,7 +22,10 @@ const MrpApp = (() => {
         //           quantita_proposta, prezzo, escluso, timestamp_conferma }
         ordiniConfermati: new Map(),
         // Contesto della riga proposta da cui si è navigato ai progressivi
-        propostaCorrente: null
+        propostaCorrente: null,
+        // Elaborazione MRP corrente (rilevata dal server)
+        elaborazioneId: null,       // ID intero come stringa
+        elaborazione: null          // { id, fingerprint, totaleProposte, totaleGestite }
     };
 
     function init() {

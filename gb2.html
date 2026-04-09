@@ -158,7 +158,8 @@
                         <div class="proposta-header">
                             <h2 class="mrp-card-title">Gestione Lista Ordini</h2>
                             <span class="proposta-subtitle">Ordini Fornitori</span>
-                            <button type="button" id="btnRefreshProposta" class="mrp-btn-secondary" style="margin-left:auto;font-size:0.8rem;padding:4px 10px;">↻ Aggiorna</button>
+                            <button type="button" id="btnApriStorico" class="mrp-btn-secondary" style="margin-left:auto;font-size:0.8rem;padding:4px 10px;">📋 Storico</button>
+                            <button type="button" id="btnRefreshProposta" class="mrp-btn-secondary" style="font-size:0.8rem;padding:4px 10px;">↻ Aggiorna</button>
                         </div>
                         <div class="proposta-stats" id="propostaStats"></div>
                         <div class="proposta-body" id="propostaBody">
@@ -635,6 +636,39 @@
                 <div id="batchAzioni" style="display:flex; justify-content:center; gap:10px; margin-top:16px;">
                     <button type="button" id="btnBatchChiudi" class="mrp-btn-primary" style="display:none;">Chiudi</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALE STORICO ORDINI EMESSI -->
+    <div id="modalStoricoOverlay" class="mrp-modal-overlay">
+        <div class="mrp-modal" style="max-width:920px; max-height:85vh;">
+            <div class="mrp-modal-header">
+                <h3 style="margin:0;">Storico Ordini Emessi</h3>
+                <button type="button" id="modalStoricoClose" class="mrp-modal-close">&times;</button>
+            </div>
+            <div class="mrp-modal-body" style="padding:16px; overflow-y:auto;">
+                <div class="storico-filtri" id="storicoFiltri">
+                    <label class="storico-filtro-check">
+                        <input type="checkbox" id="storicoFiltroElab" checked>
+                        Solo elaborazione corrente
+                    </label>
+                </div>
+                <div id="storicoLoading" style="display:none; text-align:center; padding:20px; color:var(--text-muted);">Caricamento...</div>
+                <table class="storico-tabella">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Ordine</th>
+                            <th>Fornitore</th>
+                            <th class="num">Righe</th>
+                            <th class="num">Totale</th>
+                            <th class="center">Email</th>
+                            <th>Azioni</th>
+                        </tr>
+                    </thead>
+                    <tbody id="storicoBody"></tbody>
+                </table>
             </div>
         </div>
     </div>

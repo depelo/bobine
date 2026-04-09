@@ -49,5 +49,30 @@ END
 ELSE
 BEGIN
     PRINT 'Tabella ordini_emessi esiste gia.';
+
+    -- Aggiunta colonne tracciamento email (v2)
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'email_inviata')
+    BEGIN
+        ALTER TABLE dbo.ordini_emessi ADD email_inviata BIT NOT NULL DEFAULT 0;
+        PRINT 'Colonna email_inviata aggiunta.';
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'email_inviata_il')
+    BEGIN
+        ALTER TABLE dbo.ordini_emessi ADD email_inviata_il DATETIME NULL;
+        PRINT 'Colonna email_inviata_il aggiunta.';
+    END
+
+    -- Aggiunta colonna ambiente (v3): distingue ordini produzione da prova
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'ambiente')
+    BEGIN
+        ALTER TABLE dbo.ordini_emessi ADD ambiente VARCHAR(20) NOT NULL DEFAULT 'produzione';
+        CREATE INDEX IX_ordini_emessi_ambiente ON dbo.ordini_emessi (ambiente);
+
+        -- Migrazione retroattiva: tutti gli ordini emessi finora sono stati fatti in prova
+        UPDATE dbo.ordini_emessi SET ambiente = 'prova';
+
+        PRINT 'Colonna ambiente aggiunta. Ordini esistenti marcati come prova.';
+    END
 END
 GO

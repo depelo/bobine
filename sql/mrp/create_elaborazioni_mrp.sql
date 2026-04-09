@@ -32,6 +32,9 @@ BEGIN
         -- Operatore che ha triggerato il rilevamento
         IDUser              INT NOT NULL,
 
+        -- Ambiente: 'produzione' o 'prova' (per separare elaborazioni test)
+        Ambiente            VARCHAR(20) NOT NULL DEFAULT 'produzione',
+
         -- Note libere (es. "Elaborazione notturna standard")
         Note                NVARCHAR(500) NULL,
 
@@ -40,9 +43,9 @@ BEGIN
         UpdatedAt           DATETIME NOT NULL DEFAULT GETDATE()
     );
 
-    -- Indice univoco: non puo esistere due volte la stessa fingerprint
-    CREATE UNIQUE INDEX UX_ElaborazioniMRP_Fingerprint
-        ON [GB2].[dbo].[ElaborazioniMRP] (Fingerprint);
+    -- Indice univoco: non puo esistere due volte la stessa fingerprint per ambiente
+    CREATE UNIQUE INDEX UX_ElaborazioniMRP_Fingerprint_Ambiente
+        ON [GB2].[dbo].[ElaborazioniMRP] (Fingerprint, Ambiente);
 
     -- Indice per ricerche per operatore
     CREATE INDEX IX_ElaborazioniMRP_IDUser
@@ -55,5 +58,27 @@ BEGIN
     PRINT 'Tabella [GB2].[dbo].[ElaborazioniMRP] creata.';
 END
 ELSE
+BEGIN
     PRINT 'Tabella [GB2].[dbo].[ElaborazioniMRP] esiste gia.';
+
+    -- Aggiunta colonna Ambiente se non esiste (aggiunta in v2)
+    IF NOT EXISTS (
+        SELECT 1 FROM [GB2].sys.columns
+        WHERE object_id = OBJECT_ID('[GB2].[dbo].[ElaborazioniMRP]')
+          AND name = 'Ambiente'
+    )
+    BEGIN
+        ALTER TABLE [GB2].[dbo].[ElaborazioniMRP]
+        ADD Ambiente VARCHAR(20) NOT NULL DEFAULT 'produzione';
+
+        -- Ricreare indice univoco con Ambiente
+        IF EXISTS (SELECT 1 FROM [GB2].sys.indexes WHERE name = 'UX_ElaborazioniMRP_Fingerprint' AND object_id = OBJECT_ID('[GB2].[dbo].[ElaborazioniMRP]'))
+            DROP INDEX UX_ElaborazioniMRP_Fingerprint ON [GB2].[dbo].[ElaborazioniMRP];
+
+        CREATE UNIQUE INDEX UX_ElaborazioniMRP_Fingerprint_Ambiente
+            ON [GB2].[dbo].[ElaborazioniMRP] (Fingerprint, Ambiente);
+
+        PRINT 'Colonna Ambiente aggiunta a ElaborazioniMRP.';
+    END
+END
 GO

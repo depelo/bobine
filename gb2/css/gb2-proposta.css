@@ -599,3 +599,126 @@
     color: var(--text-muted);
     margin-bottom: 16px;
 }
+
+/* ============================================
+   ELABORAZIONE & GESTITA
+   ============================================ */
+
+/* Articolo gestito nell'elaborazione corrente (verde) */
+.proposta-art-gestita {
+    border-left: 4px solid var(--success);
+    background: var(--row-magazzino);
+    border-radius: var(--radius-sm);
+}
+
+.proposta-art-gestita .proposta-art-header {
+    opacity: 0.8;
+}
+
+/* Banner elaborazione nelle stats */
+.proposta-stat-elab {
+    width: 100%;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+    margin-top: 4px;
+}
+
+/* ============================================
+   BOTTONE VISUALIZZA ORDINE
+   ============================================ */
+.btn-visualizza-ordine-forn {
+    background: rgba(255,255,255,0.3);
+    color: white;
+    border: none;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.68rem;
+    cursor: pointer;
+    margin-left: 4px;
+    transition: all 0.15s;
+}
+.btn-visualizza-ordine-forn:hover {
+    background: rgba(255,255,255,0.5);
+}
+
+/* ============================================
+   BADGE EMAIL
+   ============================================ */
+.email-gia-inviata {
+    background: #dcfce7 !important;
+    color: var(--success) !important;
+}
+.email-non-inviata {
+    background: #fff7ed !important;
+    color: #ea580c !important;
+}
+
+/* ============================================
+   STORICO ORDINI
+   ============================================ */
+.storico-filtri {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 0 12px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+}
+.storico-filtro-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.storico-filtro-check input { cursor: pointer; }
+
+.storico-tabella {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+.storico-tabella th {
+    background: var(--table-header-bg);
+    color: white;
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+.storico-tabella th.num,
+.storico-tabella th.center { text-align: center; }
+.storico-tabella td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--table-border-color);
+    vertical-align: middle;
+}
+.storico-tabella td.num { text-align: right; }
+.storico-tabella td.center { text-align: center; }
+.storico-tabella tr:hover { background: var(--primary-light); }
+
+.storico-email-ok { font-size: 1rem; }
+.storico-email-no { font-size: 1rem; opacity: 0.5; }
+
+.btn-storico-visualizza,
+.btn-storico-pdf {
+    background: var(--primary-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 3px 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.btn-storico-visualizza:hover,
+.btn-storico-pdf:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}

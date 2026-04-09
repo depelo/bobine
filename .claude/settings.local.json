@@ -65,7 +65,11 @@
       "Bash(powershell \"Test-NetConnection 192.168.0.163 -Port 1433\")",
       "Read(//c/Users/depel/.pm2/logs/**)",
       "Bash(curl -ksI https://localhost:3000/gb2/js/gb2-proposta.js)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "mcp__mssql-ujet11__list_tables",
+      "Bash(node -c routes/gb2Routes.js)",
+      "Bash(node -c gb2/js/gb2-proposta.js)",
+      "Bash(node -c gb2/js/gb2-app.js)"
     ]
   }
 }
