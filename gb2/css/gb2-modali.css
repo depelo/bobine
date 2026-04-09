@@ -26,6 +26,10 @@
 #modalGenericOverlay {
     z-index: 1100;
 }
+/* Anteprima email: sopra il generico (usato come layer sopra batch) */
+#modalAnteprimaOverlay {
+    z-index: 1150;
+}
 .mrp-modal-overlay.open {
     display: flex;
     animation: fadeUp 0.25s ease-out;
@@ -34,8 +38,9 @@
     background: var(--bg-content);
     border-radius: var(--radius);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    width: 100%;
-    max-width: 1000px;
+    width: fit-content;
+    min-width: 420px;
+    max-width: 92vw;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
