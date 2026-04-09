@@ -2,7 +2,7 @@
   CONOSCENZE PROGETTO GB2 (Gabriele 2.0) — APP MRP WEB
   Modulo integrato nell'ecosistema PortalUjet
   Documento destinato a un'IA che prende in mano il progetto
-  Data: 8 Aprile 2026
+  Data: 9 Aprile 2026
 ================================================================================
 
 INDICE
@@ -20,12 +20,15 @@ INDICE
 11. ARCHITETTURA PRODUZIONE VS PROVA
 12. SISTEMA TEMI E COLORI PERSONALIZZABILI
 13. INTEGRAZIONE LAYER 2 (PORTALUJET)
-14. SVILUPPO LOCALE CON VITE
+14. SVILUPPO LOCALE
 15. AUTO-DEPLOY SQL
-16. PRINCIPI ARCHITETTURALI
-17. PROBLEMI NOTI E AVVERTENZE
-18. GLOSSARIO
-19. PERSONE DI RIFERIMENTO
+16. SISTEMA TRACCIAMENTO ELABORAZIONI MRP
+17. PRINCIPI ARCHITETTURALI
+18. PROBLEMI NOTI E AVVERTENZE
+19. GLOSSARIO
+20. PERSONE DI RIFERIMENTO
+21. SVILUPPO LOCALE E DEPLOY
+22. BUG FIX LOG
 
 
 ================================================================================
@@ -142,7 +145,7 @@ ARCHITETTURA VISTE MRP (SOLO PRODUZIONE):
 I file di GB2 sono distribuiti nella root del progetto bobine:
 
   routes/
-    gb2Routes.js              # TUTTE le API REST (~2400 righe). File centrale.
+    gb2Routes.js              # TUTTE le API REST (~2900 righe). File centrale.
                               # Factory function: createGb2Routes({ io, skipAuth })
                               # skipAuth usato solo in contesti di test specifici
 
@@ -176,7 +179,9 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
   gb2.html                    # Pagina unica SPA (header, nav, views, modali)
 
   sql/mrp/
-    create_ordini_emessi.sql  # DDL tabella registro emissioni
+    create_ordini_emessi.sql  # DDL tabella registro emissioni (+ colonne email, ambiente)
+    create_elaborazioni_mrp.sql # DDL tabella ElaborazioniMRP in GB2 (tracciamento batch)
+    create_snapshot_proposte.sql # DDL tabella SnapshotProposte in GB2 (foto proposte)
     create_user_preferences.sql # DDL tabella preferenze utente (colori, label, SMTP)
     create_test_profiles.sql  # DDL tabella profili di prova per operatore
     usp_CreaOrdineFornitore.sql # SP creazione ordine atomico (con placeholder {{UJET11_REF}})
@@ -223,8 +228,15 @@ FILE IN .GITIGNORE:
     ol_tipork, ol_codart, ol_conto, ol_quant, ol_fase, ol_magaz
     ord_anno, ord_serie, ord_numord, ord_riga
     quantita_ordinata   Quantita effettivamente ordinata
-    elaborazione_id     Identificativo elaborazione MRP (YYYYMMDDHHMMSS)
+    elaborazione_id     Identificativo elaborazione MRP (ID intero come stringa)
     data_emissione, operatore
+    email_inviata       BIT — 1 se email inviata al fornitore (v2)
+    email_inviata_il    DATETIME — timestamp invio email (v2)
+    ambiente            VARCHAR(20) — 'produzione' o 'prova' (v3, default 'produzione')
+                        Indice IX_ordini_emessi_ambiente per filtro ambiente
+    NOTA: al primo deploy di ambiente, tutti gli ordini esistenti vengono marcati 'prova'
+    REGOLA: tutte le query su ordini_emessi usano SEMPRE getPoolProd(), MAI getPoolMRP(),
+            perche la tabella risiede nel database MRP su 163 dove le SP la alimentano.
 
 --- DATABASE GB2 (silos app su 192.168.0.163) ---
 
@@ -247,6 +259,27 @@ FILE IN .GITIGNORE:
     SmtpFromAddress     VARCHAR(255) — email mittente (Da:)
     SmtpFromName        VARCHAR(100) — nome mittente
     UpdatedAt           DATETIME
+
+  ElaborazioniMRP       Tracciamento batch MRP (fingerprint = ol_ultagg)
+    ID                  PK identity
+    Fingerprint         DATETIME — data ultima elaborazione MRP (da ol_ultagg)
+    RilevatoIl          DATETIME — quando l'app ha rilevato il batch
+    TotaleProposte      INT — numero totale proposte nel batch
+    TotaleGestite       INT — numero proposte con ordine emesso
+    Ambiente            VARCHAR(20) — 'produzione' o 'prova' (default 'produzione')
+    IDUser              INT — chi ha rilevato il batch
+    Note, CreatedAt, UpdatedAt
+    UNIQUE INDEX: UX_ElaborazioniMRP_Fingerprint_Ambiente (Fingerprint, Ambiente)
+
+  SnapshotProposte      Foto delle proposte al momento del rilevamento batch
+    ID                  PK identity
+    ElaborazioneID      INT FK -> ElaborazioniMRP.ID
+    ol_progr, ol_codart, ol_conto, ol_magaz, ol_fase, ol_quant
+    ol_datcons, ol_unmis
+    Gestita             BIT — 1 se ordine emesso per questa proposta
+    OrdineEmessoID      INT — FK verso ordini_emessi.id (nullable)
+    CreatedAt, UpdatedAt
+    Indice filtrato: IX_SnapshotProposte_NonGestite (ElaborazioneID) WHERE Gestita=0
 
   TestProfiles          Profili di prova per operatore (server DB)
     ID                  PK identity
@@ -274,7 +307,7 @@ FILE IN .GITIGNORE:
 ================================================================================
 
 Tutte le API sono montate su /api/mrp nel server.js principale.
-File: routes/gb2Routes.js (~2400 righe)
+File: routes/gb2Routes.js (~2900 righe)
 
 Factory function: createGb2Routes({ io, skipAuth })
   - io: istanza Socket.io (per eventi real-time)
@@ -310,7 +343,8 @@ GET  /ordini-dettaglio           Dettaglio ordini
 GET  /ordini-rmp                 Ordini RMP (restituisce anche ol_codart per navigazione)
 GET  /ordini-padre               Ordini padre (da movord, per modale dettaglio)
 GET  /ordini-padre-rmp           Ordini padre (da ordlist via ol_olprogr, per modale RMP)
-GET  /proposta-ordini            Proposte ordine raggruppate per fornitore
+GET  /proposta-ordini            Proposte ordine + elaborazione (vedi sez. 16)
+                                 Risposta: { elaborazione: {...}, righe: [...] }
 
 --- CONSUMI STORICI (usano getPoolRiep per fallback produzione) ---
 GET  /consumi/sprint-multi       KPI consumi multi-articolo
@@ -320,10 +354,20 @@ GET  /consumi/marathon/:codart   Storico 10 anni + impegni futuri
 
 --- EMISSIONE ORDINI (SP su poolProd con suffisso) ---
 POST /emetti-ordine              Emette ordine fornitore singolo
-POST /emetti-ordini-batch        Emette ordini per piu fornitori
+                                 Post-SP: aggiorna ambiente, SnapshotProposte, TotaleGestite
+POST /emetti-ordini-batch        Emette ordini per piu fornitori (stessi aggiornamenti)
+POST /controlla-duplicato        Verifica duplicati pre-emissione (stesso fornitore+articoli)
 
 --- PDF ---
 GET  /ordine-pdf/:anno/:serie/:numord    Genera/scarica PDF ordine
+
+--- STORICO E DETTAGLIO ORDINI ---
+GET  /storico-ordini             Storico ordini emessi (filtro elaborazione, fornitore, date)
+                                 Raggruppa per (ord_anno, ord_serie, ord_numord)
+                                 JOIN anagra per nome fornitore, testord per totale
+                                 Filtro ambiente automatico (produzione/prova)
+GET  /ordine-dettaglio/:anno/:serie/:numord  Dettaglio ordine emesso (JSON per modale)
+                                 Stessa struttura risposta di /emetti-ordine + email tracking
 
 --- SMTP (per operatore, da UserPreferences) ---
 GET  /smtp/config                Legge config SMTP dell'operatore loggato
@@ -332,6 +376,7 @@ POST /smtp/test                  Test connessione SMTP
 
 --- EMAIL ---
 POST /invia-ordine-email         Invia ordine via email (usa SMTP dell'operatore)
+                                 Dopo invio: UPDATE ordini_emessi SET email_inviata=1
 
 --- PREFERENZE UTENTE ---
 GET  /user/preferences           Legge preferenze colori/label
@@ -353,11 +398,16 @@ La SPA ha un unico file HTML (gb2.html) con due "views" switchabili via nav:
 
 Moduli JavaScript (pattern IIFE, ciascuno espone un oggetto globale):
   - MrpApp           Stato globale, routing views, API_BASE ('/api/mrp'), init
+                     state.elaborazioneId: ID elaborazione corrente (stringa)
+                     state.elaborazione: { id, fingerprint, totaleProposte, totaleGestite }
   - MrpTheme         Sistema temi colori (30 variabili CSS, preset, editing)
   - MrpDbConfig      Gestione profili DB + configurazione SMTP personale
   - MrpParametri     Gestione form parametri, combo autocomplete
   - MrpProgressivi   Griglia progressivi, chart consumi, pannello decisionale
   - MrpProposta      Proposte ordine, conferma, emissione, rendering fornitore
+                     Gestione elaborazioni, storico ordini, dettaglio ordine emesso
+                     Funzioni: apriStorico(), caricaStorico(), renderStorico(),
+                     apriDettaglioOrdine(), controllo duplicati pre-emissione
 
 Ordine di caricamento script (in gb2.html, fondo body):
   1. gb2-theme.js        (prima di tutto per prevenire FOUC)
@@ -445,12 +495,28 @@ Passo 2 — Emissione (POST /emetti-ordine):
   g) INSERT ordini_emessi (registro locale)
   h) Restituisce testata + righe per il PDF
 
+Passo 2b — Post-emissione (dopo successo SP, in Node.js):
+  a) UPDATE ordini_emessi SET ambiente = 'produzione'|'prova' (via getPoolProd)
+  b) UPDATE SnapshotProposte SET Gestita=1, OrdineEmessoID=id (via poolGB2)
+  c) UPDATE ElaborazioniMRP SET TotaleGestite = COUNT(...) (via poolGB2)
+
+Passo 2c — Controllo duplicati (pre-emissione):
+  POST /controlla-duplicato verifica se esistono gia ordini per stessi
+  articoli+fornitore+elaborazione in ordini_emessi. Se si, mostra warning
+  con opzione Procedi/Annulla.
+
 Passo 3 — PDF generato server-side con PDFKit, ritornato come base64.
 
 Passo 4 — UI: ri-fetch dati dal server (data-driven, mai manipolazione DOM diretta).
 
 Passo 5 — Email (opzionale): POST /invia-ordine-email con PDF allegato.
   Usa la configurazione SMTP dell'operatore loggato (da UserPreferences).
+  Dopo invio: UPDATE ordini_emessi SET email_inviata=1, email_inviata_il=GETDATE().
+
+Passo 6 — Storico (modale):
+  Bottone "Storico" nella header proposta apre modale con lista ordini emessi.
+  Filtri: elaborazione corrente (checkbox), date da/a, fornitore.
+  Azioni per riga: Visualizza (riapre modale risultato), PDF, Re-invia email.
 
 
 ================================================================================
@@ -653,9 +719,10 @@ Vedi GUIDA-SVILUPPO-LOCALE.txt per il setup completo.
 AVVIO (produzione e sviluppo — server.js):
   Chiama deployProductionObjects(poolProd):
   1. Tabelle GB2: create_test_profiles.sql, create_user_preferences.sql
-  2. Tabelle MRP: create_ordini_emessi.sql
-  3. SP MRP: usp_CreaOrdineFornitore.sql (placeholder {{UJET11_REF}} → [BCUBE2].[UJET11].[dbo])
-  4. SP MRP: usp_AggiornaStatoInvioOrdine.sql
+  2. Tabelle GB2: create_elaborazioni_mrp.sql, create_snapshot_proposte.sql
+  3. Tabelle MRP: create_ordini_emessi.sql (con ALTER per email/ambiente)
+  4. SP MRP: usp_CreaOrdineFornitore.sql (placeholder {{UJET11_REF}} → [BCUBE2].[UJET11].[dbo])
+  5. SP MRP: usp_AggiornaStatoInvioOrdine.sql
   Tutti i file usano IF NOT EXISTS per essere idempotenti.
 
 SWITCH A PROVA:
@@ -676,7 +743,78 @@ SP CON PLACEHOLDER:
 
 
 ================================================================================
-16. PRINCIPI ARCHITETTURALI
+16. SISTEMA TRACCIAMENTO ELABORAZIONI MRP
+================================================================================
+
+L'elaborazione MRP notturna di BCube genera le proposte in ordlist. L'app GB2
+deve sapere a quale "batch" appartengono le proposte correnti per:
+- Distinguere proposte nuove da quelle gia gestite
+- Permettere lo storico degli ordini emessi per elaborazione
+- Evitare ri-emissioni accidentali
+
+FINGERPRINT:
+  Il campo ol_ultagg di ordlist contiene la data dell'ultima elaborazione MRP.
+  Tutte le proposte di un batch condividono lo stesso ol_ultagg. L'app rileva
+  il fingerprint con:
+    SELECT TOP 1 ol_ultagg AS fingerprint, COUNT(*) AS cnt
+    FROM dbo.ordlist WHERE ol_tipork='O'
+    GROUP BY ol_ultagg ORDER BY cnt DESC
+
+RILEVAZIONE (in GET /proposta-ordini):
+  1. Query fingerprint (su pool MRP)
+  2. Check ElaborazioniMRP per (Fingerprint, Ambiente) su poolGB2 = getPoolProd()
+  3. Se non esiste: INSERT in ElaborazioniMRP + bulk INSERT in SnapshotProposte
+     (chunked a 100 righe per batch, parametri $1..$N)
+     Pattern INSERT-or-SELECT: catch errore duplicate key (2601/2627) → SELECT
+  4. Se esiste: riconciliazione — query ordini_emessi per elaborazione_id,
+     UPDATE SnapshotProposte.Gestita=1, UPDATE TotaleGestite
+
+RISPOSTA API (cambio formato):
+  GET /proposta-ordini ora restituisce:
+    { elaborazione: { id, fingerprint, totaleProposte, totaleGestite }, righe: [...] }
+  Il frontend estrae elaborazione e salva in MrpApp.state.
+
+FRONTEND — 5 SCENARI UX:
+  1. Blocco ri-emissione: ordine gia emesso → badge "Emesso" + bottone "Visualizza Ordine"
+     Click → GET /ordine-dettaglio → riapre modale risultato con PDF ed email
+  2. Storico ordini: modale con lista ordini raggruppati per documento
+     Filtri: elaborazione corrente, date, fornitore. Azioni: PDF, re-invio email
+  3. Warning duplicati: prima di emettere, POST /controlla-duplicato verifica
+     se stessi articoli+fornitore gia emessi in questa elaborazione
+  4. Badge email: icona inviata/non-inviata per ogni ordine emesso
+     Testo bottone: "Invia" vs "Re-invia" in base a email_inviata
+  5. Proposte gestite in verde: classe .proposta-art-gestita (bordo+sfondo verde)
+     se r.emesso && r.elaborazione_id === MrpApp.state.elaborazioneId
+
+BANNER ELABORAZIONE:
+  Riga info dopo le stats: "#ID | Batch MRP: dd/mm/yyyy HH:mm | Gestite: X/Y"
+
+CAMBIO ELABORAZIONE:
+  Se il fingerprint cambia (nuova elaborazione MRP notturna), il frontend svuota
+  MrpApp.state.ordiniConfermati per evitare ordini basati su proposte obsolete.
+
+POOL — REGOLA CRITICA:
+  - ElaborazioniMRP e SnapshotProposte: query su poolGB2 = getPoolProd()
+    (DB GB2 su 192.168.0.163)
+  - ordini_emessi: query su getPoolProd() SEMPRE (DB MRP su 192.168.0.163)
+  - ordlist (fingerprint): query su pool MRP dell'utente (produzione o prova)
+  MAI usare getPoolMRP(userId) per ordini_emessi — in prova punterebbe a UJET11!
+
+AMBIENTE:
+  Ogni riga in ordini_emessi ha una colonna 'ambiente' ('produzione' o 'prova').
+  Le query di storico filtrano per ambiente corrente, cosi ordini di prova
+  non appaiono in produzione e viceversa.
+  ElaborazioniMRP ha UNIQUE index su (Fingerprint, Ambiente) per separare
+  elaborazioni rilevate in produzione da quelle rilevate in prova.
+
+FALLBACK QUERY:
+  Le query su ordini_emessi usano try/catch: se le colonne email_inviata o
+  ambiente non esistono ancora (pre-deploy), il catch esegue una query senza
+  quelle colonne. Questo garantisce compatibilita durante il primo deploy.
+
+
+================================================================================
+17. PRINCIPI ARCHITETTURALI
 ================================================================================
 
 1. UI DATA-DRIVEN:
@@ -712,7 +850,7 @@ SP CON PLACEHOLDER:
 
 
 ================================================================================
-17. PROBLEMI NOTI E AVVERTENZE
+18. PROBLEMI NOTI E AVVERTENZE
 ================================================================================
 
 NOTA — POOL PER UTENTE:
@@ -728,6 +866,17 @@ ATTENZIONE — COLONNE ORDLIST IN PRODUZIONE:
 ATTENZIONE — PDF SOLO IN MEMORIA:
   I PDF generati sono tenuti in memoria nel frontend (pdfCache Map).
   Ricaricando la pagina si perdono. Rigenerabili da GET /ordine-pdf/.
+  Lo storico ordini rigenera i PDF on-demand via GET /ordine-pdf/:anno/:serie/:numord.
+
+NOTA — ORDINI_EMESSI SEMPRE SU POOLPROD:
+  La tabella ordini_emessi risiede in MRP su 192.168.0.163 (dove le SP scrivono).
+  Tutte le query (storico, emissioni, email tracking) devono usare getPoolProd(),
+  MAI getPoolMRP(userId) — in prova quest'ultimo punta a UJET11 del server di prova.
+
+NOTA — FALLBACK COLONNE NUOVE:
+  Le query su ordini_emessi con colonne email_inviata/ambiente usano try/catch
+  con fallback a query senza quelle colonne. Questo garantisce che l'app funzioni
+  anche prima che il deploy SQL abbia aggiunto le nuove colonne.
 
 NOTA — COLONNA Riep:
   La colonna nella vista/tabella Riep si chiama "Qta" con accento (ASCII 224).
@@ -736,7 +885,7 @@ NOTA — COLONNA Riep:
 
 
 ================================================================================
-18. GLOSSARIO
+19. GLOSSARIO
 ================================================================================
 
 GB2:        Database silos dell'app Gabriele 2.0
@@ -752,10 +901,15 @@ poolTest:   Pool dinamico verso UJET11 sul server di prova
 getPoolRiep: Pool per query su Riep (fallback a produzione se manca in prova)
 _T{id}:     Suffisso SP per profili di prova (es. usp_CreaOrdineFornitore_T3)
 {{UJET11_REF}}: Placeholder nelle SP, risolto al deploy col prefisso cross-database
+Fingerprint:  DATETIME da ol_ultagg che identifica un batch MRP (stessa data = stesso batch)
+Elaborazione: Record in ElaborazioniMRP che rappresenta un batch MRP rilevato
+Snapshot:     Foto delle proposte ordlist al momento del rilevamento batch
+Gestita:      Proposta per cui e stato emesso un ordine (SnapshotProposte.Gestita=1)
+ambiente:     Colonna che distingue ordini di 'produzione' da ordini di 'prova'
 
 
 ================================================================================
-19. PERSONE DI RIFERIMENTO
+20. PERSONE DI RIFERIMENTO
 ================================================================================
 
 Gabriele:     Sviluppatore principale, committente del progetto GB2/MRP Web
@@ -766,7 +920,7 @@ Pietro Tardioli: Responsabile acquisti U.Jet (firma sugli ordini PDF)
 
 
 ================================================================================
-20. SVILUPPO LOCALE E DEPLOY
+21. SVILUPPO LOCALE E DEPLOY
 ================================================================================
 
 TEAM: Davide (casa), Fabrizio (casa), Andrea (casa). Produzione su 192.168.0.163.
@@ -797,7 +951,7 @@ COMANDI SVILUPPO (vedi GUIDA-SVILUPPO-LOCALE.txt):
 
 
 ================================================================================
-21. BUG FIX LOG
+22. BUG FIX LOG
 ================================================================================
 
 2026-04-08: caricaMRP — getUserId(req) dove req non esiste
@@ -816,6 +970,36 @@ COMANDI SVILUPPO (vedi GUIDA-SVILUPPO-LOCALE.txt):
     i file vecchi causando rendering incompleto (es. griglia MRP senza righe magazzino).
   Fix: aggiunto middleware Cache-Control: no-cache per .js, .css, .html prima di
     express.static. Il browser cachea ma rivalidata sempre col server (304 se invariato).
+
+2026-04-09: Pool sbagliato per ordini_emessi in storico/emissioni
+  File: gb2Routes.js, multiple sezioni (proposta-ordini, storico-ordini, emetti-ordine)
+  Problema: le query su ordini_emessi usavano getPoolMRP(userId). In prova,
+    getPoolMRP restituisce il pool verso UJET11 sul server di prova, ma ordini_emessi
+    risiede in MRP su 163 (dove le SP scrivono). Risultato: ordini emessi in prova
+    non apparivano nello storico, e viceversa ordini di produzione non visibili in prova.
+  Fix: tutte le query su ordini_emessi cambiate a getPoolProd() (pool fisso MRP@163).
+    Aggiunta colonna 'ambiente' per filtrare produzione vs prova nella stessa tabella.
+
+2026-04-09: email_inviata colonna inesistente — emissioni silenziosamente vuote
+  File: gb2Routes.js, sezione arricchimento emissioni in GET /proposta-ordini
+  Problema: la query usava ISNULL(email_inviata, 0) ma la colonna non esisteva
+    ancora (pre-deploy). Il try/catch swallowava l'errore, emissioni restava [],
+    quindi nessuna riga veniva marcata come emessa.
+  Fix: aggiunto fallback nel catch — se la query con colonne nuove fallisce,
+    ritenta senza email_inviata/ambiente. Pattern applicato anche a /storico-ordini.
+
+2026-04-09: Ordini esistenti marcati retroattivamente come 'prova'
+  File: sql/mrp/create_ordini_emessi.sql
+  Problema: tutti gli ordini emessi fino a quel momento erano stati fatti in ambiente
+    di prova, ma senza la colonna 'ambiente' non c'era modo di distinguerli.
+  Fix: al primo deploy della colonna ambiente (DEFAULT 'produzione'), un UPDATE
+    immediato marca tutti gli ordini esistenti come 'prova'.
+
+2026-04-09: Variabile duplicata const { elaborazione_id } in emetti-ordine
+  File: gb2Routes.js, POST /emetti-ordine
+  Problema: const { elaborazione_id } destructured da req.body a riga ~2145 (originale)
+    e di nuovo a riga ~2166 (aggiunta per tracciamento). Errore sintassi: duplicate.
+  Fix: rimossa la seconda dichiarazione, riusata la variabile gia esistente.
 
 
 ================================================================================
