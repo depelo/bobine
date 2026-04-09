@@ -3180,9 +3180,103 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             risposta.email_prova = destinatari.join(', ');
         }
 
+        // Cancella eventuale bozza dopo invio riuscito
+        try {
+            const poolDraft = await getPoolProd();
+            await poolDraft.request()
+                .input('uid', sql.Int, userId)
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(5), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .query(`DELETE FROM [GB2].[dbo].[EmailDrafts] WHERE IDUser = @uid AND Anno = @anno AND Serie = @serie AND NumOrd = @numord`);
+        } catch (errDraft) {
+            console.warn('[Email] Pulizia bozza fallita:', errDraft.message);
+        }
+
         res.json(risposta);
     } catch (err) {
         console.error('[Invia Email] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// API: EMAIL DRAFTS (bozze email personalizzate)
+// ============================================================
+
+// GET /email-drafts — tutte le bozze dell'operatore (o filtrate per ordine)
+router.get('/email-drafts', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const { anno, serie, numord } = req.query;
+
+        let query = `SELECT ID, Anno, Serie, NumOrd, OggettoCustom, CorpoCustom, DataModifica
+                      FROM [GB2].[dbo].[EmailDrafts] WHERE IDUser = @uid`;
+        const request = pool.request().input('uid', sql.Int, userId);
+
+        if (anno && serie && numord) {
+            query += ` AND Anno = @anno AND Serie = @serie AND NumOrd = @numord`;
+            request.input('anno', sql.SmallInt, parseInt(anno, 10));
+            request.input('serie', sql.VarChar(5), serie);
+            request.input('numord', sql.Int, parseInt(numord, 10));
+        }
+
+        const result = await request.query(query);
+        res.json({ drafts: result.recordset });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /email-drafts — upsert bozza (salva o aggiorna)
+router.put('/email-drafts', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const { anno, serie, numord, oggetto, corpo } = req.body;
+
+        if (!anno || !serie || !numord || !oggetto || !corpo) {
+            return res.status(400).json({ error: 'anno, serie, numord, oggetto e corpo sono obbligatori' });
+        }
+
+        await pool.request()
+            .input('uid', sql.Int, userId)
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(5), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .input('oggetto', sql.NVarChar(500), oggetto)
+            .input('corpo', sql.NVarChar(sql.MAX), corpo)
+            .query(`
+                MERGE [GB2].[dbo].[EmailDrafts] AS target
+                USING (SELECT @uid AS IDUser, @anno AS Anno, @serie AS Serie, @numord AS NumOrd) AS source
+                ON target.IDUser = source.IDUser AND target.Anno = source.Anno AND target.Serie = source.Serie AND target.NumOrd = source.NumOrd
+                WHEN MATCHED THEN UPDATE SET OggettoCustom = @oggetto, CorpoCustom = @corpo, DataModifica = GETDATE()
+                WHEN NOT MATCHED THEN INSERT (IDUser, Anno, Serie, NumOrd, OggettoCustom, CorpoCustom) VALUES (@uid, @anno, @serie, @numord, @oggetto, @corpo);
+            `);
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /email-drafts — cancella bozza specifica
+router.delete('/email-drafts', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const { anno, serie, numord } = req.body;
+
+        await pool.request()
+            .input('uid', sql.Int, userId)
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(5), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .query(`DELETE FROM [GB2].[dbo].[EmailDrafts] WHERE IDUser = @uid AND Anno = @anno AND Serie = @serie AND NumOrd = @numord`);
+
+        res.json({ success: true });
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

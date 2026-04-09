@@ -1128,19 +1128,34 @@ const MrpProposta = (() => {
                 return { success: false, error: prevData.error };
             }
 
-            // 2) Mostra modale editabile
+            // 2) Controlla se esiste una bozza salvata per questo ordine
+            let oggettoPreview = prevData.oggetto;
+            let corpoPreview = prevData.corpo;
+            try {
+                const draftResp = await fetch(`${MrpApp.API_BASE}/email-drafts?anno=${emesso.anno}&serie=${emesso.serie}&numord=${emesso.numord}`, { credentials: 'include' });
+                const draftData = await draftResp.json();
+                if (draftData.drafts && draftData.drafts.length > 0) {
+                    oggettoPreview = draftData.drafts[0].OggettoCustom;
+                    corpoPreview = draftData.drafts[0].CorpoCustom;
+                }
+            } catch (_) { /* ignora */ }
+
+            // 3) Mostra modale editabile
             const risultato = await modaleAnteprimaEmail({
                 ordine: `${emesso.numord}/${emesso.serie}`,
                 fornitore: prevData.fornitore_nome,
                 destinatario: prevData.destinatario,
                 ambiente: prevData.ambiente,
-                oggetto: prevData.oggetto,
-                corpo: prevData.corpo
+                oggetto: oggettoPreview,
+                corpo: corpoPreview,
+                anno: emesso.anno,
+                serie: emesso.serie,
+                numord: emesso.numord
             });
 
             if (!risultato) return { success: false, error: 'CANCELLED' };
 
-            // 3) Invia con i dati (eventualmente editati)
+            // 4) Invia con i dati (eventualmente editati)
             return await _inviaEmailDirect(emesso, {
                 template_id: templateId,
                 oggetto_custom: risultato.oggetto,
@@ -1154,7 +1169,7 @@ const MrpProposta = (() => {
     }
 
     /** Modale con anteprima email editabile. Restituisce { oggetto, corpo } oppure null se annullato */
-    function modaleAnteprimaEmail({ ordine, fornitore, destinatario, ambiente, oggetto, corpo }) {
+    function modaleAnteprimaEmail({ ordine, fornitore, destinatario, ambiente, oggetto, corpo, batchMode, anno, serie, numord }) {
         return new Promise(resolve => {
             // Usa overlay dedicato (layer sopra il batch/generic)
             const overlay = document.getElementById('modalAnteprimaOverlay');
@@ -1168,15 +1183,18 @@ const MrpProposta = (() => {
                 ? '<span style="background:#f59e0b; color:white; padding:2px 8px; border-radius:10px; font-size:0.72rem; font-weight:600;">PROVA</span>'
                 : '';
 
-            elTitolo.textContent = 'Anteprima Email';
-            elIcona.textContent = '\u2709';
+            elTitolo.textContent = batchMode ? 'Modifica Email' : 'Anteprima Email';
+            elIcona.textContent = batchMode ? '\u270E' : '\u2709';
             elMsg.innerHTML =
                 '<div style="text-align:left;">' +
-                    '<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">' +
+                    '<div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">' +
                         '<span style="font-size:0.82rem; color:var(--text-muted);">Ordine <strong>' + esc(ordine) + '</strong> \u2014 ' + esc(fornitore) + '</span>' +
                         ambienteBadge +
                     '</div>' +
-                    '<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">Destinatario: <strong>' + esc(destinatario) + '</strong></div>' +
+                    '<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">Destinatario: <strong>' + esc(destinatario) + '</strong></div>' +
+                    '<div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:12px; opacity:0.7;">' +
+                        '\uD83D\uDCA1 Per creare un template riutilizzabile con variabili vai a <em>Impostazioni \u2192 Template Email</em>' +
+                    '</div>' +
                     '<label style="font-size:0.78rem; font-weight:600; color:var(--text-muted);">Oggetto</label>' +
                     '<input type="text" id="prevEmailOggetto" class="mrp-control" value="' + escAttr(oggetto) + '" style="font-size:0.88rem; font-weight:600; margin-bottom:10px;" />' +
                     '<label style="font-size:0.78rem; font-weight:600; color:var(--text-muted);">Corpo</label>' +
@@ -1185,30 +1203,82 @@ const MrpProposta = (() => {
 
             elAzioni.innerHTML = '';
 
+            let resolved = false;
             function cleanup(result) {
+                if (resolved) return;
+                resolved = true;
                 overlay.classList.remove('open');
                 resolve(result);
             }
 
+            function getEditValues() {
+                const o = document.getElementById('prevEmailOggetto').value.trim();
+                const c = document.getElementById('prevEmailCorpo').value.trim();
+                return (o && c) ? { oggetto: o, corpo: c } : null;
+            }
+
+            // --- Bottone Annulla ---
             const btnAnnulla = document.createElement('button');
             btnAnnulla.textContent = 'Annulla';
             btnAnnulla.className = 'mrp-btn mrp-btn-secondary';
             btnAnnulla.style.cssText = 'padding:8px 20px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-weight:600;font-size:0.85rem;';
             btnAnnulla.addEventListener('click', () => cleanup(null));
 
-            const btnInvia = document.createElement('button');
-            btnInvia.textContent = '\u2709 Invia Email';
-            btnInvia.className = 'mrp-btn mrp-btn-primary';
-            btnInvia.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
-            btnInvia.addEventListener('click', () => {
-                const oggettoEdit = document.getElementById('prevEmailOggetto').value.trim();
-                const corpoEdit = document.getElementById('prevEmailCorpo').value.trim();
-                if (!oggettoEdit || !corpoEdit) return;
-                cleanup({ oggetto: oggettoEdit, corpo: corpoEdit });
-            });
+            // --- Bottone Salva Bozza (solo in modalità singola) ---
+            if (!batchMode && anno && serie && numord) {
+                const btnSalva = document.createElement('button');
+                btnSalva.textContent = '\uD83D\uDCBE Salva Bozza';
+                btnSalva.className = 'mrp-btn';
+                btnSalva.style.cssText = 'padding:8px 20px;border-radius:6px;border:1px solid var(--border);background:#f0fdf4;color:#16a34a;cursor:pointer;font-weight:600;font-size:0.85rem;';
+                btnSalva.addEventListener('click', async () => {
+                    const vals = getEditValues();
+                    if (!vals) return;
+                    btnSalva.disabled = true; btnSalva.textContent = 'Salvataggio...';
+                    try {
+                        await fetch(`${MrpApp.API_BASE}/email-drafts`, {
+                            credentials: 'include', method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ anno, serie, numord, oggetto: vals.oggetto, corpo: vals.corpo })
+                        });
+                        btnSalva.textContent = '\u2714 Bozza Salvata';
+                        btnSalva.style.background = '#dcfce7';
+                        btnSalva.style.borderColor = '#16a34a';
+                        setTimeout(() => {
+                            btnSalva.disabled = false;
+                            btnSalva.textContent = '\uD83D\uDCBE Salva Bozza';
+                            btnSalva.style.background = '#f0fdf4';
+                            btnSalva.style.borderColor = 'var(--border)';
+                        }, 1500);
+                    } catch (err) {
+                        btnSalva.disabled = false;
+                        btnSalva.textContent = '\uD83D\uDCBE Salva Bozza';
+                        alert('Errore salvataggio bozza: ' + err.message);
+                    }
+                });
+                elAzioni.appendChild(btnAnnulla);
+                elAzioni.appendChild(btnSalva);
+            } else {
+                elAzioni.appendChild(btnAnnulla);
+            }
 
-            elAzioni.appendChild(btnAnnulla);
-            elAzioni.appendChild(btnInvia);
+            // --- Bottone principale ---
+            const btnPrimario = document.createElement('button');
+            if (batchMode) {
+                btnPrimario.textContent = '\u2714 Salva Modifiche';
+                btnPrimario.className = 'mrp-btn mrp-btn-primary';
+                btnPrimario.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--success, #16a34a);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+            } else {
+                btnPrimario.textContent = '\u2709 Invia Email';
+                btnPrimario.className = 'mrp-btn mrp-btn-primary';
+                btnPrimario.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+            }
+            btnPrimario.addEventListener('click', () => {
+                const vals = getEditValues();
+                if (!vals) return;
+                cleanup({ oggetto: vals.oggetto, corpo: vals.corpo, action: batchMode ? 'save' : 'send' });
+            });
+            elAzioni.appendChild(btnPrimario);
+
             overlay.classList.add('open');
 
             // Chiudi con X
@@ -1383,7 +1453,24 @@ const MrpProposta = (() => {
     }
 
     /** Modale batch: tabella con checkbox, dropdown template, modifica manuale */
-    function modaleBatchEmail(pendenti) {
+    async function modaleBatchEmail(pendenti) {
+        // Carica bozze salvate dal DB per pre-popolare overrides e badge
+        try {
+            const draftResp = await fetch(`${MrpApp.API_BASE}/email-drafts`, { credentials: 'include' });
+            const draftData = await draftResp.json();
+            if (draftData.drafts) {
+                draftData.drafts.forEach(d => {
+                    const key = pendenti.find(p => p.anno === d.Anno && p.serie === d.Serie && p.numord === d.NumOrd);
+                    if (key) {
+                        const fk = String(key.fornitore_codice || '');
+                        if (!_batchCustomOverrides.has(fk)) {
+                            _batchCustomOverrides.set(fk, { oggetto_custom: d.OggettoCustom, corpo_custom: d.CorpoCustom });
+                        }
+                    }
+                });
+            }
+        } catch (_) { /* ignora */ }
+
         return new Promise(resolve => {
             const overlay = document.getElementById('modalGenericOverlay');
             const elTitolo = document.getElementById('modalGenericTitolo');
@@ -1414,7 +1501,7 @@ const MrpProposta = (() => {
                     '<td>' + selHtml + '</td>' +
                     '<td style="text-align:center;white-space:nowrap;">' +
                         '<button class="batch-edit-btn" data-forn="' + escAttr(fk) + '" style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Modifica manuale">\u270E</button>' +
-                        '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" style="display:none;font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
+                        '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" style="display:' + (_batchCustomOverrides.has(fk) ? 'inline' : 'none') + ';font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
                     '</td>' +
                     '<td id="batchSt_' + escAttr(fk) + '" style="text-align:center;width:28px;"></td>' +
                     '</tr>';
@@ -1456,6 +1543,11 @@ const MrpProposta = (() => {
                     const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
                     const tid = tplSel ? parseInt(tplSel.value, 10) : null;
 
+                    // Feedback visivo: loading
+                    const origText = btn.textContent;
+                    btn.classList.add('loading');
+                    btn.textContent = '\u23F3';
+
                     try {
                         const prevResp = await fetch(`${MrpApp.API_BASE}/preview-ordine-email`, {
                             credentials: 'include', method: 'POST',
@@ -1463,6 +1555,9 @@ const MrpProposta = (() => {
                             body: JSON.stringify({ anno: emesso.anno, serie: emesso.serie, numord: emesso.numord, template_id: tid })
                         });
                         const prevData = await prevResp.json();
+
+                        btn.classList.remove('loading');
+                        btn.textContent = origText;
 
                         if (prevData.error) {
                             alert('Errore: ' + prevData.error);
@@ -1477,7 +1572,8 @@ const MrpProposta = (() => {
                             destinatario: prevData.destinatario,
                             ambiente: prevData.ambiente,
                             oggetto: esistente ? esistente.oggetto_custom : prevData.oggetto,
-                            corpo: esistente ? esistente.corpo_custom : prevData.corpo
+                            corpo: esistente ? esistente.corpo_custom : prevData.corpo,
+                            batchMode: true
                         });
 
                         if (risultato) {
@@ -1487,8 +1583,18 @@ const MrpProposta = (() => {
                                 badge.style.display = 'inline';
                                 badge.title = risultato.oggetto.substring(0, 60);
                             }
+                            // Salva bozza nel DB per persistenza
+                            try {
+                                await fetch(`${MrpApp.API_BASE}/email-drafts`, {
+                                    credentials: 'include', method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ anno: emesso.anno, serie: emesso.serie, numord: emesso.numord, oggetto: risultato.oggetto, corpo: risultato.corpo })
+                                });
+                            } catch (_) { /* best-effort */ }
                         }
                     } catch (err) {
+                        btn.classList.remove('loading');
+                        btn.textContent = origText;
                         alert('Errore: ' + err.message);
                     }
                 });
