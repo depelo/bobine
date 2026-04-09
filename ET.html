@@ -99,6 +99,8 @@
                     <thead class="table-light">
                     <tr>
                         <th>Etichetta</th>
+                        <th>Form</th>
+                        <th>FormPos</th>
                         <th class="text-center" style="width: 80px;">Riga</th>
                         <th style="width: 220px;">Azione</th>
                     </tr>
@@ -525,6 +527,8 @@
         (data.components || []).forEach((item) => {
             const figlio = item.MD_codfigli || "";
             const riga = item.et_layer_nriga || 0;
+            const formVal = item.Form || "";
+            const formPosVal = item.FormPos || "";
             const figlioDescHtml = item.figlioDesc ? ` <span class="text-muted ms-1 fw-normal" style="font-size: 0.9em;">- ${item.figlioDesc}</span>` : "";
             const isConfigurata = item.IsConfigurata === 1;
 
@@ -537,6 +541,8 @@
 
             tr.innerHTML = `
                 <td>${figlio}${figlioDescHtml}</td>
+                <td>${formVal}</td>
+                <td>${formPosVal}</td>
                 <td class="text-center">${riga}</td>
                 <td>${btnHtml}</td>
             `;
