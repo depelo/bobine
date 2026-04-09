@@ -29,6 +29,25 @@
     border-color: var(--primary);
 }
 
+/* Badge nell'header (sfondo scuro) */
+.mrp-db-badge-header {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #fff;
+    padding: 4px 12px;
+    font-size: 0.78rem;
+    border-radius: 16px;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+.mrp-db-badge-header:hover {
+    background: rgba(255,255,255,0.22);
+    border-color: rgba(255,255,255,0.4);
+}
+.mrp-db-badge-header .mrp-db-badge-server {
+    color: rgba(255,255,255,0.65);
+}
+
 .mrp-db-badge-dot {
     width: 10px;
     height: 10px;

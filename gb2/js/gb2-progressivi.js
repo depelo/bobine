@@ -522,7 +522,7 @@ const MrpProgressivi = (() => {
                 <td class="col-mag"></td>
                 <td class="col-fase"></td>
                 <td class="col-pol"></td>
-                <td class="col-um"></td>
+                <td class="col-um">${esc(row.um || 'PZ')}</td>
                 <td class="col-num">${fmt(row.esistenza)}</td>
                 <td class="col-num">${fmt(row.ordinato)}</td>
                 <td class="col-num">${fmt(row.impegnato)}</td>
@@ -1188,14 +1188,8 @@ const MrpProgressivi = (() => {
             : '';
         const parteInner = `${btnEspandi} <span class="mrp-desc-articolo" style="margin-left:${marginL}">${sostPref}${descrStrong} <span class="code-dim">${esc(articolo.codart)}</span> ${btnConsumi}</span> ${scadutoBadge}`;
 
-        let tot = null;
-        if (mrpRows.length > 0) {
-            tot = calcolaTotaliMrp(mrpRows);
-        } else if (ctx.isRoot || mrpPreFetched) {
-            // Se sappiamo di aver già interrogato il db e non ci sono record, stampiamo 0
-            tot = { esistenza: 0, ordinato: 0, impegnato: 0, disponibilita: 0, opc: 0, op: 0, ipc: 0, ip: 0, dispNetta: 0 };
-        }
-        tr.innerHTML = rigaArticoloHTML(rowNum, parteInner, articolo, tot);
+        // Totali mostrati solo nella riga TOTALE in fondo, non nella riga padre
+        tr.innerHTML = rigaArticoloHTML(rowNum, parteInner, articolo, null);
 
         if (isScaduto(articolo)) {
             tr.title = 'Componente distinta non più valido (data fine validità).';
@@ -1321,7 +1315,7 @@ const MrpProgressivi = (() => {
                     `<td>All</td>` +
                     `<td>${esc(r.fase)}</td>` +
                     `<td></td>` +
-                    `<td>CRT</td>` +
+                    `<td>${esc(r.um || 'PZ')}</td>` +
                     `<td style="text-align:right">${fmt(r.esistenza)}</td>` +
                     `<td style="text-align:right">${fmt(r.ordinato)}</td>` +
                     `<td style="text-align:right">${fmt(r.impegnato)}</td>` +
@@ -1399,7 +1393,7 @@ const MrpProgressivi = (() => {
                     <td class="col-mag">All</td>
                     <td class="col-fase">${esc(r.fase)}</td>
                     <td class="col-pol"></td>
-                    <td class="col-um">CRT</td>
+                    <td class="col-um">${esc(r.um || 'PZ')}</td>
                     <td class="col-num">${fmt(r.esistenza)}</td>
                     <td class="col-num">${fmt(r.ordinato)}</td>
                     <td class="col-num">${fmt(r.impegnato)}</td>
@@ -1423,7 +1417,7 @@ const MrpProgressivi = (() => {
                     <td class="col-mag">All</td>
                     <td class="col-fase">All</td>
                     <td class="col-pol"></td>
-                    <td class="col-um"></td>
+                    <td class="col-um">${esc(r.um || 'PZ')}</td>
                     <td class="col-num">${fmt(r.esistenza)}</td>
                     <td class="col-num">${fmt(r.ordinato)}</td>
                     <td class="col-num">${fmt(r.impegnato)}</td>

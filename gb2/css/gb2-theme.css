@@ -229,7 +229,7 @@
    EDIT MODE — Editing contestuale (click su elementi)
    ============================================================ */
 body.theme-edit-mode .mrp-table tbody tr:not(.mrp-row-generale-totale) {
-    cursor: crosshair;
+    cursor: crosshair !important;
     transition: outline 0.1s;
 }
 body.theme-edit-mode .mrp-table tbody tr:hover {
@@ -237,7 +237,7 @@ body.theme-edit-mode .mrp-table tbody tr:hover {
     outline-offset: -2px;
 }
 body.theme-edit-mode .mrp-table thead th {
-    cursor: crosshair;
+    cursor: crosshair !important;
 }
 body.theme-edit-mode .mrp-table thead th:hover {
     outline: 2px dashed var(--warning);
@@ -246,11 +246,20 @@ body.theme-edit-mode .mrp-table thead th:hover {
 
 /* In edit mode, anche le righe dentro i modali sono selezionabili */
 body.theme-edit-mode .mrp-modal-overlay tr {
-    cursor: crosshair;
+    cursor: crosshair !important;
     transition: outline 0.1s;
 }
 body.theme-edit-mode .mrp-modal-overlay tr:hover {
     outline: 2px dashed var(--primary);
+    outline-offset: -2px;
+}
+
+/* In edit mode, header e card sono selezionabili */
+body.theme-edit-mode .mrp-header {
+    cursor: crosshair !important;
+}
+body.theme-edit-mode .mrp-header:hover {
+    outline: 2px dashed var(--warning);
     outline-offset: -2px;
 }
 
@@ -287,8 +296,8 @@ body.theme-edit-mode .theme-edit-fab { display: flex; }
     box-shadow: 0 4px 16px rgba(0,0,0,0.15);
     padding: 10px 14px;
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 4px;
     font-size: 0.82rem;
     animation: miniPickerIn 0.15s ease-out;
 }

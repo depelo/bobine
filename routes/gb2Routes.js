@@ -59,7 +59,8 @@ async function deployProductionObjects(poolProd) {
     const results = [];
 
     // Tabelle GB2 (sempre su pool produzione)
-    for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql']) {
+    // ORDINE IMPORTANTE: ElaborazioniMRP prima di SnapshotProposte (FK)
+    for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql']) {
         const filePath = path.join(sqlDir, file);
         if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
         try {
@@ -83,15 +84,28 @@ async function deployProductionObjects(poolProd) {
 
 /**
  * Deploy oggetti SQL per un profilo di prova.
- * - SP su MRP@163 con suffisso _T{id} e prefisso [SERVER_PROVA].[UJET11].[dbo]
+ * - SP su MRP@163 con suffisso _T{id} e riferimento cross-db verso UJET11
  * - Tabella ordini_emessi su UJET11@server_prova (pool test)
  * Restituisce anche il flag hasRiep (se dbo.Riep esiste nel server di prova).
+ *
+ * Riferimento UJET11: se il server di prova è lo stesso di MRP (confronto IP/hostname)
+ * si usa un riferimento cross-database locale [UJET11].[dbo], altrimenti un linked server
+ * [SERVER].[UJET11].[dbo]. Questo evita di richiedere un linked server quando il DB
+ * è sulla stessa istanza SQL.
  */
 async function deployTestObjects(poolProd, poolTest, testProfile) {
     const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
     const suffix = '_T' + testProfile._testDbId;
-    // Per le SP: il server di prova come linked server, UJET11 come database
-    const ujet11Ref = `[${testProfile.server}].[${testProfile.database_ujet11 || 'UJET11'}].[dbo]`;
+    const dbName = (testProfile.database_ujet11 || 'UJET11').trim();
+    const testServer = (testProfile.server || '').trim();
+    const mrpServer = (PRODUCTION_PROFILE.server || '').trim();
+
+    // Se il server di prova coincide con il server MRP → riferimento locale (cross-database)
+    // Altrimenti → riferimento via linked server (cross-server)
+    const isSameServer = testServer.toLowerCase() === mrpServer.toLowerCase();
+    const ujet11Ref = isSameServer
+        ? `[${dbName}].[dbo]`
+        : `[${testServer}].[${dbName}].[dbo]`;
     const results = [];
 
     // 1. Deploy ordini_emessi su UJET11 del server di prova (pool test)
@@ -706,11 +720,15 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
         });
     }
 
+    // UM dell'articolo padre (dalla prima riga magazzino)
+    const umPadre = righe.find(r => r.tipo === 'magazzino')?.um || 'PZ';
+
     for (const [faseKey, t] of Object.entries(totaliFase)) {
         righe.push({
             tipo: 'totale',
             codart,
             fase: parseInt(faseKey, 10),
+            um: umPadre,
             esistenza: t.esistenza,
             ordinato: t.ordinato,
             impegnato: t.impegnato,
@@ -738,6 +756,7 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
             tipo: 'totale-cross-fase',
             codart,
             fase: 'All',
+            um: umPadre,
             esistenza: crossTot.esistenza,
             ordinato: crossTot.ordinato,
             impegnato: crossTot.impegnato,
@@ -876,11 +895,13 @@ function costruisciCombinatoRighe(mapEsaur, mapSost, codEsaur, codSost) {
     }
 
     const righe = [...magRows];
+    const umComb = magRows[0]?.um || 'PZ';
     for (const [faseKey, t] of Object.entries(totaliFase)) {
         righe.push({
             tipo: 'totale',
             codart: codComb,
             fase: parseInt(faseKey, 10),
+            um: umComb,
             esistenza: t.esistenza,
             ordinato: t.ordinato,
             impegnato: t.impegnato,
@@ -910,6 +931,7 @@ function costruisciCombinatoRighe(mapEsaur, mapSost, codEsaur, codSost) {
             tipo: 'totale-cross-fase',
             codart: codComb,
             fase: 'All',
+            um: umComb,
             esistenza: crossTot.esistenza,
             ordinato: crossTot.ordinato,
             impegnato: crossTot.impegnato,
@@ -949,10 +971,13 @@ function buildGeneraleTotaleRow(combinatoRighe) {
         const totali = combinatoRighe.filter((r) => r.tipo === 'totale');
         src = totali.length ? totali[totali.length - 1] : null;
     }
+    // UM dal primo magazzino disponibile
+    const umGen = combinatoRighe.find(r => r.um)?.um || 'PZ';
     if (!src) {
         return {
             tipo: 'generale-totale',
             livello: 0,
+            um: umGen,
             esistenza: 0,
             ordinato: 0,
             impegnato: 0,
@@ -966,6 +991,7 @@ function buildGeneraleTotaleRow(combinatoRighe) {
     return {
         tipo: 'generale-totale',
         livello: 0,
+        um: src.um || umGen,
         esistenza: src.esistenza,
         ordinato: src.ordinato,
         impegnato: src.impegnato,

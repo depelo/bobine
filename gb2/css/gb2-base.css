@@ -64,17 +64,30 @@ body {
     background: var(--header-bg, var(--primary));
     padding: 0 20px;
     height: 48px;
-    display: flex;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
-    justify-content: space-between;
     position: sticky;
     top: 0;
     z-index: 100;
 }
-.mrp-header-left { display: flex; align-items: baseline; gap: 10px; }
+/* Zona sinistra: menu btn + db badge */
+.mrp-header-left-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+/* Zona centro: titolo GB2 */
+.mrp-header-left {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    justify-self: center;
+}
 .mrp-title { font-size: 1.15rem; font-weight: 700; color: #fff; letter-spacing: -0.3px; margin: 0; }
-.mrp-subtitle { font-size: 0.8rem; color: rgba(255,255,255,0.75); font-weight: 500; }
-.mrp-header-right { display: flex; align-items: center; gap: 8px; }
+.mrp-subtitle { font-size: 0.8rem; color: rgba(255,255,255,0.75); font-weight: 500; white-space: nowrap; }
+/* Zona destra: tema */
+.mrp-header-right { display: flex; align-items: center; gap: 8px; justify-self: end; }
 .mrp-header .gb2-menu-btn {
     display: flex; align-items: center; justify-content: center;
     width: 40px; height: 40px; border: 0; background: transparent;

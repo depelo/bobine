@@ -295,6 +295,7 @@ const MrpTheme = (() => {
     function setColor(varName, value) {
         document.documentElement.style.setProperty(varName, value);
         customColors[varName] = value;
+        dirty = true;
 
         // Auto-switch a "custom" se non lo e' gia'
         if (currentPreset !== 'custom') {
@@ -306,12 +307,20 @@ const MrpTheme = (() => {
         // Aggiorna riga panel se visibile
         updatePanelRow(varName, value);
 
-        // Aggiorna mini-picker se mostra la stessa variabile
-        if (miniPicker && miniPicker.dataset.varName === varName) {
-            const input = miniPicker.querySelector('input[type="color"]');
-            const hex = miniPicker.querySelector('.mrp-mini-hex');
-            if (input) input.value = value;
-            if (hex) hex.value = value;
+        // Aggiorna mini-picker se mostra la stessa variabile (sfondo o testo)
+        if (miniPicker) {
+            const baseVar = miniPicker.dataset.varName;
+            if (baseVar === varName) {
+                const input = miniPicker.querySelector('.mrp-mini-swatch:not(.mrp-mini-swatch-text)');
+                const hex = miniPicker.querySelector('.mrp-mini-hex:not(.mrp-mini-hex-text)');
+                if (input) input.value = value;
+                if (hex) hex.value = value;
+            } else if (baseVar + '-text' === varName) {
+                const input = miniPicker.querySelector('.mrp-mini-swatch-text');
+                const hex = miniPicker.querySelector('.mrp-mini-hex-text');
+                if (input) input.value = value;
+                if (hex) hex.value = value;
+            }
         }
 
         updateLocalStorage();
@@ -628,13 +637,22 @@ const MrpTheme = (() => {
         const fab = document.getElementById('themeEditFab');
         if (fab && fab.contains(e.target)) return;
 
-        // Cerca tr o th o elementi modale con colore noto
+        // Cerca tr, th, header, o elementi modale con colore noto
         const tr = e.target.closest('tr') || e.target.closest('th');
         const modalRow = e.target.closest('.modal-row-impprod, .modal-row-ordprod, .modal-row-ordforn');
+        const header = e.target.closest('.mrp-header');
 
-        const target = tr || modalRow;
+        const target = tr || modalRow || header;
         if (!target) {
             removeMiniPicker();
+            return;
+        }
+
+        // Header → variabile --header-bg
+        if (header) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            showMiniPicker(header, '--header-bg', 'mrp-header');
             return;
         }
 
@@ -680,9 +698,26 @@ const MrpTheme = (() => {
         const label = varDef ? varDef.label : varName;
         const currentVal = getCurrentValue(varName);
 
+        // Controlla se esiste una variabile testo associata (es. --row-padre → --row-padre-text)
+        const textVarName = varName + '-text';
+        const textVarDef = findVarDef(textVarName);
+        const hasTextVar = !!textVarDef;
+        const currentTextVal = hasTextVar ? getCurrentValue(textVarName) : null;
+
         miniPicker = document.createElement('div');
         miniPicker.className = 'mrp-mini-picker';
         miniPicker.dataset.varName = varName;
+
+        let textRowHtml = '';
+        if (hasTextVar) {
+            textRowHtml = `
+                <div class="mrp-mini-picker-body" style="margin-top:6px;">
+                    <span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);min-width:40px;">Testo</span>
+                    <input type="color" class="mrp-mini-swatch mrp-mini-swatch-text" value="${normalizeHex(currentTextVal)}">
+                    <input type="text" class="mrp-mini-hex mrp-mini-hex-text" value="${normalizeHex(currentTextVal)}" maxlength="7" spellcheck="false">
+                </div>
+            `;
+        }
 
         miniPicker.innerHTML = `
             <div class="mrp-mini-picker-header">
@@ -690,9 +725,11 @@ const MrpTheme = (() => {
                 <button class="mrp-mini-picker-close">&times;</button>
             </div>
             <div class="mrp-mini-picker-body">
+                ${hasTextVar ? '<span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);min-width:40px;">Sfondo</span>' : ''}
                 <input type="color" class="mrp-mini-swatch" value="${normalizeHex(currentVal)}">
                 <input type="text" class="mrp-mini-hex" value="${normalizeHex(currentVal)}" maxlength="7" spellcheck="false">
             </div>
+            ${textRowHtml}
         `;
 
         // Posiziona sotto l'elemento cliccato
@@ -707,6 +744,7 @@ const MrpTheme = (() => {
         // Bind eventi
         miniPicker.querySelector('.mrp-mini-picker-close').addEventListener('click', removeMiniPicker);
 
+        // Sfondo
         miniPicker.querySelector('.mrp-mini-swatch').addEventListener('input', (e) => {
             const color = e.target.value;
             setColor(varName, color);
@@ -721,6 +759,24 @@ const MrpTheme = (() => {
                 miniPicker.querySelector('.mrp-mini-swatch').value = raw;
             }
         });
+
+        // Testo (se presente)
+        if (hasTextVar) {
+            miniPicker.querySelector('.mrp-mini-swatch-text').addEventListener('input', (e) => {
+                const color = e.target.value;
+                setColor(textVarName, color);
+                miniPicker.querySelector('.mrp-mini-hex-text').value = color;
+            });
+
+            const textHexInput = miniPicker.querySelector('.mrp-mini-hex-text');
+            textHexInput.addEventListener('input', () => {
+                const raw = textHexInput.value.trim();
+                if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
+                    setColor(textVarName, raw);
+                    miniPicker.querySelector('.mrp-mini-swatch-text').value = raw;
+                }
+            });
+        }
     }
 
     function removeMiniPicker() {

@@ -145,11 +145,31 @@ const MrpDbConfig = (() => {
         const profile = _cachedProfiles.find(p => p.id === profileId);
 
         if (isProd) {
-            if (!confirm('\u26A0\uFE0F Stai per passare all\'ambiente di PRODUZIONE.\nGli ordini emessi saranno REALI e le email arriveranno ai FORNITORI.\n\nContinuare?')) return;
-            if (!confirm('\u26A1 CONFERMA DEFINITIVA:\nSei SICURO di voler operare in PRODUZIONE?')) return;
+            const ok1 = await modalConfirm({
+                titolo: 'Passaggio a PRODUZIONE',
+                icona: '\u26A0\uFE0F',
+                messaggio: 'Stai per passare all\'ambiente di <strong>PRODUZIONE</strong>.<br>Gli ordini emessi saranno <strong>REALI</strong> e le email arriveranno ai <strong>FORNITORI</strong>.',
+                labelOk: 'Continua',
+                colorOk: 'var(--warning)'
+            });
+            if (!ok1) return;
+            const ok2 = await modalConfirm({
+                titolo: 'Conferma definitiva',
+                icona: '\u26A1',
+                messaggio: 'Sei <strong>SICURO</strong> di voler operare in <strong>PRODUZIONE</strong>?',
+                labelOk: 'Confermo, vai in produzione',
+                colorOk: 'var(--danger)'
+            });
+            if (!ok2) return;
         } else {
             const label = profile ? profile.label : profileId;
-            if (!confirm('Switchare al profilo "' + label + '"?\nI dati attualmente visualizzati verranno cancellati.')) return;
+            const ok = await modalConfirm({
+                titolo: 'Cambio profilo',
+                icona: '🔄',
+                messaggio: 'Passare al profilo <strong>"' + esc(label) + '"</strong>?<br>I dati attualmente visualizzati verranno cancellati.',
+                labelOk: 'Cambia profilo'
+            });
+            if (!ok) return;
         }
 
         try {
@@ -171,6 +191,9 @@ const MrpDbConfig = (() => {
             }
             const data = await res.json();
             if (data.success) {
+                // Chiudi tutti i modali aperti
+                document.querySelectorAll('.mrp-modal-overlay.open').forEach(m => m.classList.remove('open'));
+
                 await refreshBadge();
                 await loadProfilesList();
 
@@ -178,6 +201,9 @@ const MrpDbConfig = (() => {
                 if (tbody) tbody.innerHTML = '';
                 const splitTree = document.getElementById('splitTreeBody');
                 if (splitTree) splitTree.innerHTML = '';
+
+                // Torna alla home se siamo nella vista progressivi
+                if (typeof MrpApp !== 'undefined') MrpApp.switchView('parametri');
 
                 if (typeof MrpProposta !== 'undefined' && MrpProposta.init) MrpProposta.init();
 
@@ -276,17 +302,24 @@ const MrpDbConfig = (() => {
     }
 
     async function removeProfile(dbId) {
-        if (!confirm('Eliminare questo profilo di prova?')) return;
+        const ok = await modalConfirm({
+            titolo: 'Elimina profilo',
+            icona: '🗑️',
+            messaggio: 'Eliminare questo profilo di prova?',
+            labelOk: 'Elimina',
+            colorOk: 'var(--danger)'
+        });
+        if (!ok) return;
         try {
             const res = await fetch(API + '/profiles/' + dbId, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) {
                 await loadProfilesList();
             } else {
-                alert('Errore: ' + (data.error || 'sconosciuto'));
+                showFormStatus('Errore: ' + (data.error || 'sconosciuto'), 'var(--danger)');
             }
         } catch (err) {
-            alert('Errore: ' + err.message);
+            showFormStatus('Errore: ' + err.message, 'var(--danger)');
         }
     }
 
@@ -321,12 +354,14 @@ const MrpDbConfig = (() => {
         const overlay = document.getElementById('modalGenericOverlay');
         const titolo = document.getElementById('modalGenericTitolo');
         const icona = document.getElementById('modalGenericIcona');
-        const corpo = document.getElementById('modalGenericCorpo');
-        if (!overlay || !corpo) return;
+        const msg = document.getElementById('modalGenericMessaggio');
+        const azioni = document.getElementById('modalGenericAzioni');
+        if (!overlay || !msg) return;
 
         titolo.textContent = 'Avviso ambiente di prova';
         icona.textContent = '\u26A0\uFE0F';
-        corpo.innerHTML = warnings.map(w => '<p style="margin:8px 0; font-size:0.9rem;">' + esc(w) + '</p>').join('');
+        msg.innerHTML = warnings.map(w => '<p style="margin:8px 0; font-size:0.9rem;">' + esc(w) + '</p>').join('');
+        if (azioni) azioni.innerHTML = '';
         overlay.classList.add('open');
     }
 
@@ -340,6 +375,50 @@ const MrpDbConfig = (() => {
         const d = document.createElement('div');
         d.textContent = s || '';
         return d.innerHTML;
+    }
+
+    /** Mostra un modale di conferma al posto di confirm() nativo. Restituisce una Promise<boolean>. */
+    function modalConfirm({ titolo, icona, messaggio, labelOk, labelCancel, colorOk }) {
+        return new Promise(resolve => {
+            const overlay = document.getElementById('modalGenericOverlay');
+            const elTitolo = document.getElementById('modalGenericTitolo');
+            const elIcona = document.getElementById('modalGenericIcona');
+            const elMsg = document.getElementById('modalGenericMessaggio');
+            const elAzioni = document.getElementById('modalGenericAzioni');
+            if (!overlay) { resolve(false); return; }
+
+            elTitolo.textContent = titolo || 'Conferma';
+            elIcona.textContent = icona || '';
+            elMsg.innerHTML = messaggio || '';
+            elAzioni.innerHTML = '';
+
+            const btnCancel = document.createElement('button');
+            btnCancel.textContent = labelCancel || 'Annulla';
+            btnCancel.className = 'mrp-btn mrp-btn-secondary';
+            btnCancel.style.cssText = 'padding:8px 20px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-weight:600;font-size:0.85rem;';
+
+            const btnOk = document.createElement('button');
+            btnOk.textContent = labelOk || 'Conferma';
+            btnOk.className = 'mrp-btn mrp-btn-primary';
+            btnOk.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:' + (colorOk || 'var(--primary)') + ';color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+
+            const cleanup = (result) => {
+                overlay.classList.remove('open');
+                resolve(result);
+            };
+
+            btnCancel.addEventListener('click', () => cleanup(false));
+            btnOk.addEventListener('click', () => cleanup(true));
+
+            elAzioni.appendChild(btnCancel);
+            elAzioni.appendChild(btnOk);
+            overlay.classList.add('open');
+
+            // Chiudi con X
+            const closeBtn = document.getElementById('modalGenericClose');
+            const closeHandler = () => { cleanup(false); closeBtn.removeEventListener('click', closeHandler); };
+            closeBtn.addEventListener('click', closeHandler);
+        });
     }
 
     // --------------------------------------------------------

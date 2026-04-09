@@ -34,11 +34,6 @@
             </div>
         </nav>
         <div class="gb2-sidebar-footer">
-            <button type="button" id="btnDbProfile" class="mrp-db-badge" title="Configurazione connessione DB">
-                <span class="mrp-db-badge-dot" id="dbBadgeDot"></span>
-                <span class="mrp-db-badge-label" id="dbBadgeLabel">---</span>
-                <span class="mrp-db-badge-server" id="dbBadgeServer"></span>
-            </button>
             <div class="gb2-nav-item gb2-nav-logout" id="logoutBtn">
                 <span class="gb2-nav-icon">🚪</span><span>Esci</span>
             </div>
@@ -47,10 +42,18 @@
 
     <!-- HEADER -->
     <header class="mrp-header">
-        <button type="button" class="gb2-menu-btn" id="menuBtn" aria-label="Apri menu">&#9776;</button>
+        <div class="mrp-header-left-controls">
+            <button type="button" class="gb2-menu-btn" id="menuBtn" aria-label="Apri menu">&#9776;</button>
+            <button type="button" id="btnDbProfile" class="mrp-db-badge mrp-db-badge-header" title="Configurazione connessione DB">
+                <span class="mrp-db-badge-dot" id="dbBadgeDot"></span>
+                <span class="mrp-db-badge-label" id="dbBadgeLabel">---</span>
+                <span class="mrp-db-badge-server" id="dbBadgeServer"></span>
+            </button>
+        </div>
         <div class="mrp-header-left">
             <h1 class="mrp-title">GB2</h1>
             <span class="mrp-subtitle">Gabriele 2.0</span>
+            <span class="mrp-subtitle mrp-context-label" id="headerContextLabel" style="display:none;"> / Pianificazione Fabbisogni Materiali</span>
         </div>
         <div class="mrp-header-right">
             <button type="button" class="btn-theme-open" id="btnOpenTheme">🎨</button>
@@ -64,7 +67,6 @@
     <main class="mrp-main">
         <!-- VIEW: PARAMETRI (frmParRMP) -->
         <section id="view-parametri" class="mrp-view active">
-            <h2 class="mrp-section-title">Pianificazione Fabbisogni Materiali</h2>
             <div class="mrp-parametri-layout">
                 <div class="mrp-parametri-col-left">
                     <div class="mrp-card mrp-parametri-card">
@@ -169,7 +171,7 @@
         </section>
 
         <!-- VIEW: PROGRESSIVI (griglia risultati) -->
-        <section id="view-progressivi" class="mrp-view active">
+        <section id="view-progressivi" class="mrp-view">
             <div class="mrp-card mrp-progressivi-card">
                 <!-- Toolbar -->
                 <div class="mrp-progressivi-toolbar">

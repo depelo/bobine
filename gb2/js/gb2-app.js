@@ -64,6 +64,10 @@ const MrpApp = (() => {
 
         if (targetView) targetView.classList.add('active');
         if (targetBtn) targetBtn.classList.add('active');
+
+        // Mostra il contesto "Pianificazione Fabbisogni Materiali" solo nella vista progressivi
+        const ctxLabel = document.getElementById('headerContextLabel');
+        if (ctxLabel) ctxLabel.style.display = (viewName === 'progressivi') ? '' : 'none';
     }
 
     function confermaOrdine(key, datiOrdine) {
