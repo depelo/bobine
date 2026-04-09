@@ -925,9 +925,12 @@
     backToComponentsBtn.addEventListener("click", async () => {
         if (!(await checkUnsavedChanges())) return;
         state.isDirty = false;
-        recordTableArea.classList.add("d-none");
-        resetRecordTableFormBorder();
-        step2Area.classList.remove("d-none");
+
+        try {
+            await loadComponents();
+        } catch (error) {
+            showAlert(error.message, "danger");
+        }
     });
 
     async function initEtPageData() {
