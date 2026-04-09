@@ -187,6 +187,12 @@ const MrpProgressivi = (() => {
                     apriDrillPadre(drillBtn.dataset.codart, drillBtn.dataset.magaz, drillBtn.dataset.fase);
                     return;
                 }
+                const drillRow = e.target.closest('.rmp-drill-row');
+                if (drillRow) {
+                    e.preventDefault();
+                    apriDrillPadreRmp(drillRow.dataset.codart, drillRow.dataset.magaz, drillRow.dataset.fase);
+                    return;
+                }
                 const rmpRow = e.target.closest('.rmp-row-clickable');
                 if (rmpRow) {
                     e.preventDefault();
@@ -199,8 +205,15 @@ const MrpProgressivi = (() => {
         const modalOrdiniBtnBack = document.getElementById('modalOrdiniBtnBack');
         if (modalOrdiniBtnBack) {
             modalOrdiniBtnBack.addEventListener('click', () => {
-                ripristinaHeaderModale();
-                if (currentModalContext && currentModalContext.type === 'rmp') {
+                const activeTab = document.querySelector('.modal-ordini-tabs .modal-tab.active');
+                const isRmpTab = activeTab && activeTab.id === 'modalTabRmp';
+                if (isRmpTab && currentModalContext) {
+                    // Torna al tab RMP (lista impegni)
+                    const { codart, fase } = currentModalContext;
+                    caricaRmpModale(codart, fase || '');
+                    const btnBack = document.getElementById('modalOrdiniBtnBack');
+                    if (btnBack) btnBack.style.display = 'none';
+                } else if (currentModalContext && currentModalContext.type === 'rmp') {
                     apriModaleOrdiniRmp(currentModalContext.codart, currentModalContext.fase);
                 } else if (currentModalContext) {
                     const { codart, magaz, fase } = currentModalContext;
@@ -222,6 +235,36 @@ const MrpProgressivi = (() => {
                     const filtro = document.getElementById('modalFiltroMagToggle');
                     caricaOrdiniModale(codart, filtro.checked ? magaz : '', filtro.checked ? fase : '');
                 }
+            });
+        }
+
+        // --- MODALE: Tab Ordini / RMP ---
+        const modalTabOrdini = document.getElementById('modalTabOrdini');
+        const modalTabRmp = document.getElementById('modalTabRmp');
+        if (modalTabOrdini) {
+            modalTabOrdini.addEventListener('click', () => {
+                if (!currentModalContext || currentModalContext.type === 'rmp-only') return;
+                setActiveTab('modalTabOrdini');
+                ripristinaHeaderModale();
+                const btnBack = document.getElementById('modalOrdiniBtnBack');
+                if (btnBack) btnBack.style.display = 'none';
+                const filtroLabel = document.getElementById('modalFiltroMagLabel');
+                if (filtroLabel) filtroLabel.style.display = 'flex';
+                const { codart, magaz, fase } = currentModalContext;
+                const filtro = document.getElementById('modalFiltroMagToggle');
+                caricaOrdiniModale(codart, filtro && filtro.checked ? magaz : '', filtro && filtro.checked ? fase : '');
+            });
+        }
+        if (modalTabRmp) {
+            modalTabRmp.addEventListener('click', () => {
+                if (!currentModalContext) return;
+                setActiveTab('modalTabRmp');
+                const { codart, fase } = currentModalContext;
+                const filtroLabel = document.getElementById('modalFiltroMagLabel');
+                if (filtroLabel) filtroLabel.style.display = 'none';
+                const btnBack = document.getElementById('modalOrdiniBtnBack');
+                if (btnBack) btnBack.style.display = 'none';
+                caricaRmpModale(codart, fase || '');
             });
         }
 
@@ -479,7 +522,7 @@ const MrpProgressivi = (() => {
                 <td class="col-mag"></td>
                 <td class="col-fase"></td>
                 <td class="col-pol"></td>
-                <td class="col-um"></td>
+                <td class="col-um">${esc(row.um || 'PZ')}</td>
                 <td class="col-num">${fmt(row.esistenza)}</td>
                 <td class="col-num">${fmt(row.ordinato)}</td>
                 <td class="col-num">${fmt(row.impegnato)}</td>
@@ -1145,14 +1188,8 @@ const MrpProgressivi = (() => {
             : '';
         const parteInner = `${btnEspandi} <span class="mrp-desc-articolo" style="margin-left:${marginL}">${sostPref}${descrStrong} <span class="code-dim">${esc(articolo.codart)}</span> ${btnConsumi}</span> ${scadutoBadge}`;
 
-        let tot = null;
-        if (mrpRows.length > 0) {
-            tot = calcolaTotaliMrp(mrpRows);
-        } else if (ctx.isRoot || mrpPreFetched) {
-            // Se sappiamo di aver già interrogato il db e non ci sono record, stampiamo 0
-            tot = { esistenza: 0, ordinato: 0, impegnato: 0, disponibilita: 0, opc: 0, op: 0, ipc: 0, ip: 0, dispNetta: 0 };
-        }
-        tr.innerHTML = rigaArticoloHTML(rowNum, parteInner, articolo, tot);
+        // Totali mostrati solo nella riga TOTALE in fondo, non nella riga padre
+        tr.innerHTML = rigaArticoloHTML(rowNum, parteInner, articolo, null);
 
         if (isScaduto(articolo)) {
             tr.title = 'Componente distinta non più valido (data fine validità).';
@@ -1278,7 +1315,7 @@ const MrpProgressivi = (() => {
                     `<td>All</td>` +
                     `<td>${esc(r.fase)}</td>` +
                     `<td></td>` +
-                    `<td>CRT</td>` +
+                    `<td>${esc(r.um || 'PZ')}</td>` +
                     `<td style="text-align:right">${fmt(r.esistenza)}</td>` +
                     `<td style="text-align:right">${fmt(r.ordinato)}</td>` +
                     `<td style="text-align:right">${fmt(r.impegnato)}</td>` +
@@ -1356,7 +1393,7 @@ const MrpProgressivi = (() => {
                     <td class="col-mag">All</td>
                     <td class="col-fase">${esc(r.fase)}</td>
                     <td class="col-pol"></td>
-                    <td class="col-um">CRT</td>
+                    <td class="col-um">${esc(r.um || 'PZ')}</td>
                     <td class="col-num">${fmt(r.esistenza)}</td>
                     <td class="col-num">${fmt(r.ordinato)}</td>
                     <td class="col-num">${fmt(r.impegnato)}</td>
@@ -1380,7 +1417,7 @@ const MrpProgressivi = (() => {
                     <td class="col-mag">All</td>
                     <td class="col-fase">All</td>
                     <td class="col-pol"></td>
-                    <td class="col-um"></td>
+                    <td class="col-um">${esc(r.um || 'PZ')}</td>
                     <td class="col-num">${fmt(r.esistenza)}</td>
                     <td class="col-num">${fmt(r.ordinato)}</td>
                     <td class="col-num">${fmt(r.impegnato)}</td>
@@ -1496,6 +1533,12 @@ const MrpProgressivi = (() => {
         nestedTr.style.display = 'table-row';
     }
 
+    function setActiveTab(tabId) {
+        document.querySelectorAll('.modal-ordini-tabs .modal-tab').forEach(t => t.classList.remove('active'));
+        const tab = document.getElementById(tabId);
+        if (tab) tab.classList.add('active');
+    }
+
     async function apriModaleOrdini(codart, magaz, fase, descMagazzino) {
         const overlay = document.getElementById('modalOrdiniOverlay');
         const btnBack = document.getElementById('modalOrdiniBtnBack');
@@ -1508,6 +1551,7 @@ const MrpProgressivi = (() => {
         if (btnBack) btnBack.style.display = 'none';
         if (filtroLabel) filtroLabel.style.display = 'flex';
         ripristinaHeaderModale();
+        setActiveTab('modalTabOrdini');
 
         if (filtroToggle) filtroToggle.checked = false;
         if (filtroText) {
@@ -1614,6 +1658,91 @@ const MrpProgressivi = (() => {
         }
     }
 
+    async function caricaRmpModale(codart, fase) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        const loading = document.getElementById('modalOrdiniLoading');
+        const titolo = document.getElementById('modalOrdiniTitolo');
+
+        const codartList = splitCodartComposito(codart);
+        const titoloCod = codartList.length > 1 ? codartList.join(' + ') : codart;
+        titolo.textContent = `RMP (Generati/Confermati): ${titoloCod}`;
+
+        const thead = document.querySelector('#tblModalOrdini thead tr');
+        if (thead) {
+            thead.innerHTML = `
+                <th>Mag</th>
+                <th>Fase</th>
+                <th>Data Cons.</th>
+                <th>Operazione</th>
+                <th>Q.tà Ordinata</th>
+                <th>Stato</th>
+                <th>Fornitore</th>
+            `;
+        }
+
+        tbody.innerHTML = '';
+        loading.style.display = 'block';
+
+        try {
+            const allData = await Promise.all(codartList.map(async (cod) => {
+                const params = new URLSearchParams({ codart: cod });
+                if (fase) params.set('fase', fase);
+                const res = await fetch(`${MrpApp.API_BASE}/ordini-rmp?${params}`, { credentials: 'include' });
+                const rowset = await res.json();
+                if (!res.ok) return { ok: false, err: rowset };
+                return { ok: true, rows: Array.isArray(rowset) ? rowset : [] };
+            }));
+
+            const failed = allData.find(x => x && x.ok === false);
+            if (failed) {
+                loading.style.display = 'none';
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--danger)">Errore: ${esc((failed.err || {}).error || '')}</td></tr>`;
+                return;
+            }
+
+            const data = allData.flatMap(x => (x.rows || []));
+            loading.style.display = 'none';
+
+            if (!data.length) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun dato RMP trovato</td></tr>';
+                return;
+            }
+
+            data.forEach(o => {
+                const tr = document.createElement('tr');
+
+                if (o.ol_tipork === 'Y') {
+                    tr.className = 'modal-row-impprod rmp-drill-row';
+                    tr.dataset.codart = o.ol_codart || codart;
+                    tr.dataset.magaz = String(o.ol_magaz || '');
+                    tr.dataset.fase = String(o.ol_fase || '');
+                    tr.title = 'Clicca per vedere gli ordini produzione padre';
+                } else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') {
+                    tr.className = 'modal-row-ordprod';
+                } else {
+                    tr.className = 'modal-row-ordforn';
+                }
+
+                const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
+                const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.conf_gen || '')}</span>`;
+
+                tr.innerHTML = `
+                    <td style="text-align:center">${esc(o.ol_magaz)}</td>
+                    <td style="text-align:center">${esc(o.ol_fase)}</td>
+                    <td>${fmtDate(o.ol_datcons)}</td>
+                    <td>${esc(o.desc_tipo || o.ol_tipork)}</td>
+                    <td style="text-align:right"><strong>${fmt(o.quantita)}</strong></td>
+                    <td style="text-align:center">${badge}</td>
+                    <td>${esc(o.fornitore || '')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (err) {
+            loading.style.display = 'none';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>';
+        }
+    }
+
     async function apriDrillPadre(codart, magaz, fase) {
         const tbody = document.getElementById('modalOrdiniBody');
         const loading = document.getElementById('modalOrdiniLoading');
@@ -1706,15 +1835,14 @@ const MrpProgressivi = (() => {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (thead) {
             thead.innerHTML = `
-            <th style="width:30px;"></th>
-            <th>Stato</th>
-            <th>Operazione</th>
-            <th>Cod. Art. Padre</th>
-            <th>Descrizione Articolo</th>
+            <th>Cod. Art.</th>
             <th>Mag</th>
             <th>Fase</th>
+            <th>Descrizione Articolo</th>
             <th>Data Cons.</th>
-            <th>Q.tà</th>
+            <th>Operazione</th>
+            <th>Q.tà Ordinata</th>
+            <th>Stato</th>
             <th>Fornitore</th>
         `;
         }
@@ -1732,11 +1860,11 @@ const MrpProgressivi = (() => {
             loading.style.display = 'none';
 
             if (!res.ok) {
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--danger)">Errore: ${esc(data.error || '')}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger)">Errore: ${esc(data.error || '')}</td></tr>`;
                 return;
             }
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun ordine produzione padre trovato</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun ordine produzione padre trovato</td></tr>';
                 return;
             }
 
@@ -1750,22 +1878,21 @@ const MrpProgressivi = (() => {
                 const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.padre_conf_gen || '')}</span>`;
 
                 tr.innerHTML = `
-                    <td></td>
-                    <td style="text-align:center">${badge}</td>
-                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
                     <td><strong>${esc(o.padre_codart)}</strong></td>
-                    <td>${esc(o.padre_descr)}</td>
                     <td style="text-align:center">${esc(o.padre_magaz)}</td>
                     <td style="text-align:center">${esc(o.padre_fase)}</td>
-                    <td>${fmtDate(o.padre_datcons)}</td>
-                    <td style="text-align:right">${fmt(o.padre_quant)}</td>
+                    <td>${esc(o.padre_descr)}</td>
+                    <td>${fmtDate(o.datcons)}</td>
+                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
+                    <td style="text-align:right"><strong>${fmt(o.quantita)}</strong></td>
+                    <td style="text-align:center">${badge}</td>
                     <td>${esc(o.padre_fornitore || '')}</td>
                 `;
                 tbody.appendChild(tr);
             });
         } catch (err) {
             loading.style.display = 'none';
-            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
         }
     }
 
@@ -2379,109 +2506,16 @@ const MrpProgressivi = (() => {
         const overlay = document.getElementById('modalOrdiniOverlay');
         const btnBack = document.getElementById('modalOrdiniBtnBack');
         const filtroLabel = document.getElementById('modalFiltroMagLabel');
-        const titolo = document.getElementById('modalOrdiniTitolo');
-        const tbody = document.getElementById('modalOrdiniBody');
-        const loading = document.getElementById('modalOrdiniLoading');
 
         currentModalContext = { type: 'rmp', codart, fase };
         if (btnBack) btnBack.style.display = 'none';
         if (filtroLabel) filtroLabel.style.display = 'none';
+        setActiveTab('modalTabRmp');
 
-        const codartList = splitCodartComposito(codart);
-        const isCombinato = codartList.length > 1;
-        if (titolo) {
-            titolo.textContent = isCombinato
-                ? `Situazione RMP combinata: ${codartList.join(' + ')} — Fase: ${fase}`
-                : `Situazione RMP (Generati/Confermati): ${codart} — Fase: ${fase}`;
-        }
-
-        const thead = document.querySelector('#tblModalOrdini thead tr');
-        if (thead) {
-            thead.innerHTML = `
-            <th style="width:30px;"></th>
-            <th>Stato RMP</th>
-            <th>Operazione</th>
-            <th>Anno</th>
-            <th>Ser</th>
-            <th>Num.Doc</th>
-            <th>Riga</th>
-            <th>Mag</th>
-            <th>Fase</th>
-            <th>Data Cons.</th>
-            <th>Q.tà Residua</th>
-            <th>Fornitore</th>
-        `;
-        }
-
-        if (!tbody || !loading || !overlay) return;
-        tbody.innerHTML = '';
-        loading.style.display = 'block';
+        if (!overlay) return;
         overlay.classList.add('open');
 
-        try {
-            const faseStr = fase != null ? String(fase) : '';
-            const allData = await Promise.all(codartList.map(async (cod) => {
-                const params = new URLSearchParams({ codart: cod });
-                if (faseStr !== '') params.set('fase', faseStr);
-                const res = await fetch(`${MrpApp.API_BASE}/ordini-rmp?${params}`, { credentials: 'include' });
-                const rowset = await res.json();
-                if (!res.ok) return { ok: false, err: rowset };
-                return { ok: true, rows: Array.isArray(rowset) ? rowset : [] };
-            }));
-
-            const failed = allData.find((x) => x && x.ok === false);
-            if (failed) {
-                loading.style.display = 'none';
-                const errObj = failed.err || {};
-                tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--danger)">Errore: ${esc(errObj.error || '')}</td></tr>`;
-                return;
-            }
-
-            const data = allData.flatMap((x) => (x.rows || []));
-            loading.style.display = 'none';
-
-            if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--text-muted);padding:24px;">Nessun dato RMP trovato</td></tr>';
-                return;
-            }
-
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-
-                if (o.ol_tipork === 'Y') tr.className = 'modal-row-impprod';
-                else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') tr.className = 'modal-row-ordprod';
-                else tr.className = 'modal-row-ordforn';
-
-                tr.classList.add('rmp-row-clickable');
-                tr.dataset.codart = o.ol_codart || codart;
-
-                const drillBtn = o.ol_tipork === 'Y'
-                    ? `<button class="btn-drill-padre-rmp" title="Mostra ordini produzione padre" data-codart="${esc(o.ol_codart || codart)}" data-magaz="${esc(String(o.ol_magaz || ''))}" data-fase="${esc(String(o.ol_fase || ''))}">🔍</button>`
-                    : '';
-
-                const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
-                const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.conf_gen || '')}</span>`;
-
-                tr.innerHTML = `
-                <td style="text-align:center">${drillBtn}</td>
-                <td style="text-align:center">${badge}</td>
-                <td>${esc(o.desc_tipo || o.ol_tipork)}</td>
-                <td>${esc(o.anno)}</td>
-                <td>${esc(o.serie)}</td>
-                <td>${esc(o.numord)}</td>
-                <td>${esc(o.riga)}</td>
-                <td style="text-align:center">${esc(o.ol_magaz)}</td>
-                <td style="text-align:center">${esc(o.ol_fase)}</td>
-                <td>${fmtDate(o.datcons)}</td>
-                <td style="text-align:right"><strong>${fmt(o.quantita)}</strong></td>
-                <td>${esc(o.fornitore || '')}</td>
-            `;
-                tbody.appendChild(tr);
-            });
-        } catch (err) {
-            loading.style.display = 'none';
-            tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>';
-        }
+        await caricaRmpModale(codart, fase != null ? String(fase) : '');
     }
 
     async function navigaProgressiviDaRmp(codartTarget) {

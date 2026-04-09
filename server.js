@@ -18,7 +18,15 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 app.use(cookieParser());
-app.use(express.static(__dirname));
+app.use((req, res, next) => {
+    if (req.url.match(/\.(js|css|html)$/)) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+    next();
+});
+app.use(express.static(__dirname, { etag: false, lastModified: false }));
 
 const certDir = process.env.SSL_CERT_DIR || 'C:\\Acme\\certificati_ssl';
 const sslOptions = {

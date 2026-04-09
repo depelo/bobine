@@ -29,6 +29,7 @@
         container.innerHTML = '';
 
         const urlMap = { 1: '/bobine.html', 3: '/ET.html' };
+        const iconMap = { 1: '🏭', 3: '🏷️' };
 
         apps.forEach((app) => {
             const aid = Number(app.id);
@@ -36,12 +37,11 @@
             const url = urlMap[aid];
             if (!url) return;
 
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'menu-drawer-btn';
-            btn.textContent = app.name || 'App';
-            btn.addEventListener('click', () => { closeMenuDrawer(); window.location.href = url; });
-            container.appendChild(btn);
+            const item = document.createElement('div');
+            item.className = 'gb2-nav-item';
+            item.innerHTML = `<span class="gb2-nav-icon">${iconMap[aid] || '📦'}</span><span>${app.name || 'App'}</span>`;
+            item.addEventListener('click', () => { closeMenuDrawer(); window.location.href = url; });
+            container.appendChild(item);
         });
 
         const captainBtn = document.getElementById('menuOpenCaptain');
@@ -57,11 +57,11 @@
         document.getElementById('menuDrawerBackdrop')?.addEventListener('click', closeMenuDrawer);
 
         document.getElementById('menuDrawer')?.addEventListener('click', (e) => {
-            const btn = e.target.closest('[data-menu-action]');
-            if (!btn) return;
+            const item = e.target.closest('[data-menu-action]');
+            if (!item) return;
             closeMenuDrawer();
-            if (btn.dataset.menuAction === 'open-profile') window.location.href = '/profile.html';
-            else if (btn.dataset.menuAction === 'open-captain') window.location.href = '/captain.html';
+            if (item.dataset.menuAction === 'open-profile') window.location.href = '/profile.html';
+            else if (item.dataset.menuAction === 'open-captain') window.location.href = '/captain.html';
         });
     });
 

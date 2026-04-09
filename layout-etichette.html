@@ -101,10 +101,10 @@
     }
 
     function editForm(item) {
-        editingId = item.IDForm || item.Codice;
+        editingId = item.IDForm;
         document.getElementById('modalTitle').textContent = 'Modifica Form';
-        document.getElementById('formInput').value = item.Form || item.NomeForm || '';
-        document.getElementById('validoInput').checked = item.Valido !== undefined ? !!item.Valido : true;
+        document.getElementById('formInput').value = item.Form || '';
+        document.getElementById('validoInput').checked = !!item.Valido;
         document.getElementById('noteInput').value = item.Note || '';
         modal.show();
     }
@@ -153,11 +153,11 @@
 
     async function loadForms() {
         try {
-            const response = await fetch('/api/form-list', { credentials: 'include' });
+            const response = await fetch('/api/forms', { credentials: 'include' });
             if (!response.ok) throw new Error(`Errore di rete: ${response.status}`);
 
-            formsData = await response.json();
-            renderTable(formsData);
+            formsData = await response.json(); 
+            renderTable(formsData); 
         } catch (error) {
             console.error("Errore caricamento:", error);
             alert("Errore durante il caricamento dei dati. Controlla la console.");
@@ -171,11 +171,10 @@
 
         data.forEach(item => {
             const tr = document.createElement('tr');
-            const id = item.IDForm || item.Codice || '-';
-            const formName = item.Form || item.NomeForm || '';
-            const valido = item.Valido !== undefined ? item.Valido : 1;
+            const id = item.IDForm;
+            const formName = item.Form || '';
+            const valido = item.Valido;
 
-            // Nota: Ho lasciato disabilitati i pulsanti come da "Strada 2" finché non aggiorni la VM
             tr.innerHTML = `
                 <td>${id}</td>
                 <td>${formName}</td>
@@ -193,8 +192,8 @@
     function sortById() {
         sortDirection.id = !sortDirection.id;
         formsData.sort((a, b) => {
-            const valA = Number(a.IDForm || a.Codice || 0);
-            const valB = Number(b.IDForm || b.Codice || 0);
+            const valA = Number(a.IDForm || 0);
+            const valB = Number(b.IDForm || 0);
             return sortDirection.id ? valA - valB : valB - valA;
         });
         renderTable(formsData);
@@ -203,8 +202,8 @@
     function sortByName() {
         sortDirection.name = !sortDirection.name;
         formsData.sort((a, b) => {
-            const valA = (a.Form || a.NomeForm || '').toString().toLowerCase();
-            const valB = (b.Form || b.NomeForm || '').toString().toLowerCase();
+            const valA = (a.Form || '').toString().toLowerCase();
+            const valB = (b.Form || '').toString().toLowerCase();
             if (valA < valB) return sortDirection.name ? -1 : 1;
             if (valA > valB) return sortDirection.name ? 1 : -1;
             return 0;

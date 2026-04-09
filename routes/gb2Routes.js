@@ -48,6 +48,18 @@ async function executeSqlFile(pool, filePath, replacements) {
     }
 }
 
+// Compila un template email sostituendo i segnaposto con i dati reali
+function compilaTemplate(testo, dati) {
+    return testo
+        .replace(/\{fornitore\}/g, dati.fornitore || '')
+        .replace(/\{numord\}/g, dati.numord || '')
+        .replace(/\{data_ordine\}/g, dati.data_ordine || '')
+        .replace(/\{num_articoli\}/g, String(dati.num_articoli || 0))
+        .replace(/\{totale\}/g, dati.totale || '')
+        .replace(/\{operatore\}/g, dati.operatore || '')
+        .replace(/\{firma\}/g, dati.firma || '');
+}
+
 /**
  * Deploy oggetti SQL di produzione — su MRP@163 e GB2@163.
  * SP con prefisso [BCUBE2].[UJET11].[dbo], nomi senza suffisso.
@@ -59,7 +71,8 @@ async function deployProductionObjects(poolProd) {
     const results = [];
 
     // Tabelle GB2 (sempre su pool produzione)
-    for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql']) {
+    // ORDINE IMPORTANTE: ElaborazioniMRP prima di SnapshotProposte (FK)
+    for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql', 'create_email_templates.sql', 'create_email_template_assegnazioni.sql']) {
         const filePath = path.join(sqlDir, file);
         if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
         try {
@@ -83,15 +96,28 @@ async function deployProductionObjects(poolProd) {
 
 /**
  * Deploy oggetti SQL per un profilo di prova.
- * - SP su MRP@163 con suffisso _T{id} e prefisso [SERVER_PROVA].[UJET11].[dbo]
+ * - SP su MRP@163 con suffisso _T{id} e riferimento cross-db verso UJET11
  * - Tabella ordini_emessi su UJET11@server_prova (pool test)
  * Restituisce anche il flag hasRiep (se dbo.Riep esiste nel server di prova).
+ *
+ * Riferimento UJET11: se il server di prova è lo stesso di MRP (confronto IP/hostname)
+ * si usa un riferimento cross-database locale [UJET11].[dbo], altrimenti un linked server
+ * [SERVER].[UJET11].[dbo]. Questo evita di richiedere un linked server quando il DB
+ * è sulla stessa istanza SQL.
  */
 async function deployTestObjects(poolProd, poolTest, testProfile) {
     const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
     const suffix = '_T' + testProfile._testDbId;
-    // Per le SP: il server di prova come linked server, UJET11 come database
-    const ujet11Ref = `[${testProfile.server}].[${testProfile.database_ujet11 || 'UJET11'}].[dbo]`;
+    const dbName = (testProfile.database_ujet11 || 'UJET11').trim();
+    const testServer = (testProfile.server || '').trim();
+    const mrpServer = (PRODUCTION_PROFILE.server || '').trim();
+
+    // Se il server di prova coincide con il server MRP → riferimento locale (cross-database)
+    // Altrimenti → riferimento via linked server (cross-server)
+    const isSameServer = testServer.toLowerCase() === mrpServer.toLowerCase();
+    const ujet11Ref = isSameServer
+        ? `[${dbName}].[dbo]`
+        : `[${testServer}].[${dbName}].[dbo]`;
     const results = [];
 
     // 1. Deploy ordini_emessi su UJET11 del server di prova (pool test)
@@ -570,12 +596,13 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
         ORDER BY ap.ap_magaz, ap.ap_fase
     `);
 
-    // Leggi quantita emesse dalla nostra app (ordini_emessi su MRP)
-    // per aggiornare il campo "ordinato" oltre lo snapshot di BCube
+    // Leggi quantita emesse dalla nostra app (ordini_emessi su MRP@163)
+    // per aggiornare il campo "ordinato" oltre lo snapshot di BCube.
+    // Usa sempre getPoolProd() perche' ordini_emessi risiede solo in MRP, mai in UJET11 di prova.
     let emessiPerMagFase = new Map(); // key "magaz_fase" -> somma quantita_ordinata
     try {
-        const poolMRP = await getPoolMRP(getUserId(req));
-        const emRes = await poolMRP.request()
+        const poolEmessi = await getPoolProd();
+        const emRes = await poolEmessi.request()
             .input('codart_em', sql.NVarChar, codart)
             .query(`
                 SELECT ol_magaz, ol_fase, SUM(quantita_ordinata) AS qta_emessa
@@ -705,11 +732,15 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
         });
     }
 
+    // UM dell'articolo padre (dalla prima riga magazzino)
+    const umPadre = righe.find(r => r.tipo === 'magazzino')?.um || 'PZ';
+
     for (const [faseKey, t] of Object.entries(totaliFase)) {
         righe.push({
             tipo: 'totale',
             codart,
             fase: parseInt(faseKey, 10),
+            um: umPadre,
             esistenza: t.esistenza,
             ordinato: t.ordinato,
             impegnato: t.impegnato,
@@ -737,6 +768,7 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
             tipo: 'totale-cross-fase',
             codart,
             fase: 'All',
+            um: umPadre,
             esistenza: crossTot.esistenza,
             ordinato: crossTot.ordinato,
             impegnato: crossTot.impegnato,
@@ -875,11 +907,13 @@ function costruisciCombinatoRighe(mapEsaur, mapSost, codEsaur, codSost) {
     }
 
     const righe = [...magRows];
+    const umComb = magRows[0]?.um || 'PZ';
     for (const [faseKey, t] of Object.entries(totaliFase)) {
         righe.push({
             tipo: 'totale',
             codart: codComb,
             fase: parseInt(faseKey, 10),
+            um: umComb,
             esistenza: t.esistenza,
             ordinato: t.ordinato,
             impegnato: t.impegnato,
@@ -909,6 +943,7 @@ function costruisciCombinatoRighe(mapEsaur, mapSost, codEsaur, codSost) {
             tipo: 'totale-cross-fase',
             codart: codComb,
             fase: 'All',
+            um: umComb,
             esistenza: crossTot.esistenza,
             ordinato: crossTot.ordinato,
             impegnato: crossTot.impegnato,
@@ -948,10 +983,13 @@ function buildGeneraleTotaleRow(combinatoRighe) {
         const totali = combinatoRighe.filter((r) => r.tipo === 'totale');
         src = totali.length ? totali[totali.length - 1] : null;
     }
+    // UM dal primo magazzino disponibile
+    const umGen = combinatoRighe.find(r => r.um)?.um || 'PZ';
     if (!src) {
         return {
             tipo: 'generale-totale',
             livello: 0,
+            um: umGen,
             esistenza: 0,
             ordinato: 0,
             impegnato: 0,
@@ -965,6 +1003,7 @@ function buildGeneraleTotaleRow(combinatoRighe) {
     return {
         tipo: 'generale-totale',
         livello: 0,
+        um: src.um || umGen,
         esistenza: src.esistenza,
         ordinato: src.ordinato,
         impegnato: src.impegnato,
@@ -1332,11 +1371,11 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
                 ol.ol_tipork,
                 ol.ol_magaz,
                 ol.ol_fase,
+                ol.ol_datcons,
                 ol.ol_oranno AS anno,
                 ol.ol_orserie AS serie,
                 ol.ol_ornum AS numord,
                 ol.ol_orriga AS riga,
-                MIN(ol.ol_datcons) AS datcons,
                 SUM(ol.ol_quant) AS quantita,
                 mt.cb_modesrk AS desc_tipo,
                 an.an_descr1 AS fornitore,
@@ -1349,9 +1388,9 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
               AND ol.ol_tipork IN ('H','O','R','Y')
               ${filtri}
             GROUP BY ol.ol_codart, ol.ol_magaz, ol.ol_fase, ol.ol_tipork, mt.cb_modesrk,
-                     ol.ol_oranno, ol.ol_orserie, ol.ol_ornum, ol.ol_orriga,
+                     ol.ol_datcons, ol.ol_oranno, ol.ol_orserie, ol.ol_ornum, ol.ol_orriga,
                      an.an_descr1, ol.ol_stato
-            ORDER BY ol.ol_tipork, ol.ol_magaz, ol.ol_fase, MIN(ol.ol_datcons)
+            ORDER BY ol.ol_tipork, ol.ol_codart, ol.ol_magaz, ol.ol_fase, ol.ol_datcons
         `);
 
         res.json(result.recordset);
@@ -1464,21 +1503,16 @@ router.get('/ordini-padre-rmp', authMiddleware, async (req, res) => {
 
         const result = await request.query(`
             SELECT
-                figlio.ol_codart,
-                figlio.ol_magaz,
-                figlio.ol_fase,
-                figlio.ol_quant   AS figlio_quant,
-                figlio.ol_datcons AS figlio_datcons,
                 padre.ol_codart   AS padre_codart,
-                padre.ol_tipork   AS padre_tipork,
                 padre.ol_magaz    AS padre_magaz,
                 padre.ol_fase     AS padre_fase,
-                padre.ol_quant    AS padre_quant,
-                padre.ol_datcons  AS padre_datcons,
-                CASE WHEN padre.ol_stato = 'S' THEN 'Confermato' ELSE 'Generato' END AS padre_conf_gen,
                 ar.ar_descr       AS padre_descr,
                 ar.ar_codalt      AS padre_codalt,
+                figlio.ol_datcons AS datcons,
+                padre.ol_tipork   AS padre_tipork,
                 mt.cb_modesrk     AS padre_desc_tipo,
+                SUM(figlio.ol_quant) AS quantita,
+                CASE WHEN padre.ol_stato = 'S' THEN 'Confermato' ELSE 'Generato' END AS padre_conf_gen,
                 an.an_descr1      AS padre_fornitore
             FROM dbo.ordlist figlio
             INNER JOIN dbo.ordlist padre ON figlio.ol_olprogr = padre.ol_progr
@@ -1488,7 +1522,9 @@ router.get('/ordini-padre-rmp', authMiddleware, async (req, res) => {
             WHERE figlio.ol_codart = @codart
               AND figlio.ol_tipork IN ('Y','R')
               ${filtri}
-            ORDER BY padre.ol_tipork, padre.ol_codart, padre.ol_magaz, padre.ol_fase, padre.ol_datcons
+            GROUP BY padre.ol_codart, padre.ol_magaz, padre.ol_fase, ar.ar_descr, ar.ar_codalt,
+                     figlio.ol_datcons, padre.ol_tipork, mt.cb_modesrk, padre.ol_stato, an.an_descr1
+            ORDER BY padre.ol_tipork, padre.ol_codart, padre.ol_magaz, padre.ol_fase, figlio.ol_datcons
         `);
 
         res.json(result.recordset);
@@ -1725,6 +1761,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 ol.ol_progr,
                 ol.ol_conto                           AS fornitore_codice,
                 COALESCE(an.an_descr1, '')            AS fornitore_nome,
+                COALESCE(an.an_email, '')             AS fornitore_email,
                 ol.ol_codart,
                 COALESCE(a.ar_codalt, '')              AS ar_codalt,
                 COALESCE(a.ar_descr, '')               AS ar_descr,
@@ -1750,26 +1787,176 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
             ORDER BY ol.ol_conto, ol.ol_codart, ol.ol_datcons
         `);
 
-        // Arricchisci con info emissioni da ordini_emessi (DB MRP)
+        // ─── Rilevazione Elaborazione MRP ───
+        const userId = getUserId(req);
+        const profile = getActiveProfile(userId);
+        const ambiente = (profile && profile.ambiente) || 'produzione';
+        let elaborazione = null;
+
+        try {
+            // 1) Fingerprint: valore ol_ultagg più frequente (= batch MRP notturno)
+            const fpRes = await pool.request().query(`
+                SELECT TOP 1 ol_ultagg AS fingerprint, COUNT(*) AS cnt
+                FROM dbo.ordlist WHERE ol_tipork = 'O'
+                GROUP BY ol_ultagg ORDER BY cnt DESC
+            `);
+
+            if (fpRes.recordset.length > 0) {
+                const fingerprint = fpRes.recordset[0].fingerprint;
+                const poolGB2 = await getPoolProd();
+
+                // 2) Check se elaborazione già registrata
+                let elabRes = await poolGB2.request()
+                    .input('fp', sql.DateTime, fingerprint)
+                    .input('amb', sql.VarChar(20), ambiente)
+                    .query(`
+                        SELECT ID, TotaleProposte, TotaleGestite, Fingerprint, RilevatoIl
+                        FROM [GB2].[dbo].[ElaborazioniMRP]
+                        WHERE Fingerprint = @fp AND Ambiente = @amb
+                    `);
+
+                let elabId;
+                if (elabRes.recordset.length === 0) {
+                    // 3) Nuova elaborazione: INSERT + Snapshot proposte
+                    try {
+                        const insRes = await poolGB2.request()
+                            .input('fp', sql.DateTime, fingerprint)
+                            .input('tot', sql.Int, result.recordset.length)
+                            .input('uid', sql.Int, userId)
+                            .input('amb', sql.VarChar(20), ambiente)
+                            .query(`
+                                INSERT INTO [GB2].[dbo].[ElaborazioniMRP]
+                                    (Fingerprint, TotaleProposte, TotaleGestite, IDUser, Ambiente)
+                                VALUES (@fp, @tot, 0, @uid, @amb);
+                                SELECT SCOPE_IDENTITY() AS newId;
+                            `);
+                        elabId = insRes.recordset[0].newId;
+                    } catch (dupErr) {
+                        // Concorrenza: altro utente ha inserito la stessa fingerprint
+                        if (dupErr.number === 2601 || dupErr.number === 2627) {
+                            const retry = await poolGB2.request()
+                                .input('fp', sql.DateTime, fingerprint)
+                                .input('amb', sql.VarChar(20), ambiente)
+                                .query(`SELECT ID FROM [GB2].[dbo].[ElaborazioniMRP] WHERE Fingerprint=@fp AND Ambiente=@amb`);
+                            elabId = retry.recordset[0].ID;
+                        } else {
+                            throw dupErr;
+                        }
+                    }
+
+                    // Bulk INSERT snapshot (chunked a 100 righe)
+                    const rows = result.recordset;
+                    const CHUNK = 100;
+                    for (let i = 0; i < rows.length; i += CHUNK) {
+                        const chunk = rows.slice(i, i + CHUNK);
+                        const values = chunk.map((r, idx) =>
+                            `(@eid, @progr${idx}, @codart${idx}, @conto${idx}, @magaz${idx}, @fase${idx}, @quant${idx}, @datcons${idx}, @unmis${idx})`
+                        ).join(',');
+                        const rq = poolGB2.request().input('eid', sql.Int, elabId);
+                        chunk.forEach((r, idx) => {
+                            rq.input(`progr${idx}`, sql.Int, r.ol_progr);
+                            rq.input(`codart${idx}`, sql.VarChar(50), r.ol_codart);
+                            rq.input(`conto${idx}`, sql.Int, r.fornitore_codice);
+                            rq.input(`magaz${idx}`, sql.SmallInt, r.ol_magaz || 1);
+                            rq.input(`fase${idx}`, sql.SmallInt, r.ol_fase || 0);
+                            rq.input(`quant${idx}`, sql.Decimal(18, 9), r.ol_quant || 0);
+                            rq.input(`datcons${idx}`, sql.DateTime, r.ol_datcons || null);
+                            rq.input(`unmis${idx}`, sql.VarChar(10), r.ol_unmis || null);
+                        });
+                        await rq.query(`
+                            INSERT INTO [GB2].[dbo].[SnapshotProposte]
+                                (ElaborazioneID, ol_progr, ol_codart, ol_conto, ol_magaz, ol_fase, ol_quant, ol_datcons, ol_unmis)
+                            VALUES ${values}
+                        `);
+                    }
+
+                    elaborazione = { id: elabId, fingerprint, totaleProposte: rows.length, totaleGestite: 0 };
+                } else {
+                    // Elaborazione esistente
+                    elabId = elabRes.recordset[0].ID;
+                    elaborazione = {
+                        id: elabId,
+                        fingerprint: elabRes.recordset[0].Fingerprint,
+                        totaleProposte: elabRes.recordset[0].TotaleProposte,
+                        totaleGestite: elabRes.recordset[0].TotaleGestite
+                    };
+                }
+
+                // 4) Riconciliazione: marca le proposte già emesse in questa elaborazione
+                try {
+                    const emessiRes = await pool.request()
+                        .input('eid', sql.VarChar(50), String(elabId))
+                        .query(`SELECT id, ol_progr FROM dbo.ordini_emessi WHERE elaborazione_id = @eid`);
+
+                    if (emessiRes.recordset.length > 0) {
+                        for (const em of emessiRes.recordset) {
+                            await poolGB2.request()
+                                .input('eid', sql.Int, elabId)
+                                .input('progr', sql.Int, em.ol_progr)
+                                .input('oeId', sql.Int, em.id)
+                                .query(`
+                                    UPDATE [GB2].[dbo].[SnapshotProposte]
+                                    SET Gestita = 1, OrdineEmessoID = @oeId, UpdatedAt = GETDATE()
+                                    WHERE ElaborazioneID = @eid AND ol_progr = @progr AND Gestita = 0
+                                `);
+                        }
+                        // Aggiorna contatore
+                        const cntRes = await poolGB2.request()
+                            .input('eid', sql.Int, elabId)
+                            .query(`SELECT COUNT(*) AS cnt FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID=@eid AND Gestita=1`);
+                        const gestite = cntRes.recordset[0].cnt;
+                        await poolGB2.request()
+                            .input('eid', sql.Int, elabId)
+                            .input('gestite', sql.Int, gestite)
+                            .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
+                        elaborazione.totaleGestite = gestite;
+                    }
+                } catch (ricErr) {
+                    console.warn('[API] Riconciliazione snapshot fallita (continuo):', ricErr.message);
+                }
+            }
+        } catch (elabErr) {
+            console.warn('[API] Rilevazione elaborazione fallita (continuo senza):', elabErr.message);
+        }
+
+        // ─── Arricchimento emissioni ───
+        // ordini_emessi vive SEMPRE in MRP@163 (dove girano le SP), indipendentemente
+        // dal profilo attivo. Usiamo getPoolProd() per evitare di cercare nel DB test.
         let emissioni = [];
         try {
-            const poolMRP = await getPoolMRP(getUserId(req));
-            const emRes = await poolMRP.request().query(`
-                SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata, data_emissione
+            const poolEmissioni = await getPoolProd();
+            const emRes = await poolEmissioni.request()
+                .input('amb', sql.VarChar(20), ambiente)
+                .query(`
+                SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
+                       data_emissione, elaborazione_id,
+                       ISNULL(email_inviata, 0) AS email_inviata,
+                       email_inviata_il
                 FROM dbo.ordini_emessi
+                WHERE ISNULL(ambiente, 'produzione') = @amb
             `);
             emissioni = emRes.recordset;
         } catch (e) {
-            console.warn('[API] ordini_emessi non disponibile (continuo senza):', e.message);
+            // Fallback: colonne email_inviata/ambiente potrebbero non esistere ancora
+            try {
+                const poolEmissioni = await getPoolProd();
+                const emRes2 = await poolEmissioni.request().query(`
+                    SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
+                           data_emissione, elaborazione_id,
+                           0 AS email_inviata, NULL AS email_inviata_il
+                    FROM dbo.ordini_emessi
+                `);
+                emissioni = emRes2.recordset;
+            } catch (e2) {
+                console.warn('[API] ordini_emessi non disponibile (continuo senza):', e2.message);
+            }
         }
 
-        // Mappa ol_progr -> emissione
         const emissioniMap = new Map();
         for (const em of emissioni) {
             emissioniMap.set(em.ol_progr, em);
         }
 
-        // Annota ogni riga ordlist con info emissione
         const righe = result.recordset.map(r => {
             const em = emissioniMap.get(r.ol_progr);
             if (em) {
@@ -1779,13 +1966,16 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 r.ord_numord = em.ord_numord;
                 r.quantita_ordinata = em.quantita_ordinata;
                 r.data_emissione = em.data_emissione;
+                r.elaborazione_id = em.elaborazione_id;
+                r.email_inviata = !!em.email_inviata;
+                r.email_inviata_il = em.email_inviata_il;
             } else {
                 r.emesso = false;
             }
             return r;
         });
 
-        res.json(righe);
+        res.json({ elaborazione, righe });
     } catch (err) {
         console.error('[API] Errore proposta-ordini:', err);
         res.status(500).json({ error: err.message });
@@ -1906,6 +2096,329 @@ router.post('/user/preferences', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// API: EMAIL TEMPLATES (CRUD)
+// ============================================================
+
+// Lista template visibili all'operatore
+router.get('/email-templates', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const includeInactive = req.query.include_inactive === '1';
+
+        let whereActive = includeInactive ? '' : 'AND t.IsActive = 1';
+
+        const result = await pool.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT t.ID as id, t.IDUser as idUser, t.Nome as nome, t.Oggetto as oggetto,
+                       t.Corpo as corpo, t.Lingua as lingua, t.IsDefault as isDefault,
+                       t.IsSystem as isSystem, t.IsActive as isActive, t.Ordine as ordine,
+                       u.Name AS nomeOperatore
+                FROM [GB2].[dbo].[EmailTemplates] t
+                LEFT JOIN [GA].[dbo].[Users] u ON t.IDUser = u.IDUser
+                WHERE (t.IsSystem = 1 OR t.IDUser IS NOT NULL) ${whereActive}
+                ORDER BY t.IsSystem DESC, t.Ordine ASC, t.Nome ASC
+            `);
+
+        // Aggiunge flag isMine per il frontend
+        const templates = result.recordset.map(t => ({
+            ...t,
+            isMine: t.idUser === userId
+        }));
+        res.json({ templates });
+    } catch (err) {
+        console.error('[Email Templates] Errore lista:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Singolo template per ID
+router.get('/email-templates/:id', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const result = await pool.request()
+            .input('id', sql.Int, parseInt(req.params.id, 10))
+            .query(`
+                SELECT t.ID as id, t.IDUser as idUser, t.Nome as nome, t.Oggetto as oggetto,
+                       t.Corpo as corpo, t.Lingua as lingua, t.IsDefault as isDefault,
+                       t.IsSystem as isSystem, t.IsActive as isActive,
+                       u.Name AS nomeOperatore
+                FROM [GB2].[dbo].[EmailTemplates] t
+                LEFT JOIN [GA].[dbo].[Users] u ON t.IDUser = u.IDUser
+                WHERE t.ID = @id
+            `);
+        if (result.recordset.length === 0) return res.status(404).json({ error: 'Template non trovato' });
+        res.json({ template: result.recordset[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Crea template personale
+router.post('/email-templates', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const { nome, oggetto, corpo, lingua, isDefault } = req.body;
+
+        if (!nome || !corpo) return res.status(400).json({ error: 'Nome e corpo obbligatori' });
+
+        // If setting as default, reset others first
+        if (isDefault) {
+            await pool.request().input('uid', sql.Int, userId).query(
+                `UPDATE [GB2].[dbo].[EmailTemplates] SET IsDefault = 0 WHERE IDUser = @uid`
+            );
+        }
+
+        const result = await pool.request()
+            .input('uid', sql.Int, userId)
+            .input('nome', sql.NVarChar(100), nome)
+            .input('oggetto', sql.NVarChar(200), oggetto || 'Ordine {numord} - U.Jet S.r.l.')
+            .input('corpo', sql.NVarChar(sql.MAX), corpo)
+            .input('lingua', sql.VarChar(10), lingua || 'it')
+            .input('isDefault', sql.Bit, isDefault ? 1 : 0)
+            .query(`
+                INSERT INTO [GB2].[dbo].[EmailTemplates] (IDUser, Nome, Oggetto, Corpo, Lingua, IsDefault, IsSystem, IsActive)
+                OUTPUT INSERTED.ID as id
+                VALUES (@uid, @nome, @oggetto, @corpo, @lingua, @isDefault, 0, 1)
+            `);
+
+        res.json({ success: true, id: result.recordset[0].id });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Aggiorna template (solo propri, non di sistema)
+router.put('/email-templates/:id', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const templateId = parseInt(req.params.id, 10);
+        const { nome, oggetto, corpo, lingua, isDefault } = req.body;
+
+        // Verify ownership
+        const check = await pool.request().input('id', sql.Int, templateId).query(
+            `SELECT IDUser, IsSystem FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @id`
+        );
+        if (check.recordset.length === 0) return res.status(404).json({ error: 'Template non trovato' });
+        if (check.recordset[0].IsSystem) return res.status(403).json({ error: 'Non puoi modificare un template di sistema' });
+        if (check.recordset[0].IDUser !== userId) return res.status(403).json({ error: 'Non puoi modificare template di altri operatori' });
+
+        if (isDefault) {
+            await pool.request().input('uid', sql.Int, userId).query(
+                `UPDATE [GB2].[dbo].[EmailTemplates] SET IsDefault = 0 WHERE IDUser = @uid`
+            );
+        }
+
+        await pool.request()
+            .input('id', sql.Int, templateId)
+            .input('nome', sql.NVarChar(100), nome)
+            .input('oggetto', sql.NVarChar(200), oggetto || 'Ordine {numord} - U.Jet S.r.l.')
+            .input('corpo', sql.NVarChar(sql.MAX), corpo)
+            .input('lingua', sql.VarChar(10), lingua || 'it')
+            .input('isDefault', sql.Bit, isDefault ? 1 : 0)
+            .query(`
+                UPDATE [GB2].[dbo].[EmailTemplates]
+                SET Nome = @nome, Oggetto = @oggetto, Corpo = @corpo, Lingua = @lingua,
+                    IsDefault = @isDefault, UpdatedAt = GETDATE()
+                WHERE ID = @id
+            `);
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Elimina template (soft delete: IsActive=0)
+router.delete('/email-templates/:id', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const templateId = parseInt(req.params.id, 10);
+
+        const check = await pool.request().input('id', sql.Int, templateId).query(
+            `SELECT IDUser, IsSystem FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @id`
+        );
+        if (check.recordset.length === 0) return res.status(404).json({ error: 'Template non trovato' });
+        if (check.recordset[0].IsSystem) return res.status(403).json({ error: 'Non puoi eliminare un template di sistema' });
+        if (check.recordset[0].IDUser !== userId) return res.status(403).json({ error: 'Non puoi eliminare template di altri operatori' });
+
+        await pool.request().input('id', sql.Int, templateId).query(
+            `UPDATE [GB2].[dbo].[EmailTemplates] SET IsActive = 0, UpdatedAt = GETDATE() WHERE ID = @id`
+        );
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Riattiva template disattivato
+router.put('/email-templates/:id/reactivate', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const templateId = parseInt(req.params.id, 10);
+
+        const check = await pool.request().input('id', sql.Int, templateId).query(
+            `SELECT IDUser FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @id`
+        );
+        if (check.recordset.length === 0) return res.status(404).json({ error: 'Template non trovato' });
+        if (check.recordset[0].IDUser !== userId) return res.status(403).json({ error: 'Non puoi riattivare template di altri operatori' });
+
+        await pool.request().input('id', sql.Int, templateId).query(
+            `UPDATE [GB2].[dbo].[EmailTemplates] SET IsActive = 1, UpdatedAt = GETDATE() WHERE ID = @id`
+        );
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// API: EMAIL TEMPLATE ASSEGNAZIONI FORNITORE
+// ============================================================
+
+// Lista assegnazioni fornitore-template dell'operatore
+router.get('/email-template-assegnazioni', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+
+        const result = await pool.request()
+            .input('uid', sql.Int, userId)
+            .query(`
+                SELECT a.FornitoreCode as fornitoreCode, a.TemplateID as templateId
+                FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                WHERE a.IDUser = @uid
+            `);
+
+        res.json({ assegnazioni: result.recordset });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Upsert assegnazione fornitore-template
+router.put('/email-template-assegnazione/:fornitoreCode', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const fornitoreCode = parseInt(req.params.fornitoreCode, 10);
+        const { templateId } = req.body;
+
+        if (!templateId) {
+            // Remove assignment
+            await pool.request()
+                .input('uid', sql.Int, userId)
+                .input('forn', sql.Int, fornitoreCode)
+                .query(`DELETE FROM [GB2].[dbo].[EmailTemplateAssegnazioni] WHERE IDUser = @uid AND FornitoreCode = @forn`);
+        } else {
+            // Upsert
+            await pool.request()
+                .input('uid', sql.Int, userId)
+                .input('forn', sql.Int, fornitoreCode)
+                .input('tid', sql.Int, templateId)
+                .query(`
+                    MERGE [GB2].[dbo].[EmailTemplateAssegnazioni] AS target
+                    USING (SELECT @uid AS IDUser, @forn AS FornitoreCode) AS source
+                    ON target.IDUser = source.IDUser AND target.FornitoreCode = source.FornitoreCode
+                    WHEN MATCHED THEN UPDATE SET TemplateID = @tid, UpdatedAt = GETDATE()
+                    WHEN NOT MATCHED THEN INSERT (IDUser, FornitoreCode, TemplateID) VALUES (@uid, @forn, @tid);
+                `);
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Lista fornitori attivi (da ordini) con assegnazione template
+router.get('/fornitori-template', authMiddleware, async (req, res) => {
+    try {
+        const poolProd = await getPoolProd();
+        const userId = getUserId(req);
+
+        // Fornitori da ordlist (ordini fornitore) + quelli che hanno già assegnazioni
+        const result = await poolProd.request()
+            .input('uid', sql.Int, userId)
+            .query(`
+                ;WITH FornAttivi AS (
+                    SELECT DISTINCT ol.ol_conto AS codice, an.an_descr1 AS nome
+                    FROM dbo.ordlist ol
+                    LEFT JOIN dbo.anagra an ON ol.ol_conto = an.an_conto
+                    WHERE ol.ol_tipork IN ('H','O','R','Y')
+                      AND ol.ol_conto IS NOT NULL
+                    UNION
+                    SELECT a.FornitoreCode, an.an_descr1
+                    FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                    LEFT JOIN dbo.anagra an ON a.FornitoreCode = an.an_conto
+                    WHERE a.IDUser = @uid
+                )
+                SELECT f.codice, f.nome,
+                       a.TemplateID AS templateId
+                FROM FornAttivi f
+                LEFT JOIN [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                    ON a.FornitoreCode = f.codice AND a.IDUser = @uid
+                ORDER BY f.nome
+            `);
+
+        // Template mode dall'utente
+        const modeRes = await poolProd.request()
+            .input('uid', sql.Int, userId)
+            .query(`SELECT ISNULL(TemplateMode, 'ultima_scelta') AS templateMode
+                    FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @uid`);
+        const templateMode = modeRes.recordset.length ? modeRes.recordset[0].templateMode : 'ultima_scelta';
+
+        res.json({
+            fornitori: result.recordset,
+            templateMode
+        });
+    } catch (err) {
+        console.error('[Fornitori Template] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Salva modalità template (predefiniti / ultima_scelta)
+router.put('/template-mode', authMiddleware, async (req, res) => {
+    try {
+        const poolProd = await getPoolProd();
+        const userId = getUserId(req);
+        const { mode } = req.body;
+
+        if (!['predefiniti', 'ultima_scelta'].includes(mode)) {
+            return res.status(400).json({ error: 'Modalità non valida' });
+        }
+
+        const exists = await poolProd.request()
+            .input('uid', sql.Int, userId)
+            .query('SELECT 1 FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @uid');
+
+        if (exists.recordset.length) {
+            await poolProd.request()
+                .input('uid', sql.Int, userId)
+                .input('mode', sql.VarChar(20), mode)
+                .query('UPDATE [GB2].[dbo].[UserPreferences] SET TemplateMode = @mode, UpdatedAt = GETDATE() WHERE IDUser = @uid');
+        } else {
+            await poolProd.request()
+                .input('uid', sql.Int, userId)
+                .input('mode', sql.VarChar(20), mode)
+                .query('INSERT INTO [GB2].[dbo].[UserPreferences] (IDUser, TemplateMode) VALUES (@uid, @mode)');
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
 // API: EMISSIONE ORDINI FORNITORE
 // ============================================================
 
@@ -2003,6 +2516,54 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         const ambiente = dbProfile.ambiente || 'produzione';
         const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente });
 
+        // Marca l'ambiente sulle righe ordini_emessi appena create dalla SP
+        try {
+            await poolSP.request()
+                .input('anno', sql.SmallInt, ordine.anno)
+                .input('serie', sql.VarChar(3), ordine.serie)
+                .input('numord', sql.Int, ordine.numord)
+                .input('ambiente', sql.VarChar(20), ambiente)
+                .query(`UPDATE dbo.ordini_emessi SET ambiente=@ambiente WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+        } catch (ambErr) {
+            console.warn('[Emetti Ordine] Update ambiente fallito (colonna potrebbe non esistere):', ambErr.message);
+        }
+
+        // Aggiorna SnapshotProposte: segna le proposte come gestite
+        if (elaborazione_id) {
+            try {
+                const poolGB2 = await getPoolProd();
+                // Recupera gli ordini_emessi appena inseriti dalla SP
+                const oeRes = await poolSP.request()
+                    .input('anno', sql.SmallInt, ordine.anno)
+                    .input('serie', sql.VarChar(3), ordine.serie)
+                    .input('numord', sql.Int, ordine.numord)
+                    .query(`SELECT id, ol_progr FROM dbo.ordini_emessi WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+
+                for (const oe of oeRes.recordset) {
+                    await poolGB2.request()
+                        .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                        .input('progr', sql.Int, oe.ol_progr)
+                        .input('oeId', sql.Int, oe.id)
+                        .query(`
+                            UPDATE [GB2].[dbo].[SnapshotProposte]
+                            SET Gestita = 1, OrdineEmessoID = @oeId, UpdatedAt = GETDATE()
+                            WHERE ElaborazioneID = @eid AND ol_progr = @progr
+                        `);
+                }
+
+                // Aggiorna contatore gestite
+                const cntRes = await poolGB2.request()
+                    .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                    .query(`SELECT COUNT(*) AS cnt FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID=@eid AND Gestita=1`);
+                await poolGB2.request()
+                    .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                    .input('gestite', sql.Int, cntRes.recordset[0].cnt)
+                    .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
+            } catch (snapErr) {
+                console.warn('[Emetti Ordine] Aggiornamento snapshot fallito (continuo):', snapErr.message);
+            }
+        }
+
         res.json({
             success: true,
             ambiente,
@@ -2056,7 +2617,18 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
                 const ordine = result.recordsets[0][0];
                 const righeOrdine = result.recordsets[1] || [];
                 const dbProf = getActiveProfile(getUserId(req));
-                const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: dbProf.ambiente || 'produzione' });
+                const ambienteBatch = dbProf.ambiente || 'produzione';
+                const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: ambienteBatch });
+
+                // Marca ambiente
+                try {
+                    await poolSP.request()
+                        .input('anno', sql.SmallInt, ordine.anno)
+                        .input('serie', sql.VarChar(3), ordine.serie)
+                        .input('numord', sql.Int, ordine.numord)
+                        .input('ambiente', sql.VarChar(20), ambienteBatch)
+                        .query(`UPDATE dbo.ordini_emessi SET ambiente=@ambiente WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+                } catch (_) {}
 
                 risultati.push({
                     success: true,
@@ -2174,7 +2746,8 @@ router.get('/smtp/config', authMiddleware, async (req, res) => {
         const result = await poolProd.request()
             .input('userId', sql.Int, userId)
             .query(`SELECT SmtpHost, SmtpPort, SmtpSecure, SmtpUser,
-                           SmtpFromAddress, SmtpFromName
+                           SmtpFromAddress, SmtpFromName, FirmaEmail,
+                           ISNULL(TemplateMode, 'ultima_scelta') AS TemplateMode
                     FROM [GB2].[dbo].[UserPreferences]
                     WHERE IDUser = @userId`);
 
@@ -2189,7 +2762,9 @@ router.get('/smtp/config', authMiddleware, async (req, res) => {
             secure: !!row.SmtpSecure,
             user: row.SmtpUser || '',
             from_address: row.SmtpFromAddress || '',
-            from_name: row.SmtpFromName || 'U.Jet s.r.l.'
+            from_name: row.SmtpFromName || 'U.Jet s.r.l.',
+            firma: row.FirmaEmail || '',
+            templateMode: row.TemplateMode || 'ultima_scelta'
         };
         res.json({ configured: !!(config.host && config.from_address), config });
     } catch (err) {
@@ -2201,7 +2776,7 @@ router.get('/smtp/config', authMiddleware, async (req, res) => {
 router.post('/smtp/config', authMiddleware, async (req, res) => {
     try {
         const userId = getUserId(req);
-        const { host, port, secure, user, password, from_address, from_name } = req.body;
+        const { host, port, secure, user, password, from_address, from_name, firma } = req.body;
 
         const encPassword = (password && password.trim()) ? encrypt(password) : null;
         const poolProd = await getPoolProd();
@@ -2219,7 +2794,8 @@ router.post('/smtp/config', authMiddleware, async (req, res) => {
                 .input('secure', sql.Bit, secure ? 1 : 0)
                 .input('user', sql.VarChar(100), user || null)
                 .input('from_address', sql.VarChar(255), from_address || null)
-                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.');
+                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.')
+                .input('firma', sql.NVarChar(500), firma || null);
 
             let pwdClause = '';
             if (encPassword) {
@@ -2230,7 +2806,7 @@ router.post('/smtp/config', authMiddleware, async (req, res) => {
             await req2.query(`UPDATE [GB2].[dbo].[UserPreferences]
                 SET SmtpHost = @host, SmtpPort = @port, SmtpSecure = @secure,
                     SmtpUser = @user, SmtpFromAddress = @from_address,
-                    SmtpFromName = @from_name${pwdClause}, UpdatedAt = GETDATE()
+                    SmtpFromName = @from_name, FirmaEmail = @firma${pwdClause}, UpdatedAt = GETDATE()
                 WHERE IDUser = @userId`);
         } else {
             const req2 = poolProd.request()
@@ -2241,12 +2817,13 @@ router.post('/smtp/config', authMiddleware, async (req, res) => {
                 .input('user', sql.VarChar(100), user || null)
                 .input('pwd', sql.VarBinary(512), encPassword)
                 .input('from_address', sql.VarChar(255), from_address || null)
-                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.');
+                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.')
+                .input('firma', sql.NVarChar(500), firma || null);
 
             await req2.query(`INSERT INTO [GB2].[dbo].[UserPreferences]
                 (IDUser, SmtpHost, SmtpPort, SmtpSecure, SmtpUser, SmtpPassword,
-                 SmtpFromAddress, SmtpFromName)
-                VALUES (@userId, @host, @port, @secure, @user, @pwd, @from_address, @from_name)`);
+                 SmtpFromAddress, SmtpFromName, FirmaEmail)
+                VALUES (@userId, @host, @port, @secure, @user, @pwd, @from_address, @from_name, @firma)`);
         }
 
         res.json({ success: true });
@@ -2275,9 +2852,144 @@ router.post('/smtp/test', authMiddleware, async (req, res) => {
 // API: INVIO EMAIL ORDINE FORNITORE
 // ============================================================
 
+// Funzione interna: compila template per un ordine (usata da preview e invio)
+async function _compilaEmailOrdine(userId, anno, serie, numord, template_id) {
+    const pool = await getPoolProd();
+
+    // Dati ordine (testata)
+    const ordRes = await pool.request()
+        .input('anno', sql.SmallInt, parseInt(anno, 10))
+        .input('serie', sql.VarChar(3), serie)
+        .input('numord', sql.Int, parseInt(numord, 10))
+        .query(`
+            SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
+                   t.td_conto, t.td_datord, t.td_totdoc,
+                   a.an_descr1 AS fornitore_nome, a.an_email AS fornitore_email
+            FROM dbo.testord t
+            LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+            WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+              AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
+        `);
+    if (!ordRes.recordset.length) throw new Error('Ordine non trovato');
+    const ordine = ordRes.recordset[0];
+
+    // Risoluzione template (cascade)
+    let template = null;
+
+    if (template_id) {
+        const tplRes = await pool.request()
+            .input('tid', sql.Int, template_id)
+            .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @tid AND IsActive = 1`);
+        if (tplRes.recordset.length) template = tplRes.recordset[0];
+    }
+
+    if (!template) {
+        const assRes = await pool.request()
+            .input('uid', sql.Int, userId)
+            .input('forn', sql.Int, ordine.td_conto)
+            .query(`
+                SELECT t.Oggetto, t.Corpo
+                FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                JOIN [GB2].[dbo].[EmailTemplates] t ON a.TemplateID = t.ID
+                WHERE a.IDUser = @uid AND a.FornitoreCode = @forn AND t.IsActive = 1
+            `);
+        if (assRes.recordset.length) template = assRes.recordset[0];
+    }
+
+    if (!template) {
+        const defRes = await pool.request()
+            .input('uid', sql.Int, userId)
+            .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE IDUser = @uid AND IsDefault = 1 AND IsActive = 1`);
+        if (defRes.recordset.length) template = defRes.recordset[0];
+    }
+
+    if (!template) {
+        const sysRes = await pool.request()
+            .query(`SELECT TOP 1 Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE IsSystem = 1 AND Lingua = 'it' AND IsActive = 1 ORDER BY Ordine ASC`);
+        if (sysRes.recordset.length) template = sysRes.recordset[0];
+    }
+
+    // Firma + nome operatore
+    const prefRes = await pool.request()
+        .input('uid', sql.Int, userId)
+        .query(`SELECT FirmaEmail FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @uid`);
+    const firmaEmail = (prefRes.recordset.length && prefRes.recordset[0].FirmaEmail) || '';
+
+    const operRes = await pool.request()
+        .input('uid', sql.Int, userId)
+        .query(`SELECT Name AS NomeCompleto FROM [GA].[dbo].[Users] WHERE IDUser = @uid`);
+    const nomeOperatore = (operRes.recordset.length && operRes.recordset[0].NomeCompleto) || '';
+
+    // Conteggio righe
+    const righeCount = await pool.request()
+        .input('anno', sql.SmallInt, parseInt(anno, 10))
+        .input('serie', sql.VarChar(3), serie)
+        .input('numord', sql.Int, parseInt(numord, 10))
+        .query(`SELECT COUNT(*) AS cnt FROM dbo.movord WHERE codditt = 'UJET11' AND mo_tipork = 'O' AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord`);
+
+    const dataOrdine = ordine.td_datord ? new Date(ordine.td_datord).toLocaleDateString('it-IT') : '';
+    const totaleDoc = ordine.td_totdoc != null ? Number(ordine.td_totdoc).toLocaleString('it-IT', { minimumFractionDigits: 2 }) : '';
+    const datiTemplate = {
+        fornitore: ordine.fornitore_nome || '',
+        numord: `${numord}/${serie}`,
+        data_ordine: dataOrdine,
+        num_articoli: String(righeCount.recordset[0].cnt),
+        totale: totaleDoc,
+        operatore: nomeOperatore.trim(),
+        firma: firmaEmail
+    };
+
+    let oggetto, corpo;
+    if (template) {
+        oggetto = compilaTemplate(template.Oggetto, datiTemplate);
+        corpo = compilaTemplate(template.Corpo, datiTemplate);
+    } else {
+        oggetto = `NS/ ORDINE ${numord}_${serie} - ${ordine.fornitore_nome || ''}`;
+        corpo = `Spett.le ${ordine.fornitore_nome || ''},\n\nin allegato l'ordine d'acquisto n. ${numord}/${serie}.\n\nCordiali saluti,\nU.Jet s.r.l.`;
+    }
+
+    return {
+        oggetto,
+        corpo,
+        fornitore_nome: ordine.fornitore_nome || '',
+        fornitore_email: ordine.fornitore_email || '',
+        fornitore_codice: ordine.td_conto
+    };
+}
+
+// Preview email ordine (compila template senza inviare)
+router.post('/preview-ordine-email', authMiddleware, async (req, res) => {
+    try {
+        const { anno, serie, numord, template_id } = req.body;
+        if (!anno || !serie || !numord) return res.status(400).json({ error: 'anno, serie e numord obbligatori' });
+        const userId = getUserId(req);
+
+        const preview = await _compilaEmailOrdine(userId, anno, serie, numord, template_id);
+
+        // Info ambiente
+        const dbProfile = getActiveProfile(userId);
+        const ambiente = dbProfile.ambiente || 'produzione';
+        let destinatario = preview.fornitore_email;
+        if (ambiente === 'prova') {
+            destinatario = (dbProfile.email_prova || '').trim() || '(email prova non configurata)';
+        }
+
+        res.json({
+            oggetto: preview.oggetto,
+            corpo: preview.corpo,
+            fornitore_nome: preview.fornitore_nome,
+            destinatario,
+            ambiente
+        });
+    } catch (err) {
+        console.error('[Preview Email] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
     try {
-        const { anno, serie, numord, pdf_base64, pdf_filename, email_override } = req.body;
+        const { anno, serie, numord, pdf_base64, pdf_filename, email_override, template_id, oggetto_custom, corpo_custom } = req.body;
 
         if (!anno || !serie || !numord) {
             return res.status(400).json({ error: 'anno, serie e numord sono obbligatori' });
@@ -2381,21 +3093,28 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
 
         const nomeFile = pdf_filename || `OrdineForn${anno}${serie}${String(numord).padStart(6,'0')}.pdf`;
         const prefissoProva = ambiente === 'prova' ? '[PROVA] ' : '';
-        const oggetto = `${prefissoProva}NS/ ORDINE ${numord}_${serie} - ${ordine.fornitore_nome || ''}`;
 
-        // Corpo email HTML
+        // --- Compilazione oggetto e corpo email ---
+        let oggetto, corpoHtml;
+
+        if (oggetto_custom && corpo_custom) {
+            // Override dal modale di anteprima editabile
+            oggetto = prefissoProva + oggetto_custom;
+            corpoHtml = corpo_custom.replace(/\n/g, '<br>');
+        } else {
+            // Compilazione automatica da template (cascade)
+            const compiled = await _compilaEmailOrdine(userId, anno, serie, numord, template_id);
+            oggetto = prefissoProva + compiled.oggetto;
+            corpoHtml = compiled.corpo.replace(/\n/g, '<br>');
+        }
+
+        // Avviso prova in testa
         const avvisoProva = ambiente === 'prova'
             ? `<div style="background:#fff3cd; padding:10px 14px; border:1px solid #ffc107; border-radius:4px; margin-bottom:16px;">
                 <strong>⚠️ ORDINE DI PROVA</strong> — Il destinatario reale sarebbe stato: <strong>${emailReale}</strong>
                </div>`
             : '';
-
-        const corpoHtml = `
-            ${avvisoProva}
-            <p>Spett.le <strong>${ordine.fornitore_nome || ''}</strong>,</p>
-            <p>in allegato l'ordine d'acquisto n. <strong>${numord}/${serie}</strong>.</p>
-            <p>Cordiali saluti,<br><strong>U.Jet s.r.l.</strong></p>
-        `;
+        corpoHtml = avvisoProva + corpoHtml;
 
         // Invia con SMTP dell'operatore
         const transporter = smtp.createTransporterFromConfig(smtpConfig);
@@ -2432,6 +3151,22 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             console.warn('[Email] Ordine inviato ma errore aggiornamento stato:', errAggiorna.message);
         }
 
+        // Aggiorna tracciamento email in ordini_emessi (sempre su MRP@163)
+        try {
+            const poolOE = await getPoolProd();
+            await poolOE.request()
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .query(`
+                    UPDATE dbo.ordini_emessi
+                    SET email_inviata = 1, email_inviata_il = GETDATE()
+                    WHERE ord_anno = @anno AND ord_serie = @serie AND ord_numord = @numord
+                `);
+        } catch (errEmail) {
+            console.warn('[Email] Tracciamento email_inviata fallito:', errEmail.message);
+        }
+
         const risposta = {
             success: true,
             message_id: info.messageId,
@@ -2445,10 +3180,356 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             risposta.email_prova = destinatari.join(', ');
         }
 
+        // Cancella eventuale bozza dopo invio riuscito
+        try {
+            const poolDraft = await getPoolProd();
+            await poolDraft.request()
+                .input('uid', sql.Int, userId)
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(5), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .query(`DELETE FROM [GB2].[dbo].[EmailDrafts] WHERE IDUser = @uid AND Anno = @anno AND Serie = @serie AND NumOrd = @numord`);
+        } catch (errDraft) {
+            console.warn('[Email] Pulizia bozza fallita:', errDraft.message);
+        }
+
         res.json(risposta);
     } catch (err) {
         console.error('[Invia Email] Errore:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// API: EMAIL DRAFTS (bozze email personalizzate)
+// ============================================================
+
+// GET /email-drafts — tutte le bozze dell'operatore (o filtrate per ordine)
+router.get('/email-drafts', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const { anno, serie, numord } = req.query;
+
+        let query = `SELECT ID, Anno, Serie, NumOrd, OggettoCustom, CorpoCustom, DataModifica
+                      FROM [GB2].[dbo].[EmailDrafts] WHERE IDUser = @uid`;
+        const request = pool.request().input('uid', sql.Int, userId);
+
+        if (anno && serie && numord) {
+            query += ` AND Anno = @anno AND Serie = @serie AND NumOrd = @numord`;
+            request.input('anno', sql.SmallInt, parseInt(anno, 10));
+            request.input('serie', sql.VarChar(5), serie);
+            request.input('numord', sql.Int, parseInt(numord, 10));
+        }
+
+        const result = await request.query(query);
+        res.json({ drafts: result.recordset });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /email-drafts — upsert bozza (salva o aggiorna)
+router.put('/email-drafts', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const { anno, serie, numord, oggetto, corpo } = req.body;
+
+        if (!anno || !serie || !numord || !oggetto || !corpo) {
+            return res.status(400).json({ error: 'anno, serie, numord, oggetto e corpo sono obbligatori' });
+        }
+
+        await pool.request()
+            .input('uid', sql.Int, userId)
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(5), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .input('oggetto', sql.NVarChar(500), oggetto)
+            .input('corpo', sql.NVarChar(sql.MAX), corpo)
+            .query(`
+                MERGE [GB2].[dbo].[EmailDrafts] AS target
+                USING (SELECT @uid AS IDUser, @anno AS Anno, @serie AS Serie, @numord AS NumOrd) AS source
+                ON target.IDUser = source.IDUser AND target.Anno = source.Anno AND target.Serie = source.Serie AND target.NumOrd = source.NumOrd
+                WHEN MATCHED THEN UPDATE SET OggettoCustom = @oggetto, CorpoCustom = @corpo, DataModifica = GETDATE()
+                WHEN NOT MATCHED THEN INSERT (IDUser, Anno, Serie, NumOrd, OggettoCustom, CorpoCustom) VALUES (@uid, @anno, @serie, @numord, @oggetto, @corpo);
+            `);
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /email-drafts — cancella bozza specifica
+router.delete('/email-drafts', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const { anno, serie, numord } = req.body;
+
+        await pool.request()
+            .input('uid', sql.Int, userId)
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(5), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .query(`DELETE FROM [GB2].[dbo].[EmailDrafts] WHERE IDUser = @uid AND Anno = @anno AND Serie = @serie AND NumOrd = @numord`);
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// API: STORICO ORDINI EMESSI
+// ============================================================
+router.get('/storico-ordini', authMiddleware, async (req, res) => {
+    try {
+        // ordini_emessi + testord + anagra vivono in MRP@163 (sempre, anche per profili prova)
+        const pool = await getPoolProd();
+        const { elaborazione_id, fornitore, da, a } = req.query;
+        const profile = getActiveProfile(getUserId(req));
+        const ambiente = (profile && profile.ambiente) || 'produzione';
+
+        let where = '1=1';
+        const rq = pool.request();
+
+        // Filtra per ambiente corrente (produzione/prova)
+        // Usa try nella query principale; nel fallback si omette se colonna non esiste
+        let hasAmbienteFilter = true;
+        where += ' AND ISNULL(oe.ambiente, \'produzione\') = @ambiente';
+        rq.input('ambiente', sql.VarChar(20), ambiente);
+
+        if (elaborazione_id) {
+            // Filtra per ordini le cui proposte (ol_progr) fanno parte della snapshot
+            // dell'elaborazione corrente — non per elaborazione_id testuale che può
+            // avere formato diverso (vecchio timestamp vs nuovo ID intero)
+            where += ' AND oe.ol_progr IN (SELECT ol_progr FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID = @eid)';
+            rq.input('eid', sql.Int, parseInt(elaborazione_id, 10));
+        }
+        if (fornitore) {
+            where += ' AND oe.ol_conto = @forn';
+            rq.input('forn', sql.Int, parseInt(fornitore, 10));
+        }
+        if (da) {
+            where += ' AND oe.data_emissione >= @da';
+            rq.input('da', sql.DateTime, new Date(da));
+        }
+        if (a) {
+            where += ' AND oe.data_emissione <= @a';
+            rq.input('a', sql.DateTime, new Date(a));
+        }
+
+        // Query con fallback per colonne email (potrebbero non esistere ancora)
+        let queryResult;
+        try {
+            queryResult = await rq.query(`
+                SELECT
+                    oe.ord_anno, oe.ord_serie, oe.ord_numord,
+                    oe.ol_conto AS fornitore_codice,
+                    MAX(an.an_descr1) AS fornitore_nome,
+                    MIN(oe.data_emissione) AS data_emissione,
+                    oe.elaborazione_id,
+                    COUNT(*) AS num_righe,
+                    MAX(t.td_totdoc) AS totale_documento,
+                    oe.operatore,
+                    MAX(CAST(ISNULL(oe.email_inviata, 0) AS INT)) AS email_inviata,
+                    MAX(oe.email_inviata_il) AS email_inviata_il
+                FROM dbo.ordini_emessi oe
+                LEFT JOIN dbo.testord t
+                    ON t.codditt='UJET11' AND t.td_tipork='O'
+                    AND t.td_anno=oe.ord_anno AND t.td_serie=oe.ord_serie AND t.td_numord=oe.ord_numord
+                LEFT JOIN dbo.anagra an ON oe.ol_conto = an.an_conto
+                WHERE ${where}
+                GROUP BY oe.ord_anno, oe.ord_serie, oe.ord_numord, oe.ol_conto, oe.elaborazione_id, oe.operatore
+                ORDER BY MIN(oe.data_emissione) DESC
+            `);
+        } catch (colErr) {
+            // Fallback senza colonne email/ambiente (pre-deploy: colonne non esistono ancora)
+            const where2 = where.replace(/ AND ISNULL\(oe\.ambiente.*?@ambiente\)/, '');
+            const rq2 = pool.request();
+            if (elaborazione_id) rq2.input('eid', sql.Int, parseInt(elaborazione_id, 10));
+            if (fornitore) rq2.input('forn', sql.Int, parseInt(fornitore, 10));
+            if (da) rq2.input('da', sql.DateTime, new Date(da));
+            if (a) rq2.input('a', sql.DateTime, new Date(a));
+            queryResult = await rq2.query(`
+                SELECT
+                    oe.ord_anno, oe.ord_serie, oe.ord_numord,
+                    oe.ol_conto AS fornitore_codice,
+                    MAX(an.an_descr1) AS fornitore_nome,
+                    MIN(oe.data_emissione) AS data_emissione,
+                    oe.elaborazione_id,
+                    COUNT(*) AS num_righe,
+                    MAX(t.td_totdoc) AS totale_documento,
+                    oe.operatore,
+                    0 AS email_inviata,
+                    NULL AS email_inviata_il
+                FROM dbo.ordini_emessi oe
+                LEFT JOIN dbo.testord t
+                    ON t.codditt='UJET11' AND t.td_tipork='O'
+                    AND t.td_anno=oe.ord_anno AND t.td_serie=oe.ord_serie AND t.td_numord=oe.ord_numord
+                LEFT JOIN dbo.anagra an ON oe.ol_conto = an.an_conto
+                WHERE ${where2}
+                GROUP BY oe.ord_anno, oe.ord_serie, oe.ord_numord, oe.ol_conto, oe.elaborazione_id, oe.operatore
+                ORDER BY MIN(oe.data_emissione) DESC
+            `);
+        }
+
+        res.json({ ordini: queryResult.recordset });
+    } catch (err) {
+        console.error('[Storico Ordini] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Dettaglio singolo ordine (per riapertura modale risultato)
+router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req, res) => {
+    try {
+        const { anno, serie, numord } = req.params;
+        // testord/movord/anagra/ordini_emessi sono su MRP@163 (sempre)
+        const pool = await getPoolProd();
+
+        // Testata ordine + fornitore
+        const testata = await pool.request()
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .query(`
+                SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
+                       t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
+                       t.td_datcons, t.td_codpaga, t.td_porto AS porto,
+                       t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                       a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
+                       a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
+                       a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
+                       a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
+                       t.td_totdoc - t.td_totmerce AS totale_imposta
+                FROM dbo.testord t
+                LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+                  AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
+            `);
+
+        if (!testata.recordset.length) {
+            return res.status(404).json({ error: 'Ordine non trovato' });
+        }
+
+        // Descrizione pagamento
+        let pag_descr = '';
+        try {
+            const pag = await pool.request()
+                .input('codpaga', sql.SmallInt, testata.recordset[0].td_codpaga)
+                .query("SELECT tb_descr AS cp_descr FROM dbo.tabpaga WHERE tb_codpaga = @codpaga");
+            if (pag.recordset.length) pag_descr = pag.recordset[0].cp_descr || '';
+        } catch (_) {}
+
+        const ordine = { ...testata.recordset[0], pagamento_descr: pag_descr };
+
+        // Righe ordine
+        const righeRes = await pool.request()
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .query(`
+                SELECT mo_riga, mo_codart, mo_descr, mo_desint, mo_unmis,
+                       mo_quant, mo_prezzo, mo_valore, mo_datcons, mo_fase, mo_magaz
+                FROM dbo.movord
+                WHERE codditt = 'UJET11' AND mo_tipork = 'O'
+                  AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord
+                ORDER BY mo_riga
+            `);
+
+        // Stato email da ordini_emessi
+        let emailInviata = false, emailInviataIl = null;
+        try {
+            const oeRes = await pool.request()
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .query(`
+                    SELECT TOP 1 ISNULL(email_inviata, 0) AS email_inviata, email_inviata_il
+                    FROM dbo.ordini_emessi
+                    WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord
+                `);
+            if (oeRes.recordset.length) {
+                emailInviata = !!oeRes.recordset[0].email_inviata;
+                emailInviataIl = oeRes.recordset[0].email_inviata_il;
+            }
+        } catch (_) {}
+
+        // Genera PDF
+        const dbProfile = getActiveProfile(getUserId(req));
+        const ambiente = (dbProfile && dbProfile.ambiente) || 'produzione';
+        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset, { ambiente });
+
+        res.json({
+            success: true,
+            ambiente,
+            ordine: {
+                anno: ordine.anno,
+                serie: ordine.serie,
+                numord: ordine.numord,
+                fornitore_codice: ordine.fornitore_codice,
+                fornitore_nome: ordine.fornitore_nome,
+                fornitore_email: ordine.fornitore_email,
+                totale_merce: ordine.totale_merce,
+                totale_documento: ordine.totale_documento,
+                data_ordine: ordine.data_ordine,
+                num_righe: righeRes.recordset.length,
+                email_inviata: emailInviata,
+                email_inviata_il: emailInviataIl
+            },
+            righe: righeRes.recordset,
+            pdf_base64: pdfBuffer.toString('base64'),
+            pdf_filename: `OrdineForn${ordine.anno}${ordine.serie}${String(ordine.numord).padStart(6,'0')}.pdf`
+        });
+    } catch (err) {
+        console.error('[Ordine Dettaglio] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Controllo duplicati pre-emissione
+router.post('/controlla-duplicato', authMiddleware, async (req, res) => {
+    try {
+        const { fornitore_codice, elaborazione_id, articoli } = req.body;
+        if (!fornitore_codice || !elaborazione_id || !Array.isArray(articoli)) {
+            return res.json({ hasDuplicati: false, duplicati: [] });
+        }
+
+        // ordini_emessi è sempre su MRP@163
+        const pool = await getPoolProd();
+        const oeRes = await pool.request()
+            .input('forn', sql.Int, parseInt(fornitore_codice, 10))
+            .input('eid', sql.VarChar(50), String(elaborazione_id))
+            .query(`
+                SELECT ol_codart, ol_fase, ol_magaz, ord_numord, ord_serie, data_emissione
+                FROM dbo.ordini_emessi
+                WHERE ol_conto = @forn AND elaborazione_id = @eid
+            `);
+
+        // Confronta con articoli richiesti
+        const emessiSet = new Set(oeRes.recordset.map(r => `${r.ol_codart}|${r.ol_fase}|${r.ol_magaz}`));
+        const duplicati = [];
+        for (const art of articoli) {
+            const key = `${art.codart}|${art.fase || 0}|${art.magaz || 1}`;
+            if (emessiSet.has(key)) {
+                const match = oeRes.recordset.find(r => `${r.ol_codart}|${r.ol_fase}|${r.ol_magaz}` === key);
+                duplicati.push({
+                    codart: art.codart,
+                    fase: art.fase || 0,
+                    magaz: art.magaz || 1,
+                    ordine: `${match.ord_numord}/${match.ord_serie}`,
+                    data: match.data_emissione
+                });
+            }
+        }
+
+        res.json({ hasDuplicati: duplicati.length > 0, duplicati });
+    } catch (err) {
+        console.error('[Controlla Duplicato] Errore:', err);
+        res.json({ hasDuplicati: false, duplicati: [] });
     }
 });
 

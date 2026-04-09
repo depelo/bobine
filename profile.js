@@ -155,7 +155,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const goBackBtn = document.getElementById('profBackBtn');
     if (goBackBtn) {
         goBackBtn.addEventListener('click', () => {
-            if (currentUser && currentUser.defaultModuleId === 2) {
+            const ref = document.referrer || '';
+            if (ref.includes('/gb2.html')) {
+                window.location.href = '/gb2.html';
+            } else if (ref.includes('/captain.html')) {
+                window.location.href = '/captain.html';
+            } else if (ref.includes('/ET.html')) {
+                window.location.href = '/ET.html';
+            } else if (currentUser && currentUser.defaultModuleId === 2) {
                 window.location.href = '/captain.html';
             } else {
                 window.location.href = '/bobine.html';

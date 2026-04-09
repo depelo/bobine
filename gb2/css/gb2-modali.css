@@ -14,9 +14,21 @@
     align-items: center;
     padding: 24px;
 }
+/* Storico: sopra i modali standard (1000) */
+#modalStoricoOverlay {
+    z-index: 1020;
+}
+/* Risultato emissione / dettaglio ordine: sopra lo storico */
+#modalRisultatoOverlay {
+    z-index: 1050;
+}
 /* Il modal generico (conferme/avvisi) deve stare sopra tutti gli altri */
 #modalGenericOverlay {
     z-index: 1100;
+}
+/* Anteprima email: sopra il generico (usato come layer sopra batch) */
+#modalAnteprimaOverlay {
+    z-index: 1150;
 }
 .mrp-modal-overlay.open {
     display: flex;
@@ -26,8 +38,9 @@
     background: var(--bg-content);
     border-radius: var(--radius);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    width: 100%;
-    max-width: 1000px;
+    width: fit-content;
+    min-width: 420px;
+    max-width: 92vw;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
@@ -75,8 +88,8 @@
 }
 
 /* --- COLORI PER TIPO ORDINE --- */
-.modal-row-ordforn td { background: #ffffff; }
-.modal-row-ordprod td { background: #fffde7; color: #1e293b; }
+.modal-row-ordforn td { background: var(--bg-content); }
+.modal-row-ordprod td { background: var(--row-totale); color: var(--row-totale-text); }
 .modal-row-impprod td { background: var(--row-esaurito); color: var(--row-esaurito-text); }
 
 .modal-row-impprod:hover td,
@@ -86,6 +99,8 @@
 /* Righe RMP cliccabili */
 .rmp-row-clickable { cursor: pointer; }
 .rmp-row-clickable:hover td { filter: brightness(0.90); }
+.rmp-drill-row { cursor: pointer; }
+.rmp-drill-row:hover td { filter: brightness(0.85); }
 
 /* Bottone drill-through */
 .btn-drill-padre {
@@ -115,13 +130,43 @@
     transition: background 0.15s, border-color 0.15s;
 }
 
+/* Toolbar modale (tabs + legenda) */
+.modal-ordini-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: #fafafa;
+}
+.modal-ordini-tabs {
+    display: flex;
+    gap: 0;
+}
+.modal-tab {
+    padding: 8px 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+}
+.modal-tab:hover {
+    color: var(--text);
+}
+.modal-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+
 /* Legenda modale */
 .modal-ordini-legenda {
     display: flex;
     gap: 16px;
-    padding: 6px 24px;
-    border-bottom: 1px solid var(--border);
-    background: #fafafa;
+    padding: 6px 0;
     font-size: 0.78rem;
     font-weight: 600;
 }
@@ -151,6 +196,6 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 .split-ordini-card .matrioska-table tr.modal-row-impprod td { background: var(--row-esaurito); }
-.split-ordini-card .matrioska-table tr.modal-row-ordprod td { background: #fffde7; }
-.split-ordini-card .matrioska-table tr.modal-row-ordforn td { background: #ffffff; }
+.split-ordini-card .matrioska-table tr.modal-row-ordprod td { background: var(--row-totale); }
+.split-ordini-card .matrioska-table tr.modal-row-ordforn td { background: var(--bg-content); }
 
