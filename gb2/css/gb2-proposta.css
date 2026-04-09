@@ -538,7 +538,9 @@
 
 /* --- MODALE GENERICA (sostituisce alert/confirm) --- */
 .mrp-modal-generic {
-    max-width: 420px;
+    width: fit-content;
+    min-width: 400px;
+    max-width: 92vw;
 }
 
 .modal-generic-btn {
@@ -677,24 +679,6 @@
     border-top: 1px solid var(--border);
     padding-top: 6px;
     margin-top: 4px;
-}
-
-/* ============================================
-   BOTTONE VISUALIZZA ORDINE
-   ============================================ */
-.btn-visualizza-ordine-forn {
-    background: rgba(255,255,255,0.3);
-    color: white;
-    border: none;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.68rem;
-    cursor: pointer;
-    margin-left: 4px;
-    transition: all 0.15s;
-}
-.btn-visualizza-ordine-forn:hover {
-    background: rgba(255,255,255,0.5);
 }
 
 /* ============================================

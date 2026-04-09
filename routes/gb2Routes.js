@@ -1761,6 +1761,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 ol.ol_progr,
                 ol.ol_conto                           AS fornitore_codice,
                 COALESCE(an.an_descr1, '')            AS fornitore_nome,
+                COALESCE(an.an_email, '')             AS fornitore_email,
                 ol.ol_codart,
                 COALESCE(a.ar_codalt, '')              AS ar_codalt,
                 COALESCE(a.ar_descr, '')               AS ar_descr,
