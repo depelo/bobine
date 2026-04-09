@@ -14,6 +14,14 @@
     align-items: center;
     padding: 24px;
 }
+/* Storico: sopra i modali standard (1000) */
+#modalStoricoOverlay {
+    z-index: 1020;
+}
+/* Risultato emissione / dettaglio ordine: sopra lo storico */
+#modalRisultatoOverlay {
+    z-index: 1050;
+}
 /* Il modal generico (conferme/avvisi) deve stare sopra tutti gli altri */
 #modalGenericOverlay {
     z-index: 1100;

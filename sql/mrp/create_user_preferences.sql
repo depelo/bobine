@@ -50,3 +50,15 @@ BEGIN
         SmtpFromName    VARCHAR(100)  NULL DEFAULT 'U.Jet s.r.l.';
     PRINT 'Colonne SMTP aggiunte a UserPreferences.';
 END
+GO
+
+-- Colonna firma email personale (v4)
+IF NOT EXISTS (
+    SELECT 1 FROM [GB2].sys.columns
+    WHERE object_id = OBJECT_ID('[GB2].[dbo].[UserPreferences]')
+      AND name = 'FirmaEmail'
+)
+BEGIN
+    ALTER TABLE [GB2].[dbo].[UserPreferences] ADD FirmaEmail NVARCHAR(500) NULL;
+    PRINT 'Colonna FirmaEmail aggiunta a UserPreferences.';
+END

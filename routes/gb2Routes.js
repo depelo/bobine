@@ -48,6 +48,18 @@ async function executeSqlFile(pool, filePath, replacements) {
     }
 }
 
+// Compila un template email sostituendo i segnaposto con i dati reali
+function compilaTemplate(testo, dati) {
+    return testo
+        .replace(/\{fornitore\}/g, dati.fornitore || '')
+        .replace(/\{numord\}/g, dati.numord || '')
+        .replace(/\{data_ordine\}/g, dati.data_ordine || '')
+        .replace(/\{num_articoli\}/g, String(dati.num_articoli || 0))
+        .replace(/\{totale\}/g, dati.totale || '')
+        .replace(/\{operatore\}/g, dati.operatore || '')
+        .replace(/\{firma\}/g, dati.firma || '');
+}
+
 /**
  * Deploy oggetti SQL di produzione — su MRP@163 e GB2@163.
  * SP con prefisso [BCUBE2].[UJET11].[dbo], nomi senza suffisso.
@@ -60,7 +72,7 @@ async function deployProductionObjects(poolProd) {
 
     // Tabelle GB2 (sempre su pool produzione)
     // ORDINE IMPORTANTE: ElaborazioniMRP prima di SnapshotProposte (FK)
-    for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql']) {
+    for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql', 'create_email_templates.sql', 'create_email_template_assegnazioni.sql']) {
         const filePath = path.join(sqlDir, file);
         if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
         try {
@@ -2083,6 +2095,249 @@ router.post('/user/preferences', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// API: EMAIL TEMPLATES (CRUD)
+// ============================================================
+
+// Lista template visibili all'operatore
+router.get('/email-templates', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const includeInactive = req.query.include_inactive === '1';
+
+        let whereActive = includeInactive ? '' : 'AND t.IsActive = 1';
+
+        const result = await pool.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT t.ID as id, t.IDUser as idUser, t.Nome as nome, t.Oggetto as oggetto,
+                       t.Corpo as corpo, t.Lingua as lingua, t.IsDefault as isDefault,
+                       t.IsSystem as isSystem, t.IsActive as isActive, t.Ordine as ordine,
+                       u.Nome + ' ' + ISNULL(u.Cognome, '') AS nomeOperatore
+                FROM [GB2].[dbo].[EmailTemplates] t
+                LEFT JOIN [GA].[dbo].[Users] u ON t.IDUser = u.IDUser
+                WHERE (t.IsSystem = 1 OR t.IDUser IS NOT NULL) ${whereActive}
+                ORDER BY t.IsSystem DESC, t.Ordine ASC, t.Nome ASC
+            `);
+
+        // Aggiunge flag isMine per il frontend
+        const templates = result.recordset.map(t => ({
+            ...t,
+            isMine: t.idUser === userId
+        }));
+        res.json({ templates });
+    } catch (err) {
+        console.error('[Email Templates] Errore lista:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Singolo template per ID
+router.get('/email-templates/:id', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const result = await pool.request()
+            .input('id', sql.Int, parseInt(req.params.id, 10))
+            .query(`
+                SELECT t.ID as id, t.IDUser as idUser, t.Nome as nome, t.Oggetto as oggetto,
+                       t.Corpo as corpo, t.Lingua as lingua, t.IsDefault as isDefault,
+                       t.IsSystem as isSystem, t.IsActive as isActive,
+                       u.Nome + ' ' + ISNULL(u.Cognome, '') AS nomeOperatore
+                FROM [GB2].[dbo].[EmailTemplates] t
+                LEFT JOIN [GA].[dbo].[Users] u ON t.IDUser = u.IDUser
+                WHERE t.ID = @id
+            `);
+        if (result.recordset.length === 0) return res.status(404).json({ error: 'Template non trovato' });
+        res.json({ template: result.recordset[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Crea template personale
+router.post('/email-templates', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const { nome, oggetto, corpo, lingua, isDefault } = req.body;
+
+        if (!nome || !corpo) return res.status(400).json({ error: 'Nome e corpo obbligatori' });
+
+        // If setting as default, reset others first
+        if (isDefault) {
+            await pool.request().input('uid', sql.Int, userId).query(
+                `UPDATE [GB2].[dbo].[EmailTemplates] SET IsDefault = 0 WHERE IDUser = @uid`
+            );
+        }
+
+        const result = await pool.request()
+            .input('uid', sql.Int, userId)
+            .input('nome', sql.NVarChar(100), nome)
+            .input('oggetto', sql.NVarChar(200), oggetto || 'Ordine {numord} - U.Jet S.r.l.')
+            .input('corpo', sql.NVarChar(sql.MAX), corpo)
+            .input('lingua', sql.VarChar(10), lingua || 'it')
+            .input('isDefault', sql.Bit, isDefault ? 1 : 0)
+            .query(`
+                INSERT INTO [GB2].[dbo].[EmailTemplates] (IDUser, Nome, Oggetto, Corpo, Lingua, IsDefault, IsSystem, IsActive)
+                OUTPUT INSERTED.ID as id
+                VALUES (@uid, @nome, @oggetto, @corpo, @lingua, @isDefault, 0, 1)
+            `);
+
+        res.json({ success: true, id: result.recordset[0].id });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Aggiorna template (solo propri, non di sistema)
+router.put('/email-templates/:id', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const templateId = parseInt(req.params.id, 10);
+        const { nome, oggetto, corpo, lingua, isDefault } = req.body;
+
+        // Verify ownership
+        const check = await pool.request().input('id', sql.Int, templateId).query(
+            `SELECT IDUser, IsSystem FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @id`
+        );
+        if (check.recordset.length === 0) return res.status(404).json({ error: 'Template non trovato' });
+        if (check.recordset[0].IsSystem) return res.status(403).json({ error: 'Non puoi modificare un template di sistema' });
+        if (check.recordset[0].IDUser !== userId) return res.status(403).json({ error: 'Non puoi modificare template di altri operatori' });
+
+        if (isDefault) {
+            await pool.request().input('uid', sql.Int, userId).query(
+                `UPDATE [GB2].[dbo].[EmailTemplates] SET IsDefault = 0 WHERE IDUser = @uid`
+            );
+        }
+
+        await pool.request()
+            .input('id', sql.Int, templateId)
+            .input('nome', sql.NVarChar(100), nome)
+            .input('oggetto', sql.NVarChar(200), oggetto || 'Ordine {numord} - U.Jet S.r.l.')
+            .input('corpo', sql.NVarChar(sql.MAX), corpo)
+            .input('lingua', sql.VarChar(10), lingua || 'it')
+            .input('isDefault', sql.Bit, isDefault ? 1 : 0)
+            .query(`
+                UPDATE [GB2].[dbo].[EmailTemplates]
+                SET Nome = @nome, Oggetto = @oggetto, Corpo = @corpo, Lingua = @lingua,
+                    IsDefault = @isDefault, UpdatedAt = GETDATE()
+                WHERE ID = @id
+            `);
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Elimina template (soft delete: IsActive=0)
+router.delete('/email-templates/:id', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const templateId = parseInt(req.params.id, 10);
+
+        const check = await pool.request().input('id', sql.Int, templateId).query(
+            `SELECT IDUser, IsSystem FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @id`
+        );
+        if (check.recordset.length === 0) return res.status(404).json({ error: 'Template non trovato' });
+        if (check.recordset[0].IsSystem) return res.status(403).json({ error: 'Non puoi eliminare un template di sistema' });
+        if (check.recordset[0].IDUser !== userId) return res.status(403).json({ error: 'Non puoi eliminare template di altri operatori' });
+
+        await pool.request().input('id', sql.Int, templateId).query(
+            `UPDATE [GB2].[dbo].[EmailTemplates] SET IsActive = 0, UpdatedAt = GETDATE() WHERE ID = @id`
+        );
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Riattiva template disattivato
+router.put('/email-templates/:id/reactivate', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const templateId = parseInt(req.params.id, 10);
+
+        const check = await pool.request().input('id', sql.Int, templateId).query(
+            `SELECT IDUser FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @id`
+        );
+        if (check.recordset.length === 0) return res.status(404).json({ error: 'Template non trovato' });
+        if (check.recordset[0].IDUser !== userId) return res.status(403).json({ error: 'Non puoi riattivare template di altri operatori' });
+
+        await pool.request().input('id', sql.Int, templateId).query(
+            `UPDATE [GB2].[dbo].[EmailTemplates] SET IsActive = 1, UpdatedAt = GETDATE() WHERE ID = @id`
+        );
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// API: EMAIL TEMPLATE ASSEGNAZIONI FORNITORE
+// ============================================================
+
+// Lista assegnazioni fornitore-template dell'operatore
+router.get('/email-template-assegnazioni', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+
+        const result = await pool.request()
+            .input('uid', sql.Int, userId)
+            .query(`
+                SELECT a.FornitoreCode as fornitoreCode, a.TemplateID as templateId
+                FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                WHERE a.IDUser = @uid
+            `);
+
+        res.json({ assegnazioni: result.recordset });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Upsert assegnazione fornitore-template
+router.put('/email-template-assegnazione/:fornitoreCode', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolProd();
+        const userId = getUserId(req);
+        const fornitoreCode = parseInt(req.params.fornitoreCode, 10);
+        const { templateId } = req.body;
+
+        if (!templateId) {
+            // Remove assignment
+            await pool.request()
+                .input('uid', sql.Int, userId)
+                .input('forn', sql.Int, fornitoreCode)
+                .query(`DELETE FROM [GB2].[dbo].[EmailTemplateAssegnazioni] WHERE IDUser = @uid AND FornitoreCode = @forn`);
+        } else {
+            // Upsert
+            await pool.request()
+                .input('uid', sql.Int, userId)
+                .input('forn', sql.Int, fornitoreCode)
+                .input('tid', sql.Int, templateId)
+                .query(`
+                    MERGE [GB2].[dbo].[EmailTemplateAssegnazioni] AS target
+                    USING (SELECT @uid AS IDUser, @forn AS FornitoreCode) AS source
+                    ON target.IDUser = source.IDUser AND target.FornitoreCode = source.FornitoreCode
+                    WHEN MATCHED THEN UPDATE SET TemplateID = @tid, UpdatedAt = GETDATE()
+                    WHEN NOT MATCHED THEN INSERT (IDUser, FornitoreCode, TemplateID) VALUES (@uid, @forn, @tid);
+                `);
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
 // API: EMISSIONE ORDINI FORNITORE
 // ============================================================
 
@@ -2410,7 +2665,7 @@ router.get('/smtp/config', authMiddleware, async (req, res) => {
         const result = await poolProd.request()
             .input('userId', sql.Int, userId)
             .query(`SELECT SmtpHost, SmtpPort, SmtpSecure, SmtpUser,
-                           SmtpFromAddress, SmtpFromName
+                           SmtpFromAddress, SmtpFromName, FirmaEmail
                     FROM [GB2].[dbo].[UserPreferences]
                     WHERE IDUser = @userId`);
 
@@ -2425,7 +2680,8 @@ router.get('/smtp/config', authMiddleware, async (req, res) => {
             secure: !!row.SmtpSecure,
             user: row.SmtpUser || '',
             from_address: row.SmtpFromAddress || '',
-            from_name: row.SmtpFromName || 'U.Jet s.r.l.'
+            from_name: row.SmtpFromName || 'U.Jet s.r.l.',
+            firma: row.FirmaEmail || ''
         };
         res.json({ configured: !!(config.host && config.from_address), config });
     } catch (err) {
@@ -2437,7 +2693,7 @@ router.get('/smtp/config', authMiddleware, async (req, res) => {
 router.post('/smtp/config', authMiddleware, async (req, res) => {
     try {
         const userId = getUserId(req);
-        const { host, port, secure, user, password, from_address, from_name } = req.body;
+        const { host, port, secure, user, password, from_address, from_name, firma } = req.body;
 
         const encPassword = (password && password.trim()) ? encrypt(password) : null;
         const poolProd = await getPoolProd();
@@ -2455,7 +2711,8 @@ router.post('/smtp/config', authMiddleware, async (req, res) => {
                 .input('secure', sql.Bit, secure ? 1 : 0)
                 .input('user', sql.VarChar(100), user || null)
                 .input('from_address', sql.VarChar(255), from_address || null)
-                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.');
+                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.')
+                .input('firma', sql.NVarChar(500), firma || null);
 
             let pwdClause = '';
             if (encPassword) {
@@ -2466,7 +2723,7 @@ router.post('/smtp/config', authMiddleware, async (req, res) => {
             await req2.query(`UPDATE [GB2].[dbo].[UserPreferences]
                 SET SmtpHost = @host, SmtpPort = @port, SmtpSecure = @secure,
                     SmtpUser = @user, SmtpFromAddress = @from_address,
-                    SmtpFromName = @from_name${pwdClause}, UpdatedAt = GETDATE()
+                    SmtpFromName = @from_name, FirmaEmail = @firma${pwdClause}, UpdatedAt = GETDATE()
                 WHERE IDUser = @userId`);
         } else {
             const req2 = poolProd.request()
@@ -2477,12 +2734,13 @@ router.post('/smtp/config', authMiddleware, async (req, res) => {
                 .input('user', sql.VarChar(100), user || null)
                 .input('pwd', sql.VarBinary(512), encPassword)
                 .input('from_address', sql.VarChar(255), from_address || null)
-                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.');
+                .input('from_name', sql.VarChar(100), from_name || 'U.Jet s.r.l.')
+                .input('firma', sql.NVarChar(500), firma || null);
 
             await req2.query(`INSERT INTO [GB2].[dbo].[UserPreferences]
                 (IDUser, SmtpHost, SmtpPort, SmtpSecure, SmtpUser, SmtpPassword,
-                 SmtpFromAddress, SmtpFromName)
-                VALUES (@userId, @host, @port, @secure, @user, @pwd, @from_address, @from_name)`);
+                 SmtpFromAddress, SmtpFromName, FirmaEmail)
+                VALUES (@userId, @host, @port, @secure, @user, @pwd, @from_address, @from_name, @firma)`);
         }
 
         res.json({ success: true });
@@ -2513,7 +2771,7 @@ router.post('/smtp/test', authMiddleware, async (req, res) => {
 
 router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
     try {
-        const { anno, serie, numord, pdf_base64, pdf_filename, email_override } = req.body;
+        const { anno, serie, numord, pdf_base64, pdf_filename, email_override, template_id } = req.body;
 
         if (!anno || !serie || !numord) {
             return res.status(400).json({ error: 'anno, serie e numord sono obbligatori' });
@@ -2617,21 +2875,106 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
 
         const nomeFile = pdf_filename || `OrdineForn${anno}${serie}${String(numord).padStart(6,'0')}.pdf`;
         const prefissoProva = ambiente === 'prova' ? '[PROVA] ' : '';
-        const oggetto = `${prefissoProva}NS/ ORDINE ${numord}_${serie} - ${ordine.fornitore_nome || ''}`;
 
-        // Corpo email HTML
+        // --- Risoluzione template email (cascade) ---
+        const poolProd = await getPoolProd();
+        let template = null;
+
+        if (template_id) {
+            // 1) Template esplicito dal frontend
+            const tplRes = await poolProd.request()
+                .input('tid', sql.Int, template_id)
+                .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @tid AND IsActive = 1`);
+            if (tplRes.recordset.length) template = tplRes.recordset[0];
+        }
+
+        if (!template) {
+            // 2) Assegnazione fornitore per questo operatore
+            const assRes = await poolProd.request()
+                .input('uid', sql.Int, userId)
+                .input('forn', sql.Int, ordine.td_conto)
+                .query(`
+                    SELECT t.Oggetto, t.Corpo
+                    FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                    JOIN [GB2].[dbo].[EmailTemplates] t ON a.TemplateID = t.ID
+                    WHERE a.IDUser = @uid AND a.FornitoreCode = @forn AND t.IsActive = 1
+                `);
+            if (assRes.recordset.length) template = assRes.recordset[0];
+        }
+
+        if (!template) {
+            // 3) Template default dell'operatore
+            const defRes = await poolProd.request()
+                .input('uid', sql.Int, userId)
+                .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE IDUser = @uid AND IsDefault = 1 AND IsActive = 1`);
+            if (defRes.recordset.length) template = defRes.recordset[0];
+        }
+
+        if (!template) {
+            // 4) Primo template di sistema italiano
+            const sysRes = await poolProd.request()
+                .query(`SELECT TOP 1 Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE IsSystem = 1 AND Lingua = 'it' AND IsActive = 1 ORDER BY Ordine ASC`);
+            if (sysRes.recordset.length) template = sysRes.recordset[0];
+        }
+
+        // Recupera firma email e nome operatore
+        const prefRes = await poolProd.request()
+            .input('uid', sql.Int, userId)
+            .query(`SELECT FirmaEmail FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @uid`);
+        const firmaEmail = (prefRes.recordset.length && prefRes.recordset[0].FirmaEmail) || '';
+
+        const operRes = await poolProd.request()
+            .input('uid', sql.Int, userId)
+            .query(`SELECT Nome + ' ' + ISNULL(Cognome, '') AS NomeCompleto FROM [GA].[dbo].[Users] WHERE IDUser = @uid`);
+        const nomeOperatore = (operRes.recordset.length && operRes.recordset[0].NomeCompleto) || '';
+
+        // Conteggio righe ordine
+        const righeCount = await pool.request()
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .query(`
+                SELECT COUNT(*) AS cnt FROM dbo.movord
+                WHERE codditt = 'UJET11' AND mo_tipork = 'O'
+                  AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord
+            `);
+
+        // Dati per compilazione template
+        const dataOrdine = ordine.td_datord ? new Date(ordine.td_datord).toLocaleDateString('it-IT') : '';
+        const totaleDoc = ordine.td_totdoc != null ? Number(ordine.td_totdoc).toLocaleString('it-IT', { minimumFractionDigits: 2 }) : '';
+        const datiTemplate = {
+            fornitore: ordine.fornitore_nome || '',
+            numord: `${numord}/${serie}`,
+            data_ordine: dataOrdine,
+            num_articoli: righeCount.recordset[0].cnt,
+            totale: totaleDoc,
+            operatore: nomeOperatore.trim(),
+            firma: firmaEmail
+        };
+
+        // Compila oggetto e corpo
+        let oggetto, corpoHtml;
+        if (template) {
+            oggetto = prefissoProva + compilaTemplate(template.Oggetto, datiTemplate);
+            const corpoCompilato = compilaTemplate(template.Corpo, datiTemplate);
+            corpoHtml = corpoCompilato.replace(/\n/g, '<br>');
+        } else {
+            // Fallback hardcoded se nessun template trovato
+            oggetto = `${prefissoProva}NS/ ORDINE ${numord}_${serie} - ${ordine.fornitore_nome || ''}`;
+            corpoHtml = `
+                <p>Spett.le <strong>${ordine.fornitore_nome || ''}</strong>,</p>
+                <p>in allegato l'ordine d'acquisto n. <strong>${numord}/${serie}</strong>.</p>
+                <p>Cordiali saluti,<br><strong>U.Jet s.r.l.</strong></p>
+            `;
+        }
+
+        // Avviso prova in testa
         const avvisoProva = ambiente === 'prova'
             ? `<div style="background:#fff3cd; padding:10px 14px; border:1px solid #ffc107; border-radius:4px; margin-bottom:16px;">
                 <strong>⚠️ ORDINE DI PROVA</strong> — Il destinatario reale sarebbe stato: <strong>${emailReale}</strong>
                </div>`
             : '';
-
-        const corpoHtml = `
-            ${avvisoProva}
-            <p>Spett.le <strong>${ordine.fornitore_nome || ''}</strong>,</p>
-            <p>in allegato l'ordine d'acquisto n. <strong>${numord}/${serie}</strong>.</p>
-            <p>Cordiali saluti,<br><strong>U.Jet s.r.l.</strong></p>
-        `;
+        corpoHtml = avvisoProva + corpoHtml;
 
         // Invia con SMTP dell'operatore
         const transporter = smtp.createTransporterFromConfig(smtpConfig);
@@ -2725,8 +3068,11 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
         rq.input('ambiente', sql.VarChar(20), ambiente);
 
         if (elaborazione_id) {
-            where += ' AND oe.elaborazione_id = @eid';
-            rq.input('eid', sql.VarChar(50), elaborazione_id);
+            // Filtra per ordini le cui proposte (ol_progr) fanno parte della snapshot
+            // dell'elaborazione corrente — non per elaborazione_id testuale che può
+            // avere formato diverso (vecchio timestamp vs nuovo ID intero)
+            where += ' AND oe.ol_progr IN (SELECT ol_progr FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID = @eid)';
+            rq.input('eid', sql.Int, parseInt(elaborazione_id, 10));
         }
         if (fornitore) {
             where += ' AND oe.ol_conto = @forn';
@@ -2769,7 +3115,7 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
             // Fallback senza colonne email/ambiente (pre-deploy: colonne non esistono ancora)
             const where2 = where.replace(/ AND ISNULL\(oe\.ambiente.*?@ambiente\)/, '');
             const rq2 = pool.request();
-            if (elaborazione_id) rq2.input('eid', sql.VarChar(50), elaborazione_id);
+            if (elaborazione_id) rq2.input('eid', sql.Int, parseInt(elaborazione_id, 10));
             if (fornitore) rq2.input('forn', sql.Int, parseInt(fornitore, 10));
             if (da) rq2.input('da', sql.DateTime, new Date(da));
             if (a) rq2.input('a', sql.DateTime, new Date(a));

@@ -384,6 +384,29 @@
     background: #f59e0b !important;
 }
 
+/* Dropdown template email per fornitore */
+.select-template-forn {
+    font-size: 0.72rem;
+    padding: 2px 6px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.4);
+    background: rgba(255,255,255,0.2);
+    color: white;
+    max-width: 160px;
+    margin-left: 6px;
+    cursor: pointer;
+    font-weight: 500;
+}
+.select-template-forn:focus {
+    outline: none;
+    border-color: white;
+    background: rgba(255,255,255,0.35);
+}
+.select-template-forn option {
+    color: var(--text);
+    background: white;
+}
+
 .btn-invia-email-forn {
     background: white;
     color: var(--primary);
@@ -477,6 +500,37 @@
 }
 
 .btn-emetti-tutti:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.emetti-tutti-azioni {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.btn-invia-tutte-email {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+    font-size: 0.88rem;
+    cursor: pointer;
+    font-family: var(--font);
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-invia-tutte-email:hover {
+    background: var(--primary-dark);
+    transform: scale(1.02);
+}
+
+.btn-invia-tutte-email:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     transform: none;
@@ -703,8 +757,16 @@
 .storico-tabella td.center { text-align: center; }
 .storico-tabella tr:hover { background: var(--primary-light); }
 
-.storico-email-ok { font-size: 1rem; }
-.storico-email-no { font-size: 1rem; opacity: 0.5; }
+.storico-email-ok {
+    font-size: 1.2rem;
+    font-weight: 900;
+    color: #16a34a;
+}
+.storico-email-no {
+    font-size: 1.2rem;
+    font-weight: 900;
+    color: #dc2626;
+}
 
 .btn-storico-visualizza,
 .btn-storico-pdf {
