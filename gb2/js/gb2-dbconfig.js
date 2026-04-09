@@ -814,11 +814,171 @@ const MrpDbConfig = (() => {
         }
     }
 
+    // --------------------------------------------------------
+    // ASSEGNAZIONI FORNITORI — tab configurazione
+    // --------------------------------------------------------
+
+    let _assegnFornitoriData = []; // cache dati caricati
+    let _assegnTemplatesList = []; // cache template per i select
+    let _assegnCurrentMode = 'ultima_scelta';
+
+    async function loadAssegnazioni() {
+        const container = document.getElementById('assegnFornitoriList');
+        const infoEl = document.getElementById('assegnInfo');
+        if (!container) return;
+
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.82rem;">Caricamento fornitori...</div>';
+
+        try {
+            // Carica fornitori+assegnazioni e template in parallelo
+            const [fornRes, tplRes] = await Promise.all([
+                fetch('/api/mrp/fornitori-template'),
+                fetch('/api/mrp/email-templates')
+            ]);
+
+            if (!fornRes.ok) throw new Error('HTTP ' + fornRes.status);
+            const fornData = await fornRes.json();
+            _assegnFornitoriData = fornData.fornitori || [];
+            _assegnCurrentMode = fornData.templateMode || 'ultima_scelta';
+
+            if (tplRes.ok) {
+                const tplData = await tplRes.json();
+                _assegnTemplatesList = (tplData.templates || []).filter(t => t.isActive !== false && t.isActive !== 0);
+            }
+
+            // Imposta radio button modalità
+            const radio = document.querySelector(`input[name="templateMode"][value="${_assegnCurrentMode}"]`);
+            if (radio) radio.checked = true;
+            aggiornaDescrizioneMode(_assegnCurrentMode);
+
+            // Render lista
+            renderAssegnazioni(_assegnFornitoriData);
+
+            if (infoEl) {
+                const conAssegn = _assegnFornitoriData.filter(f => f.templateId).length;
+                infoEl.textContent = _assegnFornitoriData.length + ' fornitori trovati, ' + conAssegn + ' con template assegnato';
+            }
+        } catch (err) {
+            console.error('[Assegnazioni] Errore:', err);
+            container.innerHTML = '<div style="color:var(--danger); font-size:0.82rem;">Errore caricamento: ' + esc(err.message) + '</div>';
+        }
+    }
+
+    function renderAssegnazioni(fornitori) {
+        const container = document.getElementById('assegnFornitoriList');
+        if (!container) return;
+
+        if (!fornitori.length) {
+            container.innerHTML = '<div style="text-align:center; padding:16px; color:var(--text-muted); font-size:0.82rem;">Nessun fornitore trovato</div>';
+            return;
+        }
+
+        const optionsHtml = '<option value="">(Nessun predefinito)</option>' +
+            _assegnTemplatesList.map(t => {
+                const badge = t.isSystem ? ' [S]' : '';
+                return '<option value="' + t.id + '">' + esc(t.nome) + badge + '</option>';
+            }).join('');
+
+        container.innerHTML = fornitori.map(f => {
+            const selected = f.templateId || '';
+            const hasBadge = f.templateId ? '<span class="assegn-forn-badge">Assegnato</span>' : '';
+            return '<div class="assegn-forn-row" data-codice="' + f.codice + '" data-nome="' + esc(f.nome || '') + '">' +
+                '<span class="assegn-forn-codice">' + f.codice + '</span>' +
+                '<span class="assegn-forn-nome" title="' + esc(f.nome || '') + '">' + esc(f.nome || '(senza nome)') + '</span>' +
+                hasBadge +
+                '<select class="assegn-forn-select" data-forn="' + f.codice + '">' +
+                optionsHtml.replace('value="' + selected + '"', 'value="' + selected + '" selected') +
+                '</select>' +
+                '</div>';
+        }).join('');
+
+        container.querySelectorAll('.assegn-forn-select').forEach(sel => {
+            sel.addEventListener('change', async () => {
+                const forn = sel.dataset.forn;
+                const tid = sel.value ? parseInt(sel.value, 10) : null;
+                sel.style.borderColor = 'var(--warning)';
+                try {
+                    const res = await fetch('/api/mrp/email-template-assegnazione/' + forn, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ templateId: tid })
+                    });
+                    const data = await res.json();
+                    sel.style.borderColor = data.success ? 'var(--success)' : 'var(--danger)';
+                    setTimeout(() => { sel.style.borderColor = ''; }, 1500);
+                    // Update local cache
+                    const f = _assegnFornitoriData.find(x => String(x.codice) === forn);
+                    if (f) f.templateId = tid;
+                    // Update info count
+                    const infoEl = document.getElementById('assegnInfo');
+                    if (infoEl) {
+                        const conAssegn = _assegnFornitoriData.filter(x => x.templateId).length;
+                        infoEl.textContent = _assegnFornitoriData.length + ' fornitori, ' + conAssegn + ' con template assegnato';
+                    }
+                } catch (err) {
+                    sel.style.borderColor = 'var(--danger)';
+                    console.error('[Assegnazioni] Errore:', err);
+                }
+            });
+        });
+    }
+
+    function filtroAssegnazioni() {
+        const filtro = (document.getElementById('assegnFiltro').value || '').toLowerCase();
+        document.querySelectorAll('.assegn-forn-row').forEach(row => {
+            const nome = (row.dataset.nome || '').toLowerCase();
+            const codice = (row.dataset.codice || '').toLowerCase();
+            row.style.display = (!filtro || nome.includes(filtro) || codice.includes(filtro)) ? '' : 'none';
+        });
+    }
+
+    async function salvaTemplateMode(mode) {
+        _assegnCurrentMode = mode;
+        aggiornaDescrizioneMode(mode);
+        try {
+            await fetch('/api/mrp/template-mode', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode })
+            });
+        } catch (err) {
+            console.error('[TemplateMode] Errore salvataggio:', err);
+        }
+    }
+
+    function aggiornaDescrizioneMode(mode) {
+        const desc = document.getElementById('templateModeDesc');
+        if (!desc) return;
+        if (mode === 'ultima_scelta') {
+            desc.textContent = 'Ogni cambio del template nel widget fornitore aggiorna automaticamente anche questa lista.';
+        } else {
+            desc.textContent = 'Usa i template assegnati qui sotto. Il dropdown nel widget fornitore non modifica queste assegnazioni.';
+        }
+    }
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.cfg-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.cfg-tab-panel').forEach(p => p.classList.remove('active'));
+        const tab = document.querySelector(`.cfg-tab[data-tab="${tabId}"]`);
+        const panel = document.getElementById(tabId);
+        if (tab) tab.classList.add('active');
+        if (panel) panel.classList.add('active');
+
+        // Carica dati del pannello al primo accesso
+        if (tabId === 'tabTemplates') loadTemplates();
+        if (tabId === 'tabAssegnazioni') loadAssegnazioni();
+    }
+
     function bindEvents() {
         document.getElementById('btnDbProfile').addEventListener('click', openModal);
         document.getElementById('modalDbClose').addEventListener('click', closeModal);
         document.getElementById('modalDbOverlay').addEventListener('click', e => {
             if (e.target === e.currentTarget) closeModal();
+        });
+
+        // Tab switching
+        document.querySelectorAll('.cfg-tab').forEach(tab => {
+            tab.addEventListener('click', () => switchTab(tab.dataset.tab));
         });
         document.getElementById('btnDbSave').addEventListener('click', saveProfile);
         document.getElementById('btnDbTestConn').addEventListener('click', testConnection);
@@ -843,6 +1003,15 @@ const MrpDbConfig = (() => {
         // Variabili cliccabili — inserisci nel textarea
         document.querySelectorAll('.tpl-var-btn').forEach(btn => {
             btn.addEventListener('click', () => insertVariable(btn.dataset.var));
+        });
+
+        // Assegnazioni fornitori
+        const assegnFiltro = document.getElementById('assegnFiltro');
+        if (assegnFiltro) assegnFiltro.addEventListener('input', filtroAssegnazioni);
+
+        // Radio mode
+        document.querySelectorAll('input[name="templateMode"]').forEach(radio => {
+            radio.addEventListener('change', () => salvaTemplateMode(radio.value));
         });
     }
 

@@ -62,3 +62,15 @@ BEGIN
     ALTER TABLE [GB2].[dbo].[UserPreferences] ADD FirmaEmail NVARCHAR(500) NULL;
     PRINT 'Colonna FirmaEmail aggiunta a UserPreferences.';
 END
+GO
+
+-- Modalita' gestione template: 'predefiniti' o 'ultima_scelta' (v5)
+IF NOT EXISTS (
+    SELECT 1 FROM [GB2].sys.columns
+    WHERE object_id = OBJECT_ID('[GB2].[dbo].[UserPreferences]')
+      AND name = 'TemplateMode'
+)
+BEGIN
+    ALTER TABLE [GB2].[dbo].[UserPreferences] ADD TemplateMode VARCHAR(20) NOT NULL DEFAULT 'ultima_scelta';
+    PRINT 'Colonna TemplateMode aggiunta a UserPreferences.';
+END

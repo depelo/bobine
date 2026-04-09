@@ -218,8 +218,8 @@ const MrpProposta = (() => {
             // Popola ordiniEmessi dal server (righe già emesse persistite in ordini_emessi)
             ripristinaOrdiniEmessiDaServer(data);
 
-            // Carica template email e assegnazioni (non bloccante)
-            caricaTemplateEmail();
+            // Carica template email e assegnazioni (bloccante: servono prima del render)
+            await caricaTemplateEmail();
 
             renderProposta(data, listEl, stats);
         } catch (err) {
@@ -1097,13 +1097,138 @@ const MrpProposta = (() => {
     // ============================================================
     /**
      * Invia email ordine a un fornitore.
-     * @param {object} emesso - dati ordine emesso (anno, serie, numord, pdf_base64, fornitore_codice, fornitore_nome)
-     * @param {object} [opts] - opzioni
-     * @param {boolean} [opts.silent] - se true, non mostra modali (usato nel batch)
-     * @returns {object} { success: boolean, error?: string }
+     * In modalità NON silent: mostra modale anteprima editabile prima di inviare.
+     * In modalità silent (batch "Invia Tutte"): invia direttamente.
      */
     async function inviaEmailOrdine(emesso, opts = {}) {
         const silent = opts.silent || false;
+        const templateId = opts.template_id || null;
+
+        // --- MODALITÀ INTERATTIVA: mostra anteprima editabile ---
+        if (!silent) {
+            return await inviaEmailInterattiva(emesso, templateId);
+        }
+
+        // --- MODALITÀ SILENT (batch) ---
+        return await _inviaEmailDirect(emesso, { template_id: templateId });
+    }
+
+    /** Modale anteprima editabile per invio singolo */
+    async function inviaEmailInterattiva(emesso, templateId) {
+        // 1) Chiedi preview al backend
+        try {
+            const prevResp = await fetch(`${MrpApp.API_BASE}/preview-ordine-email`, {
+                credentials: 'include', method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    anno: emesso.anno, serie: emesso.serie, numord: emesso.numord,
+                    template_id: templateId
+                })
+            });
+            const prevData = await prevResp.json();
+
+            if (prevData.error === 'SMTP_NOT_CONFIGURED') {
+                await modale('warning', 'SMTP Non Configurato',
+                    'Per inviare email \u00e8 necessario configurare un profilo SMTP nelle impostazioni.',
+                    [{ label: 'OK', value: true, style: 'primary' }]);
+                return { success: false, error: 'SMTP_NOT_CONFIGURED' };
+            }
+            if (prevData.error) {
+                await modale('error', 'Errore', esc(prevData.error));
+                return { success: false, error: prevData.error };
+            }
+
+            // 2) Mostra modale editabile
+            const risultato = await modaleAnteprimaEmail({
+                ordine: `${emesso.numord}/${emesso.serie}`,
+                fornitore: prevData.fornitore_nome,
+                destinatario: prevData.destinatario,
+                ambiente: prevData.ambiente,
+                oggetto: prevData.oggetto,
+                corpo: prevData.corpo
+            });
+
+            if (!risultato) return { success: false, error: 'CANCELLED' };
+
+            // 3) Invia con i dati (eventualmente editati)
+            return await _inviaEmailDirect(emesso, {
+                template_id: templateId,
+                oggetto_custom: risultato.oggetto,
+                corpo_custom: risultato.corpo
+            });
+
+        } catch (err) {
+            await modale('error', 'Errore di Rete', `Errore: <code>${esc(err.message)}</code>`);
+            return { success: false, error: err.message };
+        }
+    }
+
+    /** Modale con anteprima email editabile. Restituisce { oggetto, corpo } oppure null se annullato */
+    function modaleAnteprimaEmail({ ordine, fornitore, destinatario, ambiente, oggetto, corpo }) {
+        return new Promise(resolve => {
+            const overlay = document.getElementById('modalGenericOverlay');
+            const elTitolo = document.getElementById('modalGenericTitolo');
+            const elIcona = document.getElementById('modalGenericIcona');
+            const elMsg = document.getElementById('modalGenericMessaggio');
+            const elAzioni = document.getElementById('modalGenericAzioni');
+            if (!overlay) { resolve(null); return; }
+
+            const ambienteBadge = ambiente === 'prova'
+                ? '<span style="background:#f59e0b; color:white; padding:2px 8px; border-radius:10px; font-size:0.72rem; font-weight:600;">PROVA</span>'
+                : '';
+
+            elTitolo.textContent = 'Anteprima Email';
+            elIcona.textContent = '\u2709';
+            elMsg.innerHTML =
+                '<div style="text-align:left;">' +
+                    '<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">' +
+                        '<span style="font-size:0.82rem; color:var(--text-muted);">Ordine <strong>' + esc(ordine) + '</strong> \u2014 ' + esc(fornitore) + '</span>' +
+                        ambienteBadge +
+                    '</div>' +
+                    '<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">Destinatario: <strong>' + esc(destinatario) + '</strong></div>' +
+                    '<label style="font-size:0.78rem; font-weight:600; color:var(--text-muted);">Oggetto</label>' +
+                    '<input type="text" id="prevEmailOggetto" class="mrp-control" value="' + escAttr(oggetto) + '" style="font-size:0.88rem; font-weight:600; margin-bottom:10px;" />' +
+                    '<label style="font-size:0.78rem; font-weight:600; color:var(--text-muted);">Corpo</label>' +
+                    '<textarea id="prevEmailCorpo" class="mrp-control" rows="14" style="resize:vertical; font-size:0.85rem; font-family:inherit; line-height:1.5;">' + esc(corpo) + '</textarea>' +
+                '</div>';
+
+            elAzioni.innerHTML = '';
+
+            function cleanup(result) {
+                overlay.classList.remove('open');
+                resolve(result);
+            }
+
+            const btnAnnulla = document.createElement('button');
+            btnAnnulla.textContent = 'Annulla';
+            btnAnnulla.className = 'mrp-btn mrp-btn-secondary';
+            btnAnnulla.style.cssText = 'padding:8px 20px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-weight:600;font-size:0.85rem;';
+            btnAnnulla.addEventListener('click', () => cleanup(null));
+
+            const btnInvia = document.createElement('button');
+            btnInvia.textContent = '\u2709 Invia Email';
+            btnInvia.className = 'mrp-btn mrp-btn-primary';
+            btnInvia.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+            btnInvia.addEventListener('click', () => {
+                const oggettoEdit = document.getElementById('prevEmailOggetto').value.trim();
+                const corpoEdit = document.getElementById('prevEmailCorpo').value.trim();
+                if (!oggettoEdit || !corpoEdit) return;
+                cleanup({ oggetto: oggettoEdit, corpo: corpoEdit });
+            });
+
+            elAzioni.appendChild(btnAnnulla);
+            elAzioni.appendChild(btnInvia);
+            overlay.classList.add('open');
+
+            // Chiudi con X
+            const closeBtn = document.getElementById('modalGenericClose');
+            const closeHandler = () => { cleanup(null); closeBtn.removeEventListener('click', closeHandler); };
+            closeBtn.addEventListener('click', closeHandler);
+        });
+    }
+
+    /** Invio diretto email (usato sia da interattivo post-conferma che da batch silent) */
+    async function _inviaEmailDirect(emesso, overrides = {}) {
         const body = {
             anno: emesso.anno,
             serie: emesso.serie,
@@ -1111,7 +1236,11 @@ const MrpProposta = (() => {
             pdf_base64: emesso.pdf_base64 || null,
             pdf_filename: emesso.pdf_filename || null
         };
-        if (opts.template_id) body.template_id = opts.template_id;
+        if (overrides.template_id) body.template_id = overrides.template_id;
+        if (overrides.oggetto_custom) body.oggetto_custom = overrides.oggetto_custom;
+        if (overrides.corpo_custom) body.corpo_custom = overrides.corpo_custom;
+
+        const silent = !!overrides.oggetto_custom; // se ha custom = viene da interattivo, non mostrare modali extra
 
         try {
             const resp = await fetch(`${MrpApp.API_BASE}/invia-ordine-email`, { credentials: 'include',
@@ -1159,34 +1288,12 @@ const MrpProposta = (() => {
                         btn.classList.add('email-gia-inviata');
                     }
                 });
+                // In modalità 'ultima_scelta', salva il template usato per questo fornitore
+                if (_templateMode === 'ultima_scelta' && body.template_id && fk) {
+                    onTemplateSelectChange(fk, body.template_id);
+                }
                 // Aggiorna barra azioni (conteggio email pendenti)
                 aggiornaBarraEmettiTutti();
-
-                if (!silent) {
-                    if (data.ambiente === 'prova') {
-                        await modale('success', 'Email Inviata (PROVA)',
-                            `<div style="background:#fff3cd; padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:0.85rem;">
-                                \u26A0\uFE0F Le email sono state <strong>dirottate</strong> all'indirizzo di prova.
-                            </div>
-                            <table class="emetti-riepilogo-table" style="width:100%; font-size:0.82rem;">
-                                <thead><tr>
-                                    <th style="text-align:left;">Ordine</th>
-                                    <th style="text-align:left;">Fornitore</th>
-                                    <th style="text-align:left;">Email reale (non inviata)</th>
-                                    <th style="text-align:left;">Inviata a (prova)</th>
-                                </tr></thead>
-                                <tbody><tr>
-                                    <td><strong>${emesso.numord}/${emesso.serie}</strong></td>
-                                    <td>${esc(emesso.fornitore_nome || '')}</td>
-                                    <td style="color:var(--text-muted); text-decoration:line-through;">${esc(data.email_reale || '')}</td>
-                                    <td style="color:var(--success); font-weight:600;">${esc(data.email_prova || '')}</td>
-                                </tr></tbody>
-                            </table>`);
-                    } else {
-                        await modale('success', 'Email Inviata',
-                            `Ordine <strong>${emesso.numord}/${emesso.serie}</strong> inviato con successo a:<br><br><strong>${esc(data.destinatari.join(', '))}</strong>`);
-                    }
-                }
                 return { success: true };
             } else {
                 if (!silent) await modale('error', 'Errore Invio Email',
@@ -1514,12 +1621,14 @@ const MrpProposta = (() => {
 
     let _emailTemplates = [];
     let _templateAssegnazioni = new Map(); // fornitoreCode → templateId
+    let _templateMode = 'ultima_scelta'; // 'predefiniti' | 'ultima_scelta'
 
     async function caricaTemplateEmail() {
         try {
-            const [tplRes, assRes] = await Promise.all([
+            const [tplRes, assRes, cfgRes] = await Promise.all([
                 fetch(`${MrpApp.API_BASE}/email-templates`, { credentials: 'include' }),
-                fetch(`${MrpApp.API_BASE}/email-template-assegnazioni`, { credentials: 'include' })
+                fetch(`${MrpApp.API_BASE}/email-template-assegnazioni`, { credentials: 'include' }),
+                fetch(`${MrpApp.API_BASE}/smtp/config`, { credentials: 'include' })
             ]);
             if (tplRes.ok) {
                 const tplData = await tplRes.json();
@@ -1531,6 +1640,10 @@ const MrpProposta = (() => {
                 (assData.assegnazioni || []).forEach(a => {
                     _templateAssegnazioni.set(String(a.fornitoreCode), a.templateId);
                 });
+            }
+            if (cfgRes.ok) {
+                const cfgData = await cfgRes.json();
+                _templateMode = (cfgData.config && cfgData.config.templateMode) || 'ultima_scelta';
             }
         } catch (err) {
             console.warn('[Templates] Errore caricamento template email:', err);
@@ -1551,18 +1664,25 @@ const MrpProposta = (() => {
     }
 
     async function onTemplateSelectChange(fornCode, templateId) {
-        // Salva assegnazione (PUT) — silenzioso
-        try {
-            await fetch(`${MrpApp.API_BASE}/email-template-assegnazione/${fornCode}`, {
-                method: 'PUT',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ templateId })
-            });
-            _templateAssegnazioni.set(fornCode, templateId);
-        } catch (err) {
-            console.warn('[Templates] Errore salvataggio assegnazione:', err);
+        // In modalità 'ultima_scelta' → salva automaticamente l'assegnazione
+        // In modalità 'predefiniti' → il dropdown cambia solo per questo invio, non salva
+        if (_templateMode === 'ultima_scelta') {
+            try {
+                await fetch(`${MrpApp.API_BASE}/email-template-assegnazione/${fornCode}`, {
+                    method: 'PUT',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ templateId })
+                });
+                _templateAssegnazioni.set(fornCode, templateId);
+                // Also update the config tab select if visible
+                const cfgSelect = document.querySelector(`#assegnFornitoriList .assegn-forn-select[data-forn="${fornCode}"]`);
+                if (cfgSelect) cfgSelect.value = String(templateId);
+            } catch (err) {
+                console.warn('[Templates] Errore salvataggio assegnazione:', err);
+            }
         }
+        // In entrambe le modalità, il valore del select viene letto al momento dell'invio
     }
 
     function buildTemplateSelect(fornCode) {

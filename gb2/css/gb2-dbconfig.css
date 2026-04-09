@@ -79,6 +79,125 @@
 }
 
 /* ============================================
+   TAB SYSTEM — Modale Impostazioni
+   ============================================ */
+.cfg-tabs {
+    display: flex;
+    border-bottom: 2px solid var(--border);
+    padding: 0 20px;
+    gap: 0;
+    background: var(--bg);
+}
+.cfg-tab {
+    padding: 10px 18px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.cfg-tab:hover {
+    color: var(--primary);
+    background: var(--primary-light);
+}
+.cfg-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+.cfg-tab-panel {
+    display: none;
+}
+.cfg-tab-panel.active {
+    display: block;
+}
+
+/* ============================================
+   ASSEGNAZIONI FORNITORI — Tab config
+   ============================================ */
+.assegn-mode-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+}
+.assegn-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text);
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: white;
+    transition: all 0.15s;
+}
+.assegn-mode-toggle:has(input:checked) {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+.assegn-mode-toggle input {
+    display: none;
+}
+.assegn-forn-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: white;
+    font-size: 0.82rem;
+}
+.assegn-forn-row:hover {
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+.assegn-forn-codice {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    min-width: 50px;
+    font-weight: 600;
+}
+.assegn-forn-nome {
+    flex: 1;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.assegn-forn-select {
+    font-size: 0.78rem;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: white;
+    min-width: 180px;
+    max-width: 220px;
+}
+.assegn-forn-select:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+.assegn-forn-badge {
+    font-size: 0.68rem;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: #ecfdf5;
+    color: #059669;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* ============================================
    Template Email — Maschera gestione
    ============================================ */
 

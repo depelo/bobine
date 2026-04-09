@@ -2113,7 +2113,7 @@ router.get('/email-templates', authMiddleware, async (req, res) => {
                 SELECT t.ID as id, t.IDUser as idUser, t.Nome as nome, t.Oggetto as oggetto,
                        t.Corpo as corpo, t.Lingua as lingua, t.IsDefault as isDefault,
                        t.IsSystem as isSystem, t.IsActive as isActive, t.Ordine as ordine,
-                       u.Nome + ' ' + ISNULL(u.Cognome, '') AS nomeOperatore
+                       u.Name AS nomeOperatore
                 FROM [GB2].[dbo].[EmailTemplates] t
                 LEFT JOIN [GA].[dbo].[Users] u ON t.IDUser = u.IDUser
                 WHERE (t.IsSystem = 1 OR t.IDUser IS NOT NULL) ${whereActive}
@@ -2142,7 +2142,7 @@ router.get('/email-templates/:id', authMiddleware, async (req, res) => {
                 SELECT t.ID as id, t.IDUser as idUser, t.Nome as nome, t.Oggetto as oggetto,
                        t.Corpo as corpo, t.Lingua as lingua, t.IsDefault as isDefault,
                        t.IsSystem as isSystem, t.IsActive as isActive,
-                       u.Nome + ' ' + ISNULL(u.Cognome, '') AS nomeOperatore
+                       u.Name AS nomeOperatore
                 FROM [GB2].[dbo].[EmailTemplates] t
                 LEFT JOIN [GA].[dbo].[Users] u ON t.IDUser = u.IDUser
                 WHERE t.ID = @id
@@ -2329,6 +2329,86 @@ router.put('/email-template-assegnazione/:fornitoreCode', authMiddleware, async 
                     WHEN MATCHED THEN UPDATE SET TemplateID = @tid, UpdatedAt = GETDATE()
                     WHEN NOT MATCHED THEN INSERT (IDUser, FornitoreCode, TemplateID) VALUES (@uid, @forn, @tid);
                 `);
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Lista fornitori attivi (da ordini) con assegnazione template
+router.get('/fornitori-template', authMiddleware, async (req, res) => {
+    try {
+        const poolProd = await getPoolProd();
+        const userId = getUserId(req);
+
+        // Fornitori da ordlist (ordini fornitore) + quelli che hanno già assegnazioni
+        const result = await poolProd.request()
+            .input('uid', sql.Int, userId)
+            .query(`
+                ;WITH FornAttivi AS (
+                    SELECT DISTINCT ol.ol_conto AS codice, an.an_descr1 AS nome
+                    FROM dbo.ordlist ol
+                    LEFT JOIN dbo.anagra an ON ol.ol_conto = an.an_conto
+                    WHERE ol.ol_tipork IN ('H','O','R','Y')
+                      AND ol.ol_conto IS NOT NULL
+                    UNION
+                    SELECT a.FornitoreCode, an.an_descr1
+                    FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                    LEFT JOIN dbo.anagra an ON a.FornitoreCode = an.an_conto
+                    WHERE a.IDUser = @uid
+                )
+                SELECT f.codice, f.nome,
+                       a.TemplateID AS templateId
+                FROM FornAttivi f
+                LEFT JOIN [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                    ON a.FornitoreCode = f.codice AND a.IDUser = @uid
+                ORDER BY f.nome
+            `);
+
+        // Template mode dall'utente
+        const modeRes = await poolProd.request()
+            .input('uid', sql.Int, userId)
+            .query(`SELECT ISNULL(TemplateMode, 'ultima_scelta') AS templateMode
+                    FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @uid`);
+        const templateMode = modeRes.recordset.length ? modeRes.recordset[0].templateMode : 'ultima_scelta';
+
+        res.json({
+            fornitori: result.recordset,
+            templateMode
+        });
+    } catch (err) {
+        console.error('[Fornitori Template] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Salva modalità template (predefiniti / ultima_scelta)
+router.put('/template-mode', authMiddleware, async (req, res) => {
+    try {
+        const poolProd = await getPoolProd();
+        const userId = getUserId(req);
+        const { mode } = req.body;
+
+        if (!['predefiniti', 'ultima_scelta'].includes(mode)) {
+            return res.status(400).json({ error: 'Modalità non valida' });
+        }
+
+        const exists = await poolProd.request()
+            .input('uid', sql.Int, userId)
+            .query('SELECT 1 FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @uid');
+
+        if (exists.recordset.length) {
+            await poolProd.request()
+                .input('uid', sql.Int, userId)
+                .input('mode', sql.VarChar(20), mode)
+                .query('UPDATE [GB2].[dbo].[UserPreferences] SET TemplateMode = @mode, UpdatedAt = GETDATE() WHERE IDUser = @uid');
+        } else {
+            await poolProd.request()
+                .input('uid', sql.Int, userId)
+                .input('mode', sql.VarChar(20), mode)
+                .query('INSERT INTO [GB2].[dbo].[UserPreferences] (IDUser, TemplateMode) VALUES (@uid, @mode)');
         }
 
         res.json({ success: true });
@@ -2665,7 +2745,8 @@ router.get('/smtp/config', authMiddleware, async (req, res) => {
         const result = await poolProd.request()
             .input('userId', sql.Int, userId)
             .query(`SELECT SmtpHost, SmtpPort, SmtpSecure, SmtpUser,
-                           SmtpFromAddress, SmtpFromName, FirmaEmail
+                           SmtpFromAddress, SmtpFromName, FirmaEmail,
+                           ISNULL(TemplateMode, 'ultima_scelta') AS TemplateMode
                     FROM [GB2].[dbo].[UserPreferences]
                     WHERE IDUser = @userId`);
 
@@ -2681,7 +2762,8 @@ router.get('/smtp/config', authMiddleware, async (req, res) => {
             user: row.SmtpUser || '',
             from_address: row.SmtpFromAddress || '',
             from_name: row.SmtpFromName || 'U.Jet s.r.l.',
-            firma: row.FirmaEmail || ''
+            firma: row.FirmaEmail || '',
+            templateMode: row.TemplateMode || 'ultima_scelta'
         };
         res.json({ configured: !!(config.host && config.from_address), config });
     } catch (err) {
@@ -2769,9 +2851,144 @@ router.post('/smtp/test', authMiddleware, async (req, res) => {
 // API: INVIO EMAIL ORDINE FORNITORE
 // ============================================================
 
+// Funzione interna: compila template per un ordine (usata da preview e invio)
+async function _compilaEmailOrdine(userId, anno, serie, numord, template_id) {
+    const pool = await getPoolProd();
+
+    // Dati ordine (testata)
+    const ordRes = await pool.request()
+        .input('anno', sql.SmallInt, parseInt(anno, 10))
+        .input('serie', sql.VarChar(3), serie)
+        .input('numord', sql.Int, parseInt(numord, 10))
+        .query(`
+            SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
+                   t.td_conto, t.td_datord, t.td_totdoc,
+                   a.an_descr1 AS fornitore_nome, a.an_email AS fornitore_email
+            FROM dbo.testord t
+            LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+            WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+              AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
+        `);
+    if (!ordRes.recordset.length) throw new Error('Ordine non trovato');
+    const ordine = ordRes.recordset[0];
+
+    // Risoluzione template (cascade)
+    let template = null;
+
+    if (template_id) {
+        const tplRes = await pool.request()
+            .input('tid', sql.Int, template_id)
+            .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @tid AND IsActive = 1`);
+        if (tplRes.recordset.length) template = tplRes.recordset[0];
+    }
+
+    if (!template) {
+        const assRes = await pool.request()
+            .input('uid', sql.Int, userId)
+            .input('forn', sql.Int, ordine.td_conto)
+            .query(`
+                SELECT t.Oggetto, t.Corpo
+                FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
+                JOIN [GB2].[dbo].[EmailTemplates] t ON a.TemplateID = t.ID
+                WHERE a.IDUser = @uid AND a.FornitoreCode = @forn AND t.IsActive = 1
+            `);
+        if (assRes.recordset.length) template = assRes.recordset[0];
+    }
+
+    if (!template) {
+        const defRes = await pool.request()
+            .input('uid', sql.Int, userId)
+            .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE IDUser = @uid AND IsDefault = 1 AND IsActive = 1`);
+        if (defRes.recordset.length) template = defRes.recordset[0];
+    }
+
+    if (!template) {
+        const sysRes = await pool.request()
+            .query(`SELECT TOP 1 Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE IsSystem = 1 AND Lingua = 'it' AND IsActive = 1 ORDER BY Ordine ASC`);
+        if (sysRes.recordset.length) template = sysRes.recordset[0];
+    }
+
+    // Firma + nome operatore
+    const prefRes = await pool.request()
+        .input('uid', sql.Int, userId)
+        .query(`SELECT FirmaEmail FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @uid`);
+    const firmaEmail = (prefRes.recordset.length && prefRes.recordset[0].FirmaEmail) || '';
+
+    const operRes = await pool.request()
+        .input('uid', sql.Int, userId)
+        .query(`SELECT Name AS NomeCompleto FROM [GA].[dbo].[Users] WHERE IDUser = @uid`);
+    const nomeOperatore = (operRes.recordset.length && operRes.recordset[0].NomeCompleto) || '';
+
+    // Conteggio righe
+    const righeCount = await pool.request()
+        .input('anno', sql.SmallInt, parseInt(anno, 10))
+        .input('serie', sql.VarChar(3), serie)
+        .input('numord', sql.Int, parseInt(numord, 10))
+        .query(`SELECT COUNT(*) AS cnt FROM dbo.movord WHERE codditt = 'UJET11' AND mo_tipork = 'O' AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord`);
+
+    const dataOrdine = ordine.td_datord ? new Date(ordine.td_datord).toLocaleDateString('it-IT') : '';
+    const totaleDoc = ordine.td_totdoc != null ? Number(ordine.td_totdoc).toLocaleString('it-IT', { minimumFractionDigits: 2 }) : '';
+    const datiTemplate = {
+        fornitore: ordine.fornitore_nome || '',
+        numord: `${numord}/${serie}`,
+        data_ordine: dataOrdine,
+        num_articoli: String(righeCount.recordset[0].cnt),
+        totale: totaleDoc,
+        operatore: nomeOperatore.trim(),
+        firma: firmaEmail
+    };
+
+    let oggetto, corpo;
+    if (template) {
+        oggetto = compilaTemplate(template.Oggetto, datiTemplate);
+        corpo = compilaTemplate(template.Corpo, datiTemplate);
+    } else {
+        oggetto = `NS/ ORDINE ${numord}_${serie} - ${ordine.fornitore_nome || ''}`;
+        corpo = `Spett.le ${ordine.fornitore_nome || ''},\n\nin allegato l'ordine d'acquisto n. ${numord}/${serie}.\n\nCordiali saluti,\nU.Jet s.r.l.`;
+    }
+
+    return {
+        oggetto,
+        corpo,
+        fornitore_nome: ordine.fornitore_nome || '',
+        fornitore_email: ordine.fornitore_email || '',
+        fornitore_codice: ordine.td_conto
+    };
+}
+
+// Preview email ordine (compila template senza inviare)
+router.post('/preview-ordine-email', authMiddleware, async (req, res) => {
+    try {
+        const { anno, serie, numord, template_id } = req.body;
+        if (!anno || !serie || !numord) return res.status(400).json({ error: 'anno, serie e numord obbligatori' });
+        const userId = getUserId(req);
+
+        const preview = await _compilaEmailOrdine(userId, anno, serie, numord, template_id);
+
+        // Info ambiente
+        const dbProfile = getActiveProfile(userId);
+        const ambiente = dbProfile.ambiente || 'produzione';
+        let destinatario = preview.fornitore_email;
+        if (ambiente === 'prova') {
+            destinatario = (dbProfile.email_prova || '').trim() || '(email prova non configurata)';
+        }
+
+        res.json({
+            oggetto: preview.oggetto,
+            corpo: preview.corpo,
+            fornitore_nome: preview.fornitore_nome,
+            destinatario,
+            ambiente
+        });
+    } catch (err) {
+        console.error('[Preview Email] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
     try {
-        const { anno, serie, numord, pdf_base64, pdf_filename, email_override, template_id } = req.body;
+        const { anno, serie, numord, pdf_base64, pdf_filename, email_override, template_id, oggetto_custom, corpo_custom } = req.body;
 
         if (!anno || !serie || !numord) {
             return res.status(400).json({ error: 'anno, serie e numord sono obbligatori' });
@@ -2876,96 +3093,18 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         const nomeFile = pdf_filename || `OrdineForn${anno}${serie}${String(numord).padStart(6,'0')}.pdf`;
         const prefissoProva = ambiente === 'prova' ? '[PROVA] ' : '';
 
-        // --- Risoluzione template email (cascade) ---
-        const poolProd = await getPoolProd();
-        let template = null;
-
-        if (template_id) {
-            // 1) Template esplicito dal frontend
-            const tplRes = await poolProd.request()
-                .input('tid', sql.Int, template_id)
-                .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @tid AND IsActive = 1`);
-            if (tplRes.recordset.length) template = tplRes.recordset[0];
-        }
-
-        if (!template) {
-            // 2) Assegnazione fornitore per questo operatore
-            const assRes = await poolProd.request()
-                .input('uid', sql.Int, userId)
-                .input('forn', sql.Int, ordine.td_conto)
-                .query(`
-                    SELECT t.Oggetto, t.Corpo
-                    FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
-                    JOIN [GB2].[dbo].[EmailTemplates] t ON a.TemplateID = t.ID
-                    WHERE a.IDUser = @uid AND a.FornitoreCode = @forn AND t.IsActive = 1
-                `);
-            if (assRes.recordset.length) template = assRes.recordset[0];
-        }
-
-        if (!template) {
-            // 3) Template default dell'operatore
-            const defRes = await poolProd.request()
-                .input('uid', sql.Int, userId)
-                .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE IDUser = @uid AND IsDefault = 1 AND IsActive = 1`);
-            if (defRes.recordset.length) template = defRes.recordset[0];
-        }
-
-        if (!template) {
-            // 4) Primo template di sistema italiano
-            const sysRes = await poolProd.request()
-                .query(`SELECT TOP 1 Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE IsSystem = 1 AND Lingua = 'it' AND IsActive = 1 ORDER BY Ordine ASC`);
-            if (sysRes.recordset.length) template = sysRes.recordset[0];
-        }
-
-        // Recupera firma email e nome operatore
-        const prefRes = await poolProd.request()
-            .input('uid', sql.Int, userId)
-            .query(`SELECT FirmaEmail FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @uid`);
-        const firmaEmail = (prefRes.recordset.length && prefRes.recordset[0].FirmaEmail) || '';
-
-        const operRes = await poolProd.request()
-            .input('uid', sql.Int, userId)
-            .query(`SELECT Nome + ' ' + ISNULL(Cognome, '') AS NomeCompleto FROM [GA].[dbo].[Users] WHERE IDUser = @uid`);
-        const nomeOperatore = (operRes.recordset.length && operRes.recordset[0].NomeCompleto) || '';
-
-        // Conteggio righe ordine
-        const righeCount = await pool.request()
-            .input('anno', sql.SmallInt, parseInt(anno, 10))
-            .input('serie', sql.VarChar(3), serie)
-            .input('numord', sql.Int, parseInt(numord, 10))
-            .query(`
-                SELECT COUNT(*) AS cnt FROM dbo.movord
-                WHERE codditt = 'UJET11' AND mo_tipork = 'O'
-                  AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord
-            `);
-
-        // Dati per compilazione template
-        const dataOrdine = ordine.td_datord ? new Date(ordine.td_datord).toLocaleDateString('it-IT') : '';
-        const totaleDoc = ordine.td_totdoc != null ? Number(ordine.td_totdoc).toLocaleString('it-IT', { minimumFractionDigits: 2 }) : '';
-        const datiTemplate = {
-            fornitore: ordine.fornitore_nome || '',
-            numord: `${numord}/${serie}`,
-            data_ordine: dataOrdine,
-            num_articoli: righeCount.recordset[0].cnt,
-            totale: totaleDoc,
-            operatore: nomeOperatore.trim(),
-            firma: firmaEmail
-        };
-
-        // Compila oggetto e corpo
+        // --- Compilazione oggetto e corpo email ---
         let oggetto, corpoHtml;
-        if (template) {
-            oggetto = prefissoProva + compilaTemplate(template.Oggetto, datiTemplate);
-            const corpoCompilato = compilaTemplate(template.Corpo, datiTemplate);
-            corpoHtml = corpoCompilato.replace(/\n/g, '<br>');
+
+        if (oggetto_custom && corpo_custom) {
+            // Override dal modale di anteprima editabile
+            oggetto = prefissoProva + oggetto_custom;
+            corpoHtml = corpo_custom.replace(/\n/g, '<br>');
         } else {
-            // Fallback hardcoded se nessun template trovato
-            oggetto = `${prefissoProva}NS/ ORDINE ${numord}_${serie} - ${ordine.fornitore_nome || ''}`;
-            corpoHtml = `
-                <p>Spett.le <strong>${ordine.fornitore_nome || ''}</strong>,</p>
-                <p>in allegato l'ordine d'acquisto n. <strong>${numord}/${serie}</strong>.</p>
-                <p>Cordiali saluti,<br><strong>U.Jet s.r.l.</strong></p>
-            `;
+            // Compilazione automatica da template (cascade)
+            const compiled = await _compilaEmailOrdine(userId, anno, serie, numord, template_id);
+            oggetto = prefissoProva + compiled.oggetto;
+            corpoHtml = compiled.corpo.replace(/\n/g, '<br>');
         }
 
         // Avviso prova in testa
