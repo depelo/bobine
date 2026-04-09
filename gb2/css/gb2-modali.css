@@ -75,8 +75,8 @@
 }
 
 /* --- COLORI PER TIPO ORDINE --- */
-.modal-row-ordforn td { background: #ffffff; }
-.modal-row-ordprod td { background: #fffde7; color: #1e293b; }
+.modal-row-ordforn td { background: var(--bg-content); }
+.modal-row-ordprod td { background: var(--row-totale); color: var(--row-totale-text); }
 .modal-row-impprod td { background: var(--row-esaurito); color: var(--row-esaurito-text); }
 
 .modal-row-impprod:hover td,
@@ -183,6 +183,6 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 .split-ordini-card .matrioska-table tr.modal-row-impprod td { background: var(--row-esaurito); }
-.split-ordini-card .matrioska-table tr.modal-row-ordprod td { background: #fffde7; }
-.split-ordini-card .matrioska-table tr.modal-row-ordforn td { background: #ffffff; }
+.split-ordini-card .matrioska-table tr.modal-row-ordprod td { background: var(--row-totale); }
+.split-ordini-card .matrioska-table tr.modal-row-ordforn td { background: var(--bg-content); }
 

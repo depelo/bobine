@@ -15,6 +15,7 @@ const MrpTheme = (() => {
             id: 'ui',
             label: 'Interfaccia Base',
             vars: [
+                { name: '--header-bg', label: 'Barra superiore', default: '#2563a8' },
                 { name: '--primary', label: 'Colore primario', default: '#2563a8' },
                 { name: '--primary-dark', label: 'Primario scuro', default: '#1a4d82' },
                 { name: '--primary-light', label: 'Primario chiaro', default: '#e3eef8' },
@@ -127,7 +128,11 @@ const MrpTheme = (() => {
         'mrp-row-generale-totale': '--mrp-row-generale-totale',
         'mrp-blocco-esaurimento': '--mrp-blocco-esaurimento',
         'mrp-blocco-sostitutivo': '--mrp-blocco-sostitutivo',
-        'mrp-blocco-combinato': '--mrp-blocco-combinato'
+        'mrp-blocco-combinato': '--mrp-blocco-combinato',
+        // Righe modali
+        'modal-row-impprod': '--row-esaurito',
+        'modal-row-ordprod': '--row-totale',
+        'modal-row-ordforn': '--bg-content'
     };
 
     // --------------------------------------------------------
@@ -182,7 +187,7 @@ const MrpTheme = (() => {
 
         // 3. Listener globali
         document.addEventListener('keydown', onKeyDown);
-        document.body.addEventListener('click', onBodyClick);
+        document.addEventListener('click', onBodyClick, true);
 
         // 4. Bottone apertura pannello
         const btnOpen = document.getElementById('btnOpenTheme');
@@ -358,9 +363,10 @@ const MrpTheme = (() => {
         requestAnimationFrame(() => {
             panel.classList.add('open');
         });
-        document.body.classList.add('theme-edit-mode');
         panelOpen = true;
-        editMode = true;
+        // Sincronizza stato checkbox con editMode corrente
+        const toggle = document.getElementById('mrpThemeEditToggle');
+        if (toggle) toggle.checked = editMode;
     }
 
     function closePanel() {
@@ -403,6 +409,10 @@ const MrpTheme = (() => {
                 <div id="mrpThemeGroups"></div>
             </div>
             <div class="mrp-theme-panel-footer">
+                <label class="mrp-theme-edit-toggle">
+                    <input type="checkbox" id="mrpThemeEditToggle" />
+                    <span>Seleziona elemento</span>
+                </label>
                 <button class="mrp-theme-btn mrp-theme-btn-reset" id="mrpThemeResetAll">Reset</button>
                 <span class="mrp-theme-feedback" id="mrpThemeFeedback"></span>
             </div>
@@ -410,6 +420,15 @@ const MrpTheme = (() => {
 
         // Bind eventi panel
         panel.querySelector('.mrp-theme-close').addEventListener('click', closePanel);
+        panel.querySelector('#mrpThemeEditToggle').addEventListener('change', (e) => {
+            editMode = e.target.checked;
+            if (editMode) {
+                document.body.classList.add('theme-edit-mode');
+            } else {
+                document.body.classList.remove('theme-edit-mode');
+                removeMiniPicker();
+            }
+        });
         panel.querySelector('#mrpThemePresetSelect').addEventListener('change', (e) => {
             applyPreset(e.target.value);
             populatePanel();
@@ -419,6 +438,20 @@ const MrpTheme = (() => {
             populatePanel();
             dirty = true;
         });
+
+        // Floating action button per aprire il tema sopra i modali
+        if (!document.getElementById('themeEditFab')) {
+            const fab = document.createElement('button');
+            fab.id = 'themeEditFab';
+            fab.className = 'theme-edit-fab';
+            fab.title = 'Apri tema';
+            fab.textContent = '🎨';
+            fab.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openPanel();
+            });
+            document.body.appendChild(fab);
+        }
 
         return panel;
     }
@@ -584,16 +617,23 @@ const MrpTheme = (() => {
     function onBodyClick(e) {
         if (!editMode) return;
 
-        // Ignora click dentro il panel
+        // Ignora click dentro il panel tema
         const panel = document.getElementById('mrpThemePanel');
         if (panel && panel.contains(e.target)) return;
 
         // Ignora click dentro mini-picker
         if (miniPicker && miniPicker.contains(e.target)) return;
 
-        // Cerca tr o th piu' vicino
+        // Ignora click sul fab button
+        const fab = document.getElementById('themeEditFab');
+        if (fab && fab.contains(e.target)) return;
+
+        // Cerca tr o th o elementi modale con colore noto
         const tr = e.target.closest('tr') || e.target.closest('th');
-        if (!tr) {
+        const modalRow = e.target.closest('.modal-row-impprod, .modal-row-ordprod, .modal-row-ordforn');
+
+        const target = tr || modalRow;
+        if (!target) {
             removeMiniPicker();
             return;
         }
@@ -602,7 +642,7 @@ const MrpTheme = (() => {
         let matchedVar = null;
         let matchedClass = null;
         for (const cls of Object.keys(CLASS_TO_VAR)) {
-            if (tr.classList.contains(cls)) {
+            if (target.classList.contains(cls)) {
                 matchedVar = CLASS_TO_VAR[cls];
                 matchedClass = cls;
                 break;
@@ -610,8 +650,7 @@ const MrpTheme = (() => {
         }
 
         if (!matchedVar) {
-            // Controlla anche se la classe e' contenuta (es. "magazzino" nel nome)
-            const classList = Array.from(tr.classList);
+            const classList = Array.from(target.classList);
             for (const cls of Object.keys(CLASS_TO_VAR)) {
                 if (classList.some(c => c.includes(cls))) {
                     matchedVar = CLASS_TO_VAR[cls];
@@ -622,13 +661,16 @@ const MrpTheme = (() => {
         }
 
         if (!matchedVar) {
+            // In edit mode, blocca comunque la propagazione per evitare azioni indesiderate
+            e.preventDefault();
+            e.stopImmediatePropagation();
             removeMiniPicker();
             return;
         }
 
         e.preventDefault();
-        e.stopPropagation();
-        showMiniPicker(tr, matchedVar, matchedClass);
+        e.stopImmediatePropagation();
+        showMiniPicker(target, matchedVar, matchedClass);
     }
 
     function showMiniPicker(element, varName, className) {

@@ -60,7 +60,12 @@
       "Bash(powershell \"Get-Process -Id 56532 | Select-Object ProcessName, StartTime\")",
       "Bash(powershell \"Stop-Process -Id 56532 -Force; Start-Sleep -Seconds 2; Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime\")",
       "Bash(powershell \"Start-Process powershell -Verb RunAs -ArgumentList '-Command Stop-Process -Id 56532 -Force'\")",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(ping -n 2 192.168.0.163)",
+      "Bash(powershell \"Test-NetConnection 192.168.0.163 -Port 1433\")",
+      "Read(//c/Users/depel/.pm2/logs/**)",
+      "Bash(curl -ksI https://localhost:3000/gb2/js/gb2-proposta.js)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

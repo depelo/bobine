@@ -3,6 +3,7 @@
    ============================================ */
 
 :root {
+    --header-bg: #2563a8;
     --primary: #2563a8;
     --primary-dark: #1a4d82;
     --primary-light: #e3eef8;
@@ -60,20 +61,37 @@ body {
 
 /* === HEADER === */
 .mrp-header {
-    background: var(--bg-content);
-    border-bottom: 1px solid var(--border);
-    padding: 12px 24px;
+    background: var(--header-bg, var(--primary));
+    padding: 0 20px;
+    height: 48px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     position: sticky;
     top: 0;
     z-index: 100;
 }
-.mrp-header-left { display: flex; align-items: baseline; gap: 12px; }
-.mrp-title { font-size: 1.4rem; font-weight: 700; color: var(--primary); letter-spacing: -0.5px; }
-.mrp-subtitle { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+.mrp-header-left { display: flex; align-items: baseline; gap: 10px; }
+.mrp-title { font-size: 1.15rem; font-weight: 700; color: #fff; letter-spacing: -0.3px; margin: 0; }
+.mrp-subtitle { font-size: 0.8rem; color: rgba(255,255,255,0.75); font-weight: 500; }
+.mrp-header-right { display: flex; align-items: center; gap: 8px; }
+.mrp-header .gb2-menu-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border: 0; background: transparent;
+    color: #fff; font-size: 1.5rem; cursor: pointer; border-radius: 6px;
+    flex-shrink: 0; margin-right: 8px;
+}
+.mrp-header .gb2-menu-btn:hover { background: rgba(255,255,255,0.15); }
+.mrp-header .btn-theme-open {
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
+    color: #fff; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+    font-size: 0.85rem;
+}
+.mrp-header .btn-theme-open:hover { background: rgba(255,255,255,0.22); }
+.mrp-section-title {
+    font-size: 1rem; font-weight: 600; color: var(--text-muted);
+    margin: 0 0 12px 0; padding: 0;
+}
 .mrp-nav { display: flex; gap: 4px; }
 .mrp-nav-btn {
     padding: 8px 16px;

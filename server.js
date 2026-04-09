@@ -26,7 +26,7 @@ app.use((req, res, next) => {
     }
     next();
 });
-app.use(express.static(__dirname));
+app.use(express.static(__dirname, { etag: false, lastModified: false }));
 
 const certDir = process.env.SSL_CERT_DIR || 'C:\\Acme\\certificati_ssl';
 const sslOptions = {

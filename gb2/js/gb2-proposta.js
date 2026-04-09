@@ -363,12 +363,13 @@ const MrpProposta = (() => {
                 ? `${esc(forn.codice)} — ${esc(forn.nome)}`
                 : `Fornitore: ${esc(forn.codice)} (Senza ragione sociale)`;
 
+            const isRelevant = String(forn.codice).startsWith('200');
             div.innerHTML = `
                 <div class="proposta-fornitore-header" data-forn="${escAttr(forn.codice)}">
                     <span>${fornLabel}</span>
-                    <span class="forn-toggle">▼</span>
+                    <span class="forn-toggle">${isRelevant ? '▼' : '▶'}</span>
                 </div>
-                <div class="proposta-fornitore-body">
+                <div class="proposta-fornitore-body" style="${isRelevant ? '' : 'display:none'}">
                     ${htmlArticoli}
                     <div class="proposta-forn-totale">
                         Totale valore fornitore → <span class="valore">€ ${fmtNum(valoreFornitore, 2)}</span>
