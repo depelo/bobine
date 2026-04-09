@@ -11,7 +11,9 @@
         "SQL_PASSWORD": "Risk0804",
         "TRUST_SERVER_CERTIFICATE": "true",
         "READONLY": "false",
-        "MAX_ROWS_DEFAULT": "100"
+        "MAX_ROWS_DEFAULT": "100",
+        "ACCESS_LEVEL": "server",
+        "ALLOWED_DATABASES": "UJET11,MRP,BOB,CAP,GA,GB2,GOV"
       }
     }
   }

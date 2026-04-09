@@ -28,6 +28,8 @@ const MrpProposta = (() => {
             listEl.addEventListener('click', onPropostaListBadgeClick);
         }
 
+        initStorico();
+
         await waitForDB();
         caricaProposta();
     }
@@ -187,17 +189,37 @@ const MrpProposta = (() => {
                 return;
             }
 
-            if (!Array.isArray(payload) || !payload.length) {
+            // La risposta è ora un oggetto { elaborazione, righe }
+            const righe = payload.righe || payload;
+            const elaborazione = payload.elaborazione || null;
+
+            if (!Array.isArray(righe) || !righe.length) {
                 listEl.innerHTML = '<div class="proposta-loading">Nessuna proposta ordine presente</div>';
                 return;
             }
 
-            data = payload;
-            // Genera un ID elaborazione unico per questa sessione di proposta
-            MrpApp.state.elaborazioneId = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+            data = righe;
+
+            // Elaborazione MRP: usa l'ID dal server (non più generato client-side)
+            const prevElabId = MrpApp.state.elaborazioneId;
+            if (elaborazione) {
+                MrpApp.state.elaborazioneId = String(elaborazione.id);
+                MrpApp.state.elaborazione = elaborazione;
+                // Se elaborazione cambiata → svuota conferme (nuova sessione MRP)
+                if (prevElabId && prevElabId !== String(elaborazione.id)) {
+                    MrpApp.state.ordiniConfermati.clear();
+                }
+            } else {
+                // Fallback: genera ID client-side (retrocompatibilità)
+                MrpApp.state.elaborazioneId = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+                MrpApp.state.elaborazione = null;
+            }
 
             // Popola ordiniEmessi dal server (righe già emesse persistite in ordini_emessi)
             ripristinaOrdiniEmessiDaServer(data);
+
+            // Carica template email e assegnazioni (non bloccante)
+            caricaTemplateEmail();
 
             renderProposta(data, listEl, stats);
         } catch (err) {
@@ -238,11 +260,26 @@ const MrpProposta = (() => {
         });
 
         if (statsEl) {
+            const elab = MrpApp.state.elaborazione;
+            let elabHtml = '';
+            if (elab) {
+                const elabDate = new Date(elab.fingerprint).toLocaleDateString('it-IT', {
+                    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
+                elabHtml = `
+                    <div class="proposta-stat-item proposta-stat-elab">
+                        Elab. <span class="proposta-stat-value">#${elab.id}</span>
+                        &mdash; Batch: <span class="proposta-stat-value">${elabDate}</span>
+                        &mdash; Gestite: <span class="proposta-stat-value">${elab.totaleGestite}/${elab.totaleProposte}</span>
+                    </div>
+                `;
+            }
             statsEl.innerHTML = `
                 <div class="proposta-stat-item">Fornitori: <span class="proposta-stat-value">${fornitori.size}</span></div>
                 <div class="proposta-stat-item">Articoli: <span class="proposta-stat-value">${totArticoli}</span></div>
                 <div class="proposta-stat-item">Righe: <span class="proposta-stat-value">${righe.length}</span></div>
                 <div class="proposta-stat-item">Valore totale: <span class="proposta-stat-value">€ ${fmtNum(totaleValore, 2)}</span></div>
+                ${elabHtml}
             `;
         }
 
@@ -282,7 +319,8 @@ const MrpProposta = (() => {
 
                     let stato, statoClass;
                     if (r.emesso) {
-                        stato = `Ordinato ${r.ord_numord || ''}/${r.ord_serie || 'F'}`;
+                        const emailIcon = r.email_inviata ? ' \u2709' : '';
+                        stato = `Ordinato ${r.ord_numord || ''}/${r.ord_serie || 'F'}${emailIcon}`;
                         statoClass = 'proposta-stato-ordinato';
                     } else {
                         const statoRaw = (r.ol_stato || '').trim();
@@ -303,8 +341,10 @@ const MrpProposta = (() => {
                     </tr>`;
                 }
 
+                const tutteEmesse = rows.every(r => r.emesso);
+                const gestitaInElab = tutteEmesse && rows.some(r => r.elaborazione_id === MrpApp.state.elaborazioneId);
                 htmlArticoli += `
-                <div class="proposta-articolo">
+                <div class="proposta-articolo${gestitaInElab ? ' proposta-art-gestita' : ''}">
                     <div class="proposta-art-header">
                         <span class="proposta-art-codart"
                     data-codart="${escAttr(codart)}"
@@ -363,12 +403,13 @@ const MrpProposta = (() => {
                 ? `${esc(forn.codice)} — ${esc(forn.nome)}`
                 : `Fornitore: ${esc(forn.codice)} (Senza ragione sociale)`;
 
+            const isRelevant = String(forn.codice).startsWith('200');
             div.innerHTML = `
                 <div class="proposta-fornitore-header" data-forn="${escAttr(forn.codice)}">
                     <span>${fornLabel}</span>
-                    <span class="forn-toggle">▼</span>
+                    <span class="forn-toggle">${isRelevant ? '▼' : '▶'}</span>
                 </div>
-                <div class="proposta-fornitore-body">
+                <div class="proposta-fornitore-body" style="${isRelevant ? '' : 'display:none'}">
                     ${htmlArticoli}
                     <div class="proposta-forn-totale">
                         Totale valore fornitore → <span class="valore">€ ${fmtNum(valoreFornitore, 2)}</span>
@@ -522,7 +563,20 @@ const MrpProposta = (() => {
                 statoBadge.style.display = 'none';
                 const emessoBadge = document.createElement('span');
                 emessoBadge.className = 'fornitore-emesso-badge';
-                emessoBadge.innerHTML = '&#x1F4C4; Ordine ' + emesso.numord + '/' + emesso.serie;
+
+                const emailIcon = emesso.email_inviata ? ' \u2709' : '';
+                emessoBadge.innerHTML = '&#x1F4C4; Ordine ' + emesso.numord + '/' + emesso.serie + emailIcon;
+
+                // Bottone Visualizza Ordine (riapre modale risultato con PDF + email)
+                const btnVisualizza = document.createElement('button');
+                btnVisualizza.className = 'btn-visualizza-ordine-forn';
+                btnVisualizza.textContent = '\uD83D\uDD0D Visualizza';
+                btnVisualizza.title = 'Riapri modale ordine con PDF e invio email';
+                btnVisualizza.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await apriDettaglioOrdine(emesso.anno, emesso.serie, emesso.numord);
+                });
+                emessoBadge.appendChild(btnVisualizza);
 
                 const btnPdf = document.createElement('button');
                 btnPdf.className = 'btn-scarica-pdf-forn';
@@ -531,10 +585,35 @@ const MrpProposta = (() => {
                 btnPdf.addEventListener('click', (e) => { e.stopPropagation(); scaricaPdf(emesso); });
                 emessoBadge.appendChild(btnPdf);
 
+                // Dropdown template email
+                const tplSelectHtml = buildTemplateSelect(fornCode);
+                if (tplSelectHtml) {
+                    const tplWrapper = document.createElement('span');
+                    tplWrapper.innerHTML = tplSelectHtml;
+                    const selectEl = tplWrapper.firstElementChild;
+                    selectEl.addEventListener('click', (e) => e.stopPropagation());
+                    selectEl.addEventListener('change', (e) => {
+                        e.stopPropagation();
+                        onTemplateSelectChange(fornCode, parseInt(selectEl.value, 10));
+                    });
+                    emessoBadge.appendChild(selectEl);
+                }
+
                 const btnEmail = document.createElement('button');
                 btnEmail.className = 'btn-invia-email-forn';
-                btnEmail.textContent = '\u2709 Invia Email';
-                btnEmail.addEventListener('click', (e) => { e.stopPropagation(); inviaEmailOrdine(emesso); });
+                if (emesso.email_inviata) {
+                    btnEmail.textContent = '\u2709 Re-invia Email';
+                    btnEmail.classList.add('email-gia-inviata');
+                } else {
+                    btnEmail.textContent = '\u2709 Invia Email';
+                    btnEmail.classList.add('email-non-inviata');
+                }
+                btnEmail.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const sel = header.querySelector('.select-template-forn');
+                    const templateId = sel ? parseInt(sel.value, 10) : null;
+                    inviaEmailOrdine(emesso, { template_id: templateId });
+                });
                 emessoBadge.appendChild(btnEmail);
 
                 header.appendChild(emessoBadge);
@@ -610,6 +689,8 @@ const MrpProposta = (() => {
                     pdf_base64: cached.pdf_base64 || null,
                     pdf_filename: cached.pdf_filename || null,
                     email: '', // il pulsante email appare sempre, il server verificherà
+                    email_inviata: !!primo.email_inviata,
+                    email_inviata_il: primo.email_inviata_il || null,
                     fornitore_nome: info.nome,
                     fornitore_codice: fk
                 });
@@ -634,7 +715,13 @@ const MrpProposta = (() => {
             if (!ordiniEmessi.has(fc)) fornitoriPronti++;
         });
 
-        if (fornitoriPronti === 0) {
+        // Conta email pendenti (emessi ma email non ancora inviata)
+        let emailPendenti = 0;
+        ordiniEmessi.forEach(emesso => {
+            if (!emesso.email_inviata) emailPendenti++;
+        });
+
+        if (fornitoriPronti === 0 && emailPendenti === 0) {
             if (barraEl) barraEl.style.display = 'none';
             return;
         }
@@ -646,17 +733,34 @@ const MrpProposta = (() => {
             listEl.parentNode.insertBefore(barraEl, listEl);
         }
 
+        // Costruisci testo info dinamico
+        const infoParts = [];
+        if (fornitoriPronti > 0) {
+            infoParts.push(`<span class="emetti-count">${fornitoriPronti}</span> pronto${fornitoriPronti > 1 ? 'i' : ''} per l'emissione`);
+        }
+        if (emailPendenti > 0) {
+            infoParts.push(`<span class="emetti-count">${emailPendenti}</span> email da inviare`);
+        }
+
+        // Costruisci bottoni
+        let bottoni = '';
+        if (fornitoriPronti > 0) {
+            bottoni += `<button type="button" class="btn-emetti-tutti" id="btnEmettiTutti">&#x1F4E8; Emetti Tutti</button>`;
+        }
+        if (emailPendenti > 0) {
+            bottoni += `<button type="button" class="btn-invia-tutte-email" id="btnInviaTutteEmail">\u2709\uFE0F Invia Tutte le Email</button>`;
+        }
+
         barraEl.style.display = 'flex';
         barraEl.innerHTML = `
-            <div class="emetti-tutti-info">
-                <span class="emetti-count">${fornitoriPronti}</span> fornitore${fornitoriPronti > 1 ? 'i' : ''} pronto${fornitoriPronti > 1 ? 'i' : ''} per l'emissione
-            </div>
-            <button type="button" class="btn-emetti-tutti" id="btnEmettiTutti">
-                &#x1F4E8; Emetti Tutti gli Ordini
-            </button>
+            <div class="emetti-tutti-info">${infoParts.join(' \u00B7 ')}</div>
+            <div class="emetti-tutti-azioni">${bottoni}</div>
         `;
 
-        document.getElementById('btnEmettiTutti').addEventListener('click', emettiTuttiHandler);
+        const btnEmetti = document.getElementById('btnEmettiTutti');
+        if (btnEmetti) btnEmetti.addEventListener('click', emettiTuttiHandler);
+        const btnEmail = document.getElementById('btnInviaTutteEmail');
+        if (btnEmail) btnEmail.addEventListener('click', inviaTutteEmailHandler);
     }
 
     // ============================================================
@@ -794,6 +898,38 @@ const MrpProposta = (() => {
         });
 
         if (articoliFornitore.length === 0) return;
+
+        // Check duplicati pre-emissione
+        if (MrpApp.state.elaborazioneId) {
+            try {
+                const dupRes = await fetch(`${MrpApp.API_BASE}/controlla-duplicato`, {
+                    credentials: 'include',
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fornitore_codice: parseInt(fornitore_codice, 10),
+                        elaborazione_id: MrpApp.state.elaborazioneId,
+                        articoli: articoliFornitore.map(a => ({ codart: a.ol_codart, fase: parseInt(a.ol_fase, 10) || 0, magaz: parseInt(a.ol_magaz, 10) || 1 }))
+                    })
+                });
+                const dupData = await dupRes.json();
+                if (dupData.hasDuplicati) {
+                    const lista = dupData.duplicati.map(d => {
+                        const dt = d.data ? new Date(d.data).toLocaleDateString('it-IT') : '';
+                        return `\u2022 ${esc(d.codart)} \u2192 Ordine ${esc(d.ordine)} del ${dt}`;
+                    }).join('<br>');
+                    const procedi = await modale('warning', 'Ordine Duplicato',
+                        `Attenzione: un ordine per questo fornitore con gli stessi articoli \u00e8 gi\u00e0 stato emesso in questa elaborazione.<br><br>${lista}<br><br>Procedere comunque?`,
+                        [
+                            { label: 'Procedi Comunque', value: true, style: 'warning' },
+                            { label: 'Annulla', value: false, style: 'secondary' }
+                        ]);
+                    if (!procedi) return;
+                }
+            } catch (dupErr) {
+                console.warn('[Proposta] Check duplicato fallito (continuo):', dupErr.message);
+            }
+        }
 
         const totale = articoliFornitore.reduce((s, a) => s + a.quantita_confermata * a.prezzo, 0);
 
@@ -959,7 +1095,15 @@ const MrpProposta = (() => {
     // ============================================================
     // INVIA EMAIL ORDINE
     // ============================================================
-    async function inviaEmailOrdine(emesso) {
+    /**
+     * Invia email ordine a un fornitore.
+     * @param {object} emesso - dati ordine emesso (anno, serie, numord, pdf_base64, fornitore_codice, fornitore_nome)
+     * @param {object} [opts] - opzioni
+     * @param {boolean} [opts.silent] - se true, non mostra modali (usato nel batch)
+     * @returns {object} { success: boolean, error?: string }
+     */
+    async function inviaEmailOrdine(emesso, opts = {}) {
+        const silent = opts.silent || false;
         const body = {
             anno: emesso.anno,
             serie: emesso.serie,
@@ -967,6 +1111,7 @@ const MrpProposta = (() => {
             pdf_base64: emesso.pdf_base64 || null,
             pdf_filename: emesso.pdf_filename || null
         };
+        if (opts.template_id) body.template_id = opts.template_id;
 
         try {
             const resp = await fetch(`${MrpApp.API_BASE}/invia-ordine-email`, { credentials: 'include',
@@ -977,57 +1122,146 @@ const MrpProposta = (() => {
             const data = await resp.json();
 
             if (data.error === 'SMTP_NOT_CONFIGURED') {
-                await modale('warning', 'SMTP Non Configurato',
+                if (!silent) await modale('warning', 'SMTP Non Configurato',
                     'Per inviare email \u00e8 necessario configurare un profilo SMTP nelle impostazioni.',
                     [{ label: 'OK', value: true, style: 'primary' }]);
-                return;
+                return { success: false, error: 'SMTP_NOT_CONFIGURED' };
             }
 
             if (data.error === 'EMAIL_MISSING') {
-                await modale('warning', 'Email Mancante',
+                if (!silent) await modale('warning', 'Email Mancante',
                     `Il fornitore <strong>${esc(emesso.fornitore_nome || '')}</strong> non ha un indirizzo email configurato in anagrafica.`,
                     [{ label: 'OK', value: true, style: 'primary' }]);
-                return;
+                return { success: false, error: 'EMAIL_MISSING', fornitore: emesso.fornitore_nome };
             }
 
             if (data.error === 'EMAIL_PROVA_MISSING') {
-                await modale('warning', 'Email di Prova Non Configurata',
+                if (!silent) await modale('warning', 'Email di Prova Non Configurata',
                     'Sei in ambiente di prova ma il campo <strong>Email di prova</strong> non \u00e8 compilato nel profilo DB.<br><br>Configuralo nella sezione connessione database.',
                     [{ label: 'OK', value: true, style: 'primary' }]);
-                return;
+                return { success: false, error: 'EMAIL_PROVA_MISSING' };
             }
 
             if (data.success) {
-                if (data.ambiente === 'prova') {
-                    await modale('success', 'Email Inviata (PROVA)',
-                        `<div style="background:#fff3cd; padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:0.85rem;">
-                            \u26A0\uFE0F Le email sono state <strong>dirottate</strong> all'indirizzo di prova.
-                        </div>
-                        <table class="emetti-riepilogo-table" style="width:100%; font-size:0.82rem;">
-                            <thead><tr>
-                                <th style="text-align:left;">Ordine</th>
-                                <th style="text-align:left;">Fornitore</th>
-                                <th style="text-align:left;">Email reale (non inviata)</th>
-                                <th style="text-align:left;">Inviata a (prova)</th>
-                            </tr></thead>
-                            <tbody><tr>
-                                <td><strong>${emesso.numord}/${emesso.serie}</strong></td>
-                                <td>${esc(emesso.fornitore_nome || '')}</td>
-                                <td style="color:var(--text-muted); text-decoration:line-through;">${esc(data.email_reale || '')}</td>
-                                <td style="color:var(--success); font-weight:600;">${esc(data.email_prova || '')}</td>
-                            </tr></tbody>
-                        </table>`);
-                } else {
-                    await modale('success', 'Email Inviata',
-                        `Ordine <strong>${emesso.numord}/${emesso.serie}</strong> inviato con successo a:<br><br><strong>${esc(data.destinatari.join(', '))}</strong>`);
+                // Aggiorna stato email nella Map ordiniEmessi e nel DOM
+                const fk = String(emesso.fornitore_codice || emesso.ol_conto || '');
+                if (fk && ordiniEmessi.has(fk)) {
+                    const entry = ordiniEmessi.get(fk);
+                    entry.email_inviata = true;
+                    entry.email_inviata_il = new Date().toISOString();
                 }
+                // Aggiorna bottone email nel DOM (da "Invia" a "Re-invia")
+                document.querySelectorAll('.btn-invia-email-forn').forEach(btn => {
+                    const header = btn.closest('.proposta-fornitore-header');
+                    if (header && header.dataset.forn === fk) {
+                        btn.textContent = '\u2709 Re-invia Email';
+                        btn.classList.remove('email-non-inviata');
+                        btn.classList.add('email-gia-inviata');
+                    }
+                });
+                // Aggiorna barra azioni (conteggio email pendenti)
+                aggiornaBarraEmettiTutti();
+
+                if (!silent) {
+                    if (data.ambiente === 'prova') {
+                        await modale('success', 'Email Inviata (PROVA)',
+                            `<div style="background:#fff3cd; padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:0.85rem;">
+                                \u26A0\uFE0F Le email sono state <strong>dirottate</strong> all'indirizzo di prova.
+                            </div>
+                            <table class="emetti-riepilogo-table" style="width:100%; font-size:0.82rem;">
+                                <thead><tr>
+                                    <th style="text-align:left;">Ordine</th>
+                                    <th style="text-align:left;">Fornitore</th>
+                                    <th style="text-align:left;">Email reale (non inviata)</th>
+                                    <th style="text-align:left;">Inviata a (prova)</th>
+                                </tr></thead>
+                                <tbody><tr>
+                                    <td><strong>${emesso.numord}/${emesso.serie}</strong></td>
+                                    <td>${esc(emesso.fornitore_nome || '')}</td>
+                                    <td style="color:var(--text-muted); text-decoration:line-through;">${esc(data.email_reale || '')}</td>
+                                    <td style="color:var(--success); font-weight:600;">${esc(data.email_prova || '')}</td>
+                                </tr></tbody>
+                            </table>`);
+                    } else {
+                        await modale('success', 'Email Inviata',
+                            `Ordine <strong>${emesso.numord}/${emesso.serie}</strong> inviato con successo a:<br><br><strong>${esc(data.destinatari.join(', '))}</strong>`);
+                    }
+                }
+                return { success: true };
             } else {
-                await modale('error', 'Errore Invio Email',
+                if (!silent) await modale('error', 'Errore Invio Email',
                     `Impossibile inviare l'email.<br><br><code>${esc(data.error || 'Errore sconosciuto')}</code>`);
+                return { success: false, error: data.error || 'Errore sconosciuto' };
             }
         } catch (err) {
-            await modale('error', 'Errore di Rete', `Errore nella comunicazione con il server:<br><br><code>${esc(err.message)}</code>`);
+            if (!silent) await modale('error', 'Errore di Rete', `Errore nella comunicazione con il server:<br><br><code>${esc(err.message)}</code>`);
+            return { success: false, error: err.message };
         }
+    }
+
+    // ============================================================
+    // INVIA TUTTE LE EMAIL (batch)
+    // ============================================================
+    async function inviaTutteEmailHandler() {
+        // Raccogli fornitori con email non ancora inviata
+        const pendenti = [];
+        ordiniEmessi.forEach((emesso, fk) => {
+            if (!emesso.email_inviata) {
+                pendenti.push({ ...emesso, fornitore_codice: fk });
+            }
+        });
+
+        if (pendenti.length === 0) return;
+
+        // Modale conferma con lista fornitori
+        const listaHtml = pendenti.map(p =>
+            `<li><strong>${p.numord}/${p.serie}</strong> \u2014 ${esc(p.fornitore_nome || p.fornitore_codice)}</li>`
+        ).join('');
+
+        const conferma = await modale('question', 'Invia Tutte le Email',
+            `Stai per inviare <strong>${pendenti.length}</strong> email ai seguenti fornitori:<br><br>
+            <ul style="margin:8px 0; padding-left:20px; font-size:0.85rem;">${listaHtml}</ul>`,
+            [
+                { label: 'Invia Tutte', value: true, style: 'primary' },
+                { label: 'Annulla', value: false, style: 'secondary' }
+            ]);
+
+        if (!conferma) return;
+
+        let successi = 0, falliti = 0;
+        const errori = [];
+        for (const emesso of pendenti) {
+            // Leggi template dal dropdown del fornitore corrispondente, se presente
+            const fk = String(emesso.fornitore_codice || '');
+            const selectEl = document.querySelector(`.select-template-forn[data-forn="${fk}"]`);
+            const templateId = selectEl ? parseInt(selectEl.value, 10) : null;
+            const result = await inviaEmailOrdine(emesso, { silent: true, template_id: templateId });
+            if (result.success) {
+                successi++;
+            } else {
+                falliti++;
+                errori.push(`${emesso.numord}/${emesso.serie} (${esc(emesso.fornitore_nome || '')}): ${esc(result.error || '?')}`);
+                // Se SMTP non configurato, interrompi tutto — inutile riprovare
+                if (result.error === 'SMTP_NOT_CONFIGURED' || result.error === 'EMAIL_PROVA_MISSING') {
+                    await modale('warning', 'Invio Interrotto', result.error === 'SMTP_NOT_CONFIGURED'
+                        ? 'SMTP non configurato. Configura un profilo SMTP nelle impostazioni prima di inviare email.'
+                        : 'Email di prova non configurata nel profilo DB. Compilala nella sezione connessione database.');
+                    return;
+                }
+            }
+            // Aggiorna barra in real-time (il conteggio scende)
+            aggiornaBarraEmettiTutti();
+        }
+
+        // Riepilogo finale
+        let msg = '';
+        if (successi > 0) msg += `<strong>${successi}</strong> email inviate con successo`;
+        if (successi > 0 && falliti > 0) msg += '<br>';
+        if (falliti > 0) {
+            msg += `<strong>${falliti}</strong> invii falliti:`;
+            msg += `<ul style="margin:6px 0; padding-left:20px; font-size:0.82rem;">${errori.map(e => `<li>${e}</li>`).join('')}</ul>`;
+        }
+        await modale(falliti > 0 ? 'warning' : 'success', 'Invio Email Completato', msg);
     }
 
     // ============================================================
@@ -1138,7 +1372,211 @@ const MrpProposta = (() => {
         btnChiudi.onclick = () => overlay.classList.remove('open');
     }
 
-    return { init, aggiornaStatoVisivo };
+    // ============================================================
+    // VISUALIZZA ORDINE EMESSO (riapre modale risultato)
+    // ============================================================
+    async function apriDettaglioOrdine(anno, serie, numord) {
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/ordine-dettaglio/${anno}/${serie}/${numord}`, { credentials: 'include' });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                // Cache il PDF per download futuro
+                pdfCache.set(String(data.ordine.fornitore_codice), {
+                    pdf_base64: data.pdf_base64,
+                    pdf_filename: data.pdf_filename
+                });
+                mostraRisultatoEmissione(data, data.ordine.fornitore_nome);
+            } else {
+                await modale('error', 'Errore', esc(data.error || 'Impossibile caricare il dettaglio ordine'));
+            }
+        } catch (err) {
+            await modale('error', 'Errore', 'Errore di connessione: ' + esc(err.message));
+        }
+    }
+
+    // ============================================================
+    // STORICO ORDINI EMESSI
+    // ============================================================
+    async function apriStorico() {
+        const overlay = document.getElementById('modalStoricoOverlay');
+        if (!overlay) return;
+        overlay.classList.add('open');
+        // Applica filtro checkbox corrente (solo se elaborazione è un ID server, non timestamp client)
+        const chk = document.getElementById('storicoFiltroElab');
+        const filtri = {};
+        const elab = MrpApp.state.elaborazione;
+        if (chk && chk.checked && elab && elab.id) {
+            filtri.elaborazione_id = String(elab.id);
+        }
+        await caricaStorico(filtri);
+    }
+
+    async function caricaStorico(filtri = {}) {
+        const body = document.getElementById('storicoBody');
+        const loading = document.getElementById('storicoLoading');
+        if (!body) return;
+
+        if (loading) loading.style.display = '';
+        body.innerHTML = '';
+
+        try {
+            const params = new URLSearchParams();
+            if (filtri.elaborazione_id) params.set('elaborazione_id', filtri.elaborazione_id);
+            if (filtri.fornitore) params.set('fornitore', filtri.fornitore);
+            if (filtri.da) params.set('da', filtri.da);
+            if (filtri.a) params.set('a', filtri.a);
+
+            const res = await fetch(`${MrpApp.API_BASE}/storico-ordini?${params}`, { credentials: 'include' });
+            const data = await res.json();
+            if (loading) loading.style.display = 'none';
+
+            if (!data.ordini || data.ordini.length === 0) {
+                body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">Nessun ordine emesso</td></tr>';
+                return;
+            }
+
+            body.innerHTML = data.ordini.map(o => {
+                const dataStr = o.data_emissione ? new Date(o.data_emissione).toLocaleDateString('it-IT', {
+                    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                }) : '';
+                const totale = Number(o.totale_documento || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const emailIcon = o.email_inviata
+                    ? '<span class="storico-email-ok" title="Email inviata">\u2714</span>'
+                    : '<span class="storico-email-no" title="Email non inviata">\u2716</span>';
+
+                return `<tr>
+                    <td>${dataStr}</td>
+                    <td><strong>${o.ord_numord}/${o.ord_serie}</strong></td>
+                    <td>${esc(o.fornitore_nome || '')} <small>(${o.fornitore_codice})</small></td>
+                    <td class="num">${o.num_righe}</td>
+                    <td class="num">\u20ac ${totale}</td>
+                    <td class="center">${emailIcon}</td>
+                    <td>
+                        <button class="btn-storico-visualizza" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Visualizza ordine">\uD83D\uDD0D</button>
+                        <button class="btn-storico-pdf" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Scarica PDF">\u2B07</button>
+                    </td>
+                </tr>`;
+            }).join('');
+        } catch (err) {
+            if (loading) loading.style.display = 'none';
+            body.innerHTML = `<tr><td colspan="7" style="color:var(--danger); padding:12px;">Errore: ${esc(err.message)}</td></tr>`;
+        }
+    }
+
+    function initStorico() {
+        // Close button
+        const closeBtn = document.getElementById('modalStoricoClose');
+        if (closeBtn) closeBtn.addEventListener('click', () => {
+            document.getElementById('modalStoricoOverlay').classList.remove('open');
+        });
+
+        // Click su overlay
+        const overlay = document.getElementById('modalStoricoOverlay');
+        if (overlay) overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.classList.remove('open');
+        });
+
+        // Bottone apri storico
+        const btnApri = document.getElementById('btnApriStorico');
+        if (btnApri) btnApri.addEventListener('click', apriStorico);
+
+        // Filtro solo elaborazione corrente
+        const chkElab = document.getElementById('storicoFiltroElab');
+        if (chkElab) chkElab.addEventListener('change', () => {
+            const filtri = {};
+            if (chkElab.checked && MrpApp.state.elaborazioneId) {
+                filtri.elaborazione_id = MrpApp.state.elaborazioneId;
+            }
+            caricaStorico(filtri);
+        });
+
+        // Delegazione click sulla tabella storico
+        const tbody = document.getElementById('storicoBody');
+        if (tbody) tbody.addEventListener('click', async (e) => {
+            const btnVis = e.target.closest('.btn-storico-visualizza');
+            if (btnVis) {
+                e.stopPropagation();
+                await apriDettaglioOrdine(btnVis.dataset.anno, btnVis.dataset.serie, btnVis.dataset.numord);
+                return;
+            }
+            const btnPdf = e.target.closest('.btn-storico-pdf');
+            if (btnPdf) {
+                e.stopPropagation();
+                // Scarica PDF via endpoint diretto
+                window.open(`${MrpApp.API_BASE}/ordine-pdf/${btnPdf.dataset.anno}/${btnPdf.dataset.serie}/${btnPdf.dataset.numord}`, '_blank');
+            }
+        });
+    }
+
+    // ============================================================
+    // TEMPLATE EMAIL — dropdown per fornitore
+    // ============================================================
+
+    let _emailTemplates = [];
+    let _templateAssegnazioni = new Map(); // fornitoreCode → templateId
+
+    async function caricaTemplateEmail() {
+        try {
+            const [tplRes, assRes] = await Promise.all([
+                fetch(`${MrpApp.API_BASE}/email-templates`, { credentials: 'include' }),
+                fetch(`${MrpApp.API_BASE}/email-template-assegnazioni`, { credentials: 'include' })
+            ]);
+            if (tplRes.ok) {
+                const tplData = await tplRes.json();
+                _emailTemplates = (tplData.templates || []).filter(t => t.isActive !== false && t.isActive !== 0);
+            }
+            if (assRes.ok) {
+                const assData = await assRes.json();
+                _templateAssegnazioni.clear();
+                (assData.assegnazioni || []).forEach(a => {
+                    _templateAssegnazioni.set(String(a.fornitoreCode), a.templateId);
+                });
+            }
+        } catch (err) {
+            console.warn('[Templates] Errore caricamento template email:', err);
+        }
+    }
+
+    function getTemplateIdPerFornitore(fornCode) {
+        // 1. Assegnazione specifica
+        if (_templateAssegnazioni.has(fornCode)) return _templateAssegnazioni.get(fornCode);
+        // 2. Template predefinito dell'operatore
+        const myDefault = _emailTemplates.find(t => t.isMine && t.isDefault);
+        if (myDefault) return myDefault.id;
+        // 3. Primo template sistema italiano
+        const sistema = _emailTemplates.find(t => t.isSystem && t.lingua === 'it');
+        if (sistema) return sistema.id;
+        // 4. Qualsiasi template
+        return _emailTemplates.length > 0 ? _emailTemplates[0].id : null;
+    }
+
+    async function onTemplateSelectChange(fornCode, templateId) {
+        // Salva assegnazione (PUT) — silenzioso
+        try {
+            await fetch(`${MrpApp.API_BASE}/email-template-assegnazione/${fornCode}`, {
+                method: 'PUT',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ templateId })
+            });
+            _templateAssegnazioni.set(fornCode, templateId);
+        } catch (err) {
+            console.warn('[Templates] Errore salvataggio assegnazione:', err);
+        }
+    }
+
+    function buildTemplateSelect(fornCode) {
+        if (!_emailTemplates.length) return '';
+        const selectedId = getTemplateIdPerFornitore(fornCode);
+        const options = _emailTemplates.map(t => {
+            const sel = t.id === selectedId ? ' selected' : '';
+            const badge = t.isSystem ? ' [S]' : '';
+            return `<option value="${t.id}"${sel}>${esc(t.nome)}${badge}</option>`;
+        }).join('');
+        return `<select class="select-template-forn" data-forn="${escAttr(fornCode)}" title="Template email">${options}</select>`;
+    }
+
+    return { init, aggiornaStatoVisivo, apriStorico, apriDettaglioOrdine };
 })();
 
 document.addEventListener('DOMContentLoaded', MrpProposta.init);

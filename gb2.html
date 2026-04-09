@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MRP - UJet</title>
+    <title>GB2 - UJet</title>
     <script src="/socket.io/socket.io.js"></script>
     <script src="sicurezza.js"></script>
     <link rel="stylesheet" href="gb2/css/gb2-shell.css" />
@@ -20,41 +20,43 @@
 </head>
 <body>
 
-    <!-- SIDEBAR MENU DRAWER (Layer 2) -->
+    <!-- SIDEBAR (stile Captain) -->
     <div class="menu-drawer-backdrop" id="menuDrawerBackdrop" aria-hidden="true"></div>
-    <aside class="menu-drawer" id="menuDrawer" aria-label="Menu" aria-hidden="true">
-        <div class="menu-drawer-header">
-            <span class="menu-drawer-title">Menu</span>
-            <button type="button" class="menu-drawer-close" id="menuDrawerClose" aria-label="Chiudi menu">&times;</button>
-        </div>
-        <div class="menu-drawer-actions">
+    <aside class="gb2-sidebar" id="menuDrawer" aria-label="Menu">
+        <div class="gb2-sidebar-header">GB2 Gabriele</div>
+        <nav class="gb2-sidebar-nav">
             <div id="dynamicMenuApps"></div>
-            <button type="button" class="menu-drawer-btn is-hidden" id="menuOpenCaptain" data-menu-action="open-captain">Captain Console</button>
-            <button type="button" class="menu-drawer-btn" data-menu-action="open-profile">Il Mio Profilo</button>
+            <div class="gb2-nav-item is-hidden" id="menuOpenCaptain" data-menu-action="open-captain">
+                <span class="gb2-nav-icon">🛡️</span><span>Captain Console</span>
+            </div>
+            <div class="gb2-nav-item" data-menu-action="open-profile">
+                <span class="gb2-nav-icon">👤</span><span>Il Mio Profilo</span>
+            </div>
+        </nav>
+        <div class="gb2-sidebar-footer">
+            <div class="gb2-nav-item gb2-nav-logout" id="logoutBtn">
+                <span class="gb2-nav-icon">🚪</span><span>Esci</span>
+            </div>
         </div>
     </aside>
 
     <!-- HEADER -->
     <header class="mrp-header">
-        <button type="button" class="gb2-menu-btn" id="menuBtn" aria-label="Apri menu">&#9776;</button>
-        <div class="mrp-header-left">
-            <h1 class="mrp-title">MRP</h1>
-            <span class="mrp-subtitle">Pianificazione Fabbisogni Materiali</span>
-        </div>
-        <div class="mrp-header-center">
-            <button type="button" id="btnDbProfile" class="mrp-db-badge" title="Configurazione connessione DB">
+        <div class="mrp-header-left-controls">
+            <button type="button" class="gb2-menu-btn" id="menuBtn" aria-label="Apri menu">&#9776;</button>
+            <button type="button" id="btnDbProfile" class="mrp-db-badge mrp-db-badge-header" title="Configurazione connessione DB">
                 <span class="mrp-db-badge-dot" id="dbBadgeDot"></span>
                 <span class="mrp-db-badge-label" id="dbBadgeLabel">---</span>
                 <span class="mrp-db-badge-server" id="dbBadgeServer"></span>
-                <span class="mrp-db-badge-icon">&#9881;</span>
             </button>
         </div>
+        <div class="mrp-header-left">
+            <h1 class="mrp-title">GB2</h1>
+            <span class="mrp-subtitle">Gabriele 2.0</span>
+            <span class="mrp-subtitle mrp-context-label" id="headerContextLabel" style="display:none;"> / Pianificazione Fabbisogni Materiali</span>
+        </div>
         <div class="mrp-header-right">
-            <button type="button" class="btn-theme-open" id="btnOpenTheme">🎨 Tema</button>
-            <nav class="mrp-nav">
-                <button class="mrp-nav-btn active" data-view="parametri">Parametri</button>
-                <button class="mrp-nav-btn" data-view="progressivi">Progressivi</button>
-            </nav>
+            <button type="button" class="btn-theme-open" id="btnOpenTheme">🎨</button>
         </div>
     </header>
 
@@ -156,7 +158,8 @@
                         <div class="proposta-header">
                             <h2 class="mrp-card-title">Gestione Lista Ordini</h2>
                             <span class="proposta-subtitle">Ordini Fornitori</span>
-                            <button type="button" id="btnRefreshProposta" class="mrp-btn-secondary" style="margin-left:auto;font-size:0.8rem;padding:4px 10px;">↻ Aggiorna</button>
+                            <button type="button" id="btnApriStorico" class="mrp-btn-secondary" style="margin-left:auto;font-size:0.8rem;padding:4px 10px;">📋 Storico</button>
+                            <button type="button" id="btnRefreshProposta" class="mrp-btn-secondary" style="font-size:0.8rem;padding:4px 10px;">↻ Aggiorna</button>
                         </div>
                         <div class="proposta-stats" id="propostaStats"></div>
                         <div class="proposta-body" id="propostaBody">
@@ -347,10 +350,16 @@
                 </label>
                 <button type="button" id="modalOrdiniClose" class="mrp-modal-close">✕</button>
             </div>
-            <div class="modal-ordini-legenda">
-                <span class="legenda-item legenda-ordforn">Ord. Fornitore</span>
-                <span class="legenda-item legenda-ordprod">Ord. Produzione</span>
-                <span class="legenda-item legenda-impprod">Imp. Produzione</span>
+            <div class="modal-ordini-toolbar">
+                <div class="modal-ordini-tabs">
+                    <button type="button" id="modalTabOrdini" class="modal-tab active">Ordini/Impegni</button>
+                    <button type="button" id="modalTabRmp" class="modal-tab">RMP (Generati/Confermati)</button>
+                </div>
+                <div class="modal-ordini-legenda">
+                    <span class="legenda-item legenda-ordforn">Ord. Fornitore</span>
+                    <span class="legenda-item legenda-ordprod">Ord. Produzione</span>
+                    <span class="legenda-item legenda-impprod">Imp. Produzione</span>
+                </div>
             </div>
             <div class="mrp-modal-body">
                 <div id="modalOrdiniLoading" style="text-align:center;padding:24px;color:var(--text-muted);">Caricamento...</div>
@@ -557,6 +566,89 @@
                     </div>
                     <div id="smtpFormStatus" style="margin-top: 8px; font-size: 0.8rem;"></div>
                 </div>
+
+                <!-- ============================================ -->
+                <!-- Template Email — gestione template e firma   -->
+                <!-- ============================================ -->
+                <div id="templateSection" class="mrp-card" style="padding: 16px; border: 2px dashed var(--border); margin-top: 16px;">
+                    <h4 style="margin-bottom: 12px; font-size: 0.95rem; color: var(--primary);">
+                        Template Email
+                        <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400; margin-left: 8px;">
+                            (modelli per gli ordini ai fornitori)
+                        </span>
+                    </h4>
+
+                    <!-- Firma personale -->
+                    <div class="tpl-firma-box">
+                        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Firma personale</label>
+                        <textarea id="firmaEmail" class="mrp-control" rows="3" placeholder="Es: Mario Rossi&#10;Ufficio Acquisti - U.Jet S.r.l.&#10;Tel. 0123 456789" style="resize: vertical; font-size: 0.85rem;"></textarea>
+                        <div style="display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end;">
+                            <button type="button" id="btnSalvaFirma" class="mrp-btn-primary" style="font-size: 0.8rem; padding: 4px 14px;">Salva firma</button>
+                        </div>
+                        <div id="firmaStatus" style="margin-top: 4px; font-size: 0.78rem;"></div>
+                    </div>
+
+                    <hr style="border: none; border-top: 1px solid var(--border); margin: 16px 0;">
+
+                    <!-- Lista template -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                        <span style="font-size: 0.85rem; font-weight: 600; color: var(--text);">I tuoi template</span>
+                        <button type="button" id="btnNuovoTemplate" class="mrp-btn-primary" style="font-size: 0.8rem; padding: 4px 14px;">+ Nuovo Template</button>
+                    </div>
+                    <div id="templateList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+
+                    <!-- Editor template (inline, nascosto) -->
+                    <div id="templateEditor" class="tpl-editor" style="display:none;">
+                        <h5 id="tplEditorTitle" style="margin: 0 0 10px; font-size: 0.88rem; color: var(--primary);">Nuovo template</h5>
+                        <div style="display: grid; grid-template-columns: 1fr auto; gap: 10px;">
+                            <div>
+                                <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Nome</label>
+                                <input type="text" id="tplNome" class="mrp-control" placeholder="Es: Sollecito pagamento" />
+                            </div>
+                            <div>
+                                <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Lingua</label>
+                                <select id="tplLingua" class="mrp-control" style="padding: 6px 10px;">
+                                    <option value="it">IT</option>
+                                    <option value="en">EN</option>
+                                    <option value="fr">FR</option>
+                                    <option value="de">DE</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Oggetto</label>
+                            <input type="text" id="tplOggetto" class="mrp-control" placeholder="Ordine {numord} - U.Jet S.r.l." />
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Corpo</label>
+                            <textarea id="tplCorpo" class="mrp-control" rows="10" style="resize: vertical; font-size: 0.85rem; font-family: inherit;" placeholder="Gentile {fornitore},&#10;&#10;in allegato l'ordine..."></textarea>
+                        </div>
+                        <div class="tpl-variabili">
+                            <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">Variabili:</span>
+                            <button type="button" class="tpl-var-btn" data-var="{fornitore}">{fornitore}</button>
+                            <button type="button" class="tpl-var-btn" data-var="{numord}">{numord}</button>
+                            <button type="button" class="tpl-var-btn" data-var="{data_ordine}">{data_ordine}</button>
+                            <button type="button" class="tpl-var-btn" data-var="{num_articoli}">{num_articoli}</button>
+                            <button type="button" class="tpl-var-btn" data-var="{totale}">{totale}</button>
+                            <button type="button" class="tpl-var-btn" data-var="{operatore}">{operatore}</button>
+                            <button type="button" class="tpl-var-btn" data-var="{firma}">{firma}</button>
+                        </div>
+                        <div style="margin-top: 8px;">
+                            <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" id="tplDefault" style="accent-color: var(--primary);" />
+                                Predefinito per i miei invii
+                            </label>
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end;">
+                            <button type="button" id="btnTplAnnulla" class="mrp-btn-secondary" style="font-size: 0.8rem; padding: 5px 14px;">Annulla</button>
+                            <button type="button" id="btnTplAnteprima" class="mrp-btn-secondary" style="font-size: 0.8rem; padding: 5px 14px;">Anteprima</button>
+                            <button type="button" id="btnTplSalva" class="mrp-btn-primary" style="font-size: 0.8rem; padding: 5px 14px;">Salva</button>
+                        </div>
+                        <div id="tplEditorStatus" style="margin-top: 6px; font-size: 0.78rem;"></div>
+                    </div>
+
+                    <div id="templateSectionStatus" style="margin-top: 8px; font-size: 0.8rem;"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -627,6 +719,39 @@
                 <div id="batchAzioni" style="display:flex; justify-content:center; gap:10px; margin-top:16px;">
                     <button type="button" id="btnBatchChiudi" class="mrp-btn-primary" style="display:none;">Chiudi</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALE STORICO ORDINI EMESSI -->
+    <div id="modalStoricoOverlay" class="mrp-modal-overlay">
+        <div class="mrp-modal" style="max-width:920px; max-height:85vh;">
+            <div class="mrp-modal-header">
+                <h3 style="margin:0;">Storico Ordini Emessi</h3>
+                <button type="button" id="modalStoricoClose" class="mrp-modal-close">&times;</button>
+            </div>
+            <div class="mrp-modal-body" style="padding:16px; overflow-y:auto;">
+                <div class="storico-filtri" id="storicoFiltri">
+                    <label class="storico-filtro-check">
+                        <input type="checkbox" id="storicoFiltroElab" checked>
+                        Solo elaborazione corrente
+                    </label>
+                </div>
+                <div id="storicoLoading" style="display:none; text-align:center; padding:20px; color:var(--text-muted);">Caricamento...</div>
+                <table class="storico-tabella">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Ordine</th>
+                            <th>Fornitore</th>
+                            <th class="num">Righe</th>
+                            <th class="num">Totale</th>
+                            <th class="center">Email</th>
+                            <th>Azioni</th>
+                        </tr>
+                    </thead>
+                    <tbody id="storicoBody"></tbody>
+                </table>
             </div>
         </div>
     </div>

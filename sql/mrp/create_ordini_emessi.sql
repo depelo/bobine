@@ -49,5 +49,46 @@ END
 ELSE
 BEGIN
     PRINT 'Tabella ordini_emessi esiste gia.';
+
+    -- Aggiunta colonne tracciamento email (v2)
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'email_inviata')
+    BEGIN
+        ALTER TABLE dbo.ordini_emessi ADD email_inviata BIT NOT NULL DEFAULT 0;
+        PRINT 'Colonna email_inviata aggiunta.';
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'email_inviata_il')
+    BEGIN
+        ALTER TABLE dbo.ordini_emessi ADD email_inviata_il DATETIME NULL;
+        PRINT 'Colonna email_inviata_il aggiunta.';
+    END
+
+    -- Aggiunta colonna ambiente (v3): distingue ordini produzione da prova
+    -- NOTA: ALTER TABLE + UPDATE nella stessa colonna richiedono batch separati
+    -- oppure SQL dinamico, perché SQL Server compila il batch prima di eseguirlo.
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'ambiente')
+    BEGIN
+        ALTER TABLE dbo.ordini_emessi ADD ambiente VARCHAR(20) NOT NULL DEFAULT 'produzione';
+        PRINT 'Colonna ambiente aggiunta.';
+    END
+END
+GO
+
+-- Batch separato: indice e migrazione retroattiva (la colonna ora esiste)
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'ambiente')
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'IX_ordini_emessi_ambiente')
+    BEGIN
+        CREATE INDEX IX_ordini_emessi_ambiente ON dbo.ordini_emessi (ambiente);
+        PRINT 'Indice IX_ordini_emessi_ambiente creato.';
+    END
+
+    -- Migrazione retroattiva: marca come 'prova' tutti gli ordini che hanno ancora il default 'produzione'
+    -- (tutti quelli emessi prima dell'introduzione della colonna ambiente)
+    IF EXISTS (SELECT 1 FROM dbo.ordini_emessi WHERE ambiente = 'produzione')
+    BEGIN
+        UPDATE dbo.ordini_emessi SET ambiente = 'prova' WHERE ambiente = 'produzione';
+        PRINT 'Ordini esistenti marcati come prova.';
+    END
 END
 GO

@@ -5,6 +5,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const https = require('https');
 const fs = require('fs');
+const path = require('path');
 const { Server } = require('socket.io');
 
 const createAuthRoutes = require('./routes/authRoutes');
@@ -17,14 +18,23 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 app.use(cookieParser());
-app.use(express.static(__dirname));
+app.use((req, res, next) => {
+    if (req.url.match(/\.(js|css|html)$/)) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+    next();
+});
+app.use(express.static(__dirname, { etag: false, lastModified: false }));
 
+const certDir = process.env.SSL_CERT_DIR || 'C:\\Acme\\certificati_ssl';
 const sslOptions = {
-    key: fs.readFileSync('C:\\Acme\\certificati_ssl\\rotoli.ujet.it-key.pem'),
-    cert: fs.readFileSync('C:\\Acme\\certificati_ssl\\rotoli.ujet.it-chain.pem')
+    key: fs.readFileSync(path.resolve(certDir, 'rotoli.ujet.it-key.pem')),
+    cert: fs.readFileSync(path.resolve(certDir, 'rotoli.ujet.it-chain.pem'))
 };
 
-const PORT = 443;
+const PORT = process.env.PORT || 443;
 const server = https.createServer(sslOptions, app);
 const io = new Server(server, {
     cors: {

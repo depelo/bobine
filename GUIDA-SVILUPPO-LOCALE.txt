@@ -1,0 +1,52 @@
+GUIDA SETUP SVILUPPO LOCALE
+============================
+
+PREREQUISITI: Node.js, Git, VPN WireGuard (WG-MVPN-SSL) attiva.
+
+
+1. INSTALLARE MKCERT E GENERARE I CERTIFICATI
+
+   Aprire il Prompt dei comandi (cmd) e spostarsi nella cartella del progetto:
+
+   cd C:\Users\TUO_UTENTE\Documents\progetto\ujet\bobine
+
+   Installare mkcert (una tantum):
+
+   winget install FiloSottile.mkcert
+
+   Chiudere e riaprire il Prompt dei comandi, poi tornare nella cartella:
+
+   cd C:\Users\TUO_UTENTE\Documents\progetto\ujet\bobine
+   mkcert -install
+
+   Generare i certificati nella cartella del progetto:
+
+   mkdir certificati\certsvil
+   mkcert -key-file certificati\certsvil\rotoli.ujet.it-key.pem -cert-file certificati\certsvil\rotoli.ujet.it-chain.pem localhost 127.0.0.1
+
+   Questo punto va fatto UNA SOLA VOLTA per macchina.
+
+
+2. AVVIARE IL SERVER (prima volta)
+
+   Aprire il Prompt dei comandi e spostarsi nella cartella del progetto:
+
+   cd C:\Users\TUO_UTENTE\Documents\progetto\ujet\bobine
+   npx pm2 start ecosystem.config.js
+
+   Aprire nel browser: https://localhost:3000
+
+
+3. VEDERE I LOG
+
+   npx pm2 logs portalujet
+
+
+4. DOPO UNA MODIFICA AL CODICE (reload)
+
+   npx pm2 reload portalujet
+
+
+5. FERMARE IL SERVER
+
+   npx pm2 stop portalujet

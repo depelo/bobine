@@ -22,7 +22,10 @@ const MrpApp = (() => {
         //           quantita_proposta, prezzo, escluso, timestamp_conferma }
         ordiniConfermati: new Map(),
         // Contesto della riga proposta da cui si è navigato ai progressivi
-        propostaCorrente: null
+        propostaCorrente: null,
+        // Elaborazione MRP corrente (rilevata dal server)
+        elaborazioneId: null,       // ID intero come stringa
+        elaborazione: null          // { id, fingerprint, totaleProposte, totaleGestite }
     };
 
     function init() {
@@ -64,6 +67,10 @@ const MrpApp = (() => {
 
         if (targetView) targetView.classList.add('active');
         if (targetBtn) targetBtn.classList.add('active');
+
+        // Mostra il contesto "Pianificazione Fabbisogni Materiali" solo nella vista progressivi
+        const ctxLabel = document.getElementById('headerContextLabel');
+        if (ctxLabel) ctxLabel.style.display = (viewName === 'progressivi') ? '' : 'none';
     }
 
     function confermaOrdine(key, datiOrdine) {

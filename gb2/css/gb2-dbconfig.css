@@ -29,6 +29,25 @@
     border-color: var(--primary);
 }
 
+/* Badge nell'header (sfondo scuro) */
+.mrp-db-badge-header {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #fff;
+    padding: 4px 12px;
+    font-size: 0.78rem;
+    border-radius: 16px;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+.mrp-db-badge-header:hover {
+    background: rgba(255,255,255,0.22);
+    border-color: rgba(255,255,255,0.4);
+}
+.mrp-db-badge-header .mrp-db-badge-server {
+    color: rgba(255,255,255,0.65);
+}
+
 .mrp-db-badge-dot {
     width: 10px;
     height: 10px;
@@ -57,4 +76,170 @@
 .mrp-db-badge-icon {
     font-size: 1rem;
     opacity: 0.5;
+}
+
+/* ============================================
+   Template Email — Maschera gestione
+   ============================================ */
+
+.tpl-firma-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+}
+
+/* Card template nella lista */
+.tpl-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: white;
+    transition: border-color 0.15s;
+}
+.tpl-card:hover {
+    border-color: var(--primary);
+}
+.tpl-card-inactive {
+    opacity: 0.5;
+    background: #f9fafb;
+    border-style: dashed;
+}
+.tpl-card-readonly {
+    border-left: 3px solid #f59e0b;
+}
+.tpl-card-own {
+    border-left: 3px solid var(--primary);
+}
+.tpl-card-system {
+    border-left: 3px solid #6366f1;
+}
+.tpl-card-info {
+    flex: 1;
+    min-width: 0;
+}
+.tpl-card-nome {
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tpl-card-oggetto {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tpl-card-corpo-preview {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+    max-height: 2.6em;
+    overflow: hidden;
+    line-height: 1.3;
+    opacity: 0.7;
+}
+.tpl-card-badges {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+}
+.tpl-card-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-shrink: 0;
+}
+.tpl-card-actions button {
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.tpl-card-actions button:hover {
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+.tpl-card-actions button.tpl-btn-danger:hover {
+    background: #fef2f2;
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* Badge */
+.tpl-badge {
+    font-size: 0.68rem;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+.tpl-badge-sistema {
+    background: #eef2ff;
+    color: #4f46e5;
+}
+.tpl-badge-default {
+    background: #ecfdf5;
+    color: #059669;
+}
+.tpl-badge-lingua {
+    background: #f3f4f6;
+    color: #6b7280;
+    text-transform: uppercase;
+}
+.tpl-badge-operatore {
+    background: #fff7ed;
+    color: #c2410c;
+}
+.tpl-badge-inattivo {
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+/* Editor template */
+.tpl-editor {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f8fafc;
+    border: 2px solid var(--primary);
+    border-radius: var(--radius-sm);
+}
+
+/* Variabili cliccabili */
+.tpl-variabili {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+.tpl-var-btn {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--primary);
+    cursor: pointer;
+    font-family: monospace;
+    transition: all 0.15s;
+}
+.tpl-var-btn:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
 }

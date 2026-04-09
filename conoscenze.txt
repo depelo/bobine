@@ -74,7 +74,8 @@ Il backend **non è più un monolite** in un singolo file di migliaia di righe. 
 ### 2.1 Ruolo di `server.js` (PortalUjet Gateway)
 Il file **`server.js`** funge da **composizione minima** del gateway:
 - Inizializzazione Express (middleware globali: JSON, CORS, cookie parser, file statici dalla root del progetto).
-- Terminazione **HTTPS** e avvio listener sulla porta configurata (es. 443).
+- **Cache-Control `no-cache`** sui file `.js`, `.css`, `.html` per forzare il browser a rivalidare sempre i file statici con il server (previene problemi di cache stale dopo deploy).
+- Terminazione **HTTPS** e avvio listener sulla porta configurata (default 443, configurabile via `PORT` nel `.env`).
 - Istanza **Socket.io** agganciata al server HTTPS e gestione eventi di presenza / sicurezza in tempo reale (stanze Captain, kick, sipario, ecc.).
 
 **Non** si aggiungono nuove rotte HTTP direttamente in `server.js` salvo eccezioni architetturali esplicitamente approvate. La logica di business risiede nei router.
@@ -191,8 +192,16 @@ Tutte le tabelle principali del sistema (`[dbo].[Users]`, `[Bobine].[Operators]`
 
 ## 8. Esposizione Rete e Sicurezza SSL (Gateway)
 
-L'applicazione è esposta pubblicamente all'indirizzo **https://rotoli.ujet.it** sulla porta **443**.
+**Produzione:** L'applicazione è esposta pubblicamente all'indirizzo **https://rotoli.ujet.it** sulla porta **443** (server 192.168.0.163).
 
-Il traffico HTTPS è gestito nativamente dal processo Node.js (**`server.js`**, PortalUjet Gateway), che legge staticamente i certificati all'avvio dalla directory **`C:\Acme\certificati_ssl\`**.
+**Sviluppo locale:** Ogni sviluppatore esegue il server sulla propria macchina in HTTPS su porta **3000** (configurabile via `PORT` nel `.env`), con certificati locali generati tramite **mkcert**.
 
-**Gestione Rinnovi:** L'aggiornamento fisico dei file `.pem` è delegato a un client ACME esterno (es. win-acme) su sistema operativo Windows. Poiché Node.js carica i certificati in memoria tramite `readFileSync` solo allo **startup**, è **imperativo** che il sistema di rinnovo ACME sia configurato per eseguire un **riavvio forzato** del processo `node.exe` al termine di ogni rinnovo con successo; in caso contrario l'app continuerà a servire il certificato scaduto presente in cache.
+Il traffico HTTPS è gestito nativamente dal processo Node.js (**`server.js`**, PortalUjet Gateway). La directory dei certificati SSL è configurabile tramite la variabile d'ambiente **`SSL_CERT_DIR`**:
+- **Produzione:** `C:\Acme\certificati_ssl` (default se la variabile non è definita)
+- **Sviluppo:** `./certificati/certsvil` (path relativo alla root del progetto)
+
+I file attesi nella directory sono `rotoli.ujet.it-key.pem` e `rotoli.ujet.it-chain.pem`.
+
+**Gestione Rinnovi (solo produzione):** L'aggiornamento fisico dei file `.pem` è delegato a un client ACME esterno (es. win-acme) su sistema operativo Windows. Poiché Node.js carica i certificati in memoria tramite `readFileSync` solo allo **startup**, è **imperativo** che il sistema di rinnovo ACME sia configurato per eseguire un **riavvio forzato** del processo `node.exe` al termine di ogni rinnovo con successo; in caso contrario l'app continuerà a servire il certificato scaduto presente in cache.
+
+**Configurazione ambiente locale:** Tutti i parametri che differiscono tra produzione e sviluppo (path SSL, porta, server database GA/PE) sono gestiti nel file **`.env`** (escluso da git). Il file **`.env.example`** nel repo contiene il template con i nomi delle variabili e i commenti esplicativi. I database sono raggiungibili da casa tramite VPN WireGuard (WG-MVPN-SSL).
