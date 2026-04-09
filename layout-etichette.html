@@ -14,23 +14,6 @@
             height: auto !important;
         }
 
-        /* Stile custom per switch Attivo/Inattivo */
-        .custom-status-switch .form-check-input {
-            background-color: #dc3545;
-            border-color: #dc3545;
-        }
-        .custom-status-switch .form-check-input:focus {
-            box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.25);
-            border-color: #dc3545;
-        }
-        .custom-status-switch .form-check-input:checked {
-            background-color: #198754;
-            border-color: #198754;
-        }
-        .custom-status-switch .form-check-input:checked:focus {
-            box-shadow: 0 0 0 0.25rem rgba(25, 135, 84, 0.25);
-            border-color: #198754;
-        }
     </style>
     <script src="sicurezza.js"></script>
 </head>
@@ -85,9 +68,14 @@
                     <label class="form-label" for="formInput">Form</label>
                     <input id="formInput" type="text" class="form-control" maxlength="40">
                 </div>
-                <div class="mb-3 form-check form-switch custom-status-switch">
-                    <input class="form-check-input" type="checkbox" role="switch" id="validoInput" checked>
-                    <label class="form-check-label" for="validoInput">Attivo</label>
+                <div class="mb-3">
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Stato Attivo/Inattivo">
+                        <input type="radio" class="btn-check" name="Valido" id="validoInput_si" value="1" autocomplete="off" checked>
+                        <label class="btn btn-outline-success" for="validoInput_si">Attivo</label>
+
+                        <input type="radio" class="btn-check" name="Valido" id="validoInput_no" value="0" autocomplete="off">
+                        <label class="btn btn-outline-danger" for="validoInput_no">Inattivo</label>
+                    </div>
                 </div>
                 <div class="mb-0">
                     <label class="form-label" for="noteInput">Note</label>
@@ -113,7 +101,8 @@
         editingId = null;
         document.getElementById('modalTitle').textContent = 'Crea Nuovo Form';
         document.getElementById('formInput').value = '';
-        document.getElementById('validoInput').checked = true;
+        document.getElementById('validoInput_si').checked = true;
+        document.getElementById('validoInput_no').checked = false;
         document.getElementById('noteInput').value = '';
         modal.show();
     }
@@ -122,7 +111,9 @@
         editingId = item.IDForm;
         document.getElementById('modalTitle').textContent = 'Modifica Form';
         document.getElementById('formInput').value = item.Form || '';
-        document.getElementById('validoInput').checked = !!item.Valido;
+        const attivo = !!item.Valido;
+        document.getElementById('validoInput_si').checked = attivo;
+        document.getElementById('validoInput_no').checked = !attivo;
         document.getElementById('noteInput').value = item.Note || '';
         modal.show();
     }
@@ -146,7 +137,7 @@
         event.preventDefault();
         const payload = {
             Form: document.getElementById('formInput').value,
-            Valido: document.getElementById('validoInput').checked,
+            Valido: document.getElementById('validoInput_si').checked,
             Note: document.getElementById('noteInput').value
         };
 
