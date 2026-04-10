@@ -75,7 +75,16 @@
       "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\depel\\\\Documents\\\\progetto\\\\ujet && npx pm2 restart bobine 2>&1\")",
       "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\depel\\\\Documents\\\\progetto\\\\ujet && pm2 restart bobine && pm2 logs bobine --lines 5 --nostream\")",
       "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\depel\\\\Documents\\\\progetto\\\\ujet'; pm2 restart bobine; Start-Sleep -Seconds 2; pm2 logs bobine --lines 5 --nostream\")",
-      "Bash(node -c gb2/js/gb2-theme.js)"
+      "Bash(node -c gb2/js/gb2-theme.js)",
+      "Bash(dir \"\\\\\\\\\\\\\\\\BCUBE2\\\\\\\\BusinessDir\\\\\\\\Rpt\\\\\\\\Pers\")",
+      "Bash(cmd /c \"dir \\\\\\\\\\\\\\\\BCUBE2\\\\\\\\BusinessDir\\\\\\\\Rpt\\\\\\\\Pers\\\\\\\\bsorgso*.rpt\")",
+      "Bash(cmd /c \"dir \\\\\\\\\\\\\\\\BCUBE2\\\\\\\\BusinessDir\\\\\\\\Rpt\\\\\\\\Pers\\\\\\\\\")",
+      "Bash(cmd /c \"net use \\\\\\\\\\\\\\\\BCUBE2\\\\\\\\BusinessDir 2>&1\")",
+      "Bash(powershell -Command \"Test-Path '\\\\\\\\\\\\\\\\BCUBE2\\\\\\\\BusinessDir\\\\\\\\Rpt\\\\\\\\Pers'; Get-ChildItem '\\\\\\\\\\\\\\\\BCUBE2\\\\\\\\BusinessDir\\\\\\\\Rpt\\\\\\\\Pers' -ErrorAction SilentlyContinue | Select-Object -First 10 Name\")",
+      "Bash(powershell -Command \"Get-ChildItem '\\\\\\\\\\\\\\\\BCUBE2\\\\\\\\BusinessDir\\\\\\\\Rpt\\\\\\\\Pers\\\\\\\\bsorgso*' | Select-Object Name, Length, LastWriteTime\")",
+      "Bash(node -c gb2/js/gb2-dbconfig.js)",
+      "Bash(curl -k https://localhost:3000/api/mrp/check-anagra-column)",
+      "Bash(node -c utils/pdfOrdine.js)"
     ]
   }
 }

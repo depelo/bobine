@@ -9,6 +9,8 @@ const MrpDbConfig = (() => {
     async function init() {
         await refreshBadge();
         bindEvents();
+        // Fire-and-forget: check colonna classificazione fornitori
+        checkAnagraColumn();
     }
 
     // --------------------------------------------------------
@@ -209,6 +211,12 @@ const MrpDbConfig = (() => {
                 if (typeof MrpProposta !== 'undefined' && MrpProposta.init) MrpProposta.init();
 
                 showFormStatus('&#10003; Profilo attivato: ' + data.activeProfile.label, 'var(--success)');
+
+                // Re-check colonna classificazione fornitori sul nuovo DB
+                checkAnagraColumn();
+
+                // Ricarica tab fornitori con i dati del nuovo DB
+                loadAssegnazioni();
 
                 // Mostra avvisi (es. Riep mancante)
                 if (data.warnings && data.warnings.length > 0) {
@@ -868,6 +876,88 @@ const MrpDbConfig = (() => {
     let _assegnFornitoriData = []; // cache dati caricati
     let _assegnTemplatesList = []; // cache template per i select
     let _assegnCurrentMode = 'ultima_scelta';
+    let _classificazioneMap = {};  // cache codice → tipo (IT/UE/EXTRA_UE)
+    let _classificazioneFornitori = []; // tutti i fornitori dalla classificazione (codice+nome+tipo)
+    let _classificazioneDisponibile = false;
+    let _filtroTipoAttivi = new Set(); // filtri tipo attivi (toggle cumulativo)
+    let _mostraTuttiFornitori = false; // flag: mostra anche fornitori senza ordini
+
+    // --------------------------------------------------------
+    // CHECK COLONNA HH_TipoReport — fire-and-forget al boot
+    // --------------------------------------------------------
+
+    function checkAnagraColumn() {
+        fetch('/api/mrp/check-anagra-column', { credentials: 'include' })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.exists) showDeployColumnModal();
+            })
+            .catch(() => {}); // silenzioso
+    }
+
+    function showDeployColumnModal() {
+        // Evita duplicati
+        if (document.getElementById('deployColumnOverlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'deployColumnOverlay';
+        overlay.className = 'mrp-modal-overlay open';
+        overlay.innerHTML = `
+            <div class="mrp-modal" style="max-width:520px;">
+                <div class="mrp-modal-header">
+                    <h3>Classificazione fornitori mancante</h3>
+                    <button class="mrp-modal-close" id="deployColClose">&times;</button>
+                </div>
+                <div style="padding:20px; font-size:0.88rem; line-height:1.6;">
+                    <p>Nel database attivo manca la colonna <strong>HH_TipoReport</strong> nella tabella ANAGRA.</p>
+                    <p style="margin-top:10px;">Questa colonna serve per generare correttamente i PDF degli ordini fornitore con il layout appropriato (Italia vs Estero).</p>
+                    <p style="margin-top:10px;">Se la creo, ogni fornitore viene classificato automaticamente come <strong style="color:#2e7d32;">IT</strong>, <strong style="color:#1565c0;">UE</strong> o <strong style="color:#e65100;">EXTRA_UE</strong> in base ai dati anagrafici.</p>
+                    <p style="margin-top:10px; color:var(--text-muted); font-size:0.8rem;">Potrai correggere i valori in Impostazioni &rarr; Fornitori.</p>
+                    <div style="display:flex; gap:10px; margin-top:20px; justify-content:flex-end;">
+                        <button class="mrp-btn-secondary" id="deployColSkip">Non ora</button>
+                        <button class="mrp-btn-primary" id="deployColConfirm">Crea colonna</button>
+                    </div>
+                    <p id="deployColStatus" style="margin-top:10px; font-size:0.8rem; display:none;"></p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        document.getElementById('deployColClose').addEventListener('click', () => overlay.remove());
+        document.getElementById('deployColSkip').addEventListener('click', () => overlay.remove());
+        document.getElementById('deployColConfirm').addEventListener('click', async () => {
+            const btn = document.getElementById('deployColConfirm');
+            const status = document.getElementById('deployColStatus');
+            btn.disabled = true;
+            btn.textContent = 'Creazione in corso...';
+            status.style.display = 'block';
+            status.style.color = 'var(--text-muted)';
+            status.textContent = 'Aggiunta colonna e classificazione fornitori...';
+            try {
+                const res = await fetch('/api/mrp/deploy-anagra-column', { method: 'POST', credentials: 'include' });
+                const data = await res.json();
+                if (data.success) {
+                    status.style.color = 'var(--success)';
+                    status.textContent = 'Completato! ' + (data.rowsUpdated || 0) + ' fornitori classificati.';
+                    setTimeout(() => {
+                        overlay.remove();
+                        loadAssegnazioni(); // ricarica tab fornitori con i nuovi dati
+                    }, 1500);
+                } else {
+                    throw new Error(data.error || 'Errore sconosciuto');
+                }
+            } catch (err) {
+                status.style.color = 'var(--danger)';
+                status.textContent = 'Errore: ' + err.message;
+                btn.disabled = false;
+                btn.textContent = 'Riprova';
+            }
+        });
+    }
+
+    // --------------------------------------------------------
+    // ASSEGNAZIONI + CLASSIFICAZIONE FORNITORI
+    // --------------------------------------------------------
 
     async function loadAssegnazioni() {
         const container = document.getElementById('assegnFornitoriList');
@@ -877,10 +967,11 @@ const MrpDbConfig = (() => {
         container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.82rem;">Caricamento fornitori...</div>';
 
         try {
-            // Carica fornitori+assegnazioni e template in parallelo
-            const [fornRes, tplRes] = await Promise.all([
+            // Carica fornitori+assegnazioni, template, e classificazione in parallelo
+            const [fornRes, tplRes, classRes] = await Promise.all([
                 fetch('/api/mrp/fornitori-template'),
-                fetch('/api/mrp/email-templates')
+                fetch('/api/mrp/email-templates'),
+                fetch('/api/mrp/fornitori-classificazione', { credentials: 'include' })
             ]);
 
             if (!fornRes.ok) throw new Error('HTTP ' + fornRes.status);
@@ -893,18 +984,31 @@ const MrpDbConfig = (() => {
                 _assegnTemplatesList = (tplData.templates || []).filter(t => t.isActive !== false && t.isActive !== 0);
             }
 
-            // Imposta radio button modalità
+            // Classificazione
+            _classificazioneMap = {};
+            _classificazioneFornitori = [];
+            _classificazioneDisponibile = false;
+            if (classRes.ok) {
+                const classData = await classRes.json();
+                if (!classData.columnMissing && classData.fornitori) {
+                    _classificazioneDisponibile = true;
+                    _classificazioneFornitori = classData.fornitori;
+                    classData.fornitori.forEach(f => { _classificazioneMap[f.codice] = f.tipo; });
+                }
+            }
+
+            // Imposta radio button modalita
             const radio = document.querySelector(`input[name="templateMode"][value="${_assegnCurrentMode}"]`);
             if (radio) radio.checked = true;
             aggiornaDescrizioneMode(_assegnCurrentMode);
 
-            // Render lista
-            renderAssegnazioni(_assegnFornitoriData);
+            // Render filtri classificazione + leggenda
+            _filtroTipoAttivi.clear();
+            _mostraTuttiFornitori = false;
+            renderClassificazioneFiltri();
 
-            if (infoEl) {
-                const conAssegn = _assegnFornitoriData.filter(f => f.templateId).length;
-                infoEl.textContent = _assegnFornitoriData.length + ' fornitori trovati, ' + conAssegn + ' con template assegnato';
-            }
+            // Render lista
+            renderAssegnazioni(getListaFornitoriCorrente());
         } catch (err) {
             console.error('[Assegnazioni] Errore:', err);
             container.innerHTML = '<div style="color:var(--danger); font-size:0.82rem;">Errore caricamento: ' + esc(err.message) + '</div>';
@@ -929,7 +1033,21 @@ const MrpDbConfig = (() => {
         container.innerHTML = fornitori.map(f => {
             const selected = f.templateId || '';
             const hasBadge = f.templateId ? '<span class="assegn-forn-badge">Assegnato</span>' : '';
-            return '<div class="assegn-forn-row" data-codice="' + f.codice + '" data-nome="' + esc(f.nome || '') + '">' +
+            const tipo = _classificazioneMap[f.codice] || '';
+
+            // Select classificazione (solo se la colonna esiste)
+            let tipoHtml = '';
+            if (_classificazioneDisponibile) {
+                tipoHtml = '<select class="assegn-forn-tipo" data-forn="' + f.codice + '" data-tipo="' + tipo + '">' +
+                    '<option value="IT"' + (tipo === 'IT' ? ' selected' : '') + '>IT</option>' +
+                    '<option value="UE"' + (tipo === 'UE' ? ' selected' : '') + '>UE</option>' +
+                    '<option value="EXTRA_UE"' + (tipo === 'EXTRA_UE' ? ' selected' : '') + '>Extra UE</option>' +
+                    '</select>';
+            }
+
+            return '<div class="assegn-forn-row" data-codice="' + f.codice + '" data-nome="' + esc(f.nome || '') + '"' +
+                (tipo ? ' data-tipo="' + tipo + '"' : '') + '>' +
+                tipoHtml +
                 '<span class="assegn-forn-codice">' + f.codice + '</span>' +
                 '<span class="assegn-forn-nome" title="' + esc(f.nome || '') + '">' + esc(f.nome || '(senza nome)') + '</span>' +
                 hasBadge +
@@ -939,6 +1057,7 @@ const MrpDbConfig = (() => {
                 '</div>';
         }).join('');
 
+        // Bind: template select
         container.querySelectorAll('.assegn-forn-select').forEach(sel => {
             sel.addEventListener('change', async () => {
                 const forn = sel.dataset.forn;
@@ -953,30 +1072,189 @@ const MrpDbConfig = (() => {
                     const data = await res.json();
                     sel.style.borderColor = data.success ? 'var(--success)' : 'var(--danger)';
                     setTimeout(() => { sel.style.borderColor = ''; }, 1500);
-                    // Update local cache
                     const f = _assegnFornitoriData.find(x => String(x.codice) === forn);
                     if (f) f.templateId = tid;
-                    // Update info count
-                    const infoEl = document.getElementById('assegnInfo');
-                    if (infoEl) {
-                        const conAssegn = _assegnFornitoriData.filter(x => x.templateId).length;
-                        infoEl.textContent = _assegnFornitoriData.length + ' fornitori, ' + conAssegn + ' con template assegnato';
-                    }
                 } catch (err) {
                     sel.style.borderColor = 'var(--danger)';
                     console.error('[Assegnazioni] Errore:', err);
                 }
             });
         });
+
+        // Bind: classificazione select
+        container.querySelectorAll('.assegn-forn-tipo').forEach(sel => {
+            sel.addEventListener('change', async () => {
+                const forn = sel.dataset.forn;
+                const newTipo = sel.value;
+                const row = sel.closest('.assegn-forn-row');
+
+                sel.dataset.tipo = newTipo;
+                if (row) row.dataset.tipo = newTipo;
+
+                try {
+                    const res = await fetch('/api/mrp/fornitore-classificazione/' + forn, {
+                        method: 'PUT',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tipo: newTipo })
+                    });
+                    const data = await res.json();
+                    if (!data.success) throw new Error('Salvataggio fallito');
+                    _classificazioneMap[forn] = newTipo;
+                } catch (err) {
+                    console.error('[Classificazione] Errore:', err);
+                    sel.style.outline = '2px solid var(--danger)';
+                    setTimeout(() => { sel.style.outline = ''; }, 1500);
+                }
+            });
+        });
     }
 
-    function filtroAssegnazioni() {
-        const filtro = (document.getElementById('assegnFiltro').value || '').toLowerCase();
+    // --------------------------------------------------------
+    // CLASSIFICAZIONE — Filtri chip + leggenda
+    // --------------------------------------------------------
+
+    function getListaFornitoriCorrente() {
+        // Se mostra tutti: merge fornitori con ordini + tutti da classificazione
+        if (_mostraTuttiFornitori && _classificazioneFornitori.length) {
+            const codiciConOrdini = new Set(_assegnFornitoriData.map(f => String(f.codice)));
+            const extra = _classificazioneFornitori
+                .filter(f => !codiciConOrdini.has(String(f.codice)))
+                .map(f => ({ codice: f.codice, nome: f.nome, templateId: null }));
+            return [..._assegnFornitoriData, ...extra];
+        }
+        return _assegnFornitoriData;
+    }
+
+    function contaPerTipo(listaFornitori) {
+        const codici = new Set(listaFornitori.map(f => String(f.codice)));
+        return {
+            IT: Object.entries(_classificazioneMap).filter(([k, v]) => v === 'IT' && codici.has(k)).length,
+            UE: Object.entries(_classificazioneMap).filter(([k, v]) => v === 'UE' && codici.has(k)).length,
+            EXTRA_UE: Object.entries(_classificazioneMap).filter(([k, v]) => v === 'EXTRA_UE' && codici.has(k)).length
+        };
+    }
+
+    function renderClassificazioneFiltri() {
+        const infoEl = document.getElementById('assegnInfo');
+        if (!infoEl) return;
+
+        if (!_classificazioneDisponibile) {
+            infoEl.innerHTML = '<span style="color:var(--text-muted);">' + _assegnFornitoriData.length + ' fornitori</span>';
+            return;
+        }
+
+        const lista = getListaFornitoriCorrente();
+        const counts = contaPerTipo(lista);
+        const nascosti = _classificazioneFornitori.length - _assegnFornitoriData.length;
+
+        infoEl.innerHTML =
+            '<div class="assegn-filtro-bar">' +
+                '<div class="assegn-filtro-chips">' +
+                    '<span class="assegn-filtro-chip" data-filtro="IT">IT <strong>' + counts.IT + '</strong></span>' +
+                    '<span class="assegn-filtro-chip" data-filtro="UE">UE <strong>' + counts.UE + '</strong></span>' +
+                    '<span class="assegn-filtro-chip" data-filtro="EXTRA_UE">Extra UE <strong>' + counts.EXTRA_UE + '</strong></span>' +
+                '</div>' +
+                '<div class="assegn-legenda">' +
+                    '<label class="assegn-legenda-item" data-tipo="IT"><input type="color" class="assegn-legenda-color" data-tipo="IT" value="#2e7d32"><span>Italia</span></label>' +
+                    '<label class="assegn-legenda-item" data-tipo="UE"><input type="color" class="assegn-legenda-color" data-tipo="UE" value="#1565c0"><span>UE</span></label>' +
+                    '<label class="assegn-legenda-item" data-tipo="EXTRA_UE"><input type="color" class="assegn-legenda-color" data-tipo="EXTRA_UE" value="#e65100"><span>Extra UE</span></label>' +
+                '</div>' +
+            '</div>' +
+            (nascosti > 0 ? '<div class="assegn-mostra-tutti">' +
+                '<label class="assegn-mostra-tutti-label">' +
+                    '<input type="checkbox" id="chkMostraTutti"' + (_mostraTuttiFornitori ? ' checked' : '') + '>' +
+                    '<span>Mostra tutti i fornitori</span>' +
+                    '<span class="assegn-nascosti-count">(' + nascosti + ' senza ordini nascosti)</span>' +
+                '</label>' +
+            '</div>' : '');
+
+        // Bind: color picker leggenda
+        infoEl.querySelectorAll('.assegn-legenda-color').forEach(picker => {
+            const tipo = picker.dataset.tipo;
+            const varName = '--forn-' + tipo.toLowerCase().replace('_', '-');
+            const current = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+            if (current && current.startsWith('#')) picker.value = current;
+
+            picker.addEventListener('input', () => {
+                const color = picker.value;
+                document.documentElement.style.setProperty(varName, color);
+                aggiornaColoriFornitori();
+                if (typeof MrpTheme !== 'undefined' && MrpTheme.setColor) {
+                    MrpTheme.setColor(varName, color);
+                }
+            });
+        });
+
+        // Bind: chip filtro toggle
+        infoEl.querySelectorAll('.assegn-filtro-chip').forEach(chip => {
+            // Ripristina stato attivo se era gia selezionato
+            if (_filtroTipoAttivi.has(chip.dataset.filtro)) chip.classList.add('active');
+
+            chip.addEventListener('click', () => {
+                const tipo = chip.dataset.filtro;
+                if (_filtroTipoAttivi.has(tipo)) {
+                    _filtroTipoAttivi.delete(tipo);
+                    chip.classList.remove('active');
+                } else {
+                    _filtroTipoAttivi.add(tipo);
+                    chip.classList.add('active');
+                }
+                applicaFiltri();
+            });
+        });
+
+        // Bind: checkbox mostra tutti
+        const chk = document.getElementById('chkMostraTutti');
+        if (chk) {
+            chk.addEventListener('change', () => {
+                _mostraTuttiFornitori = chk.checked;
+                const lista = getListaFornitoriCorrente();
+                renderAssegnazioni(lista);
+                renderClassificazioneFiltri(); // aggiorna contatori
+            });
+        }
+    }
+
+    function aggiornaColoriFornitori() {
+        // Rilegge le CSS vars e aggiorna i colori inline su righe e chip
+        const colorIT = getComputedStyle(document.documentElement).getPropertyValue('--forn-it').trim() || '#2e7d32';
+        const colorUE = getComputedStyle(document.documentElement).getPropertyValue('--forn-ue').trim() || '#1565c0';
+        const colorEX = getComputedStyle(document.documentElement).getPropertyValue('--forn-extra-ue').trim() || '#e65100';
+
+        const map = { IT: colorIT, UE: colorUE, EXTRA_UE: colorEX };
+
+        document.querySelectorAll('.assegn-forn-row[data-tipo]').forEach(row => {
+            const c = map[row.dataset.tipo];
+            if (c) row.style.borderLeftColor = c;
+        });
+        document.querySelectorAll('.assegn-forn-tipo[data-tipo]').forEach(sel => {
+            const c = map[sel.dataset.tipo];
+            if (c) {
+                sel.style.color = c;
+                sel.style.backgroundColor = c + '18'; // alpha ~10%
+            }
+        });
+    }
+
+    function applicaFiltri() {
+        const filtroTesto = (document.getElementById('assegnFiltro').value || '').toLowerCase();
+        const hasFiltroTipo = _filtroTipoAttivi.size > 0;
+
         document.querySelectorAll('.assegn-forn-row').forEach(row => {
             const nome = (row.dataset.nome || '').toLowerCase();
             const codice = (row.dataset.codice || '').toLowerCase();
-            row.style.display = (!filtro || nome.includes(filtro) || codice.includes(filtro)) ? '' : 'none';
+            const tipo = row.dataset.tipo || '';
+
+            const matchTesto = !filtroTesto || nome.includes(filtroTesto) || codice.includes(filtroTesto);
+            const matchTipo = !hasFiltroTipo || _filtroTipoAttivi.has(tipo);
+
+            row.style.display = (matchTesto && matchTipo) ? '' : 'none';
         });
+    }
+
+    function filtroAssegnazioni() {
+        applicaFiltri();
     }
 
     async function salvaTemplateMode(mode) {

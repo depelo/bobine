@@ -197,6 +197,146 @@
     white-space: nowrap;
 }
 
+/* Classificazione fornitore — select compatto con colore */
+.assegn-forn-tipo {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    min-width: 68px;
+    text-align: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+.assegn-forn-tipo:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+}
+.assegn-forn-tipo[data-tipo="IT"] {
+    background: color-mix(in srgb, var(--forn-it) 12%, white);
+    color: var(--forn-it);
+}
+.assegn-forn-tipo[data-tipo="UE"] {
+    background: color-mix(in srgb, var(--forn-ue) 12%, white);
+    color: var(--forn-ue);
+}
+.assegn-forn-tipo[data-tipo="EXTRA_UE"] {
+    background: color-mix(in srgb, var(--forn-extra-ue) 12%, white);
+    color: var(--forn-extra-ue);
+}
+
+/* Border-left colorato sulla riga in base alla classificazione */
+.assegn-forn-row[data-tipo="IT"]       { border-left: 3px solid var(--forn-it); }
+.assegn-forn-row[data-tipo="UE"]       { border-left: 3px solid var(--forn-ue); }
+.assegn-forn-row[data-tipo="EXTRA_UE"] { border-left: 3px solid var(--forn-extra-ue); }
+
+/* Barra filtri + leggenda classificazione */
+.assegn-filtro-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.assegn-legenda {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.assegn-legenda-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.assegn-legenda-color {
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+.assegn-legenda-color::-webkit-color-swatch-wrapper { padding: 0; }
+.assegn-legenda-color::-webkit-color-swatch { border: none; border-radius: 2px; }
+.assegn-filtro-chips {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.assegn-mostra-tutti {
+    margin-top: 4px;
+}
+.assegn-mostra-tutti-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.assegn-mostra-tutti-label input {
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+.assegn-nascosti-count {
+    font-style: italic;
+    opacity: 0.7;
+}
+
+/* Chip filtro classificazione — barra sopra la lista */
+.assegn-filtro-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+    border: 1px solid var(--border);
+    background: var(--bg-content);
+    color: var(--text-muted);
+    margin-right: 6px;
+}
+.assegn-filtro-chip:hover {
+    border-color: var(--primary);
+}
+.assegn-filtro-chip strong {
+    font-weight: 800;
+}
+
+/* Chip attivi — colore pieno per tipo */
+.assegn-filtro-chip[data-filtro="IT"].active {
+    background: var(--forn-it);
+    color: white;
+    border-color: var(--forn-it);
+}
+.assegn-filtro-chip[data-filtro="UE"].active {
+    background: var(--forn-ue);
+    color: white;
+    border-color: var(--forn-ue);
+}
+.assegn-filtro-chip[data-filtro="EXTRA_UE"].active {
+    background: var(--forn-extra-ue);
+    color: white;
+    border-color: var(--forn-extra-ue);
+}
+
+/* Chip inattivi ma con hint colore */
+.assegn-filtro-chip[data-filtro="IT"]:not(.active) strong { color: var(--forn-it); }
+.assegn-filtro-chip[data-filtro="UE"]:not(.active) strong { color: var(--forn-ue); }
+.assegn-filtro-chip[data-filtro="EXTRA_UE"]:not(.active) strong { color: var(--forn-extra-ue); }
+
 /* ============================================
    Template Email — Maschera gestione
    ============================================ */

@@ -2475,6 +2475,184 @@ router.get('/check-sp', authMiddleware, async (req, res) => {
     }
 });
 
+// ============================================================
+// CLASSIFICAZIONE FORNITORI — HH_TipoReport in ANAGRA
+// Colonna custom per layout PDF ordine (IT/UE/EXTRA_UE)
+// ============================================================
+
+// Verifica se la colonna HH_TipoReport esiste in anagra
+router.get('/check-anagra-column', authMiddleware, async (req, res) => {
+    try {
+        const uid = getUserId(req);
+        const isProd = isProduction(uid);
+        let exists = false;
+
+        if (isProd) {
+            // Produzione: check sulla tabella reale in BCUBE2 via poolProd cross-server
+            const poolProd = await getPoolProd();
+            const profile = getActiveProfile(uid);
+            const linkedServer = (profile.server_ujet11 || PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
+            const dbName = (profile.database_ujet11 || PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+            const r = await poolProd.request().query(
+                `SELECT 1 AS ok FROM [${linkedServer}].[${dbName}].INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'`
+            );
+            exists = r.recordset.length > 0;
+        } else {
+            // Prova: check diretto su UJET11
+            const pool = await getPoolMRP(uid);
+            const r = await pool.request().query(
+                "SELECT 1 AS ok FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'"
+            );
+            exists = r.recordset.length > 0;
+        }
+
+        res.json({ exists, isProduction: isProd });
+    } catch (err) {
+        console.error('[GB2] check-anagra-column error:', err.message);
+        res.json({ exists: false, error: err.message });
+    }
+});
+
+// Crea la colonna HH_TipoReport in anagra e la popola con la regola automatica
+router.post('/deploy-anagra-column', authMiddleware, async (req, res) => {
+    try {
+        const uid = getUserId(req);
+        const isProd = isProduction(uid);
+
+        if (isProd) {
+            // PRODUZIONE: DDL (ALTER TABLE) richiede connessione DIRETTA a BCUBE2
+            // perche SQL Server non supporta ALTER TABLE cross-server via linked server.
+            // Dopo il DDL, refresh della vista in MRP e UPDATE via la vista.
+            const poolProd = await getPoolProd();
+            const profile = getActiveProfile(uid);
+            const remoteServer = (profile.server_ujet11 || PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
+            const dbName = (profile.database_ujet11 || PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+
+            // 1. Verifica che non esista gia (via linked server — SELECT funziona)
+            const check = await poolProd.request().query(
+                `SELECT 1 AS ok FROM [${remoteServer}].[${dbName}].INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'`
+            );
+            if (check.recordset.length === 0) {
+                // 2. Connessione diretta temporanea a BCUBE2 per il DDL
+                const directPool = await new sql.ConnectionPool({
+                    server: remoteServer,
+                    database: dbName,
+                    user: PRODUCTION_PROFILE.user,
+                    password: PRODUCTION_PROFILE.password,
+                    options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+                    pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
+                }).connect();
+
+                try {
+                    // 2a. ALTER TABLE diretto
+                    await directPool.request().batch('ALTER TABLE dbo.anagra ADD HH_TipoReport VARCHAR(10) NULL');
+                    console.log('[GB2] Colonna HH_TipoReport creata su ' + remoteServer + '/' + dbName);
+
+                    // 2b. ms_description
+                    try {
+                        await directPool.request().batch(
+                            "EXEC sp_addextendedproperty " +
+                            "@name=N'MS_Description', " +
+                            "@value=N'GB2: classificazione fornitore per layout PDF ordine (IT/UE/EXTRA_UE). Creata da GB2.', " +
+                            "@level0type=N'SCHEMA', @level0name=N'dbo', " +
+                            "@level1type=N'TABLE', @level1name=N'anagra', " +
+                            "@level2type=N'COLUMN', @level2name=N'HH_TipoReport'"
+                        );
+                    } catch (descErr) {
+                        console.warn('[GB2] ms_description non aggiunta (non critico):', descErr.message);
+                    }
+                } finally {
+                    try { await directPool.close(); } catch (_) {}
+                }
+
+                // 3. Refresh vista in MRP per renderla visibile
+                await poolProd.request().batch("EXEC sp_refreshview 'dbo.anagra'");
+                console.log('[GB2] Vista anagra refreshata dopo ALTER TABLE su ' + remoteServer);
+            }
+
+            // 4. Popola via la vista (ora aggiornata) — usa il file SQL logica UPDATE
+            const updateResult = await poolProd.request().query(`
+                UPDATE dbo.anagra
+                SET HH_TipoReport = CASE
+                    WHEN RTRIM(ISNULL(an_nazion1, '')) IN ('A','B','BG','CZ','DK','DE','EW','E','F','FIN','GR','H','HR','IRL','L','LT','LV','M','NL','P','PL','RO','S','SK','SLO') THEN 'UE'
+                    WHEN RTRIM(ISNULL(an_nazion1, '')) <> '' THEN 'EXTRA_UE'
+                    WHEN LEN(RTRIM(ISNULL(an_prov, ''))) = 2 THEN 'IT'
+                    WHEN RTRIM(ISNULL(an_pariva, '')) = '' THEN 'IT'
+                    WHEN LEN(RTRIM(an_pariva)) = 11 AND ISNUMERIC(RTRIM(an_pariva)) = 1 THEN 'IT'
+                    ELSE 'EXTRA_UE'
+                END
+                WHERE an_tipo = 'F' AND HH_TipoReport IS NULL
+            `);
+            res.json({ success: true, rowsUpdated: updateResult.rowsAffected[0] || 0, mode: 'production' });
+
+        } else {
+            // PROVA: esegue il file SQL direttamente su UJET11
+            const pool = await getPoolMRP(uid);
+            const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
+            const filePath = path.join(sqlDir, 'deploy_anagra_hh_tiporeport.sql');
+            if (!fs.existsSync(filePath)) {
+                return res.status(500).json({ error: 'File SQL non trovato: deploy_anagra_hh_tiporeport.sql' });
+            }
+            await executeSqlFile(pool, filePath);
+            // Conta quanti aggiornati
+            const cnt = await pool.request().query(
+                "SELECT COUNT(*) AS cnt FROM dbo.anagra WHERE an_tipo='F' AND HH_TipoReport IS NOT NULL"
+            );
+            res.json({ success: true, rowsUpdated: cnt.recordset[0].cnt, mode: 'test' });
+        }
+    } catch (err) {
+        console.error('[GB2] deploy-anagra-column error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Lista fornitori con classificazione HH_TipoReport
+router.get('/fornitori-classificazione', authMiddleware, async (req, res) => {
+    try {
+        const pool = await getPoolMRP(getUserId(req));
+        // Verifica prima se la colonna esiste
+        const colCheck = await pool.request().query(
+            "SELECT 1 AS ok FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'"
+        );
+        if (colCheck.recordset.length === 0) {
+            return res.json({ fornitori: [], columnMissing: true });
+        }
+        const r = await pool.request().query(`
+            SELECT an_conto AS codice, RTRIM(an_descr1) AS nome, RTRIM(ISNULL(HH_TipoReport,'')) AS tipo
+            FROM dbo.anagra
+            WHERE an_tipo = 'F'
+            ORDER BY an_descr1
+        `);
+        res.json({ fornitori: r.recordset, columnMissing: false });
+    } catch (err) {
+        console.error('[GB2] fornitori-classificazione error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Aggiorna classificazione di un singolo fornitore
+router.put('/fornitore-classificazione/:codice', authMiddleware, async (req, res) => {
+    try {
+        const { tipo } = req.body;
+        const codice = parseInt(req.params.codice, 10);
+        if (!['IT', 'UE', 'EXTRA_UE'].includes(tipo)) {
+            return res.status(400).json({ error: 'tipo deve essere IT, UE o EXTRA_UE' });
+        }
+        if (!codice || isNaN(codice)) {
+            return res.status(400).json({ error: 'codice fornitore non valido' });
+        }
+        const pool = await getPoolMRP(getUserId(req));
+        await pool.request()
+            .input('tipo', sql.VarChar, tipo)
+            .input('codice', sql.Int, codice)
+            .query('UPDATE dbo.anagra SET HH_TipoReport = @tipo WHERE an_conto = @codice');
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[GB2] fornitore-classificazione PUT error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Emetti un ordine per un singolo fornitore
 router.post('/emetti-ordine', authMiddleware, async (req, res) => {
     try {
@@ -2673,60 +2851,149 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
     try {
         const { anno, serie, numord } = req.params;
         const pool = await getPoolMRP(getUserId(req));
+        const uid = getUserId(req);
+        const annoInt = parseInt(anno, 10);
+        const numordInt = parseInt(numord, 10);
 
-        // Leggi testata
-        const testata = await pool.request()
-            .input('anno', sql.SmallInt, parseInt(anno, 10))
-            .input('serie', sql.VarChar(3), serie)
-            .input('numord', sql.Int, parseInt(numord, 10))
-            .query(`
-                SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
-                       t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
-                       t.td_datcons, t.td_codpaga, t.td_porto AS porto,
-                       t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
-                       a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
-                       a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
-                       a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
-                       a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
-                       t.td_totdoc - t.td_totmerce AS totale_imposta
-                FROM dbo.testord t
-                LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
-                WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
-                  AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
-            `);
+        // Query testata arricchita — tutti i JOIN necessari per il PDF completo.
+        // In prova: tutte le tabelle sono in UJET11 direttamente.
+        // In produzione: le viste MRP devono includere tabport, tabvalu, destdiv
+        // (se mancano, Fabrizio le crea come le altre 21 gia esistenti).
+        // Fallback solo per HH_TipoReport che potrebbe non essere ancora deployata.
+        let testata;
+        try {
+            testata = await pool.request()
+                .input('anno', sql.SmallInt, annoInt)
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, numordInt)
+                .query(`
+                    SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
+                           t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
+                           t.td_codpaga AS pagamento_codice,
+                           t.td_banc1 AS banca_appoggio_1, t.td_banc2 AS banca_appoggio_2,
+                           t.td_porto AS porto_codice, t.td_valuta AS valuta_codice,
+                           t.td_riferim AS riferimento,
+                           CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
+                           t.td_vettor AS vettore_codice,
+                           t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                           t.td_acuradi AS acuradi,
+                           t.td_coddest AS coddest, t.td_contodest AS contodest,
+                           a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
+                           a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
+                           a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
+                           a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
+                           a.an_categ AS fornitore_categ,
+                           a.HH_TipoReport AS fornitore_tipo,
+                           a.an_banc1 AS fornitore_banca_1, a.an_banc2 AS fornitore_banca_2,
+                           CAST(a.an_note AS VARCHAR(MAX)) AS fornitore_note,
+                           CAST(a.an_note2 AS VARCHAR(MAX)) AS fornitore_note2,
+                           p.tb_despaga AS pagamento_descr,
+                           pt.tb_desport AS porto_descr,
+                           v.tb_desvalu AS valuta_sigla, v.tb_nomvalu AS valuta_nome,
+                           d.dd_nomdest AS dest_nome, d.dd_inddest AS dest_indirizzo,
+                           d.dd_capdest AS dest_cap, d.dd_locdest AS dest_citta,
+                           d.dd_prodest AS dest_prov
+                    FROM dbo.testord t
+                    LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                    LEFT JOIN dbo.tabpaga p ON t.td_codpaga = p.tb_codpaga
+                    LEFT JOIN dbo.tabport pt ON t.codditt = pt.codditt AND t.td_porto = pt.tb_codport
+                    LEFT JOIN dbo.tabvalu v ON t.td_valuta = v.tb_codvalu
+                    LEFT JOIN dbo.destdiv d ON t.codditt = d.codditt
+                                             AND t.td_contodest = d.dd_conto
+                                             AND t.td_coddest = d.dd_coddest
+                    WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+                      AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
+                `);
+        } catch (colErr) {
+            // Fallback: se HH_TipoReport non esiste, retry con 'IT' come default
+            if (colErr.message.includes('HH_TipoReport')) {
+                testata = await pool.request()
+                    .input('anno', sql.SmallInt, annoInt)
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, numordInt)
+                    .query(`
+                        SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
+                               t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
+                               t.td_codpaga AS pagamento_codice,
+                               t.td_banc1 AS banca_appoggio_1, t.td_banc2 AS banca_appoggio_2,
+                               t.td_porto AS porto_codice, t.td_valuta AS valuta_codice,
+                               t.td_riferim AS riferimento,
+                               CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
+                               t.td_vettor AS vettore_codice,
+                               t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                               t.td_acuradi AS acuradi,
+                               t.td_coddest AS coddest, t.td_contodest AS contodest,
+                               a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
+                               a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
+                               a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
+                               a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
+                               a.an_categ AS fornitore_categ,
+                               'IT' AS fornitore_tipo,
+                               a.an_banc1 AS fornitore_banca_1, a.an_banc2 AS fornitore_banca_2,
+                               CAST(a.an_note AS VARCHAR(MAX)) AS fornitore_note,
+                               CAST(a.an_note2 AS VARCHAR(MAX)) AS fornitore_note2,
+                               p.tb_despaga AS pagamento_descr,
+                               pt.tb_desport AS porto_descr,
+                               v.tb_desvalu AS valuta_sigla, v.tb_nomvalu AS valuta_nome,
+                               d.dd_nomdest AS dest_nome, d.dd_inddest AS dest_indirizzo,
+                               d.dd_capdest AS dest_cap, d.dd_locdest AS dest_citta,
+                               d.dd_prodest AS dest_prov
+                        FROM dbo.testord t
+                        LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                        LEFT JOIN dbo.tabpaga p ON t.td_codpaga = p.tb_codpaga
+                        LEFT JOIN dbo.tabport pt ON t.codditt = pt.codditt AND t.td_porto = pt.tb_codport
+                        LEFT JOIN dbo.tabvalu v ON t.td_valuta = v.tb_codvalu
+                        LEFT JOIN dbo.destdiv d ON t.codditt = d.codditt
+                                                 AND t.td_contodest = d.dd_conto
+                                                 AND t.td_coddest = d.dd_coddest
+                        WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+                          AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
+                    `);
+            } else throw colErr;
+        }
 
         if (!testata.recordset.length) {
             return res.status(404).json({ error: 'Ordine non trovato' });
         }
 
-        // Descrizione pagamento
-        let pag_descr = '';
-        try {
-            const pag = await pool.request()
-                .input('codpaga', sql.SmallInt, testata.recordset[0].td_codpaga)
-                .query("SELECT tb_descr AS cp_descr FROM dbo.tabpaga WHERE tb_codpaga = @codpaga");
-            if (pag.recordset.length) pag_descr = pag.recordset[0].cp_descr || '';
-        } catch (_) { /* codpaga potrebbe non esistere */ }
+        const ordine = testata.recordset[0];
 
-        const ordine = { ...testata.recordset[0], pagamento_descr: pag_descr };
-
-        // Leggi righe
+        // Query righe arricchita — con note, lotto, sconti, rif. fornitore, note articolo
+        // In prova: tutte le tabelle sono disponibili direttamente.
+        // In produzione: servono viste per codarfo e artico (Fabrizio le crea se mancano).
         const righeRes = await pool.request()
-            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('anno', sql.SmallInt, annoInt)
             .input('serie', sql.VarChar(3), serie)
-            .input('numord', sql.Int, parseInt(numord, 10))
+            .input('numord', sql.Int, numordInt)
+            .input('fornitore', sql.Int, ordine.fornitore_codice)
             .query(`
-                SELECT mo_riga, mo_codart, mo_descr, mo_desint, mo_unmis,
-                       mo_quant, mo_prezzo, mo_valore, mo_datcons, mo_fase, mo_magaz
-                FROM dbo.movord
-                WHERE codditt = 'UJET11' AND mo_tipork = 'O'
-                  AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord
-                ORDER BY mo_riga
+                SELECT m.mo_riga, m.mo_codart, m.mo_descr, m.mo_desint,
+                       m.mo_unmis, m.mo_ump, m.mo_quant, m.mo_colli,
+                       m.mo_prezzo, m.mo_valore, m.mo_datcons,
+                       m.mo_fase, m.mo_magaz, m.mo_lotto,
+                       m.mo_scont1, m.mo_scont2, m.mo_scont3,
+                       CAST(m.mo_note AS VARCHAR(MAX)) AS mo_note,
+                       c.caf_codarfo AS rif_fornitore,
+                       c.caf_desnote AS rif_note,
+                       CAST(ar.ar_note AS VARCHAR(500)) AS ar_note,
+                       ar.ar_conver, ar.ar_codalt
+                FROM dbo.movord m
+                LEFT JOIN dbo.codarfo c ON c.codditt = 'UJET11'
+                    AND c.caf_conto = @fornitore AND c.caf_codart = m.mo_codart
+                LEFT JOIN dbo.artico ar ON ar.codditt = 'UJET11' AND ar.ar_codart = m.mo_codart
+                WHERE m.codditt = 'UJET11' AND m.mo_tipork = 'O'
+                  AND m.mo_anno = @anno AND m.mo_serie = @serie AND m.mo_numord = @numord
+                  AND m.mo_stasino <> 'N'
+                ORDER BY m.mo_riga
             `);
 
-        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset);
+        const ambiente = isProduction(uid) ? 'produzione' : 'prova';
+        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset, { ambiente });
 
-        const filename = `OrdineForn${anno}${serie}${String(numord).padStart(6,'0')}.pdf`;
+        // Nome file formato BCube
+        const fornNome = (ordine.fornitore_nome || '').trim().replace(/[\\/:*?"<>|]/g, '_');
+        const dataElab = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const filename = `OrdineForn${anno}${serie}${String(numord).padStart(6, '0')}${ordine.fornitore_codice}${fornNome}${dataElab}.PDF`;
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
         res.send(pdfBuffer);

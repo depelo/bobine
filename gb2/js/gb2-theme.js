@@ -68,6 +68,15 @@ const MrpTheme = (() => {
             ]
         },
         {
+            id: 'fornitori',
+            label: 'Classificazione Fornitori',
+            vars: [
+                { name: '--forn-it', label: 'Italia', default: '#2e7d32' },
+                { name: '--forn-ue', label: 'Unione Europea', default: '#1565c0' },
+                { name: '--forn-extra-ue', label: 'Extra UE', default: '#e65100' }
+            ]
+        },
+        {
             id: 'typography',
             label: 'Tipografia',
             vars: [
@@ -1185,7 +1194,8 @@ const MrpTheme = (() => {
         openPanel,
         closePanel,
         save,
-        reset
+        reset,
+        setColor   // esposto per uso esterno (es. leggenda fornitori in dbconfig)
     };
 
 })();
