@@ -898,6 +898,28 @@ const MrpDbConfig = (() => {
             .catch(() => {}); // silenzioso
     }
 
+    function showConfirmModal(titolo, contenutoHtml) {
+        const id = 'confirmModal_' + Date.now();
+        const overlay = document.createElement('div');
+        overlay.id = id;
+        overlay.className = 'mrp-modal-overlay open';
+        overlay.innerHTML = `
+            <div class="mrp-modal" style="max-width:420px;">
+                <div class="mrp-modal-header">
+                    <h3>${titolo}</h3>
+                    <button class="mrp-modal-close" onclick="document.getElementById('${id}').remove()">&times;</button>
+                </div>
+                <div style="padding:18px 20px;">
+                    ${contenutoHtml}
+                    <div style="text-align:right; margin-top:16px;">
+                        <button class="mrp-btn-primary" style="padding:6px 20px;" onclick="document.getElementById('${id}').remove()">OK</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+    }
+
     function showDeployColumnModal() {
         // Evita duplicati
         if (document.getElementById('deployColumnOverlay')) return;
@@ -1049,12 +1071,8 @@ const MrpDbConfig = (() => {
             const hasEmail = !!(f.email && f.email.trim());
             const emailIcon = '<span class="assegn-email-icon ' + (hasEmail ? 'has-email' : 'no-email') + '" title="' + (hasEmail ? esc(f.email) : 'Email mancante') + '">\u2709</span>';
 
-            // Ultimo ordine compatto
-            let ultimoHtml = '';
-            if (f.ultimo_ordine) {
-                const d = new Date(f.ultimo_ordine);
-                ultimoHtml = '<span class="assegn-ultimo-ordine">' + d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' }) + '</span>';
-            }
+            // Ultimo ordine: non disponibile al caricamento (caricato lazy nel pannello espanso)
+            const ultimoHtml = '';
 
             // Select classificazione
             let tipoHtml = '';
@@ -1168,7 +1186,7 @@ const MrpDbConfig = (() => {
         const hasBanca = !!((f.banca1 || '').trim());
         const banca = [f.banca1, f.banca2].filter(Boolean).join(' - ') || '';
         const citta = [f.cap, (f.citta || '').toUpperCase(), f.prov ? '(' + f.prov + ')' : ''].filter(Boolean).join(' ');
-        const ultimoStr = f.ultimo_ordine ? new Date(f.ultimo_ordine).toLocaleDateString('it-IT') : 'Nessuno';
+        const ultimoStr = f.ultimo_ordine ? new Date(f.ultimo_ordine).toLocaleDateString('it-IT') : 'caricamento...';
 
         const panel = document.createElement('div');
         panel.className = 'assegn-forn-detail';
@@ -1207,6 +1225,28 @@ const MrpDbConfig = (() => {
         panel.querySelectorAll('.assegn-detail-edit-btn').forEach(btn => {
             btn.addEventListener('click', () => startInlineEdit(btn.dataset.codice, btn.dataset.field));
         });
+
+        // Carica ultimo ordine lazy (query leggera per singolo fornitore)
+        if (!f.ultimo_ordine) {
+            fetch('/api/mrp/fornitore-ultimo-ordine/' + codice, { credentials: 'include' })
+                .then(r => r.json())
+                .then(data => {
+                    const el = panel.querySelector('.assegn-detail-value:last-child');
+                    if (!el) return;
+                    // Trova il campo Ultimo nel pannello
+                    panel.querySelectorAll('.assegn-detail-field').forEach(field => {
+                        const label = field.querySelector('.assegn-detail-label');
+                        if (label && label.textContent === 'Ultimo') {
+                            const val = field.querySelector('.assegn-detail-value');
+                            if (val) {
+                                val.textContent = data.ultimo_ordine ? new Date(data.ultimo_ordine).toLocaleDateString('it-IT') : 'Nessuno';
+                                f.ultimo_ordine = data.ultimo_ordine; // cache
+                            }
+                        }
+                    });
+                })
+                .catch(() => {});
+        }
     }
 
     // --------------------------------------------------------
@@ -1240,7 +1280,10 @@ const MrpDbConfig = (() => {
         input.focus();
         input.select();
 
+        let _saving = false;
         async function save() {
+            if (_saving) return;
+            _saving = true;
             const newVal = input.value.trim();
             try {
                 const body = {};
@@ -1257,7 +1300,22 @@ const MrpDbConfig = (() => {
                     body: JSON.stringify(body)
                 });
                 const data = await res.json();
-                if (!data.success) throw new Error('Errore');
+                if (!data.success) throw new Error(data.error || 'Errore salvataggio');
+
+                // Mostra modale conferma con verifica dal server
+                const conferma = data.verifica || {};
+                const fieldLabel = field === 'email' ? 'Email' : 'Banca';
+                const valoreDB = field === 'email' ? conferma.email : [conferma.banca1, conferma.banca2].filter(Boolean).join(' - ');
+                showConfirmModal(
+                    '\u2705 ' + fieldLabel + ' aggiornata',
+                    '<div style="font-size:0.85rem; line-height:1.8;">' +
+                    '<strong>Fornitore:</strong> ' + codice + '<br>' +
+                    '<strong>Valore salvato:</strong> ' + esc(valoreDB || '(vuoto)') + '<br>' +
+                    '<strong>Righe modificate:</strong> ' + (data.rowsAffected || 0) + '<br>' +
+                    '<strong>Server:</strong> ' + esc(data.server || 'N/D') + '<br>' +
+                    '<strong>Ambiente:</strong> ' + esc(data.ambiente || 'N/D') +
+                    '</div>'
+                );
 
                 // Aggiorna cache
                 if (field === 'email') f.email = newVal;
@@ -1270,7 +1328,6 @@ const MrpDbConfig = (() => {
                     newSpan.id = elId;
                     newSpan.textContent = newVal || 'non impostata';
                     input.replaceWith(newSpan);
-                    // Aggiorna icona email nella riga se necessario
                     if (field === 'email') {
                         const row = document.querySelector('.assegn-forn-row[data-codice="' + codice + '"]');
                         if (row) {
@@ -1281,9 +1338,9 @@ const MrpDbConfig = (() => {
                             }
                             row.dataset.email = newVal ? '1' : '0';
                         }
-                        renderDashboardAvvisi(); // ricalcola avvisi
+                        renderDashboardAvvisi();
                     }
-                }, 600);
+                }, 300);
             } catch (err) {
                 input.className = 'assegn-detail-input error';
             }
@@ -1503,15 +1560,11 @@ const MrpDbConfig = (() => {
     // --------------------------------------------------------
 
     function getListaFornitoriCorrente() {
-        // Se mostra tutti: merge fornitori con ordini + tutti da classificazione
-        if (_mostraTuttiFornitori && _classificazioneFornitori.length) {
-            const codiciConOrdini = new Set(_assegnFornitoriData.map(f => String(f.codice)));
-            const extra = _classificazioneFornitori
-                .filter(f => !codiciConOrdini.has(String(f.codice)))
-                .map(f => ({ codice: f.codice, nome: f.nome, templateId: null }));
-            return [..._assegnFornitoriData, ...extra];
+        // Default: solo fornitori con ordini. Flag "Mostra tutti": include anche quelli senza ordini.
+        if (_mostraTuttiFornitori) {
+            return _assegnFornitoriData; // tutti (ha_ordini=0 e ha_ordini=1)
         }
-        return _assegnFornitoriData;
+        return _assegnFornitoriData.filter(f => f.ha_ordini);
     }
 
     function contaPerTipo(listaFornitori) {
@@ -1534,7 +1587,8 @@ const MrpDbConfig = (() => {
 
         const lista = getListaFornitoriCorrente();
         const counts = contaPerTipo(lista);
-        const nascosti = _classificazioneFornitori.length - _assegnFornitoriData.length;
+        const conOrdini = _assegnFornitoriData.filter(f => f.ha_ordini).length;
+        const nascosti = _assegnFornitoriData.length - conOrdini;
 
         infoEl.innerHTML =
             '<div class="assegn-filtro-bar">' +
@@ -1597,9 +1651,9 @@ const MrpDbConfig = (() => {
         if (chk) {
             chk.addEventListener('change', () => {
                 _mostraTuttiFornitori = chk.checked;
-                const lista = getListaFornitoriCorrente();
-                renderAssegnazioni(lista);
-                renderClassificazioneFiltri(); // aggiorna contatori
+                renderAssegnazioni(getListaOrdinata());
+                renderDashboardAvvisi();
+                renderClassificazioneFiltri();
             });
         }
     }

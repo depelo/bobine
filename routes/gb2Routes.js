@@ -2347,26 +2347,12 @@ router.get('/fornitori-template', authMiddleware, async (req, res) => {
         const poolProd = await getPoolProd();
         const userId = getUserId(req);
 
-        // Due query separate: dati ERP (via getPoolMRP — segue ambiente) + dati GB2 (via poolProd — sempre su 163)
-        // Poi merge in Node. Questo funziona sia in produzione (viste MRP) che in prova (UJET11 diretto su qualsiasi server)
+        // Query leggera su anagra (tipo F) + pagamento — senza CTE su ordlist/testord che sono lente
+        // Il campo ultimo_ordine viene recuperato on-demand nel pannello espanso
         const poolERP = await getPoolMRP(userId);
 
-        // Query 1: fornitori attivi + dati anagrafica + pagamento + ultimo ordine (dal DB attivo)
         const erpResult = await poolERP.request().query(`
-            ;WITH FornAttivi AS (
-                SELECT DISTINCT ol.ol_conto AS codice
-                FROM dbo.ordlist ol
-                WHERE ol.ol_tipork IN ('H','O','R','Y')
-                  AND ol.ol_conto IS NOT NULL AND ol.ol_conto <> 0
-            ),
-            UltimoOrdine AS (
-                SELECT td_conto, MAX(td_datord) AS ultimo_ordine
-                FROM dbo.testord
-                WHERE codditt = 'UJET11' AND td_tipork = 'O'
-                GROUP BY td_conto
-            )
-            SELECT f.codice,
-                   RTRIM(an.an_descr1) AS nome,
+            SELECT an.an_conto AS codice, RTRIM(an.an_descr1) AS nome,
                    RTRIM(ISNULL(an.an_email,'')) AS email,
                    RTRIM(ISNULL(an.an_banc1,'')) AS banca1,
                    RTRIM(ISNULL(an.an_banc2,'')) AS banca2,
@@ -2376,17 +2362,18 @@ router.get('/fornitori-template', authMiddleware, async (req, res) => {
                    RTRIM(ISNULL(an.an_citta,'')) AS citta,
                    RTRIM(ISNULL(an.an_prov,'')) AS prov,
                    RTRIM(ISNULL(an.an_pariva,'')) AS pariva,
-                   an.an_codpag AS codpag,
                    RTRIM(ISNULL(p.tb_despaga,'')) AS pagamento,
-                   uo.ultimo_ordine
-            FROM FornAttivi f
-            LEFT JOIN dbo.anagra an ON f.codice = an.an_conto
+                   CASE WHEN EXISTS (
+                       SELECT 1 FROM dbo.testord t
+                       WHERE t.codditt='UJET11' AND t.td_tipork='O' AND t.td_conto=an.an_conto
+                   ) THEN 1 ELSE 0 END AS ha_ordini
+            FROM dbo.anagra an
             LEFT JOIN dbo.tabpaga p ON an.an_codpag = p.tb_codpaga
-            LEFT JOIN UltimoOrdine uo ON f.codice = uo.td_conto
+            WHERE an.an_tipo = 'F' AND an.an_conto <> 0
             ORDER BY an.an_descr1
         `);
 
-        // Query 2: assegnazioni template + fornitori extra dalle assegnazioni (da GB2 su 163)
+        // Query assegnazioni template da GB2 (sempre su 163)
         const gb2Result = await poolProd.request()
             .input('uid', sql.Int, userId)
             .query(`
@@ -2395,20 +2382,10 @@ router.get('/fornitori-template', authMiddleware, async (req, res) => {
                 WHERE IDUser = @uid
             `);
 
-        // Merge: arricchisci fornitori ERP con templateId da GB2
+        // Merge: arricchisci fornitori con templateId
         const templateMap = {};
-        const extraCodici = new Set();
-        gb2Result.recordset.forEach(r => { templateMap[r.codice] = r.templateId; extraCodici.add(r.codice); });
-
-        const erpCodici = new Set(erpResult.recordset.map(r => r.codice));
+        gb2Result.recordset.forEach(r => { templateMap[r.codice] = r.templateId; });
         const fornitori = erpResult.recordset.map(r => ({ ...r, templateId: templateMap[r.codice] || null }));
-
-        // Aggiungi fornitori che hanno assegnazioni ma non ordini (raro)
-        for (const codice of extraCodici) {
-            if (!erpCodici.has(codice)) {
-                fornitori.push({ codice, nome: '(fornitore ' + codice + ')', templateId: templateMap[codice] });
-            }
-        }
 
         const result = { recordset: fornitori };
 
@@ -2755,6 +2732,21 @@ router.put('/fornitore-classificazione/:codice', authMiddleware, async (req, res
     }
 });
 
+// Ultimo ordine di un fornitore (query leggera, chiamata on-demand dal pannello espanso)
+router.get('/fornitore-ultimo-ordine/:codice', authMiddleware, async (req, res) => {
+    try {
+        const codice = parseInt(req.params.codice, 10);
+        const pool = await getPoolMRP(getUserId(req));
+        const r = await pool.request()
+            .input('codice', sql.Int, codice)
+            .query("SELECT TOP 1 td_datord AS ultimo_ordine FROM dbo.testord WHERE codditt='UJET11' AND td_tipork='O' AND td_conto=@codice ORDER BY td_datord DESC");
+        const ultimo = r.recordset.length ? r.recordset[0].ultimo_ordine : null;
+        res.json({ ultimo_ordine: ultimo });
+    } catch (err) {
+        res.json({ ultimo_ordine: null });
+    }
+});
+
 // Aggiorna email e/o banca di un fornitore in anagrafica
 // In prova: scrive direttamente su UJET11 del server di prova via getPoolMRP
 // In produzione: connessione diretta temporanea a BCUBE2 (ALTER/UPDATE non passa via linked server viste)
@@ -2805,7 +2797,13 @@ router.put('/fornitore-anagrafica/:codice', authMiddleware, async (req, res) => 
                 .query('SELECT RTRIM(ISNULL(an_email,\'\')) AS email, RTRIM(ISNULL(an_banc1,\'\')) AS banca1, RTRIM(ISNULL(an_banc2,\'\')) AS banca2 FROM dbo.anagra WHERE an_conto = @codice');
             const dopo = verifica.recordset[0] || {};
 
-            res.json({ success: true, rowsAffected, verifica: dopo });
+            // Info connessione per il modale di conferma
+            const profile = getActiveProfile(uid);
+            const serverInfo = isProd
+                ? (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2') + ' / ' + (PRODUCTION_PROFILE.database_ujet11 || 'UJET11')
+                : (profile.server || '192.168.0.163') + ' / ' + (profile.database_ujet11 || 'UJET11');
+
+            res.json({ success: true, rowsAffected, verifica: dopo, server: serverInfo, ambiente: isProd ? 'produzione' : 'prova' });
         } finally {
             if (tempPool) try { await tempPool.close(); } catch (_) {}
         }
