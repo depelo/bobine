@@ -337,6 +337,215 @@
 .assegn-filtro-chip[data-filtro="UE"]:not(.active) strong { color: var(--forn-ue); }
 .assegn-filtro-chip[data-filtro="EXTRA_UE"]:not(.active) strong { color: var(--forn-extra-ue); }
 
+/* Dashboard avvisi */
+.assegn-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 10px 0;
+    padding: 8px 12px;
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: var(--radius-sm);
+}
+.assegn-avviso {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: #e65100;
+    cursor: pointer;
+    padding: 3px 0;
+    transition: all 0.15s;
+}
+.assegn-avviso:hover { color: var(--primary); text-decoration: underline; }
+.assegn-avviso.active {
+    font-weight: 700;
+    color: var(--primary);
+}
+.assegn-avviso-icon { flex-shrink: 0; }
+
+/* Toolbar ordinamento */
+.assegn-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.assegn-toolbar-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+.assegn-sort-btn {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-content);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+}
+.assegn-sort-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+.assegn-sort-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+.assegn-sort-arrow {
+    font-size: 0.6rem;
+    margin-left: 2px;
+}
+
+/* Icona email nella riga */
+.assegn-email-icon {
+    font-size: 0.7rem;
+    flex-shrink: 0;
+    margin-left: 2px;
+}
+.assegn-email-icon.has-email { color: var(--success); }
+.assegn-email-icon.no-email { color: var(--danger); opacity: 0.6; }
+
+/* Pannello espanso */
+.assegn-forn-detail {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    animation: assegnSlideDown 0.15s ease-out;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 20px;
+}
+@keyframes assegnSlideDown {
+    from { opacity: 0; max-height: 0; }
+    to { opacity: 1; max-height: 300px; }
+}
+.assegn-detail-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+}
+.assegn-detail-icon {
+    font-size: 0.82rem;
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+}
+.assegn-detail-label {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    min-width: 45px;
+}
+.assegn-detail-value {
+    font-size: 0.78rem;
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.assegn-detail-value.empty {
+    color: var(--text-muted);
+    font-style: italic;
+}
+.assegn-detail-edit-btn {
+    font-size: 0.7rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    cursor: pointer;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+.assegn-detail-edit-btn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+.assegn-detail-input {
+    font-size: 0.78rem;
+    padding: 2px 6px;
+    border: 1px solid var(--primary);
+    border-radius: 3px;
+    flex: 1;
+    outline: none;
+}
+.assegn-detail-input.success { border-color: var(--success); }
+.assegn-detail-input.error { border-color: var(--danger); }
+
+.assegn-forn-row.expanded {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom-color: transparent;
+}
+.assegn-forn-row { cursor: pointer; }
+
+/* Barra batch "Applica template a tutti" */
+.assegn-batch-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    animation: assegnSlideDown 0.15s ease-out;
+}
+.assegn-batch-info {
+    font-size: 0.78rem;
+    color: var(--text);
+    flex: 1;
+}
+.assegn-batch-info strong {
+    color: var(--primary);
+}
+.assegn-batch-select {
+    font-size: 0.78rem;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: white;
+    min-width: 160px;
+}
+.assegn-batch-btn {
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--primary);
+    background: var(--primary);
+    color: white;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.assegn-batch-btn:hover {
+    background: var(--primary-dark);
+}
+.assegn-batch-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Ultimo ordine badge */
+.assegn-ultimo-ordine {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-left: auto;
+    white-space: nowrap;
+    padding-right: 4px;
+}
+
 /* ============================================
    Template Email — Maschera gestione
    ============================================ */

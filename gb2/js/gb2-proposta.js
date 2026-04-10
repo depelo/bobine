@@ -1140,7 +1140,16 @@ const MrpProposta = (() => {
                 }
             } catch (_) { /* ignora */ }
 
-            // 3) Mostra modale editabile
+            // 3) Avviso banca mancante per rimessa diretta
+            if (prevData.warning_banca) {
+                const risposta = await modale('warning', 'Dati bancari mancanti',
+                    prevData.warning_banca + '<br><br>Vuoi procedere comunque con l\'invio?',
+                    [{ label: 'Invia comunque', value: true, style: 'primary' },
+                     { label: 'Annulla', value: false, style: 'secondary' }]);
+                if (!risposta) return { success: false, error: 'CANCELLED' };
+            }
+
+            // 4) Mostra modale editabile
             const risultato = await modaleAnteprimaEmail({
                 ordine: `${emesso.numord}/${emesso.serie}`,
                 fornitore: prevData.fornitore_nome,

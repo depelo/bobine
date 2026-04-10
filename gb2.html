@@ -672,16 +672,28 @@
                         </div>
                     </div>
 
+                    <!-- Dashboard avvisi (popolata dinamicamente) -->
+                    <div id="assegnDashboard" class="assegn-dashboard" style="display:none;"></div>
+
                     <!-- Ricerca -->
                     <div style="margin: 12px 0;">
                         <input type="text" id="assegnFiltro" class="mrp-control" placeholder="Cerca fornitore..." style="font-size: 0.82rem;" />
                     </div>
 
-                    <!-- Info conteggio -->
-                    <div id="assegnInfo" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;"></div>
+                    <!-- Info conteggio + filtri -->
+                    <div id="assegnInfo" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;"></div>
+
+                    <!-- Toolbar ordinamento -->
+                    <div id="assegnToolbar" class="assegn-toolbar">
+                        <span class="assegn-toolbar-label">Ordina:</span>
+                        <button class="assegn-sort-btn active" data-sort="nome">Nome</button>
+                        <button class="assegn-sort-btn" data-sort="codice">Codice</button>
+                        <button class="assegn-sort-btn" data-sort="tipo">Tipo</button>
+                        <button class="assegn-sort-btn" data-sort="ultimo_ordine">Ultimo ordine</button>
+                    </div>
 
                     <!-- Lista fornitori -->
-                    <div id="assegnFornitoriList" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;"></div>
+                    <div id="assegnFornitoriList" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;"></div>
 
                     <div id="assegnStatus" style="margin-top: 6px; font-size: 0.78rem;"></div>
                 </div>

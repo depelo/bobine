@@ -130,6 +130,63 @@ Server:
     tabelle NON esistono → errore a runtime. Queste tabelle stanno su MRP@163
     e si raggiungono SOLO con getPoolProd().
 
+--- PATTERN SCRITTURA SU ANAGRA E TABELLE UJET11 (CRITICO) ---
+
+  Le tabelle ERP (anagra, testord, movord, ecc.) in PRODUZIONE vivono su BCUBE2.
+  Le raggiungiamo in LETTURA tramite le 21 viste in MRP@163 (SELECT * FROM [BCUBE2]...).
+  Ma le viste NON supportano scrittura (UPDATE/ALTER TABLE) cross-server.
+
+  PROBLEMA: quando devi SCRIVERE su anagra (es. modifica email, banca, classificazione):
+  - In PROVA: getPoolMRP(userId) → UJET11 diretto → UPDATE funziona
+  - In PRODUZIONE: getPoolMRP(userId) → MRP@163 → vista → BCUBE2... UPDATE FALLISCE
+    perche SQL Server non permette UPDATE via linked server su viste
+
+  SOLUZIONE — CONNESSIONE DIRETTA TEMPORANEA:
+  In produzione, per QUALSIASI scrittura su tabelle UJET11 (anagra, testord, ecc.):
+
+    1. Apri una connessione temporanea direttamente a BCUBE2/UJET11:
+       const tempPool = await new sql.ConnectionPool({
+           server: PRODUCTION_PROFILE.server_ujet11,  // 'BCUBE2'
+           database: 'UJET11',
+           user: PRODUCTION_PROFILE.user,
+           password: PRODUCTION_PROFILE.password,
+           ...
+       }).connect();
+
+    2. Esegui UPDATE/ALTER TABLE su tempPool (diretto, niente viste)
+
+    3. CHIUDI tempPool nel finally (e un pool temporaneo, non un singleton)
+
+    4. Se hai fatto ALTER TABLE (aggiunta colonna), refresha la vista:
+       await poolProd.request().batch("EXEC sp_refreshview 'dbo.anagra'");
+
+  REGOLA PER NUOVE FUNZIONALITA:
+    Ogni volta che scrivi codice che fa UPDATE/INSERT/ALTER su tabelle ERP:
+    - Se isProduction(userId) → connessione diretta temporanea a BCUBE2
+    - Se !isProduction(userId) → getPoolMRP(userId) diretto
+    - Le LETTURE vanno sempre bene con getPoolMRP (via viste in prod, diretto in prova)
+
+  QUERY MISTE (JOIN tra tabelle ERP e tabelle GB2):
+    Le tabelle GB2 stanno SEMPRE su 163. In prova, se il server e diverso da 163,
+    il cross-database [GB2].[dbo].[...] non funziona da quel server.
+    Soluzione: fare DUE QUERY SEPARATE e merge in Node.js.
+    - Query 1: dati ERP via getPoolMRP(userId) → segue l'ambiente
+    - Query 2: dati GB2 via getPoolProd() → sempre su 163
+    - Merge: unisci i risultati in JavaScript per codice fornitore/chiave
+
+  VISTE MANCANTI IN PRODUZIONE:
+    Le 21 viste in MRP@163 non coprono tutte le tabelle UJET11. Mancano:
+    tabport, tabvalu, destdiv, codarfo (e altre).
+    Se una nuova funzionalita richiede una tabella non presente come vista:
+    - Chiedere a Fabrizio di creare la vista (stesso pattern SELECT * FROM [BCUBE2]...)
+    - Oppure fare query separate (la tabella e raggiungibile da getPoolMRP in prova)
+
+  ESEMPI GIA IMPLEMENTATI CON QUESTO PATTERN:
+    - PUT /fornitore-anagrafica/:codice — modifica email/banca in anagra
+    - PUT /fornitore-classificazione/:codice — modifica HH_TipoReport in anagra
+    - POST /deploy-anagra-column — ALTER TABLE + sp_refreshview + UPDATE
+    - GET /fornitori-template — due query separate (ERP + GB2) con merge
+
 --- GESTIONE CONNESSIONI — POOL PER UTENTE ---
 
   config/db-gb2.js gestisce i pool con isolamento per operatore:

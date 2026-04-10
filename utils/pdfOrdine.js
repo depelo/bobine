@@ -65,7 +65,7 @@ function fmtSconti(sc1, sc2, sc3) {
     return sconti.map(s => fmtNum(s, 2) + '%').join('+');
 }
 
-function s(val) { return (val || '').toString().trim(); }
+function s(val) { return (val || '').toString().replace(/\r/g, '').replace(/\u00d0/g, '').trim(); }
 
 // ============================================================
 // COSTANTI LAYOUT
@@ -257,56 +257,58 @@ function renderMetadati(doc, ordine, isEstero) {
     doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.5).strokeColor(C.lineaScuro).stroke();
     y += 6;
 
-    // --- Griglia metadati ---
-    const labelFont = () => doc.fontSize(6.5).font('Helvetica').fillColor(C.grigio);
-    const valueFont = () => doc.fontSize(7.5).font('Helvetica-Bold').fillColor(C.nero);
+    // --- Griglia metadati (con linee di separazione come nel Crystal) ---
+    const labelFont = () => doc.fontSize(7).font('Helvetica').fillColor(C.grigio);
+    const valueFont = () => doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero);
 
     // Riga 1: conto | pagamento | banca
-    labelFont().text('conto', x0, y);
-    valueFont().text(ordine.fornitore_codice || '', x0, y + 8);
+    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
+    y += 3;
 
-    labelFont().text('pagamento / terms', x0 + 80, y);
-    valueFont().text(s(ordine.pagamento_descr), x0 + 80, y + 8, { width: 180 });
+    labelFont().text('conto', x0 + 2, y);
+    valueFont().text(ordine.fornitore_codice || '', x0 + 2, y + 9);
+
+    labelFont().text('pagamento / terms', x0 + 82, y);
+    valueFont().text(s(ordine.pagamento_descr), x0 + 82, y + 9, { width: 220 });
 
     labelFont().text('banca d\'appoggio / bank', x0 + 330, y);
-    // Italia: banca da ordine (testord), Estero: banca da anagrafica fornitore
     const banca1 = isEstero ? s(ordine.fornitore_banca_1) : s(ordine.banca_appoggio_1);
     const banca2 = isEstero ? s(ordine.fornitore_banca_2) : s(ordine.banca_appoggio_2);
     const bancaStr = [banca1, banca2].filter(Boolean).join(' - ');
-    valueFont().text(bancaStr, x0 + 330, y + 8, { width: PAGE_W - 330 });
+    valueFont().text(bancaStr, x0 + 330, y + 9, { width: PAGE_W - 332 });
 
-    y += 22;
+    y += 24;
+    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
+    y += 3;
 
     // Riga 2: spedizione a mezzo del | vettore
-    labelFont().text('spedizione a mezzo del / despatch by', x0, y);
-
-    // @TRASP: traduzione td_acuradi
+    labelFont().text('spedizione a mezzo del / despatch by', x0 + 2, y);
     let trasp = '';
     const acuradi = s(ordine.acuradi);
     if (acuradi === 'D') trasp = 'Destinatario';
     else if (acuradi === 'V') trasp = 'Vettore';
     else if (acuradi === 'M') trasp = 'Mittente';
-    valueFont().text(trasp, x0 + 170, y);
+    valueFont().text(trasp, x0 + 180, y);
 
     labelFont().text('vettore', x0 + 330, y);
-    // TODO: descrizione vettore da tabella vettori (tb_desvett)
+
     y += 16;
+    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
+    y += 3;
 
     // Riga 3: porto | valuta | imballo
-    labelFont().text('porto', x0, y);
-    valueFont().text(s(ordine.porto_descr), x0, y + 8, { width: 170 });
+    labelFont().text('porto', x0 + 2, y);
+    valueFont().text(s(ordine.porto_descr), x0 + 2, y + 9, { width: 170 });
 
     labelFont().text('valuta', x0 + 200, y);
     const valutaLabel = isEstero ? s(ordine.valuta_nome) : s(ordine.valuta_sigla);
-    valueFont().text(valutaLabel || 'EUR', x0 + 200, y + 8);
+    valueFont().text(valutaLabel || 'EUR', x0 + 200, y + 9);
 
     labelFont().text('imballo / packaging', x0 + 400, y);
-    valueFont().text('GRATIS', x0 + 400, y + 8);
+    valueFont().text('GRATIS', x0 + 400, y + 9);
 
-    y += 22;
-
-    // Linea sotto metadati
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
+    y += 24;
+    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.5).strokeColor(C.lineaScuro).stroke();
     y += 4;
 
     return y;
@@ -314,27 +316,28 @@ function renderMetadati(doc, ordine, isEstero) {
 
 function getColonne(isEstero) {
     const x0 = MARGIN.left;
+    // Layout colonne allineato al Crystal BCube — piu largo e leggibile
     if (isEstero) {
         return [
-            { it: 'Cod.articolo', en: 'Our Code',     x: x0,       w: 62,  align: 'left' },
-            { it: 'Descrizione',  en: 'Description',   x: x0 + 62,  w: 185, align: 'left' },
-            { it: 'UM',           en: 'Unit',           x: x0 + 247, w: 25,  align: 'center' },
-            { it: 'Q.t\u00e0',   en: 'Quantity',       x: x0 + 272, w: 65,  align: 'right' },
-            { it: 'Prezzo',       en: 'Unit Price',     x: x0 + 337, w: 55,  align: 'right' },
-            { it: 'Sconti',       en: 'Disc.',          x: x0 + 392, w: 40,  align: 'right' },
-            { it: 'Cons.',        en: 'Deliv.time',     x: x0 + 432, w: 58,  align: 'center' },
-            { it: 'Note',         en: 'Remarks',        x: x0 + 490, w: 45,  align: 'left' }
+            { it: 'Cod.articolo', en: 'Our Code',     x: x0,       w: 65,  align: 'left' },
+            { it: 'Descrizione',  en: 'Description',   x: x0 + 65,  w: 180, align: 'left' },
+            { it: 'UM',           en: 'Unit',           x: x0 + 245, w: 25,  align: 'center' },
+            { it: 'Q.t\u00e0',   en: 'Quantity',       x: x0 + 270, w: 62,  align: 'right' },
+            { it: 'Prezzo',       en: 'Unit Price',     x: x0 + 332, w: 55,  align: 'right' },
+            { it: 'Sconti',       en: 'Disc.',          x: x0 + 387, w: 35,  align: 'right' },
+            { it: 'Cons.',        en: 'Deliv.time',     x: x0 + 422, w: 78,  align: 'center' },
+            { it: 'Note',         en: 'Remarks',        x: x0 + 500, w: 35,  align: 'left' }
         ];
     }
     return [
-        { it: 'Cod.articolo', en: 'Our Code',     x: x0,       w: 62,  align: 'left' },
-        { it: 'Descrizione',  en: 'Description',   x: x0 + 62,  w: 185, align: 'left' },
-        { it: 'UM',           en: 'Unit',           x: x0 + 247, w: 25,  align: 'center' },
-        { it: 'Quantit\u00e0',en: 'Quantity',       x: x0 + 272, w: 65,  align: 'right' },
-        { it: 'Prezzo',       en: 'Unit Price',     x: x0 + 337, w: 55,  align: 'right' },
-        { it: 'Sconti',       en: 'Discount',       x: x0 + 392, w: 40,  align: 'right' },
-        { it: 'Data Spedizione', en: 'Shipping Date', x: x0 + 432, w: 58, align: 'center' },
-        { it: 'Note',         en: 'Remarks',        x: x0 + 490, w: 45,  align: 'left' }
+        { it: 'Cod.articolo', en: 'Our Code',     x: x0,       w: 65,  align: 'left' },
+        { it: 'Descrizione',  en: 'Description',   x: x0 + 65,  w: 180, align: 'left' },
+        { it: 'UM',           en: 'Unit',           x: x0 + 245, w: 25,  align: 'center' },
+        { it: 'Quantit\u00e0',en: 'Quantity',       x: x0 + 270, w: 62,  align: 'right' },
+        { it: 'Prezzo',       en: 'Unit Price',     x: x0 + 332, w: 55,  align: 'right' },
+        { it: 'Sconti',       en: 'Discount',       x: x0 + 387, w: 35,  align: 'right' },
+        { it: 'Data Spedizione', en: 'Shipping Date', x: x0 + 422, w: 78, align: 'center' },
+        { it: 'Note',         en: 'Remarks',        x: x0 + 500, w: 35,  align: 'left' }
     ];
 }
 
@@ -343,14 +346,22 @@ function renderColonneHeader(doc, isEstero) {
     const cols = getColonne(isEstero);
     let y = doc._currentY || MARGIN.top;
 
-    const headerH = 22;
-    doc.rect(x0, y, PAGE_W, headerH).fillAndStroke('#F0F0F0', C.lineaGrigio);
-    doc.fillColor('#333333').fontSize(6).font('Helvetica-Bold');
+    const headerH = 24;
+    // Sfondo + bordo esterno
+    doc.rect(x0, y, PAGE_W, headerH).fillAndStroke('#EAEAEA', C.lineaScuro);
+
+    // Linee verticali tra colonne
+    doc.lineWidth(0.3).strokeColor(C.lineaGrigio);
+    for (let i = 1; i < cols.length; i++) {
+        doc.moveTo(cols[i].x, y).lineTo(cols[i].x, y + headerH).stroke();
+    }
+
+    // Testo colonne — label italiana + inglese sotto
     for (const col of cols) {
-        doc.text(col.it, col.x + 2, y + 3, { width: col.w - 4, align: col.align });
-        doc.fontSize(5).font('Helvetica').fillColor(C.grigio)
-            .text(col.en, col.x + 2, y + 12, { width: col.w - 4, align: col.align });
-        doc.fillColor('#333333').fontSize(6).font('Helvetica-Bold');
+        doc.fillColor('#333333').fontSize(7).font('Helvetica-Bold')
+            .text(col.it, col.x + 3, y + 3, { width: col.w - 6, align: col.align });
+        doc.fontSize(5.5).font('Helvetica').fillColor(C.grigio)
+            .text(col.en, col.x + 3, y + 13, { width: col.w - 6, align: col.align });
     }
 
     return y + headerH;
@@ -383,7 +394,7 @@ function renderPdf(doc, ordine, righe, isEstero, isProva) {
         const isDescRiga = s(r.mo_codart) === 'D'; // riga descrizione libera
 
         // Calcola altezza necessaria per questa riga (tutte le sotto-righe)
-        doc.fontSize(7).font('Helvetica');
+        doc.fontSize(8).font('Helvetica');
         const descr = s(r.mo_descr);
         const desint = s(r.mo_desint);
         const descrH = doc.heightOfString(descr, { width: cols[1].w - 4 });
@@ -403,7 +414,7 @@ function renderPdf(doc, ordine, righe, isEstero, isProva) {
 
         // --- Riga b: codart | descr | UM | quant | prezzo | sconti | data ---
         const yRow = y;
-        doc.fontSize(7).font('Helvetica').fillColor(C.nero);
+        doc.fontSize(8).font('Helvetica').fillColor(C.nero);
 
         // Codice articolo (vuoto per righe tipo "D")
         if (!isDescRiga) {
@@ -495,8 +506,16 @@ function renderPdf(doc, ordine, righe, isEstero, isProva) {
             y += 10;
         }
 
-        // Linea sotto la riga
+        // Bordo orizzontale sotto la riga + verticali tra colonne
         doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
+        // Linee verticali tra colonne (dall'inizio riga al fondo)
+        doc.lineWidth(0.2).strokeColor(C.lineaGrigio);
+        for (let i = 1; i < cols.length; i++) {
+            doc.moveTo(cols[i].x, yRow).lineTo(cols[i].x, y).stroke();
+        }
+        // Bordi laterali sinistro e destro
+        doc.moveTo(x0, yRow).lineTo(x0, y).stroke();
+        doc.moveTo(x0 + PAGE_W, yRow).lineTo(x0 + PAGE_W, y).stroke();
         y += 2;
     }
 

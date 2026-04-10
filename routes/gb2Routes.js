@@ -2347,29 +2347,70 @@ router.get('/fornitori-template', authMiddleware, async (req, res) => {
         const poolProd = await getPoolProd();
         const userId = getUserId(req);
 
-        // Fornitori da ordlist (ordini fornitore) + quelli che hanno già assegnazioni
-        const result = await poolProd.request()
+        // Due query separate: dati ERP (via getPoolMRP — segue ambiente) + dati GB2 (via poolProd — sempre su 163)
+        // Poi merge in Node. Questo funziona sia in produzione (viste MRP) che in prova (UJET11 diretto su qualsiasi server)
+        const poolERP = await getPoolMRP(userId);
+
+        // Query 1: fornitori attivi + dati anagrafica + pagamento + ultimo ordine (dal DB attivo)
+        const erpResult = await poolERP.request().query(`
+            ;WITH FornAttivi AS (
+                SELECT DISTINCT ol.ol_conto AS codice
+                FROM dbo.ordlist ol
+                WHERE ol.ol_tipork IN ('H','O','R','Y')
+                  AND ol.ol_conto IS NOT NULL AND ol.ol_conto <> 0
+            ),
+            UltimoOrdine AS (
+                SELECT td_conto, MAX(td_datord) AS ultimo_ordine
+                FROM dbo.testord
+                WHERE codditt = 'UJET11' AND td_tipork = 'O'
+                GROUP BY td_conto
+            )
+            SELECT f.codice,
+                   RTRIM(an.an_descr1) AS nome,
+                   RTRIM(ISNULL(an.an_email,'')) AS email,
+                   RTRIM(ISNULL(an.an_banc1,'')) AS banca1,
+                   RTRIM(ISNULL(an.an_banc2,'')) AS banca2,
+                   RTRIM(ISNULL(an.an_faxtlx,'')) AS fax,
+                   RTRIM(ISNULL(an.an_indir,'')) AS indirizzo,
+                   RTRIM(ISNULL(an.an_cap,'')) AS cap,
+                   RTRIM(ISNULL(an.an_citta,'')) AS citta,
+                   RTRIM(ISNULL(an.an_prov,'')) AS prov,
+                   RTRIM(ISNULL(an.an_pariva,'')) AS pariva,
+                   an.an_codpag AS codpag,
+                   RTRIM(ISNULL(p.tb_despaga,'')) AS pagamento,
+                   uo.ultimo_ordine
+            FROM FornAttivi f
+            LEFT JOIN dbo.anagra an ON f.codice = an.an_conto
+            LEFT JOIN dbo.tabpaga p ON an.an_codpag = p.tb_codpaga
+            LEFT JOIN UltimoOrdine uo ON f.codice = uo.td_conto
+            ORDER BY an.an_descr1
+        `);
+
+        // Query 2: assegnazioni template + fornitori extra dalle assegnazioni (da GB2 su 163)
+        const gb2Result = await poolProd.request()
             .input('uid', sql.Int, userId)
             .query(`
-                ;WITH FornAttivi AS (
-                    SELECT DISTINCT ol.ol_conto AS codice, an.an_descr1 AS nome
-                    FROM dbo.ordlist ol
-                    LEFT JOIN dbo.anagra an ON ol.ol_conto = an.an_conto
-                    WHERE ol.ol_tipork IN ('H','O','R','Y')
-                      AND ol.ol_conto IS NOT NULL
-                    UNION
-                    SELECT a.FornitoreCode, an.an_descr1
-                    FROM [GB2].[dbo].[EmailTemplateAssegnazioni] a
-                    LEFT JOIN dbo.anagra an ON a.FornitoreCode = an.an_conto
-                    WHERE a.IDUser = @uid
-                )
-                SELECT f.codice, f.nome,
-                       a.TemplateID AS templateId
-                FROM FornAttivi f
-                LEFT JOIN [GB2].[dbo].[EmailTemplateAssegnazioni] a
-                    ON a.FornitoreCode = f.codice AND a.IDUser = @uid
-                ORDER BY f.nome
+                SELECT FornitoreCode AS codice, TemplateID AS templateId
+                FROM [GB2].[dbo].[EmailTemplateAssegnazioni]
+                WHERE IDUser = @uid
             `);
+
+        // Merge: arricchisci fornitori ERP con templateId da GB2
+        const templateMap = {};
+        const extraCodici = new Set();
+        gb2Result.recordset.forEach(r => { templateMap[r.codice] = r.templateId; extraCodici.add(r.codice); });
+
+        const erpCodici = new Set(erpResult.recordset.map(r => r.codice));
+        const fornitori = erpResult.recordset.map(r => ({ ...r, templateId: templateMap[r.codice] || null }));
+
+        // Aggiungi fornitori che hanno assegnazioni ma non ordini (raro)
+        for (const codice of extraCodici) {
+            if (!erpCodici.has(codice)) {
+                fornitori.push({ codice, nome: '(fornitore ' + codice + ')', templateId: templateMap[codice] });
+            }
+        }
+
+        const result = { recordset: fornitori };
 
         // Template mode dall'utente
         const modeRes = await poolProd.request()
@@ -2389,6 +2430,44 @@ router.get('/fornitori-template', authMiddleware, async (req, res) => {
 });
 
 // Salva modalità template (predefiniti / ultima_scelta)
+// Assegna template in batch a una lista di fornitori
+router.put('/template-assegnazione-batch', authMiddleware, async (req, res) => {
+    try {
+        const { codici, templateId } = req.body;
+        if (!Array.isArray(codici) || !codici.length) return res.status(400).json({ error: 'codici obbligatorio (array)' });
+        const tid = templateId ? parseInt(templateId, 10) : null;
+        const userId = getUserId(req);
+        const poolProd = await getPoolProd();
+
+        let count = 0;
+        for (const codice of codici) {
+            if (tid) {
+                await poolProd.request()
+                    .input('uid', sql.Int, userId)
+                    .input('forn', sql.Int, parseInt(codice, 10))
+                    .input('tid', sql.Int, tid)
+                    .query(`
+                        MERGE [GB2].[dbo].[EmailTemplateAssegnazioni] AS target
+                        USING (SELECT @uid AS IDUser, @forn AS FornitoreCode) AS source
+                        ON target.IDUser = source.IDUser AND target.FornitoreCode = source.FornitoreCode
+                        WHEN MATCHED THEN UPDATE SET TemplateID = @tid, UpdatedAt = GETDATE()
+                        WHEN NOT MATCHED THEN INSERT (IDUser, FornitoreCode, TemplateID) VALUES (@uid, @forn, @tid);
+                    `);
+            } else {
+                await poolProd.request()
+                    .input('uid', sql.Int, userId)
+                    .input('forn', sql.Int, parseInt(codice, 10))
+                    .query('DELETE FROM [GB2].[dbo].[EmailTemplateAssegnazioni] WHERE IDUser = @uid AND FornitoreCode = @forn');
+            }
+            count++;
+        }
+        res.json({ success: true, count });
+    } catch (err) {
+        console.error('[Template Batch] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.put('/template-mode', authMiddleware, async (req, res) => {
     try {
         const poolProd = await getPoolProd();
@@ -2631,6 +2710,7 @@ router.get('/fornitori-classificazione', authMiddleware, async (req, res) => {
 });
 
 // Aggiorna classificazione di un singolo fornitore
+// Stesso pattern produzione/prova di fornitore-anagrafica
 router.put('/fornitore-classificazione/:codice', authMiddleware, async (req, res) => {
     try {
         const { tipo } = req.body;
@@ -2641,14 +2721,96 @@ router.put('/fornitore-classificazione/:codice', authMiddleware, async (req, res
         if (!codice || isNaN(codice)) {
             return res.status(400).json({ error: 'codice fornitore non valido' });
         }
-        const pool = await getPoolMRP(getUserId(req));
-        await pool.request()
-            .input('tipo', sql.VarChar, tipo)
-            .input('codice', sql.Int, codice)
-            .query('UPDATE dbo.anagra SET HH_TipoReport = @tipo WHERE an_conto = @codice');
-        res.json({ success: true });
+        const uid = getUserId(req);
+        const isProd = isProduction(uid);
+
+        let pool;
+        let tempPool = null;
+        if (isProd) {
+            const remoteServer = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
+            const dbName = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+            tempPool = await new sql.ConnectionPool({
+                server: remoteServer, database: dbName,
+                user: PRODUCTION_PROFILE.user, password: PRODUCTION_PROFILE.password,
+                options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+                pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
+            }).connect();
+            pool = tempPool;
+        } else {
+            pool = await getPoolMRP(uid);
+        }
+
+        try {
+            await pool.request()
+                .input('tipo', sql.VarChar, tipo)
+                .input('codice', sql.Int, codice)
+                .query('UPDATE dbo.anagra SET HH_TipoReport = @tipo WHERE an_conto = @codice');
+            res.json({ success: true });
+        } finally {
+            if (tempPool) try { await tempPool.close(); } catch (_) {}
+        }
     } catch (err) {
         console.error('[GB2] fornitore-classificazione PUT error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Aggiorna email e/o banca di un fornitore in anagrafica
+// In prova: scrive direttamente su UJET11 del server di prova via getPoolMRP
+// In produzione: connessione diretta temporanea a BCUBE2 (ALTER/UPDATE non passa via linked server viste)
+router.put('/fornitore-anagrafica/:codice', authMiddleware, async (req, res) => {
+    try {
+        const codice = parseInt(req.params.codice, 10);
+        if (!codice || isNaN(codice)) return res.status(400).json({ error: 'codice non valido' });
+
+        const { email, banca1, banca2 } = req.body;
+        const uid = getUserId(req);
+        const isProd = isProduction(uid);
+
+        const sets = [];
+        const params = { codice };
+        if (email !== undefined) { params.email = email || ''; sets.push('an_email = @email'); }
+        if (banca1 !== undefined) { params.banca1 = banca1 || ''; sets.push('an_banc1 = @banca1'); }
+        if (banca2 !== undefined) { params.banca2 = banca2 || ''; sets.push('an_banc2 = @banca2'); }
+        if (!sets.length) return res.status(400).json({ error: 'Nessun campo da aggiornare' });
+
+        let pool;
+        let tempPool = null;
+        if (isProd) {
+            // Produzione: connessione diretta a BCUBE2
+            const remoteServer = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
+            const dbName = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+            tempPool = await new sql.ConnectionPool({
+                server: remoteServer, database: dbName,
+                user: PRODUCTION_PROFILE.user, password: PRODUCTION_PROFILE.password,
+                options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+                pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
+            }).connect();
+            pool = tempPool;
+        } else {
+            pool = await getPoolMRP(uid);
+        }
+
+        try {
+            const request = pool.request().input('codice', sql.Int, codice);
+            if (params.email !== undefined) request.input('email', sql.VarChar, params.email);
+            if (params.banca1 !== undefined) request.input('banca1', sql.VarChar, params.banca1);
+            if (params.banca2 !== undefined) request.input('banca2', sql.VarChar, params.banca2);
+            const updateResult = await request.query(`UPDATE dbo.anagra SET ${sets.join(', ')} WHERE an_conto = @codice`);
+            const rowsAffected = updateResult.rowsAffected[0] || 0;
+            console.log('[GB2] fornitore-anagrafica UPDATE:', codice, '| sets:', sets.join(', '), '| rows:', rowsAffected, '| isProd:', isProd);
+
+            // Rileggi il valore appena scritto per conferma
+            const verifica = await pool.request().input('codice', sql.Int, codice)
+                .query('SELECT RTRIM(ISNULL(an_email,\'\')) AS email, RTRIM(ISNULL(an_banc1,\'\')) AS banca1, RTRIM(ISNULL(an_banc2,\'\')) AS banca2 FROM dbo.anagra WHERE an_conto = @codice');
+            const dopo = verifica.recordset[0] || {};
+
+            res.json({ success: true, rowsAffected, verifica: dopo });
+        } finally {
+            if (tempPool) try { await tempPool.close(); } catch (_) {}
+        }
+    } catch (err) {
+        console.error('[GB2] fornitore-anagrafica PUT error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -3253,12 +3415,40 @@ router.post('/preview-ordine-email', authMiddleware, async (req, res) => {
             destinatario = (dbProfile.email_prova || '').trim() || '(email prova non configurata)';
         }
 
+        // Check banca mancante per rimessa diretta
+        let warningBanca = null;
+        try {
+            const poolCheck = await getPoolMRP(userId);
+            const bancaCheck = await poolCheck.request()
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .query(`
+                    SELECT p.tb_despaga, t.td_banc1, a.an_banc1
+                    FROM dbo.testord t
+                    LEFT JOIN dbo.tabpaga p ON t.td_codpaga = p.tb_codpaga
+                    LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                    WHERE t.codditt='UJET11' AND t.td_tipork='O'
+                      AND t.td_anno=@anno AND t.td_serie=@serie AND t.td_numord=@numord
+                `);
+            if (bancaCheck.recordset.length) {
+                const bc = bancaCheck.recordset[0];
+                const pag = (bc.tb_despaga || '').toUpperCase();
+                const isRimDiretta = pag.includes('RIM') && pag.includes('DIR') || pag.includes('RIMESSA');
+                const bancaVuota = !((bc.td_banc1 || '').trim()) && !((bc.an_banc1 || '').trim());
+                if (isRimDiretta && bancaVuota) {
+                    warningBanca = 'Questo fornitore ha pagamento a Rimessa Diretta ma non ha dati bancari registrati. Il PDF verrà generato senza la banca d\'appoggio.';
+                }
+            }
+        } catch (_) { /* non critico */ }
+
         res.json({
             oggetto: preview.oggetto,
             corpo: preview.corpo,
             fornitore_nome: preview.fornitore_nome,
             destinatario,
-            ambiente
+            ambiente,
+            warning_banca: warningBanca
         });
     } catch (err) {
         console.error('[Preview Email] Errore:', err);

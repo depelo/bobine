@@ -873,14 +873,17 @@ const MrpDbConfig = (() => {
     // ASSEGNAZIONI FORNITORI — tab configurazione
     // --------------------------------------------------------
 
-    let _assegnFornitoriData = []; // cache dati caricati
+    let _assegnFornitoriData = []; // cache dati caricati (arricchiti con email, banca, ecc.)
     let _assegnTemplatesList = []; // cache template per i select
     let _assegnCurrentMode = 'ultima_scelta';
     let _classificazioneMap = {};  // cache codice → tipo (IT/UE/EXTRA_UE)
-    let _classificazioneFornitori = []; // tutti i fornitori dalla classificazione (codice+nome+tipo)
+    let _classificazioneFornitori = []; // tutti i fornitori dalla classificazione
     let _classificazioneDisponibile = false;
     let _filtroTipoAttivi = new Set(); // filtri tipo attivi (toggle cumulativo)
     let _mostraTuttiFornitori = false; // flag: mostra anche fornitori senza ordini
+    let _ordinamento = { campo: 'nome', dir: 'asc' }; // ordinamento corrente
+    let _filtroAvvisoAttivo = null; // 'no_email' | 'rim_no_banca' | null
+    let _expandedCodice = null; // codice fornitore con pannello espanso aperto
 
     // --------------------------------------------------------
     // CHECK COLONNA HH_TipoReport — fire-and-forget al boot
@@ -961,7 +964,6 @@ const MrpDbConfig = (() => {
 
     async function loadAssegnazioni() {
         const container = document.getElementById('assegnFornitoriList');
-        const infoEl = document.getElementById('assegnInfo');
         if (!container) return;
 
         container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.82rem;">Caricamento fornitori...</div>';
@@ -969,8 +971,8 @@ const MrpDbConfig = (() => {
         try {
             // Carica fornitori+assegnazioni, template, e classificazione in parallelo
             const [fornRes, tplRes, classRes] = await Promise.all([
-                fetch('/api/mrp/fornitori-template'),
-                fetch('/api/mrp/email-templates'),
+                fetch('/api/mrp/fornitori-template', { credentials: 'include' }),
+                fetch('/api/mrp/email-templates', { credentials: 'include' }),
                 fetch('/api/mrp/fornitori-classificazione', { credentials: 'include' })
             ]);
 
@@ -1002,13 +1004,24 @@ const MrpDbConfig = (() => {
             if (radio) radio.checked = true;
             aggiornaDescrizioneMode(_assegnCurrentMode);
 
-            // Render filtri classificazione + leggenda
+            // Reset state
             _filtroTipoAttivi.clear();
             _mostraTuttiFornitori = false;
+            _filtroAvvisoAttivo = null;
+            _expandedCodice = null;
+            _ordinamento = { campo: 'nome', dir: 'asc' };
+
+            // Render dashboard avvisi
+            renderDashboardAvvisi();
+
+            // Render filtri classificazione + leggenda
             renderClassificazioneFiltri();
 
+            // Render toolbar ordinamento
+            bindSortToolbar();
+
             // Render lista
-            renderAssegnazioni(getListaFornitoriCorrente());
+            renderAssegnazioni(getListaOrdinata());
         } catch (err) {
             console.error('[Assegnazioni] Errore:', err);
             container.innerHTML = '<div style="color:var(--danger); font-size:0.82rem;">Errore caricamento: ' + esc(err.message) + '</div>';
@@ -1032,10 +1045,18 @@ const MrpDbConfig = (() => {
 
         container.innerHTML = fornitori.map(f => {
             const selected = f.templateId || '';
-            const hasBadge = f.templateId ? '<span class="assegn-forn-badge">Assegnato</span>' : '';
             const tipo = _classificazioneMap[f.codice] || '';
+            const hasEmail = !!(f.email && f.email.trim());
+            const emailIcon = '<span class="assegn-email-icon ' + (hasEmail ? 'has-email' : 'no-email') + '" title="' + (hasEmail ? esc(f.email) : 'Email mancante') + '">\u2709</span>';
 
-            // Select classificazione (solo se la colonna esiste)
+            // Ultimo ordine compatto
+            let ultimoHtml = '';
+            if (f.ultimo_ordine) {
+                const d = new Date(f.ultimo_ordine);
+                ultimoHtml = '<span class="assegn-ultimo-ordine">' + d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' }) + '</span>';
+            }
+
+            // Select classificazione
             let tipoHtml = '';
             if (_classificazioneDisponibile) {
                 tipoHtml = '<select class="assegn-forn-tipo" data-forn="' + f.codice + '" data-tipo="' + tipo + '">' +
@@ -1046,11 +1067,15 @@ const MrpDbConfig = (() => {
             }
 
             return '<div class="assegn-forn-row" data-codice="' + f.codice + '" data-nome="' + esc(f.nome || '') + '"' +
-                (tipo ? ' data-tipo="' + tipo + '"' : '') + '>' +
+                (tipo ? ' data-tipo="' + tipo + '"' : '') +
+                ' data-email="' + (hasEmail ? '1' : '0') + '"' +
+                ' data-banca="' + ((f.banca1 || '').trim() ? '1' : '0') + '"' +
+                ' data-pagamento="' + esc(f.pagamento || '') + '">' +
                 tipoHtml +
                 '<span class="assegn-forn-codice">' + f.codice + '</span>' +
                 '<span class="assegn-forn-nome" title="' + esc(f.nome || '') + '">' + esc(f.nome || '(senza nome)') + '</span>' +
-                hasBadge +
+                emailIcon +
+                ultimoHtml +
                 '<select class="assegn-forn-select" data-forn="' + f.codice + '">' +
                 optionsHtml.replace('value="' + selected + '"', 'value="' + selected + '" selected') +
                 '</select>' +
@@ -1059,13 +1084,14 @@ const MrpDbConfig = (() => {
 
         // Bind: template select
         container.querySelectorAll('.assegn-forn-select').forEach(sel => {
-            sel.addEventListener('change', async () => {
+            sel.addEventListener('change', async (e) => {
+                e.stopPropagation();
                 const forn = sel.dataset.forn;
                 const tid = sel.value ? parseInt(sel.value, 10) : null;
                 sel.style.borderColor = 'var(--warning)';
                 try {
                     const res = await fetch('/api/mrp/email-template-assegnazione/' + forn, {
-                        method: 'PUT',
+                        method: 'PUT', credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ templateId: tid })
                     });
@@ -1076,38 +1102,400 @@ const MrpDbConfig = (() => {
                     if (f) f.templateId = tid;
                 } catch (err) {
                     sel.style.borderColor = 'var(--danger)';
-                    console.error('[Assegnazioni] Errore:', err);
                 }
             });
         });
 
         // Bind: classificazione select
         container.querySelectorAll('.assegn-forn-tipo').forEach(sel => {
-            sel.addEventListener('change', async () => {
+            sel.addEventListener('change', async (e) => {
+                e.stopPropagation();
                 const forn = sel.dataset.forn;
                 const newTipo = sel.value;
                 const row = sel.closest('.assegn-forn-row');
-
                 sel.dataset.tipo = newTipo;
                 if (row) row.dataset.tipo = newTipo;
-
                 try {
                     const res = await fetch('/api/mrp/fornitore-classificazione/' + forn, {
-                        method: 'PUT',
-                        credentials: 'include',
+                        method: 'PUT', credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ tipo: newTipo })
                     });
                     const data = await res.json();
-                    if (!data.success) throw new Error('Salvataggio fallito');
+                    if (!data.success) throw new Error('Errore');
                     _classificazioneMap[forn] = newTipo;
                 } catch (err) {
-                    console.error('[Classificazione] Errore:', err);
                     sel.style.outline = '2px solid var(--danger)';
                     setTimeout(() => { sel.style.outline = ''; }, 1500);
                 }
             });
         });
+
+        // Bind: click sulla riga → espandi dettagli
+        container.querySelectorAll('.assegn-forn-row').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (e.target.closest('select') || e.target.closest('button') || e.target.closest('input')) return;
+                toggleDetailPanel(row);
+            });
+        });
+    }
+
+    // --------------------------------------------------------
+    // PANNELLO DETTAGLI ESPANDIBILE
+    // --------------------------------------------------------
+
+    function toggleDetailPanel(row) {
+        const codice = row.dataset.codice;
+        const existing = row.nextElementSibling;
+
+        // Chiudi qualsiasi pannello aperto
+        document.querySelectorAll('.assegn-forn-detail').forEach(d => d.remove());
+        document.querySelectorAll('.assegn-forn-row.expanded').forEach(r => r.classList.remove('expanded'));
+
+        if (_expandedCodice === codice) {
+            _expandedCodice = null;
+            return;
+        }
+
+        _expandedCodice = codice;
+        row.classList.add('expanded');
+
+        const f = _assegnFornitoriData.find(x => String(x.codice) === codice) ||
+                  _classificazioneFornitori.find(x => String(x.codice) === parseInt(codice));
+        if (!f) return;
+
+        const hasEmail = !!(f.email && f.email.trim());
+        const hasBanca = !!((f.banca1 || '').trim());
+        const banca = [f.banca1, f.banca2].filter(Boolean).join(' - ') || '';
+        const citta = [f.cap, (f.citta || '').toUpperCase(), f.prov ? '(' + f.prov + ')' : ''].filter(Boolean).join(' ');
+        const ultimoStr = f.ultimo_ordine ? new Date(f.ultimo_ordine).toLocaleDateString('it-IT') : 'Nessuno';
+
+        const panel = document.createElement('div');
+        panel.className = 'assegn-forn-detail';
+        panel.innerHTML =
+            '<div class="assegn-detail-field" style="grid-column:1/3;">' +
+                '<span class="assegn-detail-icon">\uD83D\uDCCD</span>' +
+                '<span class="assegn-detail-value">' + esc(f.indirizzo || '') + (citta ? ', ' + esc(citta) : '') + '</span>' +
+            '</div>' +
+            '<div class="assegn-detail-field">' +
+                '<span class="assegn-detail-icon">\u2709</span>' +
+                '<span class="assegn-detail-label">Email</span>' +
+                '<span class="assegn-detail-value' + (hasEmail ? '' : ' empty') + '" id="detailEmail_' + codice + '">' + (hasEmail ? esc(f.email) : 'non impostata') + '</span>' +
+                '<button class="assegn-detail-edit-btn" data-field="email" data-codice="' + codice + '">\u270F</button>' +
+            '</div>' +
+            '<div class="assegn-detail-field">' +
+                '<span class="assegn-detail-icon">\uD83C\uDFE6</span>' +
+                '<span class="assegn-detail-label">Banca</span>' +
+                '<span class="assegn-detail-value' + (hasBanca ? '' : ' empty') + '" id="detailBanca_' + codice + '">' + (hasBanca ? esc(banca) : 'non impostata') + '</span>' +
+                '<button class="assegn-detail-edit-btn" data-field="banca" data-codice="' + codice + '">\u270F</button>' +
+            '</div>' +
+            '<div class="assegn-detail-field">' +
+                '<span class="assegn-detail-icon">\uD83D\uDCB3</span>' +
+                '<span class="assegn-detail-label">Pag.</span>' +
+                '<span class="assegn-detail-value">' + esc(f.pagamento || 'N/D') + '</span>' +
+            '</div>' +
+            '<div class="assegn-detail-field">' +
+                '<span class="assegn-detail-icon">\uD83D\uDCC5</span>' +
+                '<span class="assegn-detail-label">Ultimo</span>' +
+                '<span class="assegn-detail-value">' + ultimoStr + '</span>' +
+            '</div>' +
+            (f.pariva ? '<div class="assegn-detail-field"><span class="assegn-detail-label" style="margin-left:24px;">P.IVA</span><span class="assegn-detail-value">' + esc(f.pariva) + '</span></div>' : '');
+
+        row.after(panel);
+
+        // Bind edit buttons
+        panel.querySelectorAll('.assegn-detail-edit-btn').forEach(btn => {
+            btn.addEventListener('click', () => startInlineEdit(btn.dataset.codice, btn.dataset.field));
+        });
+    }
+
+    // --------------------------------------------------------
+    // MODIFICA INLINE EMAIL / BANCA
+    // --------------------------------------------------------
+
+    function startInlineEdit(codice, field) {
+        const f = _assegnFornitoriData.find(x => String(x.codice) === codice);
+        if (!f) return;
+
+        let currentValue, elId, placeholder;
+        if (field === 'email') {
+            currentValue = f.email || '';
+            elId = 'detailEmail_' + codice;
+            placeholder = 'email@fornitore.it';
+        } else {
+            currentValue = [f.banca1, f.banca2].filter(Boolean).join(' - ');
+            elId = 'detailBanca_' + codice;
+            placeholder = 'Nome banca - Filiale';
+        }
+
+        const span = document.getElementById(elId);
+        if (!span) return;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'assegn-detail-input';
+        input.value = currentValue;
+        input.placeholder = placeholder;
+        span.replaceWith(input);
+        input.focus();
+        input.select();
+
+        async function save() {
+            const newVal = input.value.trim();
+            try {
+                const body = {};
+                if (field === 'email') {
+                    body.email = newVal;
+                } else {
+                    const parts = newVal.split(/\s*-\s*/);
+                    body.banca1 = parts[0] || '';
+                    body.banca2 = parts[1] || '';
+                }
+                const res = await fetch('/api/mrp/fornitore-anagrafica/' + codice, {
+                    method: 'PUT', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error('Errore');
+
+                // Aggiorna cache
+                if (field === 'email') f.email = newVal;
+                else { f.banca1 = body.banca1; f.banca2 = body.banca2; }
+
+                input.className = 'assegn-detail-input success';
+                setTimeout(() => {
+                    const newSpan = document.createElement('span');
+                    newSpan.className = 'assegn-detail-value' + (newVal ? '' : ' empty');
+                    newSpan.id = elId;
+                    newSpan.textContent = newVal || 'non impostata';
+                    input.replaceWith(newSpan);
+                    // Aggiorna icona email nella riga se necessario
+                    if (field === 'email') {
+                        const row = document.querySelector('.assegn-forn-row[data-codice="' + codice + '"]');
+                        if (row) {
+                            const icon = row.querySelector('.assegn-email-icon');
+                            if (icon) {
+                                icon.className = 'assegn-email-icon ' + (newVal ? 'has-email' : 'no-email');
+                                icon.title = newVal || 'Email mancante';
+                            }
+                            row.dataset.email = newVal ? '1' : '0';
+                        }
+                        renderDashboardAvvisi(); // ricalcola avvisi
+                    }
+                }, 600);
+            } catch (err) {
+                input.className = 'assegn-detail-input error';
+            }
+        }
+
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+            if (e.key === 'Escape') {
+                const newSpan = document.createElement('span');
+                newSpan.className = 'assegn-detail-value' + (currentValue ? '' : ' empty');
+                newSpan.id = elId;
+                newSpan.textContent = currentValue || 'non impostata';
+                input.replaceWith(newSpan);
+            }
+        });
+    }
+
+    // --------------------------------------------------------
+    // DASHBOARD AVVISI
+    // --------------------------------------------------------
+
+    function renderDashboardAvvisi() {
+        const dashboard = document.getElementById('assegnDashboard');
+        if (!dashboard) return;
+
+        const lista = getListaFornitoriCorrente();
+        const senzaEmail = lista.filter(f => !(f.email && f.email.trim()));
+        const rimSenzaBanca = lista.filter(f => {
+            const pag = (f.pagamento || '').toUpperCase();
+            const isRim = (pag.includes('RIM') && pag.includes('DIR')) || pag.includes('RIMESSA');
+            const noBanca = !((f.banca1 || '').trim());
+            return isRim && noBanca;
+        });
+
+        const avvisi = [];
+        if (senzaEmail.length) avvisi.push({ tipo: 'no_email', text: senzaEmail.length + ' fornitori senza email', count: senzaEmail.length });
+        if (rimSenzaBanca.length) avvisi.push({ tipo: 'rim_no_banca', text: rimSenzaBanca.length + ' fornitori con Rimessa Diretta senza banca', count: rimSenzaBanca.length });
+
+        if (!avvisi.length) {
+            dashboard.style.display = 'none';
+            return;
+        }
+
+        dashboard.style.display = '';
+        dashboard.innerHTML = avvisi.map(a =>
+            '<div class="assegn-avviso' + (_filtroAvvisoAttivo === a.tipo ? ' active' : '') + '" data-avviso="' + a.tipo + '">' +
+            '<span class="assegn-avviso-icon">\u26A0\uFE0F</span>' +
+            '<span>' + a.text + '</span></div>'
+        ).join('');
+
+        dashboard.querySelectorAll('.assegn-avviso').forEach(el => {
+            el.addEventListener('click', () => {
+                const tipo = el.dataset.avviso;
+                if (_filtroAvvisoAttivo === tipo) {
+                    _filtroAvvisoAttivo = null;
+                    el.classList.remove('active');
+                } else {
+                    _filtroAvvisoAttivo = tipo;
+                    dashboard.querySelectorAll('.assegn-avviso').forEach(a => a.classList.remove('active'));
+                    el.classList.add('active');
+                }
+                applicaFiltri();
+            });
+        });
+    }
+
+    // --------------------------------------------------------
+    // ORDINAMENTO
+    // --------------------------------------------------------
+
+    function bindSortToolbar() {
+        document.querySelectorAll('.assegn-sort-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const campo = btn.dataset.sort;
+                if (_ordinamento.campo === campo) {
+                    _ordinamento.dir = _ordinamento.dir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    _ordinamento = { campo, dir: 'asc' };
+                }
+                document.querySelectorAll('.assegn-sort-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                // Aggiorna freccia
+                document.querySelectorAll('.assegn-sort-btn').forEach(b => {
+                    const arrow = b.querySelector('.assegn-sort-arrow');
+                    if (arrow) arrow.remove();
+                });
+                btn.innerHTML += '<span class="assegn-sort-arrow">' + (_ordinamento.dir === 'asc' ? ' \u25B2' : ' \u25BC') + '</span>';
+                renderAssegnazioni(getListaOrdinata());
+            });
+        });
+    }
+
+    function getListaOrdinata() {
+        const lista = [...getListaFornitoriCorrente()];
+        const { campo, dir } = _ordinamento;
+        const mult = dir === 'asc' ? 1 : -1;
+
+        lista.sort((a, b) => {
+            let va, vb;
+            switch (campo) {
+                case 'codice':
+                    return (a.codice - b.codice) * mult;
+                case 'tipo':
+                    va = _classificazioneMap[a.codice] || 'ZZZ';
+                    vb = _classificazioneMap[b.codice] || 'ZZZ';
+                    return va.localeCompare(vb) * mult;
+                case 'ultimo_ordine':
+                    va = a.ultimo_ordine ? new Date(a.ultimo_ordine).getTime() : 0;
+                    vb = b.ultimo_ordine ? new Date(b.ultimo_ordine).getTime() : 0;
+                    return (va - vb) * mult;
+                default: // nome
+                    va = (a.nome || '').toLowerCase();
+                    vb = (b.nome || '').toLowerCase();
+                    return va.localeCompare(vb) * mult;
+            }
+        });
+        return lista;
+    }
+
+    // --------------------------------------------------------
+    // APPLICA TEMPLATE IN BATCH
+    // --------------------------------------------------------
+
+    function renderBatchBar() {
+        // Rimuovi barra precedente
+        const old = document.getElementById('assegnBatchBar');
+        if (old) old.remove();
+
+        // Conta quanti fornitori visibili
+        const righeVisibili = document.querySelectorAll('.assegn-forn-row:not([style*="display: none"])');
+        const count = righeVisibili.length;
+        const hasFiltri = _filtroTipoAttivi.size > 0 || _filtroAvvisoAttivo ||
+                          (document.getElementById('assegnFiltro').value || '').trim();
+
+        // Mostra la barra solo se ci sono filtri attivi e almeno 1 fornitore visibile
+        if (!hasFiltri || count === 0) return;
+
+        const optionsHtml = '<option value="">(Scegli template)</option>' +
+            _assegnTemplatesList.map(t => '<option value="' + t.id + '">' + esc(t.nome) + (t.isSystem ? ' [S]' : '') + '</option>').join('') +
+            '<option value="__REMOVE__">\u274C Rimuovi assegnazione</option>';
+
+        const bar = document.createElement('div');
+        bar.id = 'assegnBatchBar';
+        bar.className = 'assegn-batch-bar';
+        bar.innerHTML =
+            '<span class="assegn-batch-info">\uD83C\uDFAF <strong>' + count + '</strong> fornitori selezionati dai filtri</span>' +
+            '<select class="assegn-batch-select" id="batchTemplateSelect">' + optionsHtml + '</select>' +
+            '<button class="assegn-batch-btn" id="btnApplicaBatch">Applica a tutti</button>';
+
+        const container = document.getElementById('assegnFornitoriList');
+        container.parentNode.insertBefore(bar, container);
+
+        document.getElementById('btnApplicaBatch').addEventListener('click', eseguiBatchAssegnazione);
+    }
+
+    async function eseguiBatchAssegnazione() {
+        const select = document.getElementById('batchTemplateSelect');
+        const btn = document.getElementById('btnApplicaBatch');
+        if (!select || !select.value) return;
+
+        const isRemove = select.value === '__REMOVE__';
+        const templateId = isRemove ? null : parseInt(select.value, 10);
+
+        // Raccogli i codici dei fornitori VISIBILI
+        const codici = [];
+        document.querySelectorAll('.assegn-forn-row:not([style*="display: none"])').forEach(row => {
+            codici.push(row.dataset.codice);
+        });
+
+        if (!codici.length) return;
+
+        btn.disabled = true;
+        btn.textContent = 'Applicando... (0/' + codici.length + ')';
+
+        try {
+            const res = await fetch('/api/mrp/template-assegnazione-batch', {
+                method: 'PUT', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ codici, templateId })
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Errore');
+
+            btn.textContent = '\u2713 ' + data.count + ' aggiornati!';
+            btn.style.background = 'var(--success)';
+            btn.style.borderColor = 'var(--success)';
+
+            // Aggiorna cache locale e select nelle righe
+            codici.forEach(c => {
+                const f = _assegnFornitoriData.find(x => String(x.codice) === c);
+                if (f) f.templateId = templateId;
+                const sel = document.querySelector('.assegn-forn-select[data-forn="' + c + '"]');
+                if (sel) sel.value = templateId || '';
+            });
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = 'Applica a tutti';
+                btn.style.background = '';
+                btn.style.borderColor = '';
+            }, 2000);
+        } catch (err) {
+            btn.textContent = 'Errore!';
+            btn.style.background = 'var(--danger)';
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = 'Applica a tutti';
+                btn.style.background = '';
+                btn.style.borderColor = '';
+            }, 2000);
+        }
     }
 
     // --------------------------------------------------------
@@ -1249,8 +1637,21 @@ const MrpDbConfig = (() => {
             const matchTesto = !filtroTesto || nome.includes(filtroTesto) || codice.includes(filtroTesto);
             const matchTipo = !hasFiltroTipo || _filtroTipoAttivi.has(tipo);
 
-            row.style.display = (matchTesto && matchTipo) ? '' : 'none';
+            // Filtro avviso
+            let matchAvviso = true;
+            if (_filtroAvvisoAttivo === 'no_email') {
+                matchAvviso = row.dataset.email === '0';
+            } else if (_filtroAvvisoAttivo === 'rim_no_banca') {
+                const pag = (row.dataset.pagamento || '').toUpperCase();
+                const isRim = (pag.includes('RIM') && pag.includes('DIR')) || pag.includes('RIMESSA');
+                matchAvviso = isRim && row.dataset.banca === '0';
+            }
+
+            row.style.display = (matchTesto && matchTipo && matchAvviso) ? '' : 'none';
         });
+
+        // Aggiorna barra batch dopo ogni filtro
+        renderBatchBar();
     }
 
     function filtroAssegnazioni() {
