@@ -115,25 +115,30 @@ router.get('/components/:padre', async (req, res) => {
         const compRes = await pool.request()
             .input('padre', sql.NVarChar, req.params.padre.trim())
             .query(`
-            SELECT DISTINCT 
-                LTRIM(RTRIM(v.MD_codfigli)) AS MD_codfigli, 
+            SELECT
+                LTRIM(RTRIM(v.MD_codfigli)) AS MD_codfigli,
                 v.md_riga AS et_layer_nriga,
                 ISNULL(v.DescrFiglio, '') AS figlioDesc,
-                CASE WHEN u.et_kcodart_layer IS NOT NULL THEN 1 ELSE 0 END AS IsConfigurata
+                CASE WHEN u.et_kcodart_layer IS NOT NULL THEN 1 ELSE 0 END AS IsConfigurata,
+                u.et_kcodart_form AS Form,
+                u.et_kcodart_form_pos AS FormPos
             FROM [PE].[dbo].[Vis_01_DBEtich] v
             LEFT JOIN [PE].[dbo].[UJ_etichette] u
                 ON LTRIM(RTRIM(v.MD_coddb)) = LTRIM(RTRIM(u.et_kcodart))
                AND LTRIM(RTRIM(v.MD_codfigli)) = LTRIM(RTRIM(u.et_kcodart_layer))
+               AND v.md_riga = u.et_layer_nriga
                AND u.originedati = 'A'
             WHERE LTRIM(RTRIM(v.MD_coddb)) = @padre
             ORDER BY MD_codfigli, et_layer_nriga
         `);
-        
+
         const components = (compRes.recordset || []).map((row) => ({
             MD_codfigli: row.MD_codfigli,
             et_layer_nriga: row.et_layer_nriga,
             figlioDesc: row.figlioDesc,
-            IsConfigurata: row.IsConfigurata
+            IsConfigurata: row.IsConfigurata,
+            Form: row.Form != null ? String(row.Form) : '',
+            FormPos: row.FormPos != null ? String(row.FormPos) : ''
         }));
 
         res.json({ components, padreDesc });

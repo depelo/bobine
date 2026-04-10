@@ -57,7 +57,7 @@
 <main class="container py-2">
     <header class="d-flex align-items-center gap-3 mb-4 flex-wrap">
         <button type="button" id="menuBtn" class="btn btn-outline-secondary shadow-sm" aria-label="Apri menu">☰ Menu</button>
-        <a href="layout-etichette.html" class="btn btn-outline-primary shadow-sm" style="font-weight: 500;">Layout Etichette</a>
+        <a href="layout-etichette.html" class="btn btn-outline-primary shadow-sm" style="font-weight: 500;">Form</a>
         <img src="logo.png" alt="Logo U.Jet" style="height: 38px; object-fit: contain;">
         <h1 class="h4 mb-0 text-danger border-start border-2 ps-3 fw-normal">Progettazione etichette</h1>
     </header>
@@ -100,6 +100,8 @@
                     <tr>
                         <th>Etichetta</th>
                         <th class="text-center" style="width: 80px;">Riga</th>
+                        <th>FormPos</th>
+                        <th>Form</th>
                         <th style="width: 220px;">Azione</th>
                     </tr>
                     </thead>
@@ -525,6 +527,8 @@
         (data.components || []).forEach((item) => {
             const figlio = item.MD_codfigli || "";
             const riga = item.et_layer_nriga || 0;
+            const formVal = item.Form || "";
+            const formPosVal = item.FormPos || "";
             const figlioDescHtml = item.figlioDesc ? ` <span class="text-muted ms-1 fw-normal" style="font-size: 0.9em;">- ${item.figlioDesc}</span>` : "";
             const isConfigurata = item.IsConfigurata === 1;
 
@@ -538,6 +542,8 @@
             tr.innerHTML = `
                 <td>${figlio}${figlioDescHtml}</td>
                 <td class="text-center">${riga}</td>
+                <td>${formPosVal}</td>
+                <td>${formVal}</td>
                 <td>${btnHtml}</td>
             `;
 
@@ -919,9 +925,12 @@
     backToComponentsBtn.addEventListener("click", async () => {
         if (!(await checkUnsavedChanges())) return;
         state.isDirty = false;
-        recordTableArea.classList.add("d-none");
-        resetRecordTableFormBorder();
-        step2Area.classList.remove("d-none");
+
+        try {
+            await loadComponents();
+        } catch (error) {
+            showAlert(error.message, "danger");
+        }
     });
 
     async function initEtPageData() {
