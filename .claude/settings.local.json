@@ -74,7 +74,8 @@
       "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\depel\\\\Documents\\\\progetto\\\\ujet && npx pm2 restart bobine\")",
       "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\depel\\\\Documents\\\\progetto\\\\ujet && npx pm2 restart bobine 2>&1\")",
       "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\depel\\\\Documents\\\\progetto\\\\ujet && pm2 restart bobine && pm2 logs bobine --lines 5 --nostream\")",
-      "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\depel\\\\Documents\\\\progetto\\\\ujet'; pm2 restart bobine; Start-Sleep -Seconds 2; pm2 logs bobine --lines 5 --nostream\")"
+      "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\depel\\\\Documents\\\\progetto\\\\ujet'; pm2 restart bobine; Start-Sleep -Seconds 2; pm2 logs bobine --lines 5 --nostream\")",
+      "Bash(node -c gb2/js/gb2-theme.js)"
     ]
   }
 }

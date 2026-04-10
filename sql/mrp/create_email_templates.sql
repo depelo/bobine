@@ -81,5 +81,13 @@ BEGIN
         CREATE INDEX IX_EmailTemplates_Active ON [GB2].[dbo].[EmailTemplates] (IsActive) WHERE IsActive = 1;
         PRINT 'Colonna IsActive aggiunta a EmailTemplates.';
     END
+
+    -- v3: aggiunta colonna FornitoreCode (messaggi personalizzati per fornitore)
+    IF NOT EXISTS (SELECT 1 FROM [GB2].sys.columns WHERE object_id = OBJECT_ID('[GB2].[dbo].[EmailTemplates]') AND name = 'FornitoreCode')
+    BEGIN
+        ALTER TABLE [GB2].[dbo].[EmailTemplates] ADD FornitoreCode INT NULL;
+        CREATE INDEX IX_EmailTemplates_FornitoreCode ON [GB2].[dbo].[EmailTemplates] (FornitoreCode) WHERE FornitoreCode IS NOT NULL;
+        PRINT 'Colonna FornitoreCode aggiunta a EmailTemplates.';
+    END
 END
 GO

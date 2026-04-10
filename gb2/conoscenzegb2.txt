@@ -71,22 +71,67 @@ Stack:
 
 Server:
   - 192.168.0.163 (PC-SVILUPPO): server dove gira l'app (server.js/PM2, porta 443).
-    Ospita i database: MRP, GB2, GA, BOB, CAP, PE. Ha anche una COPIA di UJET11
-    che e solo per test/sviluppo — NON contiene dati reali.
+    Ospita i database: MRP, GB2, GA, BOB, CAP, PE, e una COPIA di UJET11 (solo prova).
   - bcube2: server ERP di produzione. Ospita il VERO database UJET11 con i dati
     reali usati dai 40 dipendenti. L'app NON si connette direttamente a bcube2.
 
-Database utilizzati:
-  - MRP (su 192.168.0.163): database operativo PRODUZIONE. Contiene:
-    - Tabelle custom: ordini_emessi
-    - Stored procedures: usp_CreaOrdineFornitore, usp_AggiornaStatoInvioOrdine
-    - SP di prova suffissate: usp_CreaOrdineFornitore_T{id}, ecc.
-    - 21 VISTE che espongono le tabelle di UJET11 su bcube2 (create da Fabrizio)
-  - GB2 (su 192.168.0.163): silos dell'app (Operators, UserPreferences, TestProfiles)
-  - UJET11 (su bcube2): dati ERP BCube reali — in produzione accessibile via viste MRP
-  - UJET11 (su server di prova): copia locale — in prova accessibile DIRETTAMENTE
+--- MAPPA DEI DATABASE E COME SI RAGGIUNGONO ---
 
-Gestione connessioni — ARCHITETTURA POOL PER UTENTE:
+  Ci sono due categorie di dati, ognuna con il suo percorso di accesso:
+
+  A) DATI ERP (tabelle UJET11: artico, anagra, movord, ordlist, testord, ecc.)
+     Questi dati vivono su BCUBE2 in produzione. L'app non si collega mai
+     direttamente a BCUBE2. Invece:
+     - IN PRODUZIONE: il pool si connette a MRP@163 dove ci sono 21 viste
+       che fanno da ponte trasparente (SELECT * FROM [BCUBE2].[UJET11].[dbo].[...]).
+       Le query vedono le stesse tabelle come se fossero locali.
+     - IN PROVA: il pool si connette DIRETTAMENTE a UJET11 sul server di prova
+       (es. UJET11@163 che e una copia, o altri server configurati dall'operatore).
+       Le viste NON vengono usate. Le stesse query funzionano perche i nomi
+       delle tabelle sono identici.
+     Il codice non deve preoccuparsi di questa differenza: usa getPoolMRP(userId)
+     e il pool giusto viene restituito automaticamente.
+
+  B) DATI LOCALI SU 163 (sempre li, sia in produzione che in prova)
+     Tre database fisici su 192.168.0.163 che NON cambiano mai a seconda del modo:
+     - MRP: tabelle custom (ordini_emessi, Politica, ScMin, VarScMin),
+            stored procedures (usp_CreaOrdineFornitore + varianti _T{id}),
+            e le 21 viste ponte verso BCUBE2.
+     - GB2:  silos dell'app (Operators, UserPreferences, TestProfiles,
+            ElaborazioniMRP, SnapshotProposte).
+     - Analisi_scorte (su bcube2, via vista Riep in MRP): tabella ETL di Fabrizio.
+     Questi si raggiungono SEMPRE con getPoolProd(), che punta a MRP@163.
+     Per GB2 si usa naming cross-database: [GB2].[dbo].[NomeTabella].
+
+--- REGOLA DECISIONALE PER SCEGLIERE IL POOL (CRITICA) ---
+
+  Quando scrivi una nuova query, chiediti:
+  "Sto leggendo/scrivendo dati ERP che in produzione vivono su BCUBE2?"
+
+  SI (artico, movord, ordlist, anagra, testord, movmag, artpro, ecc.)
+    → usa getPoolMRP(userId)
+    In produzione passera dalle viste MRP@163 → BCUBE2.
+    In prova andra diretto su UJET11@server_prova.
+
+  NO (ordini_emessi, SP, [GB2].*, ElaborazioniMRP, SnapshotProposte, ecc.)
+    → usa getPoolProd()
+    Punta SEMPRE a MRP@163 indipendentemente dal modo dell'operatore.
+    Per tabelle GB2 usa naming cross-database [GB2].[dbo].[...].
+
+  CASO SPECIALE — Riep:
+    → usa getPoolRiep(userId)
+    In produzione: passa dalla vista in MRP (→ BCUBE2.Analisi_scorte).
+    In prova CON Riep locale: usa il pool prova.
+    In prova SENZA Riep locale: fallback a getPoolProd() (dati reali, sola lettura).
+
+  ERRORE TIPICO DA EVITARE:
+    Usare getPoolMRP(userId) per ordini_emessi o tabelle GB2. In prova,
+    getPoolMRP restituisce il pool verso UJET11@server_prova dove quelle
+    tabelle NON esistono → errore a runtime. Queste tabelle stanno su MRP@163
+    e si raggiungono SOLO con getPoolProd().
+
+--- GESTIONE CONNESSIONI — POOL PER UTENTE ---
+
   config/db-gb2.js gestisce i pool con isolamento per operatore:
 
   poolProd (singleton condiviso):
@@ -101,12 +146,11 @@ Gestione connessioni — ARCHITETTURA POOL PER UTENTE:
     - MAX 5 connessioni per pool di prova (1 operatore alla volta)
     - Pool chiuso automaticamente dopo 30 minuti di inattivita (cleanup ogni 5 min)
     - Con 8 operatori simultanei: max 1 pool prod (30 conn) + 8 pool prova (5 conn ciascuno)
-      = 70 connessioni teoriche, ~20 reali. SQL Server ne gestisce migliaia.
 
-  Funzioni principali (tutte accettano userId):
-    getPoolMRP(userId)      — pool attivo per l'utente (produzione o prova)
-    getPoolProd()            — SEMPRE il pool produzione (per SP, GB2, TestProfiles)
-    getPoolRiep(userId)      — pool per query Riep (fallback a produzione se manca in prova)
+  Funzioni esportate (tutte accettano userId):
+    getPoolMRP(userId)       — pool DATI ERP: produzione (→ viste MRP) o prova (→ UJET11 diretto)
+    getPoolProd()            — pool DATI LOCALI 163: MRP, GB2, SP (SEMPRE lo stesso)
+    getPoolRiep(userId)      — pool per Riep con fallback a produzione se manca in prova
     getActiveProfile(userId) — profilo attivo per l'utente
     isProduction(userId)     — true se l'utente e in produzione
     switchToTest(userId, p)  — crea pool prova individuale per l'utente
@@ -118,21 +162,14 @@ Gestione connessioni — ARCHITETTURA POOL PER UTENTE:
   config/db.js (principale): pool per GA, PE, ET, BOB (NON usato da GB2)
   Le rotte GB2 usano SOLO db-gb2.js, MAI db.js
 
-ARCHITETTURA VISTE MRP (SOLO PRODUZIONE):
-  Le 21 viste nel database [MRP] su 192.168.0.163 fungono da ponte trasparente
-  verso il database UJET11 di PRODUZIONE su bcube2. Ogni vista ha lo stesso nome
-  e le stesse colonne della tabella originale in UJET11.
+--- LISTA COMPLETA DELLE 21 VISTE MRP (ponte verso BCUBE2, SOLO PRODUZIONE) ---
 
-  QUESTE VISTE SERVONO SOLO IN PRODUZIONE. In prova, il pool si connette
-  direttamente a UJET11 sul server di prova, bypassando completamente MRP e le viste.
-
-  LISTA COMPLETA DELLE 21 VISTE (tutte puntano a BCUBE2):
-    artico, anagra, artfasi, artpro, artmaga, artdef, artdefx,
-    movord, movdis, movmag, ordlist, testord,
-    tabmaga, tabnuma, tabciva, tabpaga,
-    listprod, zzassdisp,
-    __MOTIPORK, __MMTIPORK,
-    Riep (punta a BCUBE2.Analisi_scorte.dbo.Riep — tabella ETL di Fabrizio)
+  artico, anagra, artfasi, artpro, artmaga, artdef, artdefx,
+  movord, movdis, movmag, ordlist, testord,
+  tabmaga, tabnuma, tabciva, tabpaga,
+  listprod, zzassdisp,
+  __MOTIPORK, __MMTIPORK,
+  Riep (punta a BCUBE2.Analisi_scorte.dbo.Riep — tabella ETL di Fabrizio)
 
   REGOLA INVIOLABILE: le viste devono SEMPRE puntare a [BCUBE2].[UJET11].[dbo].*
   (cross-server). NON modificarle mai per profili di prova — la prova non usa le viste.
@@ -578,65 +615,31 @@ SWITCH PROFILO:
 
 
 ================================================================================
-11. ARCHITETTURA PRODUZIONE VS PROVA
+11. DETTAGLI PRODUZIONE VS PROVA
 ================================================================================
 
-Questa sezione e CRITICA per capire come l'app gestisce i due ambienti.
+Per l'architettura pool e la regola decisionale getPoolMRP vs getPoolProd,
+vedi la sezione 2 "ARCHITETTURA TECNICA". Qui solo i dettagli operativi.
 
-PRODUZIONE:
-  Pool          → MRP su 192.168.0.163
-  Query dati    → dbo.artico, dbo.anagra, ecc. = VISTE in MRP → [BCUBE2].[UJET11]
-  SP            → usp_CreaOrdineFornitore (senza suffisso) su MRP@163
-                  Scrive su [BCUBE2].[UJET11].[dbo].[testord], [movord], [tabnuma]
-  Riep          → vista MRP → [BCUBE2].[Analisi_scorte].[dbo].[Riep]
+ESEMPIO CONCRETO — produzione vs prova (profilo test ID=3, server=192.168.1.50):
 
-PROVA (profilo test ID=3, server=192.168.1.50):
-  Pool          → UJET11 su 192.168.1.50 (DIRETTO, niente viste)
-  Query dati    → dbo.artico, dbo.anagra, ecc. = TABELLE REALI in UJET11
-  SP            → usp_CreaOrdineFornitore_T3 su MRP@163 (suffisso _T3)
-                  Scrive su [192.168.1.50].[UJET11].[dbo].[testord], [movord], [tabnuma]
-  Riep          → se dbo.Riep esiste in UJET11@prova: usa quella
-                  se non esiste: fallback a MRP@163 (dati produzione) + avviso
+  PRODUZIONE:
+    getPoolMRP(userId) → MRP@163 → query su viste → dati da [BCUBE2].[UJET11]
+    SP: usp_CreaOrdineFornitore (senza suffisso)
+        Scrive su [BCUBE2].[UJET11].[dbo].[testord], [movord], [tabnuma]
 
-PERCHE LE VISTE NON SERVONO IN PROVA:
-  In produzione, UJET11 e su un server diverso (bcube2) da MRP (163).
-  Le viste in MRP fanno da ponte cross-server.
-  In prova, il pool si connette DIRETTAMENTE a UJET11 sul server di prova.
-  "dbo.artico" diventa la tabella reale, non una vista. Il codice delle route
-  e identico — cambia solo dove punta il pool.
+  PROVA:
+    getPoolMRP(userId) → UJET11@192.168.1.50 (DIRETTO, niente viste)
+    SP: usp_CreaOrdineFornitore_T3 su MRP@163 (suffisso _T3)
+        Scrive su [192.168.1.50].[UJET11].[dbo].[testord], [movord], [tabnuma]
 
 SP CON SUFFISSO UNIVOCO:
-  Ogni profilo di prova genera SP con suffisso _T{ID} su MRP@163:
-  - usp_CreaOrdineFornitore_T3
-  - usp_AggiornaStatoInvioOrdine_T3
+  Ogni profilo di prova genera SP con suffisso _T{ID} su MRP@163.
   Le SP usano {{UJET11_REF}} risolto al deploy: [SERVER_PROVA].[UJET11].[dbo]
   Cosi convivono tutte su MRP senza conflitti.
   Quando un profilo viene eliminato, le SP suffissate vengono droppate (pulizia).
-
   Le route chiamano getSpName('usp_CreaOrdineFornitore', profile) che restituisce
   il nome con o senza suffisso in base al profilo attivo.
-  Le SP vengono SEMPRE chiamate dal pool produzione (getPoolProd) perche risiedono
-  su MRP@163, non sul server di prova.
-
-RIEP (CASO SPECIALE):
-  Riep e una tabella ETL in [BCUBE2].[Analisi_scorte].[dbo].[Riep] (345k righe).
-  NON e una tabella UJET11, quindi non esiste automaticamente sui server di prova.
-  getPoolRiep() gestisce il fallback:
-  - Produzione o prova con Riep: usa il pool attivo
-  - Prova senza Riep: usa il pool produzione (dati reali, sola lettura)
-  Il flag testHasRiep e impostato al momento dello switch.
-
-TABELLA ordini_emessi IN PROVA:
-  La tabella ordini_emessi normalmente vive su MRP. In prova, viene auto-deployata
-  su UJET11 del server di prova (l'operatore lavora tutto dentro UJET11).
-
-POOL PER UTENTE (RISOLTO):
-  Ogni operatore ha il suo pool indipendente (Map<userId, UserState>).
-  Lo switch di un operatore NON impatta gli altri. Dimensionamento:
-  - Pool produzione: max 30 connessioni, condiviso tra tutti
-  - Pool prova: max 5 connessioni ciascuno, individuale per operatore
-  - Cleanup automatico: pool inattivi chiusi dopo 30 minuti
-  - Shutdown graceful: tutti i pool chiusi su SIGINT/SIGTERM
 
 
 ================================================================================
@@ -793,12 +796,9 @@ CAMBIO ELABORAZIONE:
   Se il fingerprint cambia (nuova elaborazione MRP notturna), il frontend svuota
   MrpApp.state.ordiniConfermati per evitare ordini basati su proposte obsolete.
 
-POOL — REGOLA CRITICA:
-  - ElaborazioniMRP e SnapshotProposte: query su poolGB2 = getPoolProd()
-    (DB GB2 su 192.168.0.163)
-  - ordini_emessi: query su getPoolProd() SEMPRE (DB MRP su 192.168.0.163)
-  - ordlist (fingerprint): query su pool MRP dell'utente (produzione o prova)
-  MAI usare getPoolMRP(userId) per ordini_emessi — in prova punterebbe a UJET11!
+POOL — vedi regola decisionale in sezione 2. In sintesi per questa sezione:
+  - ElaborazioniMRP, SnapshotProposte, ordini_emessi → getPoolProd() (dati locali 163)
+  - ordlist (fingerprint) → getPoolMRP(userId) (dati ERP, segue il modo dell'utente)
 
 AMBIENTE:
   Ogni riga in ordini_emessi ha una colonna 'ambiente' ('produzione' o 'prova').
@@ -853,11 +853,6 @@ FALLBACK QUERY:
 18. PROBLEMI NOTI E AVVERTENZE
 ================================================================================
 
-NOTA — POOL PER UTENTE:
-  Ogni operatore ha il suo pool isolato. Fino a 8 operatori contemporanei
-  sono supportati senza problemi (testato: ~20 connessioni reali su ~70 teoriche).
-  I pool inattivi da piu di 30 minuti vengono chiusi automaticamente.
-
 ATTENZIONE — COLONNE ORDLIST IN PRODUZIONE:
   ol_numord, ol_anno, ol_serie NON ESISTONO nella tabella ordlist
   del DB di produzione. Il collegamento proposta→ordine passa per
@@ -868,11 +863,6 @@ ATTENZIONE — PDF SOLO IN MEMORIA:
   Ricaricando la pagina si perdono. Rigenerabili da GET /ordine-pdf/.
   Lo storico ordini rigenera i PDF on-demand via GET /ordine-pdf/:anno/:serie/:numord.
 
-NOTA — ORDINI_EMESSI SEMPRE SU POOLPROD:
-  La tabella ordini_emessi risiede in MRP su 192.168.0.163 (dove le SP scrivono).
-  Tutte le query (storico, emissioni, email tracking) devono usare getPoolProd(),
-  MAI getPoolMRP(userId) — in prova quest'ultimo punta a UJET11 del server di prova.
-
 NOTA — FALLBACK COLONNE NUOVE:
   Le query su ordini_emessi con colonne email_inviata/ambiente usano try/catch
   con fallback a query senza quelle colonne. Questo garantisce che l'app funzioni
@@ -882,6 +872,15 @@ NOTA — COLONNA Riep:
   La colonna nella vista/tabella Riep si chiama "Qta" con accento (ASCII 224).
   Il driver tedious la restituisce come "Qt" nel JSON, ma nelle query SQL
   va usata come [Qta] per evitare "Invalid column name".
+
+ATTENZIONE — MCP MSSQL TOOL NON AFFIDABILE PER OPERAZIONI DB:
+  Il tool MCP mssql-ujet11 (se presente) si connette al database UJET11, NON a GB2.
+  Non supporta operazioni cross-database. Le tabelle create con il tool MCP finiscono
+  in UJET11 invece che in GB2, causando errori silenziosi.
+  PER QUALSIASI OPERAZIONE SUL DATABASE (create table, query, insert, alter, etc.)
+  USARE SEMPRE Node.js diretto con uno script temporaneo, es:
+    node -e "const sql = require('mssql'); ..." oppure uno script .js dedicato.
+  Questo garantisce il controllo completo su quale database viene usato.
 
 
 ================================================================================

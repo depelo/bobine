@@ -622,9 +622,9 @@
                             </div>
                             <div style="margin-top: 10px;">
                                 <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Corpo</label>
-                                <textarea id="tplCorpo" class="mrp-control" rows="10" style="resize: vertical; font-size: 0.85rem; font-family: inherit;" placeholder="Gentile {fornitore},&#10;&#10;in allegato l'ordine..."></textarea>
+                                <div id="tplCorpo" class="mrp-control tpl-corpo-editor" contenteditable="true" style="min-height:180px; max-height:400px; overflow-y:auto; resize:vertical; font-size:0.85rem; font-family:inherit; line-height:1.5; white-space:pre-wrap; padding:8px 10px;" data-placeholder="Gentile {fornitore},&#10;&#10;in allegato l'ordine..."></div>
                             </div>
-                            <div class="tpl-variabili">
+                            <div id="tplVariabiliBar" class="tpl-variabili">
                                 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">Variabili:</span>
                                 <button type="button" class="tpl-var-btn" data-var="{fornitore}">{fornitore}</button>
                                 <button type="button" class="tpl-var-btn" data-var="{numord}">{numord}</button>

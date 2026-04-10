@@ -227,38 +227,73 @@
 
 /* ============================================================
    EDIT MODE — Editing contestuale (click su elementi)
+   Tutti gli elementi mappati in ELEMENT_VAR_MAP sono selezionabili.
    ============================================================ */
-body.theme-edit-mode .mrp-table tbody tr:not(.mrp-row-generale-totale) {
+
+/* Crosshair universale su tutti gli elementi pickable */
+body.theme-edit-mode .mrp-table tbody tr:not(.mrp-row-generale-totale),
+body.theme-edit-mode .mrp-table thead th,
+body.theme-edit-mode .mrp-modal-overlay tr,
+body.theme-edit-mode .mrp-header,
+body.theme-edit-mode .mrp-card,
+body.theme-edit-mode .mrp-control,
+body.theme-edit-mode .mrp-btn-primary,
+body.theme-edit-mode .mrp-btn-secondary,
+body.theme-edit-mode .mrp-dropdown,
+body.theme-edit-mode .mrp-opzioni-fieldset,
+body.theme-edit-mode .mrp-label,
+body.theme-edit-mode .mrp-status,
+body.theme-edit-mode .mrp-table-wrapper,
+body.theme-edit-mode .mrp-progressivi-title,
+body.theme-edit-mode .btn-matrioska,
+body.theme-edit-mode .mrp-modal,
+body.theme-edit-mode .mrp-modal-header,
+body.theme-edit-mode .proposta-fornitore-header,
+body.theme-edit-mode .proposta-stats,
+body.theme-edit-mode .proposta-fornitore,
+body.theme-edit-mode .btn-emetti-ordine,
+body.theme-edit-mode .storico-tabella th,
+body.theme-edit-mode .mrp-decisione-panel,
+body.theme-edit-mode .decisione-header,
+body.theme-edit-mode .mrp-btn-conferma,
+body.theme-edit-mode .mrp-btn-escludi,
+body.theme-edit-mode .mrp-db-badge,
+body.theme-edit-mode .cfg-tab,
+body.theme-edit-mode .mrp-main {
     cursor: crosshair !important;
     transition: outline 0.1s;
 }
-body.theme-edit-mode .mrp-table tbody tr:hover {
+
+/* Outline dashed su hover per tutti gli elementi pickable */
+body.theme-edit-mode .mrp-table tbody tr:not(.mrp-row-generale-totale):hover,
+body.theme-edit-mode .mrp-modal-overlay tr:hover,
+body.theme-edit-mode .mrp-card:hover,
+body.theme-edit-mode .mrp-control:hover,
+body.theme-edit-mode .mrp-btn-primary:hover,
+body.theme-edit-mode .mrp-btn-secondary:hover,
+body.theme-edit-mode .mrp-dropdown:hover,
+body.theme-edit-mode .mrp-opzioni-fieldset:hover,
+body.theme-edit-mode .mrp-table-wrapper:hover,
+body.theme-edit-mode .btn-matrioska:hover,
+body.theme-edit-mode .mrp-modal:hover,
+body.theme-edit-mode .mrp-modal-header:hover,
+body.theme-edit-mode .proposta-fornitore-header:hover,
+body.theme-edit-mode .proposta-fornitore:hover,
+body.theme-edit-mode .btn-emetti-ordine:hover,
+body.theme-edit-mode .mrp-decisione-panel:hover,
+body.theme-edit-mode .decisione-header:hover,
+body.theme-edit-mode .mrp-btn-conferma:hover,
+body.theme-edit-mode .mrp-btn-escludi:hover,
+body.theme-edit-mode .mrp-db-badge:hover,
+body.theme-edit-mode .cfg-tab:hover {
     outline: 2px dashed var(--primary);
     outline-offset: -2px;
 }
-body.theme-edit-mode .mrp-table thead th {
-    cursor: crosshair !important;
-}
-body.theme-edit-mode .mrp-table thead th:hover {
-    outline: 2px dashed var(--warning);
-    outline-offset: -2px;
-}
 
-/* In edit mode, anche le righe dentro i modali sono selezionabili */
-body.theme-edit-mode .mrp-modal-overlay tr {
-    cursor: crosshair !important;
-    transition: outline 0.1s;
-}
-body.theme-edit-mode .mrp-modal-overlay tr:hover {
-    outline: 2px dashed var(--primary);
-    outline-offset: -2px;
-}
-
-/* In edit mode, header e card sono selezionabili */
-body.theme-edit-mode .mrp-header {
-    cursor: crosshair !important;
-}
-body.theme-edit-mode .mrp-header:hover {
+/* Header e th con outline warning (piu visibile su sfondi scuri) */
+body.theme-edit-mode .mrp-table thead th:hover,
+body.theme-edit-mode .mrp-header:hover,
+body.theme-edit-mode .storico-tabella th:hover {
     outline: 2px dashed var(--warning);
     outline-offset: -2px;
 }
@@ -383,36 +418,133 @@ body.theme-edit-mode .theme-edit-fab { display: flex; }
 .mrp-theme-feedback.success { color: var(--success); }
 .mrp-theme-feedback.error { color: var(--danger); }
 
-/* Mini-picker header/body */
+/* Mini-picker header */
 .mrp-mini-picker-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    margin-bottom: 4px;
     font-weight: 600;
     font-size: 0.82rem;
 }
-.mrp-mini-picker-body {
+
+/* Mini-picker controls container */
+.mrp-mini-picker-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Singola sezione nel mini-picker */
+.mrp-mini-section {
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.mrp-mini-section:last-child { border-bottom: none; }
+.mrp-mini-section-label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+}
+.mrp-mini-sublabel {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    min-width: 44px;
+}
+
+/* Riga colore nel mini-picker */
+.mrp-mini-color-row {
     display: flex;
     align-items: center;
     gap: 8px;
+    margin-top: 3px;
 }
 .mrp-mini-swatch {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     border-radius: 6px;
     border: 2px solid var(--border);
     cursor: pointer;
     padding: 0;
+    flex-shrink: 0;
 }
 .mrp-mini-hex {
-    width: 80px;
+    width: 78px;
     padding: 4px 6px;
     border: 1px solid var(--border);
     border-radius: 4px;
     font-family: monospace;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     text-align: center;
+}
+
+/* Font select nel mini-picker */
+.mrp-mini-font-select {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.82rem;
+    background: var(--input-bg);
+    cursor: pointer;
+}
+
+/* Radius slider nel mini-picker */
+.mrp-mini-radius-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.mrp-mini-radius-slider {
+    flex: 1;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+.mrp-mini-radius-value {
+    font-family: monospace;
+    font-size: 0.78rem;
+    min-width: 36px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+/* === PANNELLO: righe font e radius === */
+.mrp-theme-row-font {
+    display: grid;
+    grid-template-columns: 1fr 160px 24px;
+    gap: 8px;
+    align-items: center;
+}
+.mrp-theme-font-select {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background: var(--input-bg);
+}
+.mrp-theme-row-radius {
+    display: grid;
+    grid-template-columns: 1fr 100px 40px 24px;
+    gap: 8px;
+    align-items: center;
+}
+.mrp-theme-radius-slider {
+    width: 100%;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+.mrp-theme-radius-value {
+    font-family: monospace;
+    font-size: 0.78rem;
+    text-align: center;
+    color: var(--text-muted);
 }
 
 /* Button tema nella toolbar */

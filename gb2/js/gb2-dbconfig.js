@@ -555,6 +555,7 @@ const MrpDbConfig = (() => {
                     badges += '<span class="tpl-badge tpl-badge-operatore">' + esc(t.nomeOperatore) + '</span>';
                 }
                 if (!isActive) badges += '<span class="tpl-badge tpl-badge-inattivo">Disattivato</span>';
+                if (t.fornitoreCode) badges += '<span class="tpl-badge" style="background:#dbeafe;color:#1d4ed8;">\u2605 Fornitore #' + t.fornitoreCode + '</span>';
 
                 let actions = '';
                 if (isMine && !isSystem) {
@@ -586,11 +587,12 @@ const MrpDbConfig = (() => {
         _editingTemplateId = id || null;
         const editor = document.getElementById('templateEditor');
         const title = document.getElementById('tplEditorTitle');
+        const varBar = document.getElementById('tplVariabiliBar');
+        const corpoEl = document.getElementById('tplCorpo');
         editor.style.display = 'block';
 
         if (id) {
             title.textContent = 'Modifica template';
-            // Fetch template data
             fetch('/api/mrp/email-templates/' + id)
                 .then(r => r.json())
                 .then(data => {
@@ -599,8 +601,10 @@ const MrpDbConfig = (() => {
                     document.getElementById('tplNome').value = t.nome || '';
                     document.getElementById('tplLingua').value = t.lingua || 'it';
                     document.getElementById('tplOggetto').value = t.oggetto || '';
-                    document.getElementById('tplCorpo').value = t.corpo || '';
+                    corpoEl.innerHTML = _textToChips(t.corpo || '');
                     document.getElementById('tplDefault').checked = !!t.isDefault;
+                    // Nascondi variabili per messaggi personalizzati (hanno fornitoreCode)
+                    if (varBar) varBar.style.display = t.fornitoreCode ? 'none' : '';
                 })
                 .catch(err => {
                     console.error('[Templates] Errore fetch template:', err);
@@ -611,8 +615,10 @@ const MrpDbConfig = (() => {
             document.getElementById('tplNome').value = '';
             document.getElementById('tplLingua').value = 'it';
             document.getElementById('tplOggetto').value = 'Ordine {numord} - U.Jet S.r.l.';
-            document.getElementById('tplCorpo').value = '';
+            corpoEl.innerHTML = '';
             document.getElementById('tplDefault').checked = false;
+            // Mostra variabili per nuovi template
+            if (varBar) varBar.style.display = '';
         }
 
         // Scroll editor into view
@@ -629,7 +635,8 @@ const MrpDbConfig = (() => {
         const nome = document.getElementById('tplNome').value.trim();
         const lingua = document.getElementById('tplLingua').value;
         const oggetto = document.getElementById('tplOggetto').value.trim();
-        const corpo = document.getElementById('tplCorpo').value.trim();
+        const corpoEl = document.getElementById('tplCorpo');
+        const corpo = _chipsToText(corpoEl).trim();
         const isDefault = document.getElementById('tplDefault').checked;
 
         if (!nome || !oggetto || !corpo) {
@@ -743,7 +750,7 @@ const MrpDbConfig = (() => {
 
     function previewTemplate() {
         const oggetto = document.getElementById('tplOggetto').value;
-        const corpo = document.getElementById('tplCorpo').value;
+        const corpo = _chipsToText(document.getElementById('tplCorpo'));
         const firma = document.getElementById('firmaEmail').value || 'Mario Rossi - Ufficio Acquisti';
 
         const dati = {
@@ -795,15 +802,55 @@ const MrpDbConfig = (() => {
         overlay.classList.add('open');
     }
 
+    // --- Helpers chip placeholder ---
+    function _chipHtml(varName) {
+        // varName = "{fornitore}" o "fornitore"
+        const v = varName.replace(/[{}]/g, '');
+        return '<span class="tpl-chip" contenteditable="false" data-var="' + v + '">{' + v + '}</span>';
+    }
+
+    function _textToChips(text) {
+        // Converte "{fornitore}" nel testo in chip HTML, preservando newline
+        return (text || '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/\{(\w+)\}/g, (_, v) => _chipHtml(v))
+            .replace(/\n/g, '<br>');
+    }
+
+    function _chipsToText(editorEl) {
+        // Serializza il contenteditable in testo con {variabile}
+        let result = '';
+        editorEl.childNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                result += node.textContent;
+            } else if (node.nodeName === 'BR') {
+                result += '\n';
+            } else if (node.classList && node.classList.contains('tpl-chip')) {
+                result += '{' + (node.dataset.var || '') + '}';
+            } else if (node.nodeName === 'DIV' || node.nodeName === 'P') {
+                // Chrome wraps lines in divs
+                if (result.length > 0 && !result.endsWith('\n')) result += '\n';
+                node.childNodes.forEach(child => {
+                    if (child.nodeType === Node.TEXT_NODE) {
+                        result += child.textContent;
+                    } else if (child.nodeName === 'BR') {
+                        result += '\n';
+                    } else if (child.classList && child.classList.contains('tpl-chip')) {
+                        result += '{' + (child.dataset.var || '') + '}';
+                    }
+                });
+            }
+        });
+        return result;
+    }
+
     function insertVariable(varName) {
-        const textarea = document.getElementById('tplCorpo');
-        if (!textarea) return;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const text = textarea.value;
-        textarea.value = text.substring(0, start) + varName + text.substring(end);
-        textarea.selectionStart = textarea.selectionEnd = start + varName.length;
-        textarea.focus();
+        const editor = document.getElementById('tplCorpo');
+        if (!editor) return;
+        editor.focus();
+        // Inserisci chip alla posizione del cursore
+        const chip = _chipHtml(varName);
+        document.execCommand('insertHTML', false, chip);
     }
 
     function showTplStatus(msg, color) {

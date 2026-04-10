@@ -2114,11 +2114,12 @@ router.get('/email-templates', authMiddleware, async (req, res) => {
                 SELECT t.ID as id, t.IDUser as idUser, t.Nome as nome, t.Oggetto as oggetto,
                        t.Corpo as corpo, t.Lingua as lingua, t.IsDefault as isDefault,
                        t.IsSystem as isSystem, t.IsActive as isActive, t.Ordine as ordine,
+                       t.FornitoreCode as fornitoreCode,
                        u.Name AS nomeOperatore
                 FROM [GB2].[dbo].[EmailTemplates] t
                 LEFT JOIN [GA].[dbo].[Users] u ON t.IDUser = u.IDUser
                 WHERE (t.IsSystem = 1 OR t.IDUser IS NOT NULL) ${whereActive}
-                ORDER BY t.IsSystem DESC, t.Ordine ASC, t.Nome ASC
+                ORDER BY t.IsSystem DESC, t.FornitoreCode ASC, t.Ordine ASC, t.Nome ASC
             `);
 
         // Aggiunge flag isMine per il frontend
@@ -2143,6 +2144,7 @@ router.get('/email-templates/:id', authMiddleware, async (req, res) => {
                 SELECT t.ID as id, t.IDUser as idUser, t.Nome as nome, t.Oggetto as oggetto,
                        t.Corpo as corpo, t.Lingua as lingua, t.IsDefault as isDefault,
                        t.IsSystem as isSystem, t.IsActive as isActive,
+                       t.FornitoreCode as fornitoreCode,
                        u.Name AS nomeOperatore
                 FROM [GB2].[dbo].[EmailTemplates] t
                 LEFT JOIN [GA].[dbo].[Users] u ON t.IDUser = u.IDUser
@@ -2160,7 +2162,7 @@ router.post('/email-templates', authMiddleware, async (req, res) => {
     try {
         const pool = await getPoolProd();
         const userId = getUserId(req);
-        const { nome, oggetto, corpo, lingua, isDefault } = req.body;
+        const { nome, oggetto, corpo, lingua, isDefault, fornitoreCode } = req.body;
 
         if (!nome || !corpo) return res.status(400).json({ error: 'Nome e corpo obbligatori' });
 
@@ -2178,10 +2180,11 @@ router.post('/email-templates', authMiddleware, async (req, res) => {
             .input('corpo', sql.NVarChar(sql.MAX), corpo)
             .input('lingua', sql.VarChar(10), lingua || 'it')
             .input('isDefault', sql.Bit, isDefault ? 1 : 0)
+            .input('fornCode', sql.Int, fornitoreCode || null)
             .query(`
-                INSERT INTO [GB2].[dbo].[EmailTemplates] (IDUser, Nome, Oggetto, Corpo, Lingua, IsDefault, IsSystem, IsActive)
+                INSERT INTO [GB2].[dbo].[EmailTemplates] (IDUser, Nome, Oggetto, Corpo, Lingua, IsDefault, IsSystem, IsActive, FornitoreCode)
                 OUTPUT INSERTED.ID as id
-                VALUES (@uid, @nome, @oggetto, @corpo, @lingua, @isDefault, 0, 1)
+                VALUES (@uid, @nome, @oggetto, @corpo, @lingua, @isDefault, 0, 1, @fornCode)
             `);
 
         res.json({ success: true, id: result.recordset[0].id });
@@ -2876,11 +2879,16 @@ async function _compilaEmailOrdine(userId, anno, serie, numord, template_id) {
     // Risoluzione template (cascade)
     let template = null;
 
+    let isPersonalizzato = false;
+
     if (template_id) {
         const tplRes = await pool.request()
             .input('tid', sql.Int, template_id)
-            .query(`SELECT Oggetto, Corpo FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @tid AND IsActive = 1`);
-        if (tplRes.recordset.length) template = tplRes.recordset[0];
+            .query(`SELECT Oggetto, Corpo, FornitoreCode FROM [GB2].[dbo].[EmailTemplates] WHERE ID = @tid AND IsActive = 1`);
+        if (tplRes.recordset.length) {
+            template = tplRes.recordset[0];
+            isPersonalizzato = template.FornitoreCode != null;
+        }
     }
 
     if (!template) {
@@ -2940,7 +2948,11 @@ async function _compilaEmailOrdine(userId, anno, serie, numord, template_id) {
     };
 
     let oggetto, corpo;
-    if (template) {
+    if (template && isPersonalizzato) {
+        // Messaggio personalizzato: testo fisso, nessuna compilazione placeholder
+        oggetto = template.Oggetto;
+        corpo = template.Corpo;
+    } else if (template) {
         oggetto = compilaTemplate(template.Oggetto, datiTemplate);
         corpo = compilaTemplate(template.Corpo, datiTemplate);
     } else {

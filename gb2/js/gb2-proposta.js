@@ -1150,7 +1150,8 @@ const MrpProposta = (() => {
                 corpo: corpoPreview,
                 anno: emesso.anno,
                 serie: emesso.serie,
-                numord: emesso.numord
+                numord: emesso.numord,
+                fornitore_codice: emesso.fornitore_codice || emesso.ol_conto
             });
 
             if (!risultato) return { success: false, error: 'CANCELLED' };
@@ -1169,7 +1170,7 @@ const MrpProposta = (() => {
     }
 
     /** Modale con anteprima email editabile. Restituisce { oggetto, corpo } oppure null se annullato */
-    function modaleAnteprimaEmail({ ordine, fornitore, destinatario, ambiente, oggetto, corpo, batchMode, anno, serie, numord }) {
+    function modaleAnteprimaEmail({ ordine, fornitore, destinatario, ambiente, oggetto, corpo, batchMode, anno, serie, numord, fornitore_codice }) {
         return new Promise(resolve => {
             // Usa overlay dedicato (layer sopra il batch/generic)
             const overlay = document.getElementById('modalAnteprimaOverlay');
@@ -1183,6 +1184,24 @@ const MrpProposta = (() => {
                 ? '<span style="background:#f59e0b; color:white; padding:2px 8px; border-radius:10px; font-size:0.72rem; font-weight:600;">PROVA</span>'
                 : '';
 
+            // Pulsante "Salva come personalizzato" in alto — nascosto, appare solo dopo modifiche
+            const salvaPersHtml = fornitore_codice
+                ? '<div id="prevSalvaPersonalizzato" style="display:none; gap:6px; align-items:center; margin-bottom:12px; padding:8px 10px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; position:relative;">' +
+                    '<span id="prevPersHelp" style="cursor:pointer; font-size:0.85rem; color:#3b82f6; line-height:1; user-select:none;" title="Info">\u2753</span>' +
+                    '<input type="text" id="prevPersNome" class="mrp-control" placeholder="Nome del messaggio..." style="flex:1; font-size:0.8rem; padding:4px 8px;" />' +
+                    '<button id="btnSalvaPersonalizzato" style="white-space:nowrap; font-size:0.78rem; padding:5px 12px; border-radius:5px; border:1px solid #3b82f6; background:#3b82f6; color:white; cursor:pointer; font-weight:600;">\u2605 Salva personalizzato per ' + esc(fornitore) + '</button>' +
+                    '<div id="prevPersTip" style="display:none; position:absolute; top:calc(100% + 8px); left:0; right:0; background:white; border:1px solid #cbd5e1; border-radius:8px; padding:12px 14px; box-shadow:0 4px 16px rgba(0,0,0,0.12); font-size:0.76rem; line-height:1.55; color:var(--text); z-index:10;">' +
+                        '<div style="position:absolute; top:-6px; left:24px; width:12px; height:12px; background:white; border-left:1px solid #cbd5e1; border-top:1px solid #cbd5e1; transform:rotate(45deg);"></div>' +
+                        '<div style="margin-bottom:6px;"><strong>Salva come personalizzato</strong></div>' +
+                        'Salva questo messaggio <strong>cos\u00ec com\'\u00e8</strong> per riutilizzarlo<br>con questo fornitore ai prossimi invii.<br><br>' +
+                        'Lo troverai nel <strong>menu di selezione</strong> sotto<br>la voce <em>\u2605 Personalizzati</em>.<br><br>' +
+                        'Se invece vuoi un messaggio che si <strong>adatti<br>automaticamente</strong> (nome fornitore, numero ordine,<br>totale, ecc.) vai in <strong>Impostazioni \u2192 Template Email</strong>.' +
+                    '</div>' +
+                  '</div>'
+                : '';
+            const _origOggetto = oggetto;
+            const _origCorpo = corpo;
+
             elTitolo.textContent = batchMode ? 'Modifica Email' : 'Anteprima Email';
             elIcona.textContent = batchMode ? '\u270E' : '\u2709';
             elMsg.innerHTML =
@@ -1191,10 +1210,8 @@ const MrpProposta = (() => {
                         '<span style="font-size:0.82rem; color:var(--text-muted);">Ordine <strong>' + esc(ordine) + '</strong> \u2014 ' + esc(fornitore) + '</span>' +
                         ambienteBadge +
                     '</div>' +
-                    '<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">Destinatario: <strong>' + esc(destinatario) + '</strong></div>' +
-                    '<div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:12px; opacity:0.7;">' +
-                        '\uD83D\uDCA1 Per creare un template riutilizzabile con variabili vai a <em>Impostazioni \u2192 Template Email</em>' +
-                    '</div>' +
+                    '<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:8px;">Destinatario: <strong>' + esc(destinatario) + '</strong></div>' +
+                    salvaPersHtml +
                     '<label style="font-size:0.78rem; font-weight:600; color:var(--text-muted);">Oggetto</label>' +
                     '<input type="text" id="prevEmailOggetto" class="mrp-control" value="' + escAttr(oggetto) + '" style="font-size:0.88rem; font-weight:600; margin-bottom:10px;" />' +
                     '<label style="font-size:0.78rem; font-weight:600; color:var(--text-muted);">Corpo</label>' +
@@ -1235,11 +1252,15 @@ const MrpProposta = (() => {
                     if (!vals) return;
                     btnSalva.disabled = true; btnSalva.textContent = 'Salvataggio...';
                     try {
-                        await fetch(`${MrpApp.API_BASE}/email-drafts`, {
+                        const resp = await fetch(`${MrpApp.API_BASE}/email-drafts`, {
                             credentials: 'include', method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ anno, serie, numord, oggetto: vals.oggetto, corpo: vals.corpo })
                         });
+                        if (!resp.ok) {
+                            const errData = await resp.json().catch(() => ({}));
+                            throw new Error(errData.error || 'Errore HTTP ' + resp.status);
+                        }
                         btnSalva.textContent = '\u2714 Bozza Salvata';
                         btnSalva.style.background = '#dcfce7';
                         btnSalva.style.borderColor = '#16a34a';
@@ -1280,6 +1301,99 @@ const MrpProposta = (() => {
             elAzioni.appendChild(btnPrimario);
 
             overlay.classList.add('open');
+
+            // --- Mostra/nascondi barra "Salva personalizzato" solo dopo modifiche ---
+            const salvaPersDiv = document.getElementById('prevSalvaPersonalizzato');
+            if (salvaPersDiv) {
+                const checkModifiche = () => {
+                    const curOgg = document.getElementById('prevEmailOggetto').value.trim();
+                    const curCorpo = document.getElementById('prevEmailCorpo').value.trim();
+                    const modificato = curOgg !== _origOggetto || curCorpo !== _origCorpo;
+                    salvaPersDiv.style.display = modificato ? 'flex' : 'none';
+                };
+                document.getElementById('prevEmailOggetto').addEventListener('input', checkModifiche);
+                document.getElementById('prevEmailCorpo').addEventListener('input', checkModifiche);
+
+                // --- Tooltip toggle al click su ❓ ---
+                const helpBtn = document.getElementById('prevPersHelp');
+                const tip = document.getElementById('prevPersTip');
+                if (helpBtn && tip) {
+                    helpBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        tip.style.display = tip.style.display === 'block' ? 'none' : 'block';
+                    });
+                    // Chiudi cliccando altrove
+                    overlay.addEventListener('click', () => { tip.style.display = 'none'; });
+                }
+            }
+
+            // --- Listener "Salva come personalizzato" ---
+            const btnSalvaPers = document.getElementById('btnSalvaPersonalizzato');
+            if (btnSalvaPers) {
+                btnSalvaPers.addEventListener('click', async () => {
+                    const nomeInput = document.getElementById('prevPersNome');
+                    const nome = (nomeInput && nomeInput.value.trim()) || '';
+                    if (!nome) { nomeInput.style.borderColor = 'var(--danger)'; nomeInput.focus(); return; }
+                    nomeInput.style.borderColor = '';
+
+                    const vals = getEditValues();
+                    if (!vals) return;
+
+                    btnSalvaPers.disabled = true;
+                    btnSalvaPers.textContent = 'Salvataggio...';
+                    try {
+                        const resp = await fetch(`${MrpApp.API_BASE}/email-templates`, {
+                            credentials: 'include', method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                nome: nome,
+                                oggetto: vals.oggetto,
+                                corpo: vals.corpo,
+                                lingua: 'it',
+                                isDefault: false,
+                                fornitoreCode: fornitore_codice
+                            })
+                        });
+                        if (!resp.ok) {
+                            const errData = await resp.json().catch(() => ({}));
+                            throw new Error(errData.error || 'Errore HTTP ' + resp.status);
+                        }
+                        const savedData = await resp.json();
+                        const newId = savedData.id;
+                        btnSalvaPers.textContent = '\u2714 Salvato!';
+                        btnSalvaPers.style.background = '#16a34a';
+                        // Ricarica i template per aggiornare i dropdown
+                        await caricaTemplateEmail();
+                        // Aggiorna e seleziona nel dropdown del widget fornitore
+                        const fk = String(fornitore_codice);
+                        const widgetSel = document.querySelector('.select-template-forn[data-forn="' + fk + '"]');
+                        if (widgetSel && newId) {
+                            // Ricostruisci le options con optgroup
+                            const tempDiv = document.createElement('div');
+                            tempDiv.innerHTML = buildTemplateSelect(fk);
+                            const newSelect = tempDiv.querySelector('select');
+                            if (newSelect) {
+                                widgetSel.innerHTML = newSelect.innerHTML;
+                                widgetSel.value = String(newId);
+                            }
+                            // Salva assegnazione
+                            onTemplateSelectChange(fk, newId);
+                        }
+                        // Aggiorna anche i valori originali per nascondere la barra
+                        if (salvaPersDiv) salvaPersDiv.style.display = 'none';
+                        setTimeout(() => {
+                            btnSalvaPers.disabled = false;
+                            btnSalvaPers.textContent = '\u2605 Salva personalizzato per ' + fornitore;
+                            btnSalvaPers.style.background = '#3b82f6';
+                        }, 2000);
+                    } catch (err) {
+                        btnSalvaPers.disabled = false;
+                        btnSalvaPers.textContent = '\u2605 Salva personalizzato per ' + fornitore;
+                        btnSalvaPers.style.background = '#3b82f6';
+                        alert('Errore: ' + err.message);
+                    }
+                });
+            }
 
             // Chiudi con X
             const closeBtn = document.getElementById('modalAnteprimaClose');
@@ -1460,7 +1574,11 @@ const MrpProposta = (() => {
             const draftData = await draftResp.json();
             if (draftData.drafts) {
                 draftData.drafts.forEach(d => {
-                    const key = pendenti.find(p => p.anno === d.Anno && p.serie === d.Serie && p.numord === d.NumOrd);
+                    const key = pendenti.find(p =>
+                        String(p.anno) === String(d.Anno) &&
+                        String(p.serie).trim() === String(d.Serie).trim() &&
+                        String(p.numord) === String(d.NumOrd)
+                    );
                     if (key) {
                         const fk = String(key.fornitore_codice || '');
                         if (!_batchCustomOverrides.has(fk)) {
@@ -1479,10 +1597,28 @@ const MrpProposta = (() => {
             const elAzioni = document.getElementById('modalGenericAzioni');
             if (!overlay) { resolve(null); return; }
 
-            const optionsHtml = _emailTemplates.map(t => {
-                const badge = t.isSystem ? ' [S]' : '';
-                return '<option value="' + t.id + '">' + esc(t.nome) + badge + '</option>';
-            }).join('');
+            // Genera options HTML con optgroup per fornitore
+            function buildBatchOptions(fk, selectedTid) {
+                const personalizzati = _emailTemplates.filter(t => String(t.fornitoreCode) === fk);
+                const generici = _emailTemplates.filter(t => !t.fornitoreCode);
+                let html = '';
+                if (personalizzati.length) {
+                    html += '<optgroup label="\u2605 Personalizzati">';
+                    personalizzati.forEach(t => {
+                        const sel = String(t.id) === selectedTid ? ' selected' : '';
+                        html += '<option value="' + t.id + '"' + sel + '>' + esc(t.nome) + '</option>';
+                    });
+                    html += '</optgroup>';
+                }
+                html += '<optgroup label="Template">';
+                generici.forEach(t => {
+                    const sel = String(t.id) === selectedTid ? ' selected' : '';
+                    const badge = t.isSystem ? ' [S]' : '';
+                    html += '<option value="' + t.id + '"' + sel + '>' + esc(t.nome) + badge + '</option>';
+                });
+                html += '</optgroup>';
+                return html;
+            }
 
             const righeHtml = pendenti.map(p => {
                 const fk = String(p.fornitore_codice || '');
@@ -1491,7 +1627,7 @@ const MrpProposta = (() => {
                 const email = p.fornitore_email || p.email_fornitore || '';
 
                 const selHtml = '<select class="batch-tpl-sel" data-forn="' + escAttr(fk) + '" style="font-size:0.76rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;max-width:150px;">' +
-                    optionsHtml.replace('value="' + selectedTid + '"', 'value="' + selectedTid + '" selected') + '</select>';
+                    buildBatchOptions(fk, selectedTid) + '</select>';
 
                 return '<tr data-forn="' + escAttr(fk) + '">' +
                     '<td style="text-align:center;"><input type="checkbox" class="batch-chk" data-forn="' + escAttr(fk) + '" checked style="accent-color:var(--primary);" /></td>' +
@@ -1501,7 +1637,7 @@ const MrpProposta = (() => {
                     '<td>' + selHtml + '</td>' +
                     '<td style="text-align:center;white-space:nowrap;">' +
                         '<button class="batch-edit-btn" data-forn="' + escAttr(fk) + '" style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Modifica manuale">\u270E</button>' +
-                        '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" style="display:' + (_batchCustomOverrides.has(fk) ? 'inline' : 'none') + ';font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
+                        '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" style="display:' + ((_batchCustomOverrides.has(fk) || _emailTemplates.some(t => String(t.id) === selectedTid && t.fornitoreCode)) ? 'inline' : 'none') + ';font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
                     '</td>' +
                     '<td id="batchSt_' + escAttr(fk) + '" style="text-align:center;width:28px;"></td>' +
                     '</tr>';
@@ -1532,6 +1668,24 @@ const MrpProposta = (() => {
                 aggiornaContoBatch();
             });
             document.querySelectorAll('.batch-chk').forEach(cb => cb.addEventListener('change', aggiornaContoBatch));
+
+            // --- Cambio template: aggiorna badge personalizzato ---
+            document.querySelectorAll('.batch-tpl-sel').forEach(sel => {
+                sel.addEventListener('change', () => {
+                    const fk = sel.dataset.forn;
+                    const badge = document.querySelector('.batch-edit-badge[data-forn="' + fk + '"]');
+                    // Rimuove bozza se presente
+                    if (_batchCustomOverrides.has(fk)) {
+                        _batchCustomOverrides.delete(fk);
+                    }
+                    // Mostra badge se è un messaggio personalizzato (ha fornitoreCode)
+                    const tid = parseInt(sel.value, 10);
+                    const tpl = _emailTemplates.find(t => t.id === tid);
+                    if (badge) {
+                        badge.style.display = (tpl && tpl.fornitoreCode) ? 'inline' : 'none';
+                    }
+                });
+            });
 
             // --- Bottoni modifica manuale ---
             document.querySelectorAll('.batch-edit-btn').forEach(btn => {
@@ -1573,7 +1727,8 @@ const MrpProposta = (() => {
                             ambiente: prevData.ambiente,
                             oggetto: esistente ? esistente.oggetto_custom : prevData.oggetto,
                             corpo: esistente ? esistente.corpo_custom : prevData.corpo,
-                            batchMode: true
+                            batchMode: true,
+                            fornitore_codice: parseInt(fk, 10) || null
                         });
 
                         if (risultato) {
@@ -1973,12 +2128,30 @@ const MrpProposta = (() => {
     function buildTemplateSelect(fornCode) {
         if (!_emailTemplates.length) return '';
         const selectedId = getTemplateIdPerFornitore(fornCode);
-        const options = _emailTemplates.map(t => {
+        const fk = String(fornCode);
+
+        // Separa template generici da messaggi personalizzati per questo fornitore
+        const generici = _emailTemplates.filter(t => !t.fornitoreCode);
+        const personalizzati = _emailTemplates.filter(t => String(t.fornitoreCode) === fk);
+
+        let html = '';
+        if (personalizzati.length) {
+            html += '<optgroup label="\u2605 Personalizzati">';
+            personalizzati.forEach(t => {
+                const sel = t.id === selectedId ? ' selected' : '';
+                html += `<option value="${t.id}"${sel}>${esc(t.nome)}</option>`;
+            });
+            html += '</optgroup>';
+        }
+        html += '<optgroup label="Template">';
+        generici.forEach(t => {
             const sel = t.id === selectedId ? ' selected' : '';
             const badge = t.isSystem ? ' [S]' : '';
-            return `<option value="${t.id}"${sel}>${esc(t.nome)}${badge}</option>`;
-        }).join('');
-        return `<select class="select-template-forn" data-forn="${escAttr(fornCode)}" title="Template email">${options}</select>`;
+            html += `<option value="${t.id}"${sel}>${esc(t.nome)}${badge}</option>`;
+        });
+        html += '</optgroup>';
+
+        return `<select class="select-template-forn" data-forn="${escAttr(fornCode)}" title="Template email">${html}</select>`;
     }
 
     return { init, aggiornaStatoVisivo, apriStorico, apriDettaglioOrdine };
