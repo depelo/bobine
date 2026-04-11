@@ -7,6 +7,15 @@ module.exports = function(router, deps) {
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const executeSqlFile = helpers.executeSqlFile;
+
+    // Pool ERP ottimizzato per letture (diretto BCUBE2 in produzione)
+    async function getPoolERP(userId) {
+        if (isProduction(userId)) {
+            const bcube = await getPoolBcube();
+            if (bcube) return bcube;
+        }
+        return getPoolMRP(userId);
+    }
     const path = require('path');
     const fs = require('fs');
 
@@ -331,7 +340,7 @@ router.get('/fornitori-template', authMiddleware, async (req, res) => {
 
         // Query leggera su anagra (tipo F) + pagamento — senza CTE su ordlist/testord che sono lente
         // Il campo ultimo_ordine viene recuperato on-demand nel pannello espanso
-        const poolERP = await getPoolMRP(userId);
+        const poolERP = await getPoolERP(userId);
 
         const erpResult = await poolERP.request().query(`
             SELECT an.an_conto AS codice, RTRIM(an.an_descr1) AS nome,
@@ -662,7 +671,7 @@ router.put('/fornitore-classificazione/:codice', authMiddleware, async (req, res
 router.get('/fornitore-ultimo-ordine/:codice', authMiddleware, async (req, res) => {
     try {
         const codice = parseInt(req.params.codice, 10);
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const r = await pool.request()
             .input('codice', sql.Int, codice)
             .query("SELECT TOP 1 td_datord AS ultimo_ordine FROM dbo.testord WHERE codditt='UJET11' AND td_tipork='O' AND td_conto=@codice ORDER BY td_datord DESC");

@@ -155,11 +155,25 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
         return getPoolProd();
     }
 
+    function getPoliticaRiordino(art) {
+        const pol = (art.ar_polriord || '').trim().toUpperCase();
+        const map = { 'M': 'a punto di riordino', 'F': 'fabbisogno puro', 'L': 'a lotto fisso', 'N': 'nessuna politica' };
+        let descr = map[pol] || pol;
+        if (pol === 'M' && art.ar_scomin) {
+            descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_ggrior || 0}, s.lotto 0)`;
+        }
+        if (pol === 'F') {
+            const desint = (art.ar_desint || '').trim();
+            if (desint) descr += ` (${desint})`;
+        }
+        return descr;
+    }
+
     return {
         getUjet11Ref, getSpSuffix, getSpName,
         executeSqlFile, compilaTemplate,
         deployProductionObjects, deployTestObjects, dropTestSPs,
-        checkSpExists, getUserId, getPoolRiep
+        checkSpExists, getUserId, getPoolRiep, getPoliticaRiordino
     };
 }
 

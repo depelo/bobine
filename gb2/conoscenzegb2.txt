@@ -187,6 +187,104 @@ Server:
     - POST /deploy-anagra-column — ALTER TABLE + sp_refreshview + UPDATE
     - GET /fornitori-template — due query separate (ERP + GB2) con merge
 
+--- POOL BCUBE2 — CONNESSIONE DIRETTA PER QUERY PESANTI ---
+
+  In produzione le viste MRP (SELECT * FROM [BCUBE2].[UJET11].[dbo].[...]) sono
+  ~5x piu lente delle query dirette a BCUBE2 per operazioni con JOIN.
+  Motivo: il linked server tira i dati e fa i JOIN localmente su 163 (VM debole).
+  Con connessione diretta, i JOIN girano su BCUBE2 (server potente).
+
+  Benchmark reale (ordini-padre, 6 JOIN su movord 1.1M righe):
+    Via viste MRP: 3065ms
+    Diretto BCUBE2: 660ms
+
+  SOLUZIONE — poolBcube (singleton, 10 conn):
+    config/db-gb2.js esporta getPoolBcube() → connessione diretta a BCUBE2/UJET11.
+    Usato SOLO in produzione per query ERP pesanti (letture con JOIN).
+    In prova si usa getPoolMRP (gia diretto al server prova).
+
+  PATTERN getPoolERP(userId) — definito localmente in ogni modulo route:
+    async function getPoolERP(userId) {
+        if (isProduction(userId)) {
+            const bcube = await getPoolBcube();
+            if (bcube) return bcube;  // fallback a getPoolMRP se BCUBE2 non raggiungibile
+        }
+        return getPoolMRP(userId);
+    }
+
+  DOVE USARE getPoolERP:
+    Tutte le query ERP con JOIN pesanti (progressivi, ordini-padre, ordine-pdf, consumi)
+    → articoli.js, mrp-proposte.js, ordini.js, email.js (invio email)
+
+  DOVE NON USARE getPoolERP:
+    - Query che accedono a [GB2].[dbo].[...] (GB2 non esiste su BCUBE2)
+    - Health check (deve testare la connessione normale)
+    - Deploy SP (opera su MRP@163)
+    - getPoolRiep (Riep e su Analisi_scorte, non su UJET11)
+
+--- STRUTTURA FILE ROUTE (SCOMPOSIZIONE gb2Routes.js) ---
+
+  Il file gb2Routes.js (4046 righe) e stato scomposto in 7 moduli:
+
+  routes/
+    gb2Routes.js           ← aggregatore (~65 righe)
+    gb2/
+      helpers.js            ← funzioni condivise (deploy, naming, utility)
+      db-profiles.js        ← gestione profili connessione DB
+      articoli.js           ← ricerca articoli + progressivi + caricaMRP
+      mrp-proposte.js       ← proposte ordini MRP + consumi storici
+      ordini.js             ← emissione ordini + PDF + storico + duplicati
+      email.js              ← SMTP + invio email + preview + drafts
+      fornitori.js          ← classificazione fornitori + anagrafica + template
+
+  Ogni modulo esporta function(router, deps) dove deps contiene:
+    sql, getPoolMRP, getPoolProd, getPoolBcube, getActiveProfile, isProduction,
+    PRODUCTION_PROFILE, authMiddleware, helpers (oggetto con funzioni condivise)
+
+  Le funzioni helper (getUserId, getSpName, executeSqlFile, deployProductionObjects,
+  deployTestObjects, dropTestSPs, checkSpExists, compilaTemplate, getPoliticaRiordino,
+  getPoolRiep) sono in helpers.js e accessibili via deps.helpers.
+
+--- PRINCIPI DI PERFORMANCE — PARALLELISMO E RENDERING IMMEDIATO ---
+
+  REGOLA 1: PARALLELIZZARE TUTTO IL PARALLELIZZABILE
+    Quando una route fa piu query indipendenti, lanciarle con Promise.all.
+    Non aspettare che una finisca per lanciare la successiva se non c'e dipendenza.
+
+    Esempi gia implementati:
+    - caricaMRP(): 3 query parallele (artpro, ordini_emessi, ordlist)
+    - GET /proposta-ordini: 3 query parallele (ordlist+JOIN, fingerprint, emissioni)
+    - GET /progressivi: caricaMRP padre + query figli in parallelo
+    - Frontend: caricaProposta() lancia fetch dati + caricaTemplateEmail in parallelo
+
+  REGOLA 2: RENDERING IMMEDIATO CON SKELETON
+    Quando l'utente clicca un'azione che richiede dati dal server:
+    1. Switchare SUBITO alla vista target con skeleton animato (placeholder pulsante)
+    2. Lanciare il fetch in background
+    3. Quando i dati arrivano, sostituire lo skeleton con il contenuto reale
+    4. Se errore, tornare alla vista precedente con messaggio
+
+    L'utente percepisce reattivita istantanea — il click produce un effetto visivo
+    immediato. L'attesa di 1-2 secondi passa mentre guarda la struttura della pagina.
+
+    Esempi gia implementati:
+    - Esegui Vista Progressivi: switch immediato + skeleton, dati arrivano dopo
+    - Gestione Lista Ordini: skeleton con barre pulsanti durante caricamento proposte
+
+  REGOLA 3: NON BLOCCARE IL RENDER CON DATI NON ESSENZIALI
+    Se il render ha bisogno di dati A ma anche di dati B opzionali:
+    - Renderizza subito con dati A
+    - Carica dati B in background e aggiorna il render quando arrivano
+
+    Esempio: template email caricati in parallelo col fetch proposte (non dopo).
+    Esempio: ultimo ordine fornitore caricato lazy nel pannello espanso (non alla lista).
+
+  REGOLA 4: DEPLOY E OPERAZIONI LENTE IN BACKGROUND
+    Operazioni che l'utente non deve attendere (deploy SP, check colonne, ecc.)
+    vanno lanciate fire-and-forget dopo aver risposto alla richiesta HTTP.
+
+    Esempio: switch profilo prova → risponde subito, deploy SP in background.
+
 --- GESTIONE CONNESSIONI — POOL PER UTENTE ---
 
   config/db-gb2.js gestisce i pool con isolamento per operatore:

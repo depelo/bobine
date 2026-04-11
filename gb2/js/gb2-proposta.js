@@ -328,7 +328,8 @@ const MrpProposta = (() => {
                     let stato, statoClass;
                     if (r.emesso) {
                         const emailIcon = r.email_inviata ? ' \u2709' : '';
-                        stato = `Ordinato ${r.ord_numord || ''}/${r.ord_serie || 'F'}${emailIcon}`;
+                        const bcubeTag = r.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
+                        stato = `Ordinato ${r.ord_numord || ''}/${r.ord_serie || 'F'}${emailIcon}${bcubeTag}`;
                         statoClass = 'proposta-stato-ordinato';
                     } else {
                         const statoRaw = (r.ol_stato || '').trim();
@@ -573,7 +574,8 @@ const MrpProposta = (() => {
                 emessoBadge.className = 'fornitore-emesso-badge';
 
                 const emailIcon = emesso.email_inviata ? ' \u2709' : '';
-                emessoBadge.innerHTML = '&#x1F4C4; Ordine ' + emesso.numord + '/' + emesso.serie + emailIcon;
+                const bcubeLabel = emesso.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
+                emessoBadge.innerHTML = '&#x1F4C4; Ordine ' + emesso.numord + '/' + emesso.serie + emailIcon + bcubeLabel;
 
                 const btnPdf = document.createElement('button');
                 btnPdf.className = 'btn-scarica-pdf-forn';
@@ -685,12 +687,13 @@ const MrpProposta = (() => {
                     numord: primo.ord_numord,
                     pdf_base64: cached.pdf_base64 || null,
                     pdf_filename: cached.pdf_filename || null,
-                    email: '', // il pulsante email appare sempre, il server verificherà
+                    email: '',
                     email_inviata: !!primo.email_inviata,
                     email_inviata_il: primo.email_inviata_il || null,
                     fornitore_nome: info.nome,
                     fornitore_codice: fk,
-                    fornitore_email: info.righe[0].fornitore_email || ''
+                    fornitore_email: info.righe[0].fornitore_email || '',
+                    origine: primo.origine || 'gb2'
                 });
             }
         }

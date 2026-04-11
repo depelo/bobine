@@ -3,6 +3,25 @@
    split view, scaduti, daltonismo, blocchi MRP
    ============================================ */
 
+/* Skeleton durante caricamento progressivi */
+.progressivi-skeleton {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.progressivi-skeleton .skeleton-bar {
+    height: 16px;
+    background: linear-gradient(90deg, #e8e8e8 25%, #f4f4f4 50%, #e8e8e8 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite ease-in-out;
+    border-radius: 3px;
+}
+@keyframes skeletonShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
 .mrp-progressivi-card { padding: 16px; }
 
 .mrp-progressivi-toolbar {

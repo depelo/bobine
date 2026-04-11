@@ -4,11 +4,19 @@
 const { encrypt, decrypt } = require('../../config/crypto');
 const smtp = require('../../config/smtp-gb2');
 module.exports = function(router, deps) {
-    const { sql, getPoolMRP, getPoolProd, getActiveProfile, isProduction,
+    const { sql, getPoolMRP, getPoolProd, getPoolBcube, getActiveProfile, isProduction,
             PRODUCTION_PROFILE, authMiddleware } = deps;
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const compilaTemplate = helpers.compilaTemplate;
+
+    async function getPoolERP(userId) {
+        if (isProduction(userId)) {
+            const bcube = await getPoolBcube();
+            if (bcube) return bcube;
+        }
+        return getPoolMRP(userId);
+    }
 
 router.get('/smtp/config', authMiddleware, async (req, res) => {
     try {
@@ -326,7 +334,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         }
 
         // Leggi dati ordine per email (fornitore, articoli)
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const testataRes = await pool.request()
             .input('anno', sql.SmallInt, parseInt(anno, 10))
             .input('serie', sql.VarChar(3), serie)

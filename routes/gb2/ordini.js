@@ -12,6 +12,14 @@ module.exports = function(router, deps) {
     const deployProductionObjects = helpers.deployProductionObjects;
     const deployTestObjects = helpers.deployTestObjects;
 
+    async function getPoolERP(userId) {
+        if (isProduction(userId)) {
+            const bcube = await getPoolBcube();
+            if (bcube) return bcube;
+        }
+        return getPoolMRP(userId);
+    }
+
 router.get('/health', authMiddleware, async (req, res) => {
     try {
         const pool = await getPoolMRP(getUserId(req));
@@ -265,8 +273,8 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
 router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) => {
     try {
         const { anno, serie, numord } = req.params;
-        const pool = await getPoolMRP(getUserId(req));
         const uid = getUserId(req);
+        const pool = await getPoolERP(uid);
         const annoInt = parseInt(anno, 10);
         const numordInt = parseInt(numord, 10);
 

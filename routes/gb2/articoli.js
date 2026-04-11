@@ -6,11 +6,22 @@ module.exports = function(router, deps) {
             PRODUCTION_PROFILE, authMiddleware, getPoolBcube } = deps;
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
+    const getPoliticaRiordino = helpers.getPoliticaRiordino;
+
+    // Pool ERP ottimizzato: in produzione usa poolBcube (diretto, JOIN 5x piu veloci),
+    // in prova usa getPoolMRP (diretto su UJET11 del server prova).
+    async function getPoolERP(userId) {
+        if (isProduction(userId)) {
+            const bcube = await getPoolBcube();
+            if (bcube) return bcube;
+        }
+        return getPoolMRP(userId);
+    }
 
 router.get('/articoli/search', authMiddleware, async (req, res) => {
     try {
         const { q, field } = req.query; // field: 'codart' | 'codalt' | 'descr'
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
 
         let where = '';
         if (q && q.trim()) {
@@ -51,7 +62,7 @@ router.get('/articoli/search', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/articoli/:codart/fasi', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const result = await pool.request()
             .input('codart', sql.NVarChar, req.params.codart)
             .query(`
@@ -73,7 +84,7 @@ router.get('/articoli/:codart/fasi', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/magazzini', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const result = await pool.request()
             .query(`
                 SELECT tb_codmaga, tb_desmaga
@@ -541,7 +552,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
 
         const artResult = await pool.request()
             .input('codart', sql.NVarChar, codart)
@@ -591,9 +602,36 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
             ...(vistaSostitutivo ? { etichettaBlocco: 'esaurimento' } : {})
         });
 
+        let _prefetchedFigli = null;
+
         if (!vistaSostitutivo) {
-            const mrpRighe = await caricaMRP(pool, codart, magaz, fase);
+            // caricaMRP padre e query figli in PARALLELO (indipendenti)
+            const [mrpRighe, figliRes] = await Promise.all([
+                caricaMRP(pool, codart, magaz, fase),
+                pool.request().input('codart_figli', sql.NVarChar, codart).query(`
+                    SELECT
+                        d.md_coddb, d.md_riga, d.md_codfigli, d.md_fasefigli,
+                        d.md_quant, d.md_unmis, d.md_quantump, d.md_ump,
+                        a.ar_codalt AS figlio_codalt, a.ar_descr AS figlio_descr,
+                        a.ar_polriord AS figlio_polriord, a.ar_gesfasi AS figlio_gesfasi,
+                        a.ar_scomin AS figlio_scomin, a.ar_ggrior AS figlio_ggrior,
+                        a.ar_desint AS figlio_desint, a.ar_inesaur AS figlio_inesaur,
+                        a.ar_unmis AS figlio_unmis,
+                        CASE WHEN EXISTS (
+                            SELECT 1 FROM dbo.movdis sub WHERE sub.md_coddb = d.md_codfigli
+                        ) THEN 1 ELSE 0 END AS espandibile,
+                        CASE WHEN d.md_dtfival < CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END AS scaduto
+                    FROM dbo.movdis d
+                    INNER JOIN dbo.artico a ON d.md_codfigli = a.ar_codart
+                    WHERE d.md_coddb = @codart_figli
+                    ORDER BY d.md_riga
+                `)
+            ]);
             mrpRighe.forEach((r) => { r.livello = 0; righe.push(r); });
+
+            // Processa figli (il codice sotto usa figliRes gia caricato)
+            // Salta la query figli duplicata piu avanti
+            _prefetchedFigli = figliRes;
         } else {
             const mrpEsaur = await caricaMRP(pool, codart, magaz, fase);
             taggaMrpBlocco(mrpEsaur, 'esaurimento', articolo.ar_codart);
@@ -638,7 +676,8 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
             righe.push(buildGeneraleTotaleRow(combRighe));
         }
 
-        const figliRes = await pool.request()
+        // Se i figli sono gia stati caricati in parallelo (caso senza sostitutivo), usa quelli
+        const figliRes = _prefetchedFigli || await pool.request()
             .input('codart', sql.NVarChar, codart)
             .query(`
                 SELECT
@@ -733,7 +772,7 @@ router.get('/progressivi/expand', authMiddleware, async (req, res) => {
         const { codart, livello } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const liv = parseInt(livello, 10) || 1;
         const righe = [];
 
@@ -809,7 +848,7 @@ router.get('/ordini-dettaglio', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 
@@ -874,7 +913,7 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
         const { codart, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const request = pool.request().input('codart', sql.NVarChar, codart);
 
         let filtri = '';
@@ -929,7 +968,7 @@ router.get('/ordini-padre', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 
@@ -1005,7 +1044,7 @@ router.get('/ordini-padre-rmp', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolERP(getUserId(req));
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 

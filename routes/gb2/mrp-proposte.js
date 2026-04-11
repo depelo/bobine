@@ -8,6 +8,14 @@ module.exports = function(router, deps) {
     const getUserId = helpers.getUserId;
     const getPoolRiep = helpers.getPoolRiep;
 
+    async function getPoolERP(userId) {
+        if (isProduction(userId)) {
+            const bcube = await getPoolBcube();
+            if (bcube) return bcube;
+        }
+        return getPoolMRP(userId);
+    }
+
 router.get('/consumi/sprint-multi', authMiddleware, async (req, res) => {
     try {
         const codarts = String(req.query.codarts || '')
@@ -81,7 +89,7 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
 
         const uid = getUserId(req);
         const poolRiep = await getPoolRiep(uid);
-        const poolData = await getPoolMRP(uid);
+        const poolData = await getPoolERP(uid);
         const placeholders = codarts.map((_, i) => `@c${i}`).join(', ');
 
         // Query Riep (potrebbe essere su pool produzione)
@@ -183,7 +191,7 @@ router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
         const codart = req.params.codart;
         const uid = getUserId(req);
         const poolRiepData = await getPoolRiep(uid);
-        const poolData = await getPoolMRP(uid);
+        const poolData = await getPoolERP(uid);
 
         const riepResult = await poolRiepData.request()
             .input('codart', sql.NVarChar, codart)
@@ -243,7 +251,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
         }
 
         // ─── 3 query in PARALLELO (indipendenti tra loro) ───
-        const [result, fpRes, emissioniRes] = await Promise.all([
+        const [result, fpRes, emissioniRes, ordiniBcubeRes] = await Promise.all([
             // 1) Query principale: ordlist + JOIN (diretto BCUBE2 in prod: ~200ms vs ~1s via viste)
             pool.request().query(`
                 SELECT
@@ -287,22 +295,40 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                     return await poolGB2.request()
                         .input('amb', sql.VarChar(20), ambiente)
                         .query(`
-                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
-                                   data_emissione, elaborazione_id,
-                                   ISNULL(email_inviata, 0) AS email_inviata, email_inviata_il
+                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, ol_codart, ol_conto,
+                                   quantita_ordinata, data_emissione, elaborazione_id,
+                                   ISNULL(email_inviata, 0) AS email_inviata, email_inviata_il,
+                                   ISNULL(origine, 'gb2') AS origine
                             FROM dbo.ordini_emessi
                             WHERE ISNULL(ambiente, 'produzione') = @amb
                         `);
                 } catch (_) {
                     try {
                         return await poolGB2.request().query(`
-                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
-                                   data_emissione, elaborazione_id,
-                                   0 AS email_inviata, NULL AS email_inviata_il
+                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, ol_codart, ol_conto,
+                                   quantita_ordinata, data_emissione, elaborazione_id,
+                                   0 AS email_inviata, NULL AS email_inviata_il,
+                                   'gb2' AS origine
                             FROM dbo.ordini_emessi
                         `);
                     } catch (_2) { return { recordset: [] }; }
                 }
+            })(),
+            // 4) Ordini BCube recenti (729ms in parallelo — zero impatto)
+            (async () => {
+                try {
+                    return await pool.request().query(`
+                        SELECT t.td_conto, mo.mo_codart,
+                               t.td_anno, t.td_serie, t.td_numord, t.td_datord, t.td_ultagg,
+                               mo.mo_quant, mo.mo_datcons, mo.mo_prezzo, mo.mo_riga,
+                               mo.mo_magaz, mo.mo_fase
+                        FROM dbo.testord t
+                        JOIN dbo.movord mo ON mo.mo_numord=t.td_numord AND mo.mo_serie=t.td_serie
+                            AND mo.mo_anno=t.td_anno AND mo.mo_tipork=t.td_tipork AND mo.codditt=t.codditt
+                        WHERE t.codditt='UJET11' AND t.td_tipork='O' AND mo.mo_stasino<>'N'
+                          AND t.td_datord >= DATEADD(MONTH, -3, GETDATE())
+                    `);
+                } catch (_) { return { recordset: [] }; }
             })()
         ]);
 
@@ -431,13 +457,100 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
         // ─── Emissioni (gia caricate in parallelo sopra) ───
         const emissioni = emissioniRes.recordset || [];
 
-        const emissioniMap = new Map();
+        // ─── Rilevamento ordini BCube (match + registrazione) ───
+        try {
+            const fingerprint = fpRes.recordset.length > 0 ? fpRes.recordset[0].fingerprint : null;
+            if (fingerprint && ordiniBcubeRes.recordset.length > 0) {
+                // Set di ordini gia registrati in ordini_emessi (per evitare duplicati)
+                const giaSalvati = new Set(emissioni.map(e =>
+                    `${e.ord_anno}_${e.ord_serie}_${e.ord_numord}_${e.ol_codart || ''}`
+                ));
+
+                // Set di proposte attuali (per matchare solo quelle rilevanti)
+                const proposteSet = new Set(result.recordset.map(r =>
+                    `${r.fornitore_codice}_${r.ol_codart}`
+                ));
+
+                // Filtra ordini BCube: emessi dopo elaborazione + matchano con proposte + non gia registrati
+                const nuoviBcube = ordiniBcubeRes.recordset.filter(o => {
+                    const emessoDopo = o.td_datord > fingerprint;
+                    const matchaProposta = proposteSet.has(`${o.td_conto}_${o.mo_codart}`);
+                    const giaRegistrato = giaSalvati.has(`${o.td_anno}_${o.td_serie}_${o.td_numord}_${o.mo_codart}`);
+                    return emessoDopo && matchaProposta && !giaRegistrato;
+                });
+
+                // INSERT in ordini_emessi + aggiungi all'array emissioni (fire-and-forget per gli INSERT)
+                for (const o of nuoviBcube) {
+                    // Aggiungi subito all'array emissioni (per il frontend)
+                    emissioni.push({
+                        ol_progr: 0,
+                        ol_codart: o.mo_codart,
+                        ol_conto: o.td_conto,
+                        ord_anno: o.td_anno, ord_serie: o.td_serie, ord_numord: o.td_numord,
+                        quantita_ordinata: o.mo_quant,
+                        data_emissione: o.td_datord,
+                        elaborazione_id: '',
+                        email_inviata: 0, email_inviata_il: null,
+                        origine: 'bcube'
+                    });
+
+                    // INSERT in DB (fire-and-forget — non blocca la risposta)
+                    poolGB2.request()
+                        .input('codart', sql.VarChar(50), o.mo_codart)
+                        .input('conto', sql.Int, o.td_conto)
+                        .input('magaz', sql.SmallInt, o.mo_magaz || 1)
+                        .input('fase', sql.SmallInt, o.mo_fase || 0)
+                        .input('anno', sql.SmallInt, o.td_anno)
+                        .input('serie', sql.VarChar(3), o.td_serie)
+                        .input('numord', sql.Int, o.td_numord)
+                        .input('riga', sql.Int, o.mo_riga || 0)
+                        .input('qta', sql.Decimal(18, 9), o.mo_quant || 0)
+                        .input('amb', sql.VarChar(20), ambiente)
+                        .query(`INSERT INTO dbo.ordini_emessi
+                            (ol_progr, ol_codart, ol_conto, ol_magaz, ol_fase,
+                             ord_anno, ord_serie, ord_numord, ord_riga, quantita_ordinata,
+                             ambiente, origine)
+                            VALUES (0, @codart, @conto, @magaz, @fase,
+                                    @anno, @serie, @numord, @riga, @qta, @amb, 'bcube')`)
+                        .catch(e => console.warn('[BCube] INSERT ordine_emessi fallito (possibile duplicato):', e.message));
+                }
+
+                if (nuoviBcube.length > 0) {
+                    console.log('[BCube] Rilevati', nuoviBcube.length, 'ordini BCube nuovi, registrati in ordini_emessi');
+                }
+            }
+        } catch (bcubeErr) {
+            console.warn('[BCube] Rilevamento ordini BCube fallito (continuo senza):', bcubeErr.message);
+        }
+
+        // ─── Match emissioni → proposte ───
+        // Mappa per ol_progr (ordini gb2) + mappa per conto+codart (ordini bcube)
+        const emissioniByProgr = new Map();
+        const emissioniByCodart = new Map(); // chiave: conto_codart → array di emissioni
         for (const em of emissioni) {
-            emissioniMap.set(em.ol_progr, em);
+            if (em.ol_progr && em.ol_progr > 0) {
+                emissioniByProgr.set(em.ol_progr, em);
+            }
+            if (em.ol_conto && em.ol_codart) {
+                const key = `${em.ol_conto}_${em.ol_codart}`;
+                if (!emissioniByCodart.has(key)) emissioniByCodart.set(key, []);
+                emissioniByCodart.get(key).push(em);
+            }
         }
 
         const righe = result.recordset.map(r => {
-            const em = emissioniMap.get(r.ol_progr);
+            // Match per ol_progr (ordini gb2)
+            let em = emissioniByProgr.get(r.ol_progr);
+
+            // Fallback: match per conto+codart (ordini bcube o gb2 senza ol_progr)
+            if (!em) {
+                const key = `${r.fornitore_codice}_${r.ol_codart}`;
+                const candidates = emissioniByCodart.get(key);
+                if (candidates && candidates.length > 0) {
+                    em = candidates[0]; // prendi il primo match
+                }
+            }
+
             if (em) {
                 r.emesso = true;
                 r.ord_anno = em.ord_anno;
@@ -448,6 +561,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 r.elaborazione_id = em.elaborazione_id;
                 r.email_inviata = !!em.email_inviata;
                 r.email_inviata_il = em.email_inviata_il;
+                r.origine = em.origine || 'gb2';
             } else {
                 r.emesso = false;
             }

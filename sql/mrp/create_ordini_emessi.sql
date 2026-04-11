@@ -90,5 +90,12 @@ BEGIN
         UPDATE dbo.ordini_emessi SET ambiente = 'prova' WHERE ambiente = 'produzione';
         PRINT 'Ordini esistenti marcati come prova.';
     END
+
+    -- Colonna origine: 'gb2' (emesso dalla nostra app) o 'bcube' (emesso da BCube, rilevato da noi)
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'origine')
+    BEGIN
+        ALTER TABLE dbo.ordini_emessi ADD origine VARCHAR(10) NOT NULL DEFAULT 'gb2';
+        PRINT 'Colonna origine aggiunta.';
+    END
 END
 GO

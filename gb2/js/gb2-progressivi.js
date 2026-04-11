@@ -2523,6 +2523,24 @@ const MrpProgressivi = (() => {
         const inputCodart = document.getElementById('inputCodart');
         if (inputCodart) inputCodart.value = codartTarget;
         try {
+            // Skeleton immediato — l'utente vede subito la transizione
+            const tbody = getTbody();
+            if (tbody) {
+                tbody.innerHTML =
+                    '<tr><td colspan="16" style="padding:0;border:none;">' +
+                    '<div class="progressivi-skeleton">' +
+                        '<div class="skeleton-bar" style="width:60%;height:20px;margin-bottom:8px;"></div>' +
+                        '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                        '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                        '<div class="skeleton-bar" style="width:90%;height:16px;"></div>' +
+                        '<div class="skeleton-bar" style="width:100%;height:20px;margin-top:6px;margin-bottom:8px;"></div>' +
+                        '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                        '<div class="skeleton-bar" style="width:85%;height:16px;"></div>' +
+                    '</div></td></tr>';
+            }
+            document.getElementById('progressiviTitle').textContent = codartTarget;
+            MrpApp.switchView('progressivi');
+
             const params = new URLSearchParams({ codart: codartTarget, magaz: '', fase: '', modo: '2', sintetico: '0' });
             const res = await fetch(`${MrpApp.API_BASE}/progressivi?${params}`, { credentials: 'include' });
             const data = await res.json();
@@ -2530,7 +2548,6 @@ const MrpProgressivi = (() => {
                 MrpApp.state.parametri = { codart: codartTarget, magaz: '', fase: '', modo: '2', sintetico: '0' };
                 MrpApp.state.ultimoRisultato = data;
                 render(data);
-                MrpApp.switchView('progressivi');
             }
         } catch (err) {
             console.error('[RMP] Errore navigazione progressivi:', err);
