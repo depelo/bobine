@@ -4,15 +4,21 @@
 const MrpProposta = (() => {
     let data = [];
 
-    async function waitForDB(maxRetries = 5) {
-        for (let i = 0; i < maxRetries; i++) {
-            try {
-                const res = await fetch(`${MrpApp.API_BASE}/health`, { credentials: 'include' });
-                const dataHealth = await res.json();
-                if (dataHealth.status === 'ok') return;
-            } catch (e) { /* ignore */ }
-            await new Promise(r => setTimeout(r, 1000));
-        }
+    async function waitForDB() {
+        // Check singolo + 1 retry — il pool DB si connette durante il caricamento della pagina,
+        // quindi e quasi sempre pronto. Max 1s di attesa invece dei precedenti 5s.
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/health`, { credentials: 'include' });
+            const data = await res.json();
+            if (data.status === 'ok') return;
+        } catch (_) {}
+        // 1 retry dopo 1s
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/health`, { credentials: 'include' });
+            const data = await res.json();
+            if (data.status === 'ok') return;
+        } catch (_) {}
     }
 
     async function init() {
@@ -178,7 +184,12 @@ const MrpProposta = (() => {
         if (stats) stats.innerHTML = '';
 
         try {
-            const res = await fetch(`${MrpApp.API_BASE}/proposta-ordini`, { credentials: 'include' });
+            // Avvia fetch proposta + template email IN PARALLELO (non in serie)
+            // I template servono per il render, ma possiamo caricarli mentre la query pesante gira
+            const [res, _tplDone] = await Promise.all([
+                fetch(`${MrpApp.API_BASE}/proposta-ordini`, { credentials: 'include' }),
+                caricaTemplateEmail()
+            ]);
             const payload = await res.json();
 
             if (loading) loading.style.display = 'none';
@@ -217,9 +228,6 @@ const MrpProposta = (() => {
 
             // Popola ordiniEmessi dal server (righe già emesse persistite in ordini_emessi)
             ripristinaOrdiniEmessiDaServer(data);
-
-            // Carica template email e assegnazioni (bloccante: servono prima del render)
-            await caricaTemplateEmail();
 
             renderProposta(data, listEl, stats);
         } catch (err) {

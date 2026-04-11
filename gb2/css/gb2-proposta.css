@@ -83,6 +83,48 @@
     color: var(--text-muted);
 }
 
+/* Skeleton screen — placeholder animato durante il caricamento */
+.proposta-skeleton {
+    text-align: left !important;
+    padding: 16px 20px !important;
+}
+.skeleton-stats {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.skeleton-bar {
+    height: 14px;
+    background: linear-gradient(90deg, #e8e8e8 25%, #f4f4f4 50%, #e8e8e8 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite ease-in-out;
+    border-radius: 4px;
+}
+.skeleton-fornitore {
+    margin-bottom: 14px;
+}
+.skeleton-header {
+    height: 32px;
+    background: linear-gradient(90deg, #d4d4d4 25%, #e8e8e8 50%, #d4d4d4 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite ease-in-out;
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+}
+.skeleton-row {
+    height: 18px;
+    width: 100%;
+    background: linear-gradient(90deg, #ececec 25%, #f6f6f6 50%, #ececec 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite ease-in-out;
+    border-radius: 3px;
+    margin-bottom: 4px;
+}
+@keyframes skeletonShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
 #propostaList {
     flex: 1;
     overflow-y: auto;
