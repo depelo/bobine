@@ -1756,54 +1756,82 @@ router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
 router.get('/proposta-ordini', authMiddleware, async (req, res) => {
     try {
         const pool = await getPoolMRP(getUserId(req));
-        const result = await pool.request().query(`
-            SELECT
-                ol.ol_progr,
-                ol.ol_conto                           AS fornitore_codice,
-                COALESCE(an.an_descr1, '')            AS fornitore_nome,
-                COALESCE(an.an_email, '')             AS fornitore_email,
-                ol.ol_codart,
-                COALESCE(a.ar_codalt, '')              AS ar_codalt,
-                COALESCE(a.ar_descr, '')               AS ar_descr,
-                COALESCE(a.ar_inesaur, 'N')            AS ar_inesaur,
-                COALESCE(a.ar_blocco, 'N')             AS ar_blocco,
-                COALESCE(a.ar_polriord, '')             AS ar_polriord,
-                ol.ol_fase,
-                COALESCE(af.af_descr, '')              AS fase_descr,
-                ol.ol_datcons,
-                COALESCE(ol.ol_unmis, '')               AS ol_unmis,
-                ISNULL(ol.ol_colli, 0)                 AS ol_colli,
-                COALESCE(ol.ol_ump, '')                AS ol_ump,
-                ISNULL(ol.ol_quant, 0)                 AS ol_quant,
-                COALESCE(ol.ol_stato, '')               AS ol_stato,
-                ISNULL(ol.ol_magaz, 0)                 AS ol_magaz,
-                ISNULL(ol.ol_prezzo, 0)                AS ol_prezzo,
-                ol.ol_datord                           AS dt_min_ord
-            FROM dbo.ordlist ol
-            LEFT JOIN dbo.anagra an ON ol.ol_conto = an.an_conto
-            LEFT JOIN dbo.artico a ON ol.ol_codart = a.ar_codart
-            LEFT JOIN dbo.artfasi af ON ol.ol_codart = af.af_codart AND ol.ol_fase = af.af_fase
-            WHERE ol.ol_tipork = 'O'
-            ORDER BY ol.ol_conto, ol.ol_codart, ol.ol_datcons
-        `);
-
-        // ─── Rilevazione Elaborazione MRP ───
         const userId = getUserId(req);
         const profile = getActiveProfile(userId);
         const ambiente = (profile && profile.ambiente) || 'produzione';
-        let elaborazione = null;
+        const poolGB2 = await getPoolProd();
 
-        try {
-            // 1) Fingerprint: valore ol_ultagg più frequente (= batch MRP notturno)
-            const fpRes = await pool.request().query(`
+        // ─── 3 query in PARALLELO (indipendenti tra loro) ───
+        const [result, fpRes, emissioniRes] = await Promise.all([
+            // 1) Query principale: ordlist + JOIN (la piu lenta, ~2s)
+            pool.request().query(`
+                SELECT
+                    ol.ol_progr,
+                    ol.ol_conto                           AS fornitore_codice,
+                    COALESCE(an.an_descr1, '')            AS fornitore_nome,
+                    COALESCE(an.an_email, '')             AS fornitore_email,
+                    ol.ol_codart,
+                    COALESCE(a.ar_codalt, '')              AS ar_codalt,
+                    COALESCE(a.ar_descr, '')               AS ar_descr,
+                    COALESCE(a.ar_inesaur, 'N')            AS ar_inesaur,
+                    COALESCE(a.ar_blocco, 'N')             AS ar_blocco,
+                    COALESCE(a.ar_polriord, '')             AS ar_polriord,
+                    ol.ol_fase,
+                    COALESCE(af.af_descr, '')              AS fase_descr,
+                    ol.ol_datcons,
+                    COALESCE(ol.ol_unmis, '')               AS ol_unmis,
+                    ISNULL(ol.ol_colli, 0)                 AS ol_colli,
+                    COALESCE(ol.ol_ump, '')                AS ol_ump,
+                    ISNULL(ol.ol_quant, 0)                 AS ol_quant,
+                    COALESCE(ol.ol_stato, '')               AS ol_stato,
+                    ISNULL(ol.ol_magaz, 0)                 AS ol_magaz,
+                    ISNULL(ol.ol_prezzo, 0)                AS ol_prezzo,
+                    ol.ol_datord                           AS dt_min_ord
+                FROM dbo.ordlist ol
+                LEFT JOIN dbo.anagra an ON ol.ol_conto = an.an_conto
+                LEFT JOIN dbo.artico a ON ol.ol_codart = a.ar_codart
+                LEFT JOIN dbo.artfasi af ON ol.ol_codart = af.af_codart AND ol.ol_fase = af.af_fase
+                WHERE ol.ol_tipork = 'O'
+                ORDER BY ol.ol_conto, ol.ol_codart, ol.ol_datcons
+            `),
+            // 2) Fingerprint (0.4s) — in parallelo
+            pool.request().query(`
                 SELECT TOP 1 ol_ultagg AS fingerprint, COUNT(*) AS cnt
                 FROM dbo.ordlist WHERE ol_tipork = 'O'
                 GROUP BY ol_ultagg ORDER BY cnt DESC
-            `);
+            `),
+            // 3) Emissioni (0.1s) — in parallelo
+            (async () => {
+                try {
+                    return await poolGB2.request()
+                        .input('amb', sql.VarChar(20), ambiente)
+                        .query(`
+                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
+                                   data_emissione, elaborazione_id,
+                                   ISNULL(email_inviata, 0) AS email_inviata, email_inviata_il
+                            FROM dbo.ordini_emessi
+                            WHERE ISNULL(ambiente, 'produzione') = @amb
+                        `);
+                } catch (_) {
+                    try {
+                        return await poolGB2.request().query(`
+                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
+                                   data_emissione, elaborazione_id,
+                                   0 AS email_inviata, NULL AS email_inviata_il
+                            FROM dbo.ordini_emessi
+                        `);
+                    } catch (_2) { return { recordset: [] }; }
+                }
+            })()
+        ]);
+
+        // ─── Rilevazione Elaborazione MRP (sequenziale — dipende da fingerprint) ───
+        let elaborazione = null;
+
+        try {
 
             if (fpRes.recordset.length > 0) {
                 const fingerprint = fpRes.recordset[0].fingerprint;
-                const poolGB2 = await getPoolProd();
 
                 // 2) Check se elaborazione già registrata
                 let elabRes = await poolGB2.request()
@@ -1919,38 +1947,8 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
             console.warn('[API] Rilevazione elaborazione fallita (continuo senza):', elabErr.message);
         }
 
-        // ─── Arricchimento emissioni ───
-        // ordini_emessi vive SEMPRE in MRP@163 (dove girano le SP), indipendentemente
-        // dal profilo attivo. Usiamo getPoolProd() per evitare di cercare nel DB test.
-        let emissioni = [];
-        try {
-            const poolEmissioni = await getPoolProd();
-            const emRes = await poolEmissioni.request()
-                .input('amb', sql.VarChar(20), ambiente)
-                .query(`
-                SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
-                       data_emissione, elaborazione_id,
-                       ISNULL(email_inviata, 0) AS email_inviata,
-                       email_inviata_il
-                FROM dbo.ordini_emessi
-                WHERE ISNULL(ambiente, 'produzione') = @amb
-            `);
-            emissioni = emRes.recordset;
-        } catch (e) {
-            // Fallback: colonne email_inviata/ambiente potrebbero non esistere ancora
-            try {
-                const poolEmissioni = await getPoolProd();
-                const emRes2 = await poolEmissioni.request().query(`
-                    SELECT ol_progr, ord_anno, ord_serie, ord_numord, quantita_ordinata,
-                           data_emissione, elaborazione_id,
-                           0 AS email_inviata, NULL AS email_inviata_il
-                    FROM dbo.ordini_emessi
-                `);
-                emissioni = emRes2.recordset;
-            } catch (e2) {
-                console.warn('[API] ordini_emessi non disponibile (continuo senza):', e2.message);
-            }
-        }
+        // ─── Emissioni (gia caricate in parallelo sopra) ───
+        const emissioni = emissioniRes.recordset || [];
 
         const emissioniMap = new Map();
         for (const em of emissioni) {
