@@ -84,7 +84,8 @@
       "Bash(powershell -Command \"Get-ChildItem '\\\\\\\\\\\\\\\\BCUBE2\\\\\\\\BusinessDir\\\\\\\\Rpt\\\\\\\\Pers\\\\\\\\bsorgso*' | Select-Object Name, Length, LastWriteTime\")",
       "Bash(node -c gb2/js/gb2-dbconfig.js)",
       "Bash(curl -k https://localhost:3000/api/mrp/check-anagra-column)",
-      "Bash(node -c utils/pdfOrdine.js)"
+      "Bash(node -c utils/pdfOrdine.js)",
+      "Bash(node -c config/db-gb2.js)"
     ]
   }
 }

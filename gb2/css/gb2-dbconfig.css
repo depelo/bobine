@@ -489,6 +489,112 @@
 }
 .assegn-forn-row { cursor: pointer; }
 
+/* Form bancario strutturato (riutilizzabile in pannello espanso e modale warning) */
+.bank-form {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    margin-top: 6px;
+}
+.bank-form-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.bank-form-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+.bank-form-row label {
+    min-width: 52px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-align: right;
+}
+.bank-form-row input {
+    flex: 1;
+    font-size: 0.8rem;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-content);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+}
+.bank-form-row input:focus {
+    border-color: var(--primary);
+}
+.bank-form-row input.saved {
+    border-color: var(--success);
+    background: #f0fdf4;
+}
+.bank-form-row-double {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+.bank-form-row-double > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.bank-form-row-double label {
+    min-width: 30px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-align: right;
+}
+.bank-form-row-double input {
+    flex: 1;
+    font-size: 0.8rem;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-content);
+    color: var(--text);
+    outline: none;
+    font-family: monospace;
+}
+.bank-form-row-double input:focus {
+    border-color: var(--primary);
+}
+.bank-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+    gap: 6px;
+}
+.bank-form-save {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--primary);
+    background: var(--primary);
+    color: white;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.bank-form-save:hover { background: var(--primary-dark); }
+.bank-form-save:disabled { opacity: 0.5; cursor: not-allowed; }
+.bank-form-save.success {
+    background: var(--success);
+    border-color: var(--success);
+}
+
 /* Barra batch "Applica template a tutti" */
 .assegn-batch-bar {
     display: flex;

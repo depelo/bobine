@@ -197,9 +197,7 @@ const MrpDbConfig = (() => {
                 // Chiudi tutti i modali aperti
                 document.querySelectorAll('.mrp-modal-overlay.open').forEach(m => m.classList.remove('open'));
 
-                await refreshBadge();
-                await loadProfilesList();
-
+                // Pulisci le viste correnti
                 const tbody = document.getElementById('tblProgressiviBody');
                 if (tbody) tbody.innerHTML = '';
                 const splitTree = document.getElementById('splitTreeBody');
@@ -208,14 +206,13 @@ const MrpDbConfig = (() => {
                 // Torna alla home se siamo nella vista progressivi
                 if (typeof MrpApp !== 'undefined') MrpApp.switchView('parametri');
 
-                if (typeof MrpProposta !== 'undefined' && MrpProposta.init) MrpProposta.init();
-
                 showFormStatus('&#10003; Profilo attivato: ' + data.activeProfile.label, 'var(--success)');
 
-                // Re-check colonna classificazione fornitori sul nuovo DB
+                // Tutto il resto in parallelo e non bloccante
+                refreshBadge();
+                loadProfilesList();
+                if (typeof MrpProposta !== 'undefined' && MrpProposta.init) MrpProposta.init();
                 checkAnagraColumn();
-
-                // Ricarica tab fornitori con i dati del nuovo DB
                 loadAssegnazioni();
 
                 // Mostra avvisi (es. Riep mancante)
@@ -1159,6 +1156,90 @@ const MrpDbConfig = (() => {
     }
 
     // --------------------------------------------------------
+    // FORM BANCARIO STRUTTURATO (riutilizzabile)
+    // --------------------------------------------------------
+
+    function buildBankFormHtml(codice, dati) {
+        const b1 = esc(dati.banca1 || '');
+        const b2 = esc(dati.banca2 || '');
+        const abi = dati.abi && dati.abi > 0 ? String(dati.abi).padStart(5, '0') : '';
+        const cab = dati.cab && dati.cab > 0 ? String(dati.cab).padStart(5, '0') : '';
+        const iban = esc(dati.iban || '');
+        const swift = esc(dati.swift || '');
+
+        return '<div class="bank-form" data-codice="' + codice + '">' +
+            '<div class="bank-form-title">\uD83C\uDFE6 Dati bancari</div>' +
+            '<div class="bank-form-row"><label>Banca</label><input type="text" name="banca1" value="' + b1 + '" placeholder="Nome banca"></div>' +
+            '<div class="bank-form-row"><label>Filiale</label><input type="text" name="banca2" value="' + b2 + '" placeholder="Filiale / Agenzia"></div>' +
+            '<div class="bank-form-row-double">' +
+                '<div><label>ABI</label><input type="text" name="abi" value="' + abi + '" maxlength="5" placeholder="00000"></div>' +
+                '<div><label>CAB</label><input type="text" name="cab" value="' + cab + '" maxlength="5" placeholder="00000"></div>' +
+            '</div>' +
+            '<div class="bank-form-row"><label>IBAN</label><input type="text" name="iban" value="' + iban + '" placeholder="IT00X0000000000000000000000" style="font-family:monospace;letter-spacing:1px;"></div>' +
+            '<div class="bank-form-row"><label>SWIFT</label><input type="text" name="swift" value="' + swift + '" maxlength="14" placeholder="BPPIITRRXXX" style="font-family:monospace;"></div>' +
+            '<div class="bank-form-actions"><button class="bank-form-save" data-codice="' + codice + '">Salva dati bancari</button></div>' +
+        '</div>';
+    }
+
+    function bindBankFormSave(container, onSuccess) {
+        const btn = container.querySelector('.bank-form-save');
+        if (!btn) return;
+        btn.addEventListener('click', async () => {
+            const form = container.querySelector('.bank-form');
+            const codice = form.dataset.codice;
+            btn.disabled = true;
+            btn.textContent = 'Salvataggio...';
+            try {
+                const body = {
+                    banca1: form.querySelector('[name="banca1"]').value.trim(),
+                    banca2: form.querySelector('[name="banca2"]').value.trim(),
+                    abi: form.querySelector('[name="abi"]').value.trim(),
+                    cab: form.querySelector('[name="cab"]').value.trim(),
+                    iban: form.querySelector('[name="iban"]').value.trim().replace(/\s/g, ''),
+                    swift: form.querySelector('[name="swift"]').value.trim()
+                };
+                const res = await fetch('/api/mrp/fornitore-anagrafica/' + codice, {
+                    method: 'PUT', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Errore');
+
+                // Aggiorna cache locale
+                const f = _assegnFornitoriData.find(x => String(x.codice) === codice);
+                if (f) {
+                    f.banca1 = body.banca1; f.banca2 = body.banca2;
+                    f.abi = parseInt(body.abi) || 0; f.cab = parseInt(body.cab) || 0;
+                    f.iban = body.iban; f.swift = body.swift;
+                }
+
+                btn.textContent = '\u2713 Salvato!';
+                btn.className = 'bank-form-save success';
+                form.querySelectorAll('input').forEach(i => i.classList.add('saved'));
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = 'Salva dati bancari';
+                    btn.className = 'bank-form-save';
+                    form.querySelectorAll('input').forEach(i => i.classList.remove('saved'));
+                }, 2000);
+
+                if (onSuccess) onSuccess(data);
+            } catch (err) {
+                btn.textContent = 'Errore!';
+                btn.style.background = 'var(--danger)';
+                btn.style.borderColor = 'var(--danger)';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = 'Salva dati bancari';
+                    btn.style.background = '';
+                    btn.style.borderColor = '';
+                }, 2000);
+            }
+        });
+    }
+
+    // --------------------------------------------------------
     // PANNELLO DETTAGLI ESPANDIBILE
     // --------------------------------------------------------
 
@@ -1183,64 +1264,64 @@ const MrpDbConfig = (() => {
         if (!f) return;
 
         const hasEmail = !!(f.email && f.email.trim());
-        const hasBanca = !!((f.banca1 || '').trim());
-        const banca = [f.banca1, f.banca2].filter(Boolean).join(' - ') || '';
         const citta = [f.cap, (f.citta || '').toUpperCase(), f.prov ? '(' + f.prov + ')' : ''].filter(Boolean).join(' ');
         const ultimoStr = f.ultimo_ordine ? new Date(f.ultimo_ordine).toLocaleDateString('it-IT') : 'caricamento...';
 
         const panel = document.createElement('div');
         panel.className = 'assegn-forn-detail';
+        panel.style.display = 'block'; // override grid per layout misto
         panel.innerHTML =
-            '<div class="assegn-detail-field" style="grid-column:1/3;">' +
-                '<span class="assegn-detail-icon">\uD83D\uDCCD</span>' +
-                '<span class="assegn-detail-value">' + esc(f.indirizzo || '') + (citta ? ', ' + esc(citta) : '') + '</span>' +
+            // Riga info: indirizzo + pagamento + ultimo ordine
+            '<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; margin-bottom:8px;">' +
+                '<div class="assegn-detail-field" style="grid-column:1/3;">' +
+                    '<span class="assegn-detail-icon">\uD83D\uDCCD</span>' +
+                    '<span class="assegn-detail-value">' + esc(f.indirizzo || '') + (citta ? ', ' + esc(citta) : '') + '</span>' +
+                '</div>' +
+                '<div class="assegn-detail-field">' +
+                    '<span class="assegn-detail-icon">\u2709</span>' +
+                    '<span class="assegn-detail-label">Email</span>' +
+                    '<span class="assegn-detail-value' + (hasEmail ? '' : ' empty') + '" id="detailEmail_' + codice + '">' + (hasEmail ? esc(f.email) : 'non impostata') + '</span>' +
+                    '<button class="assegn-detail-edit-btn" data-field="email" data-codice="' + codice + '">\u270F</button>' +
+                '</div>' +
+                '<div class="assegn-detail-field">' +
+                    '<span class="assegn-detail-icon">\uD83D\uDCB3</span>' +
+                    '<span class="assegn-detail-label">Pag.</span>' +
+                    '<span class="assegn-detail-value">' + esc(f.pagamento || 'N/D') + '</span>' +
+                '</div>' +
+                '<div class="assegn-detail-field">' +
+                    '<span class="assegn-detail-icon">\uD83D\uDCC5</span>' +
+                    '<span class="assegn-detail-label">Ultimo</span>' +
+                    '<span class="assegn-detail-value">' + ultimoStr + '</span>' +
+                '</div>' +
+                (f.pariva ? '<div class="assegn-detail-field"><span class="assegn-detail-label" style="margin-left:24px;">P.IVA</span><span class="assegn-detail-value">' + esc(f.pariva) + '</span></div>' : '') +
             '</div>' +
-            '<div class="assegn-detail-field">' +
-                '<span class="assegn-detail-icon">\u2709</span>' +
-                '<span class="assegn-detail-label">Email</span>' +
-                '<span class="assegn-detail-value' + (hasEmail ? '' : ' empty') + '" id="detailEmail_' + codice + '">' + (hasEmail ? esc(f.email) : 'non impostata') + '</span>' +
-                '<button class="assegn-detail-edit-btn" data-field="email" data-codice="' + codice + '">\u270F</button>' +
-            '</div>' +
-            '<div class="assegn-detail-field">' +
-                '<span class="assegn-detail-icon">\uD83C\uDFE6</span>' +
-                '<span class="assegn-detail-label">Banca</span>' +
-                '<span class="assegn-detail-value' + (hasBanca ? '' : ' empty') + '" id="detailBanca_' + codice + '">' + (hasBanca ? esc(banca) : 'non impostata') + '</span>' +
-                '<button class="assegn-detail-edit-btn" data-field="banca" data-codice="' + codice + '">\u270F</button>' +
-            '</div>' +
-            '<div class="assegn-detail-field">' +
-                '<span class="assegn-detail-icon">\uD83D\uDCB3</span>' +
-                '<span class="assegn-detail-label">Pag.</span>' +
-                '<span class="assegn-detail-value">' + esc(f.pagamento || 'N/D') + '</span>' +
-            '</div>' +
-            '<div class="assegn-detail-field">' +
-                '<span class="assegn-detail-icon">\uD83D\uDCC5</span>' +
-                '<span class="assegn-detail-label">Ultimo</span>' +
-                '<span class="assegn-detail-value">' + ultimoStr + '</span>' +
-            '</div>' +
-            (f.pariva ? '<div class="assegn-detail-field"><span class="assegn-detail-label" style="margin-left:24px;">P.IVA</span><span class="assegn-detail-value">' + esc(f.pariva) + '</span></div>' : '');
+            // Form bancario strutturato
+            buildBankFormHtml(codice, f);
 
         row.after(panel);
 
-        // Bind edit buttons
+        // Bind edit button per email
         panel.querySelectorAll('.assegn-detail-edit-btn').forEach(btn => {
             btn.addEventListener('click', () => startInlineEdit(btn.dataset.codice, btn.dataset.field));
         });
 
-        // Carica ultimo ordine lazy (query leggera per singolo fornitore)
+        // Bind salvataggio form bancario
+        bindBankFormSave(panel, () => {
+            renderDashboardAvvisi();
+        });
+
+        // Carica ultimo ordine lazy
         if (!f.ultimo_ordine) {
             fetch('/api/mrp/fornitore-ultimo-ordine/' + codice, { credentials: 'include' })
                 .then(r => r.json())
                 .then(data => {
-                    const el = panel.querySelector('.assegn-detail-value:last-child');
-                    if (!el) return;
-                    // Trova il campo Ultimo nel pannello
                     panel.querySelectorAll('.assegn-detail-field').forEach(field => {
                         const label = field.querySelector('.assegn-detail-label');
                         if (label && label.textContent === 'Ultimo') {
                             const val = field.querySelector('.assegn-detail-value');
                             if (val) {
                                 val.textContent = data.ultimo_ordine ? new Date(data.ultimo_ordine).toLocaleDateString('it-IT') : 'Nessuno';
-                                f.ultimo_ordine = data.ultimo_ordine; // cache
+                                f.ultimo_ordine = data.ultimo_ordine;
                             }
                         }
                     });

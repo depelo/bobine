@@ -74,6 +74,32 @@ async function getPoolProd() {
 console.log('[DB] Configurazione produzione:', PRODUCTION_PROFILE.label, '—', PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp);
 
 // ============================================================
+// POOL BCUBE2 — singleton per query pesanti dirette (produzione)
+// Evita il linked server: i JOIN vengono eseguiti su BCUBE2 (server potente)
+// invece che su 163 (VM sviluppo). ~5x piu veloce per query con JOIN.
+// In prova non viene usato — getPoolMRP punta gia a UJET11 diretto.
+// ============================================================
+
+let poolBcube = null;
+
+async function getPoolBcube() {
+    if (!poolBcube) {
+        const server = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
+        const db = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+        try {
+            poolBcube = await new sql.ConnectionPool(
+                buildPoolConfig(server, db, PRODUCTION_PROFILE.user, PRODUCTION_PROFILE.password, 10)
+            ).connect();
+            console.log('[DB] Pool BCUBE2 connesso — ' + server + '/' + db + ' (max 10)');
+        } catch (err) {
+            console.warn('[DB] Pool BCUBE2 non disponibile (fallback a viste MRP):', err.message);
+            poolBcube = null;
+        }
+    }
+    return poolBcube;
+}
+
+// ============================================================
 // STATO PER UTENTE — Map<userId, UserState>
 // ============================================================
 
@@ -228,6 +254,7 @@ setInterval(async () => {
 
 async function closeAll() {
     if (poolProd) { try { await poolProd.close(); } catch(e) {} }
+    if (poolBcube) { try { await poolBcube.close(); } catch(e) {} }
     for (const [, state] of userStates.entries()) {
         if (state.pool) { try { await state.pool.close(); } catch(e) {} }
     }
@@ -240,6 +267,7 @@ module.exports = {
     sql,
     getPoolMRP,
     getPoolProd,
+    getPoolBcube,
     getActiveProfile,
     isProduction,
     switchToTest,

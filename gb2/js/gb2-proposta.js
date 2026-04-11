@@ -764,6 +764,107 @@ const MrpProposta = (() => {
     // ============================================================
     // MODALE GENERICA (sostituisce alert/confirm)
     // ============================================================
+    // Modale con scheda fornitore + form bancario editabile (per warning pre-email)
+    function modaleBancaMancante(fornitore, warningMsg) {
+        return new Promise(resolve => {
+            const id = 'modalBancaWarn_' + Date.now();
+            const overlay = document.createElement('div');
+            overlay.id = id;
+            overlay.className = 'mrp-modal-overlay open';
+
+            const bankFormHtml =
+                '<div class="bank-form" data-codice="' + fornitore.codice + '" style="margin-top:10px;">' +
+                '<div class="bank-form-title">\uD83C\uDFE6 Dati bancari</div>' +
+                '<div class="bank-form-row"><label>Banca</label><input type="text" name="banca1" value="' + esc(fornitore.banca1 || '') + '" placeholder="Nome banca"></div>' +
+                '<div class="bank-form-row"><label>Filiale</label><input type="text" name="banca2" value="' + esc(fornitore.banca2 || '') + '" placeholder="Filiale / Agenzia"></div>' +
+                '<div class="bank-form-row-double">' +
+                    '<div><label>ABI</label><input type="text" name="abi" value="' + (fornitore.abi > 0 ? String(fornitore.abi).padStart(5,'0') : '') + '" maxlength="5" placeholder="00000"></div>' +
+                    '<div><label>CAB</label><input type="text" name="cab" value="' + (fornitore.cab > 0 ? String(fornitore.cab).padStart(5,'0') : '') + '" maxlength="5" placeholder="00000"></div>' +
+                '</div>' +
+                '<div class="bank-form-row"><label>IBAN</label><input type="text" name="iban" value="' + esc(fornitore.iban || '') + '" placeholder="IT00X0000000000000000000000" style="font-family:monospace;letter-spacing:1px;"></div>' +
+                '<div class="bank-form-row"><label>SWIFT</label><input type="text" name="swift" value="' + esc(fornitore.swift || '') + '" maxlength="14" placeholder="BPPIITRRXXX" style="font-family:monospace;"></div>' +
+                '<div class="bank-form-actions"><button class="bank-form-save" id="' + id + '_save">Salva dati bancari</button></div>' +
+                '</div>';
+
+            overlay.innerHTML =
+                '<div class="mrp-modal" style="max-width:520px;">' +
+                    '<div class="mrp-modal-header"><h3>\u26A0\uFE0F Dati bancari mancanti</h3>' +
+                    '<button class="mrp-modal-close" id="' + id + '_close">&times;</button></div>' +
+                    '<div style="padding:16px 20px;">' +
+                        '<div style="margin-bottom:12px;">' +
+                            '<div style="font-size:1rem; font-weight:700;">' + esc(fornitore.nome || '') + '</div>' +
+                            '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">' +
+                                '\uD83D\uDCCD ' + esc(fornitore.indirizzo || '') + (fornitore.citta ? ' \u2014 ' + esc(fornitore.citta) : '') +
+                            '</div>' +
+                            (fornitore.email ? '<div style="font-size:0.78rem; margin-top:2px;">\u2709 ' + esc(fornitore.email) + '</div>' : '') +
+                            '<div style="font-size:0.78rem; margin-top:2px;">\uD83D\uDCB3 ' + esc(fornitore.pagamento || 'N/D') + '</div>' +
+                        '</div>' +
+                        '<div style="font-size:0.82rem; color:var(--danger); margin-bottom:8px;">' + esc(warningMsg) + '</div>' +
+                        bankFormHtml +
+                        '<div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">' +
+                            '<button class="mrp-btn-secondary" id="' + id + '_cancel">Annulla</button>' +
+                            '<button class="mrp-btn-primary" id="' + id + '_send" style="background:var(--warning); border-color:var(--warning);">Invia senza banca</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            // Close / Cancel
+            document.getElementById(id + '_close').addEventListener('click', () => { overlay.remove(); resolve('cancel'); });
+            document.getElementById(id + '_cancel').addEventListener('click', () => { overlay.remove(); resolve('cancel'); });
+
+            // Invia senza banca
+            document.getElementById(id + '_send').addEventListener('click', () => { overlay.remove(); resolve('send_anyway'); });
+
+            // Salva dati bancari
+            document.getElementById(id + '_save').addEventListener('click', async () => {
+                const form = overlay.querySelector('.bank-form');
+                const btn = document.getElementById(id + '_save');
+                btn.disabled = true;
+                btn.textContent = 'Salvataggio...';
+                try {
+                    const body = {
+                        banca1: form.querySelector('[name="banca1"]').value.trim(),
+                        banca2: form.querySelector('[name="banca2"]').value.trim(),
+                        abi: form.querySelector('[name="abi"]').value.trim(),
+                        cab: form.querySelector('[name="cab"]').value.trim(),
+                        iban: form.querySelector('[name="iban"]').value.trim().replace(/\s/g, ''),
+                        swift: form.querySelector('[name="swift"]').value.trim()
+                    };
+                    const res = await fetch(MrpApp.API_BASE + '/fornitore-anagrafica/' + fornitore.codice, {
+                        method: 'PUT', credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    const data = await res.json();
+                    if (!data.success) throw new Error('Errore');
+
+                    btn.textContent = '\u2713 Salvato!';
+                    btn.className = 'bank-form-save success';
+                    form.querySelectorAll('input').forEach(i => i.classList.add('saved'));
+
+                    // Cambia il bottone "Invia senza banca" in "Invia email"
+                    const sendBtn = document.getElementById(id + '_send');
+                    sendBtn.textContent = 'Invia email';
+                    sendBtn.style.background = 'var(--primary)';
+                    sendBtn.style.borderColor = 'var(--primary)';
+
+                    // Click su "Invia email" → resolve saved
+                    sendBtn.onclick = () => { overlay.remove(); resolve('saved'); };
+                } catch (err) {
+                    btn.textContent = 'Errore!';
+                    btn.style.background = 'var(--danger)';
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.textContent = 'Salva dati bancari';
+                        btn.style.background = '';
+                    }, 2000);
+                }
+            });
+        });
+    }
+
     function modale(tipo, titolo, messaggio, pulsanti) {
         return new Promise(resolve => {
             const overlay = document.getElementById('modalGenericOverlay');
@@ -1148,8 +1249,15 @@ const MrpProposta = (() => {
                 }
             } catch (_) { /* ignora */ }
 
-            // 3) Avviso banca mancante per rimessa diretta
-            if (prevData.warning_banca) {
+            // 3) Avviso banca mancante per rimessa diretta — con scheda fornitore editabile
+            if (prevData.warning_banca && prevData.fornitore_dati) {
+                const fd = prevData.fornitore_dati;
+                const risposta = await modaleBancaMancante(fd, prevData.warning_banca);
+                if (risposta === 'cancel') return { success: false, error: 'CANCELLED' };
+                // Se ha salvato i dati bancari, 'saved' → procedi normalmente
+                // Se ha scelto 'send_anyway' → procedi
+            } else if (prevData.warning_banca) {
+                // Fallback semplice se fornitore_dati non disponibile
                 const risposta = await modale('warning', 'Dati bancari mancanti',
                     prevData.warning_banca + '<br><br>Vuoi procedere comunque con l\'invio?',
                     [{ label: 'Invia comunque', value: true, style: 'primary' },
