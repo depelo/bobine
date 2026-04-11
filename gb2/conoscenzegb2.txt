@@ -1157,5 +1157,190 @@ COMANDI SVILUPPO (vedi GUIDA-SVILUPPO-LOCALE.txt):
 
 
 ================================================================================
+================================================================================
+23. CONVIVENZA CON BCUBE — ORDINI EMESSI
+================================================================================
+
+L'app GB2 convive con BCube. Entrambi emettono ordini fornitore nella stessa
+tabella testord/movord su BCUBE2.
+
+ORDINI GB2 → BCUBE:
+  La nostra SP usp_CreaOrdineFornitore scrive in testord+movord.
+  BCube li vede e li tiene in conto nella prossima elaborazione notturna.
+
+ORDINI BCUBE → GB2:
+  Gli ordini emessi da BCube vengono rilevati dalla nostra app al caricamento
+  proposte. Criterio: ordini in testord con td_datord > fingerprint elaborazione
+  corrente (emessi DOPO l'ultima elaborazione notturna BCube).
+  Quando rilevati, vengono registrati in ordini_emessi con origine='bcube'.
+
+TABELLA ordini_emessi — COLONNA ORIGINE:
+  origine VARCHAR(10) DEFAULT 'gb2'
+  Valori: 'gb2' (emesso dalla nostra app) | 'bcube' (emesso da BCube, rilevato da noi)
+  Scopo: tracking unificato di tutti gli ordini + analisi future + distinzione visiva nel frontend
+
+FRONTEND:
+  Ordini BCube mostrati con badge viola "BCube" accanto al numero ordine.
+  Stesso trattamento degli ordini gb2: PDF, re-invio email funzionano ugualmente.
+
+
+================================================================================
+24. CANCELLAZIONE ORDINI — ANALISI BCUBE (da codice decompilato)
+================================================================================
+
+BCube fa DELETE FISICO degli ordini, NON soft-delete.
+Analizzato da: CLDORGSOR.cs:2327-2724, CLEORGSOR.cs:6457, CLDLBBASE.cs:413-462
+
+FLUSSO COMPLETO DI CANCELLAZIONE BCUBE (verificato):
+
+  1. VALIDAZIONE pre-cancellazione:
+     - mo_quaeva != 0 OR mo_quapre != 0 → BLOCCA (merce evasa/prenotata)
+     - Attivita produzione avviate/completate → BLOCCA
+     - Compatibilita Net@Pro → BLOCCA se in evasione
+
+  2. Riapri proposte ordlist collegate (se modulo RA attivo):
+     → UPDATE ordlist SET ol_stato='S', azzera riferimenti ordine
+
+  3. Cancella allocazioni:
+     → DELETE FROM allole WHERE ...
+
+  4. Recupera numerazione (SOLO se ordine e l'ultimo progressivo):
+     → SELECT tb_numprog FROM tabnuma WHERE tb_numtipo='O' AND tb_numserie=@serie AND tb_numcodl=@anno
+     → SE td_numord == tb_numprog:
+         UPDATE tabnuma SET tb_numprog = tb_numprog - 1
+     (Se cancelli il 275 ma il 276 esiste gia, il buco numerico RESTA)
+
+  5. Cancella ordine tramite SP:
+     → EXEC bussp_bsorgsor9_fcancella 'O', @anno, @serie, @numord, 'UJET11', 'N', @data, @utente
+     (Questa SP fa DELETE da movord + testord e gestisce keyord)
+
+  6. Pulizia tabelle collegate:
+     → DELETE FROM schetrasp WHERE ... (schede trasporto)
+     → UPDATE imprevmov SET ivm_voceord='N', ... (budget)
+
+TABELLE TOCCATE:
+  movord    → DELETE (sempre)
+  testord   → DELETE (sempre)
+  keyord    → gestita dalla SP bussp_bsorgsor9_fcancella
+  ordlist   → UPDATE ol_stato='S' (solo se modulo RA e proposte collegate)
+  tabnuma   → UPDATE tb_numprog-1 (solo se ultimo progressivo)
+  allole    → DELETE (allocazioni)
+  schetrasp → DELETE (schede trasporto)
+  imprevmov → UPDATE (budget)
+
+TABELLE NON TOCCATE:
+  movmag    → gli ordini non generano movimenti magazzino finche non evasi
+  td_flevas, td_blocco, td_sospeso → NON modificati (l'ordine viene eliminato fisicamente)
+  mo_stasino → NON messo a 'N' (la riga viene eliminata con DELETE, non soft-delete)
+
+ANNULLAMENTO PARZIALE:
+  BCube permette di cancellare singole righe (movord) mantenendo le altre.
+  I totali testata vengono ricalcolati automaticamente dalla SP di salvataggio.
+
+VERIFICHE DB REALI (BCUBE2, 10/04/2026):
+  - SP bussp_bsorgsor9_fcancella: ESISTE su BCUBE2
+  - tabnuma 2026/F: tb_numprog=293, ultimo ordine testord=293 (ALLINEATI)
+  - 312 righe ordine 2026 hanno qta evase/prenotate (VINCOLO REALE)
+  - Tabelle allole, schetrasp, keyord: ESISTONO
+
+IMPLICAZIONI PER GB2:
+  Per implementare la cancellazione dalla nostra app:
+  - Opzione A (replica BCube): chiamare la SP bussp_bsorgsor9_fcancella esistente
+    + gestire tabnuma + allole + ordini_emessi nostri
+  - Opzione B (sicura): cancellare solo da ordini_emessi nostri,
+    l'operatore annulla da BCube dove la procedura e completa
+  - In entrambi i casi: verificare prima che mo_quaeva=0 e mo_quapre=0
+
+  STATUS ATTUALE: NON IMPLEMENTATO — in fase di studio.
+  L'ordine 108/F (nostro) ha td_flevas='S' (in evasione) — non cancellabile.
+
+
+================================================================================
+25. BUG CRITICO SCOPERTO: KEYORD + ARTPRO NON POPOLATI (10/04/2026)
+================================================================================
+
+La nostra SP usp_CreaOrdineFornitore fa SOLO:
+  1. UPDATE tabnuma (numerazione)
+  2. INSERT testord (testata)
+  3. INSERT movord (righe)
+  4. INSERT ordini_emessi (tracking nostro)
+
+Ma MANCA il passo fondamentale che BCube fa dopo ogni salvataggio ordine:
+  EXEC bussp_bsorgsor9_faggiorn2 'O', @anno, @serie, @numord, @codditt, @data, @operatore
+
+Questa SP "orchestra" chiama in sequenza:
+  1. bussp_aggkeyord9    → POPOLA keyord (tabella chiavi ordine)
+  2. bussp_aggmovordoa9  → aggiorna saldi ordini aperti
+  3. bussp_aggmovoff     → aggiorna offerte collegate
+  4. bussp_aggtestoff    → aggiorna testate offerte
+  5. bussp_aggproord9    → aggiorna artpro/artprox/lotcpro (saldi giacenza)
+
+CONSEGUENZE DELLA MANCANZA:
+
+  1. keyord VUOTA per i nostri ordini:
+     - La tabella keyord traccia le allocazioni ordine per ogni riga movord
+     - Per tipo 'O' (ordine fornitore): ko_ordin=1 (incrementa ap_ordin), ko_impeg=0
+     - Senza keyord, artpro.ap_ordin NON viene incrementato
+
+  2. artpro.ap_ordin NON AGGIORNATO:
+     - Quando ordiniamo 1000 PZ, artpro.ap_ordin dovrebbe incrementarsi di 1000
+     - Senza la chiamata, ap_ordin resta invariato
+     - BCube vedra "ordinato a fornitore" piu basso della realta
+     - Le schermate di disponibilita merce in BCube mostreranno saldi sbagliati
+
+  3. L'elaborazione MRP notturna NON e impattata:
+     - BCube calcola le proposte da movord/testord direttamente, non da artpro
+     - Le proposte MRP saranno corrette
+     - Ma le viste di disponibilita nel gestionale BCube saranno sbagliate
+
+  4. Cancellazione ordini:
+     - bussp_bsorgsor9_fcancella chiama bussp_aggproord9 per stornare
+     - Ma lo storno legge da keyord (vuota) → non trova nulla da stornare
+     - DELETE testord/movord avviene comunque → ordine cancellato
+     - Saldi artpro restano coerenti (sballati di 0 in entrambe le direzioni)
+
+  5. Se un operatore BCube MODIFICA un ordine creato da GB2:
+     - BCube chiama bussp_bsorgsor9_faggiorn2
+     - keyord viene creata, artpro viene aggiornata
+     - Da quel momento lo storno funziona correttamente
+
+FIX NECESSARIO:
+  Aggiungere alla fine di usp_CreaOrdineFornitore (dopo INSERT movord, dentro la transazione):
+
+  EXEC bussp_bsorgsor9_faggiorn2 @tipodoc='O', @anno, @serie, @numord, @codditt, @oggi, @operatore
+
+  Dove: 'O' = tipo ordine fornitore
+  Questa SP esiste gia su BCUBE2 — non dobbiamo crearla.
+  La nostra SP la chiama cross-server: EXEC [BCUBE2].[UJET11].[dbo].[bussp_bsorgsor9_faggiorn2] ...
+  In prova: EXEC [SERVER_PROVA].[UJET11].[dbo].[bussp_bsorgsor9_faggiorn2] ...
+
+  ATTENZIONE: la SP va chiamata sullo STESSO server dove stanno testord/movord
+  (BCUBE2 in produzione, server prova in prova). Usiamo il placeholder {{UJET11_REF}}
+  come per le altre SP.
+
+FLUSSO COMPLETO BCUBE (verificato dal codice decompilato e dal DB):
+  1. BEGIN TRANSACTION
+  2. AggNuma()              → UPDATE tabnuma SET tb_numprog + 1
+  3. INSERT INTO testord    → testata ordine
+  4. INSERT INTO movord     → N righe corpo
+  5. UPDATE testord         → SET td_ultagg = GETDATE()
+  6. EXEC bussp_bsorgsor9_faggiorn2:
+     6a. EXEC bussp_aggkeyord9    → INSERT INTO keyord (1+ riga per riga movord)
+     6b. EXEC bussp_aggmovordoa9  → aggiorna saldi ordini aperti
+     6c. EXEC bussp_aggmovoff     → aggiorna offerte
+     6d. EXEC bussp_aggtestoff    → aggiorna testate offerte
+     6e. EXEC bussp_aggproord9    → INSERT/UPDATE artpro + artprox + lotcpro
+  7. SalvaOrdineAggiornaOrdlist() → UPDATE/DELETE ordlist (proposte)
+  8. COMMIT TRANSACTION
+
+IMPATTO ORDINI GIA EMESSI:
+  Tutti gli ordini gia emessi dalla nostra app (~21 ordini) NON hanno keyord
+  e artpro NON e stato aggiornato. Opzioni:
+  a) Rieseguire bussp_bsorgsor9_faggiorn2 per ogni ordine esistente (fix retroattivo)
+  b) Lasciare — alla prossima elaborazione notturna BCube ricalcola tutto
+  c) Attendere che un operatore BCube modifichi/risalvi l'ordine (trigger automatico)
+
+
+================================================================================
 FINE DOCUMENTO
 ================================================================================

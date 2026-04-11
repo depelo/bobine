@@ -370,6 +370,18 @@ BEGIN
     FROM #articoli a
     ORDER BY a.riga;
 
+    -- ============================================================
+    -- 5c. AGGIORNAMENTO SALDI BCube (keyord + artpro + artprox + lotcpro)
+    -- Chiama la SP orchestra di BCube che:
+    --   1. Popola keyord (tabella chiavi ordine per tracciamento allocazioni)
+    --   2. Aggiorna artpro.ap_ordin (quantita ordinata a fornitore)
+    --   3. Aggiorna artprox e lotcpro (saldi per articolo/lotto)
+    -- Senza questa chiamata, artpro.ap_ordin non viene incrementato,
+    -- BCube vede saldi sbagliati, e la cancellazione ordine non funziona.
+    -- ============================================================
+    EXEC {{UJET11_REF}}.bussp_bsorgsor9_faggiorn2
+        'O', @anno, @serie, @numord, @codditt, @oggi, @operatore;
+
     -- Rilascia lock
     EXEC sp_releaseapplock @Resource = @lock_name;
 

@@ -186,10 +186,38 @@ module.exports = function createAdminRoutes({ io, activeUserSockets }) {
                         END
                         ELSE
                         BEGIN
-                            INSERT INTO ${fullTable} (IDUser, ${roleCol}, IsActive) 
+                            INSERT INTO ${fullTable} (IDUser, ${roleCol}, IsActive)
                             VALUES (@id, ${table === 'Captains' ? "'Master'" : '@adminVal'}, 1)
                         END
                     `);
+
+                    // Se è il visto GB2, crea operatore in ARCPROC.OPERAT per BCube (fire-and-forget)
+                    if (dbName === 'GB2') {
+                        try {
+                            const opCode = 'GB2' + idUser;
+                            const nameRes = await pool.request().input('uid', sql.Int, idUser)
+                                .query("SELECT Name FROM [GA].[dbo].[Users] WHERE IDUser=@uid");
+                            const userName = nameRes.recordset.length ? (nameRes.recordset[0].Name || '') : '';
+                            await pool.request()
+                                .input('op', sql.VarChar(20), opCode)
+                                .input('nome', sql.VarChar(30), 'GB2 ' + userName)
+                                .input('cognome', sql.VarChar(20), '')
+                                .query(`
+                                    IF NOT EXISTS (SELECT 1 FROM [BCUBE2].[ARCPROC].[dbo].[OPERAT] WHERE OpNome=@op)
+                                    INSERT INTO [BCUBE2].[ARCPROC].[dbo].[OPERAT]
+                                        (OpNome, OpGruppo, OpLoginaccess, OpLoginsql, OpPasssql,
+                                         OpRuolo, OpAbil, OpAbilcamb, OpAzienda, OpDescont, OpDescont2,
+                                         OpNetOnly, OpSutipouser, OpSulimiti, OpMsgSistema, OpTipoAuth,
+                                         OpIscrmus, OpDatscad, OpDatulac, OpCodling, OpCodcaa, OpLoginErrati)
+                                    VALUES (@op, 24, 'Admin', 'sa', 'G24c03p1952',
+                                            'P', 'S', 'S', 'UJET11', @nome, @cognome,
+                                            'N', 'N', 'N', 'S', 'P',
+                                            'N', '2099-12-31', GETDATE(), 0, 0, 0)
+                                `);
+                        } catch (arcErr) {
+                            console.warn('[Admin] Creazione operatore ARCPROC fallita (non critico):', arcErr.message);
+                        }
+                    }
                 } else {
                     await pool.request()
                         .input('id', sql.Int, idUser)
@@ -353,6 +381,30 @@ module.exports = function createAdminRoutes({ io, activeUserSockets }) {
                                 INSERT INTO ${fullTable} (IDUser, ${roleCol}, IsActive)
                                 VALUES (@idUser, @admin, 1)
                             `);
+                            }
+                            // Se è il visto GB2, crea operatore ARCPROC per BCube (fire-and-forget)
+                            if (dbName === 'GB2') {
+                                try {
+                                    const opCode = 'GB2' + newUserId;
+                                    const arcReq = new sql.Request(transaction);
+                                    arcReq.input('op', sql.VarChar(20), opCode);
+                                    arcReq.input('nome', sql.VarChar(30), 'GB2 ' + (name || ''));
+                                    arcReq.input('cognome', sql.VarChar(20), '');
+                                    await arcReq.query(`
+                                        IF NOT EXISTS (SELECT 1 FROM [BCUBE2].[ARCPROC].[dbo].[OPERAT] WHERE OpNome=@op)
+                                        INSERT INTO [BCUBE2].[ARCPROC].[dbo].[OPERAT]
+                                            (OpNome, OpGruppo, OpLoginaccess, OpLoginsql, OpPasssql,
+                                             OpRuolo, OpAbil, OpAbilcamb, OpAzienda, OpDescont, OpDescont2,
+                                             OpNetOnly, OpSutipouser, OpSulimiti, OpMsgSistema, OpTipoAuth,
+                                             OpIscrmus, OpDatscad, OpDatulac, OpCodling, OpCodcaa, OpLoginErrati)
+                                        VALUES (@op, 24, 'Admin', 'sa', 'G24c03p1952',
+                                                'P', 'S', 'S', 'UJET11', @nome, @cognome,
+                                                'N', 'N', 'N', 'S', 'P',
+                                                'N', '2099-12-31', GETDATE(), 0, 0, 0)
+                                    `);
+                                } catch (arcErr) {
+                                    console.warn('[Admin] Creazione operatore ARCPROC fallita (non critico):', arcErr.message);
+                                }
                             }
                         } catch (e) {
                             console.error('Errore creazione visto per', fullTable, e.message);

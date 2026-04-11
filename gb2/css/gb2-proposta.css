@@ -519,6 +519,24 @@
     color: #64748b;
 }
 
+/* Pulsante annulla ordine */
+.btn-annulla-ordine {
+    font-size: 0.72rem;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    background: transparent;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: 6px;
+    transition: all 0.15s;
+    font-weight: 600;
+}
+.btn-annulla-ordine:hover {
+    background: var(--danger);
+    color: white;
+}
+
 /* Badge "BCube" per ordini emessi da BCube */
 .proposta-badge-bcube {
     display: inline-block;

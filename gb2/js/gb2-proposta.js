@@ -615,6 +615,17 @@ const MrpProposta = (() => {
                 });
                 emessoBadge.appendChild(btnEmail);
 
+                // Pulsante Annulla ordine (gb2 e BCube)
+                const btnAnnulla = document.createElement('button');
+                btnAnnulla.className = 'btn-annulla-ordine';
+                btnAnnulla.textContent = '\u274C Annulla';
+                btnAnnulla.title = 'Annulla ordine ' + emesso.numord + '/' + emesso.serie;
+                btnAnnulla.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    apriModaleAnnullaOrdine(emesso);
+                });
+                emessoBadge.appendChild(btnAnnulla);
+
                 header.appendChild(emessoBadge);
                 return;
             }
@@ -986,6 +997,58 @@ const MrpProposta = (() => {
     // ============================================================
     // APRI MODALE EMETTI ORDINE (singolo fornitore)
     // ============================================================
+    async function apriModaleAnnullaOrdine(emesso) {
+        const ordLabel = emesso.numord + '/' + emesso.serie;
+        const fornNome = emesso.fornitore_nome || 'Fornitore ' + emesso.fornitore_codice;
+        const isBcube = emesso.origine === 'bcube';
+        const emailAvviso = emesso.email_inviata
+            ? '<br><br><strong style="color:var(--danger);">Attenzione:</strong> l\'email è già stata inviata al fornitore. Dovrai avvisarlo manualmente dell\'annullamento.'
+            : '';
+        const bcubeAvviso = isBcube
+            ? '<br><br><span style="color:var(--primary);font-weight:600;">Questo ordine è stato emesso da BCube.</span> L\'annullamento lo rimuoverà anche dal gestionale.'
+            : '';
+
+        const risposta = await modale('warning', 'Annullamento ordine',
+            'Sei sicuro di voler annullare l\'ordine <strong>' + esc(ordLabel) + '</strong> per <strong>' + esc(fornNome) + '</strong>?' +
+            bcubeAvviso +
+            '<br><br>L\'ordine verrà cancellato dal sistema.' +
+            '<br><span style="font-size:0.8rem;color:var(--text-muted);">Il numero ordine sarà recuperato solo se è l\'ultimo emesso.</span>' +
+            emailAvviso,
+            [{ label: 'Annulla ordine', value: true, style: 'danger' },
+             { label: 'Indietro', value: false, style: 'secondary' }]);
+
+        if (!risposta) return;
+
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/annulla-ordine`, {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ anno: emesso.anno, serie: emesso.serie, numord: emesso.numord })
+            });
+            const data = await res.json();
+
+            if (data.error === 'MERCE_EVASA') {
+                await modale('error', 'Annullamento impossibile', data.message);
+                return;
+            }
+            if (!data.success) {
+                await modale('error', 'Errore', 'Errore annullamento: ' + esc(data.error || 'sconosciuto'));
+                return;
+            }
+
+            // Successo: rimuovi da Map e ricarica proposte
+            const fk = String(emesso.fornitore_codice);
+            ordiniEmessi.delete(fk);
+            await modale('success', 'Ordine annullato',
+                'L\'ordine <strong>' + esc(ordLabel) + '</strong> è stato annullato con successo.');
+
+            // Ricarica proposte per aggiornare la vista
+            caricaProposta();
+        } catch (err) {
+            await modale('error', 'Errore di rete', 'Errore: <code>' + esc(err.message) + '</code>');
+        }
+    }
+
     async function apriModaleEmettiOrdine(fornitore_codice) {
         if (!await assicuraSPEsiste()) return;
         const confermati = MrpApp.state.ordiniConfermati;
@@ -1158,6 +1221,22 @@ const MrpProposta = (() => {
             });
             azioni.appendChild(btnEmail);
         }
+
+        // Pulsante annulla ordine
+        const btnAnnullaRis = document.createElement('button');
+        btnAnnullaRis.className = 'modal-generic-btn modal-generic-btn-danger';
+        btnAnnullaRis.textContent = '\u274C Annulla Ordine';
+        btnAnnullaRis.style.fontSize = '0.78rem';
+        btnAnnullaRis.addEventListener('click', () => {
+            overlay.classList.remove('open');
+            apriModaleAnnullaOrdine({
+                anno: data.ordine.anno, serie: data.ordine.serie, numord: data.ordine.numord,
+                fornitore_nome: fornitore_nome,
+                fornitore_codice: data.ordine.fornitore_codice,
+                email_inviata: false, origine: 'gb2'
+            });
+        });
+        azioni.appendChild(btnAnnullaRis);
 
         // Pulsante chiudi
         const btnChiudi = document.createElement('button');

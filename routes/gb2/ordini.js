@@ -99,12 +99,14 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
             });
         }
 
-        // Chiama la SP
+        // Chiama la SP — con firma operatore GB2{IDUser}
         const { elaborazione_id } = req.body;
+        const uid = getUserId(req);
+        const operatoreCode = uid ? 'GB2' + uid : 'GB2IDerror';
         const result = await poolSP.request()
             .input('json_articoli', sql.NVarChar(sql.MAX), JSON.stringify(articoli))
             .input('fornitore_codice', sql.Int, parseInt(fornitore_codice, 10))
-            .input('operatore', sql.VarChar(20), 'mrpweb')
+            .input('operatore', sql.VarChar(20), operatoreCode)
             .input('elaborazione_id', sql.VarChar(50), elaborazione_id || '')
             .execute('dbo.' + spName);
 
@@ -201,7 +203,9 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
         }
 
         const poolSP = await getPoolProd();
-        const profile = getActiveProfile(getUserId(req));
+        const uid = getUserId(req);
+        const operatoreCode = uid ? 'GB2' + uid : 'GB2IDerror';
+        const profile = getActiveProfile(uid);
         const spName = getSpName('usp_CreaOrdineFornitore', profile);
         const spExists = await checkSpExists(poolSP, spName);
         if (!spExists) {
@@ -214,7 +218,7 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
                 const result = await poolSP.request()
                     .input('json_articoli', sql.NVarChar(sql.MAX), JSON.stringify(ord.articoli))
                     .input('fornitore_codice', sql.Int, parseInt(ord.fornitore_codice, 10))
-                    .input('operatore', sql.VarChar(20), 'mrpweb')
+                    .input('operatore', sql.VarChar(20), operatoreCode)
                     .input('elaborazione_id', sql.VarChar(50), req.body.elaborazione_id || '')
                     .execute('dbo.' + spName);
 
@@ -265,6 +269,138 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
         });
     } catch (err) {
         console.error('[Emetti Batch] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Annulla un ordine fornitore gia emesso
+// Chiama la SP BCube bussp_bsorgsor9_fcancella che fa DELETE fisico + storno saldi
+router.post('/annulla-ordine', authMiddleware, async (req, res) => {
+    try {
+        const { anno, serie, numord } = req.body;
+        if (!anno || !serie || !numord) return res.status(400).json({ error: 'anno, serie e numord obbligatori' });
+
+        const uid = getUserId(req);
+        const isProd = isProduction(uid);
+        const annoInt = parseInt(anno, 10);
+        const numordInt = parseInt(numord, 10);
+
+        // Pool verso UJET11 (dove stanno testord/movord)
+        let poolERP, tempPool = null;
+        if (isProd) {
+            const remoteServer = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
+            const dbName = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+            tempPool = await new sql.ConnectionPool({
+                server: remoteServer, database: dbName,
+                user: PRODUCTION_PROFILE.user, password: PRODUCTION_PROFILE.password,
+                options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+                pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
+            }).connect();
+            poolERP = tempPool;
+        } else {
+            poolERP = await getPoolMRP(uid);
+        }
+
+        try {
+            // 1. Verifica che l'ordine esista
+            const checkOrd = await poolERP.request()
+                .input('anno', sql.SmallInt, annoInt)
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, numordInt)
+                .query(`SELECT td_numord, td_flevas FROM dbo.testord
+                        WHERE codditt='UJET11' AND td_tipork='O'
+                          AND td_anno=@anno AND td_serie=@serie AND td_numord=@numord`);
+            if (!checkOrd.recordset.length) {
+                return res.status(404).json({ error: 'Ordine non trovato' });
+            }
+
+            // 2. Verifica nessuna merce evasa/prenotata
+            const checkEvas = await poolERP.request()
+                .input('anno', sql.SmallInt, annoInt)
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, numordInt)
+                .query(`SELECT COUNT(*) AS cnt FROM dbo.movord
+                        WHERE codditt='UJET11' AND mo_tipork='O'
+                          AND mo_anno=@anno AND mo_serie=@serie AND mo_numord=@numord
+                          AND (mo_quaeva > 0 OR mo_quapre > 0)`);
+            if (checkEvas.recordset[0].cnt > 0) {
+                return res.status(409).json({
+                    error: 'MERCE_EVASA',
+                    message: 'Impossibile annullare: l\'ordine ha righe con merce già evasa o prenotata. Annullare da BCube.'
+                });
+            }
+
+            // 3. Recupera numerazione (come DelNuma di BCube)
+            // Solo se l'ordine è l'ultimo progressivo
+            const numaCheck = await poolERP.request()
+                .input('anno', sql.SmallInt, annoInt)
+                .input('serie', sql.VarChar(3), serie)
+                .query(`SELECT tb_numprog FROM dbo.tabnuma
+                        WHERE codditt='UJET11' AND tb_numtipo='O' AND tb_numserie=@serie AND tb_numcodl=@anno`);
+            if (numaCheck.recordset.length && numaCheck.recordset[0].tb_numprog === numordInt) {
+                await poolERP.request()
+                    .input('anno', sql.SmallInt, annoInt)
+                    .input('serie', sql.VarChar(3), serie)
+                    .query(`UPDATE dbo.tabnuma SET tb_numprog = tb_numprog - 1
+                            WHERE codditt='UJET11' AND tb_numtipo='O' AND tb_numserie=@serie AND tb_numcodl=@anno`);
+                console.log('[Annulla] Numerazione recuperata: tabnuma decrementato');
+            }
+
+            // 4. Chiama SP BCube di cancellazione
+            const oggi = new Date();
+            const profile = getActiveProfile(uid);
+            const operatore = (profile && profile.user) || 'mrpweb';
+            await poolERP.request()
+                .input('tipodoc', sql.VarChar(1), 'O')
+                .input('anno', sql.SmallInt, annoInt)
+                .input('serie', sql.VarChar(3), serie)
+                .input('numdoc', sql.Int, numordInt)
+                .input('codditt', sql.VarChar(12), 'UJET11')
+                .input('bModTCO', sql.VarChar(1), 'N')
+                .input('dtData', sql.DateTime, oggi)
+                .input('stropnome', sql.VarChar(20), operatore)
+                .execute('bussp_bsorgsor9_fcancella');
+
+            console.log('[Annulla] Ordine', numordInt + '/' + serie + '/' + annoInt, 'cancellato da SP BCube');
+
+            // 5. Pulizia nostra: ordini_emessi + SnapshotProposte
+            const poolProd = await getPoolProd();
+            try {
+                await poolProd.request()
+                    .input('anno', sql.SmallInt, annoInt)
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, numordInt)
+                    .query(`DELETE FROM dbo.ordini_emessi
+                            WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+            } catch (_) {}
+
+            try {
+                // Riapri le proposte nello snapshot
+                const oeIds = await poolProd.request()
+                    .input('anno', sql.SmallInt, annoInt)
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, numordInt)
+                    .query(`SELECT ID FROM dbo.ordini_emessi
+                            WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+                // Se ci sono snapshot da riaprire
+                await poolProd.request()
+                    .input('anno', sql.SmallInt, annoInt)
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, numordInt)
+                    .query(`UPDATE [GB2].[dbo].[SnapshotProposte]
+                            SET Gestita=0, OrdineEmessoID=NULL, UpdatedAt=GETDATE()
+                            WHERE OrdineEmessoID IN (
+                                SELECT id FROM dbo.ordini_emessi
+                                WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord
+                            )`);
+            } catch (_) {}
+
+            res.json({ success: true, message: 'Ordine ' + numordInt + '/' + serie + ' annullato' });
+        } finally {
+            if (tempPool) try { await tempPool.close(); } catch (_) {}
+        }
+    } catch (err) {
+        console.error('[Annulla] Errore:', err);
         res.status(500).json({ error: err.message });
     }
 });
