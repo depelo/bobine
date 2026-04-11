@@ -95,51 +95,72 @@ router.get('/magazzini', authMiddleware, async (req, res) => {
 async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
     const righe = [];
 
+    // Costruisci i filtri SQL (condivisi tra query 1 e 3)
     let filtroSQL = '';
-    const artproReq = pool.request().input('codart', sql.NVarChar, codart);
-    if (filtroMagaz) {
-        artproReq.input('magaz', sql.SmallInt, parseInt(filtroMagaz, 10));
-        filtroSQL += ' AND ap.ap_magaz = @magaz';
-    }
-    if (filtroFase) {
-        artproReq.input('fase', sql.SmallInt, parseInt(filtroFase, 10));
-        filtroSQL += ' AND ap.ap_fase = @fase';
-    }
+    let filtroOrdSQL = '';
+    const magaz = filtroMagaz ? parseInt(filtroMagaz, 10) : null;
+    const fase = filtroFase ? parseInt(filtroFase, 10) : null;
+    if (magaz) filtroSQL += ' AND ap.ap_magaz = ' + magaz;
+    if (fase) filtroSQL += ' AND ap.ap_fase = ' + fase;
+    if (magaz) filtroOrdSQL += ' AND ol.ol_magaz = ' + magaz;
+    if (fase) filtroOrdSQL += ' AND ol.ol_fase = ' + fase;
 
-    const artproRes = await artproReq.query(`
-        SELECT
-            ap.ap_codart, ap.ap_magaz, ap.ap_fase,
-            ap.ap_esist, ap.ap_prenot, ap.ap_ordin, ap.ap_impeg,
-            tm.tb_desmaga AS desc_magazzino,
-            COALESCE(af.af_descr, '') AS desc_fase,
-            a.ar_unmis, a.ar_inesaur
-        FROM dbo.artpro ap
-        LEFT JOIN dbo.tabmaga tm ON ap.ap_magaz = tm.tb_codmaga
-        LEFT JOIN dbo.artfasi af ON ap.ap_codart = af.af_codart AND ap.ap_fase = af.af_fase
-        LEFT JOIN dbo.artico a ON ap.ap_codart = a.ar_codart
-        WHERE ap.ap_codart = @codart ${filtroSQL}
-        ORDER BY ap.ap_magaz, ap.ap_fase
-    `);
+    // --- 3 QUERY IN PARALLELO (indipendenti) ---
+    const [artproRes, emessiRes, ordRes] = await Promise.all([
+        // 1) Giacenze da artpro + tabmaga + artfasi + artico
+        pool.request().input('codart', sql.NVarChar, codart).query(`
+            SELECT
+                ap.ap_codart, ap.ap_magaz, ap.ap_fase,
+                ap.ap_esist, ap.ap_prenot, ap.ap_ordin, ap.ap_impeg,
+                tm.tb_desmaga AS desc_magazzino,
+                COALESCE(af.af_descr, '') AS desc_fase,
+                a.ar_unmis, a.ar_inesaur
+            FROM dbo.artpro ap
+            LEFT JOIN dbo.tabmaga tm ON ap.ap_magaz = tm.tb_codmaga
+            LEFT JOIN dbo.artfasi af ON ap.ap_codart = af.af_codart AND ap.ap_fase = af.af_fase
+            LEFT JOIN dbo.artico a ON ap.ap_codart = a.ar_codart
+            WHERE ap.ap_codart = @codart ${filtroSQL}
+            ORDER BY ap.ap_magaz, ap.ap_fase
+        `),
 
-    // Leggi quantita emesse dalla nostra app (ordini_emessi su MRP@163)
-    // per aggiornare il campo "ordinato" oltre lo snapshot di BCube.
-    // Usa sempre getPoolProd() perche' ordini_emessi risiede solo in MRP, mai in UJET11 di prova.
-    let emessiPerMagFase = new Map(); // key "magaz_fase" -> somma quantita_ordinata
-    try {
-        const poolEmessi = await getPoolProd();
-        const emRes = await poolEmessi.request()
-            .input('codart_em', sql.NVarChar, codart)
-            .query(`
-                SELECT ol_magaz, ol_fase, SUM(quantita_ordinata) AS qta_emessa
-                FROM dbo.ordini_emessi
-                WHERE ol_codart = @codart_em
-                GROUP BY ol_magaz, ol_fase
-            `);
-        for (const row of emRes.recordset) {
-            emessiPerMagFase.set(`${row.ol_magaz}_${row.ol_fase}`, row.qta_emessa || 0);
-        }
-    } catch (e) {
-        // ordini_emessi non disponibile -- procedi con solo ap_ordin
+        // 2) Emissioni dalla nostra app (ordini_emessi su MRP@163)
+        (async () => {
+            try {
+                const poolEmessi = await getPoolProd();
+                return await poolEmessi.request()
+                    .input('codart_em', sql.NVarChar, codart)
+                    .query(`
+                        SELECT ol_magaz, ol_fase, SUM(quantita_ordinata) AS qta_emessa
+                        FROM dbo.ordini_emessi
+                        WHERE ol_codart = @codart_em
+                        GROUP BY ol_magaz, ol_fase
+                    `);
+            } catch (_) { return { recordset: [] }; }
+        })(),
+
+        // 3) Ordini/impegni da ordlist
+        pool.request().input('codart', sql.NVarChar, codart).query(`
+            SELECT
+                ol.ol_codart, ol.ol_magaz, ol.ol_fase,
+                ol.ol_tipork, ol.ol_stato,
+                MIN(ol.ol_datcons) AS min_datcons,
+                SUM(CASE WHEN ol.ol_tipork IN ('H','O') AND ol.ol_stato = 'S' THEN ol.ol_quant ELSE 0 END) AS opc,
+                SUM(CASE WHEN ol.ol_tipork IN ('H','O') AND ol.ol_stato <> 'S' THEN ol.ol_quant ELSE 0 END) AS op,
+                SUM(CASE WHEN ol.ol_tipork = 'Y' AND ol.ol_stato = 'S' THEN ol.ol_quant ELSE 0 END) AS ipc,
+                SUM(CASE WHEN ol.ol_tipork = 'Y' AND ol.ol_stato <> 'S' THEN ol.ol_quant ELSE 0 END) AS ip
+            FROM dbo.ordlist ol
+            WHERE ol.ol_codart = @codart
+              AND ol.ol_tipork IN ('H','O','Y')
+              ${filtroOrdSQL}
+            GROUP BY ol.ol_codart, ol.ol_magaz, ol.ol_fase, ol.ol_tipork, ol.ol_stato, ol.ol_stasino
+            ORDER BY ol.ol_magaz, ol.ol_fase, MIN(ol.ol_datcons)
+        `)
+    ]);
+
+    // Mappa emissioni per chiave magaz_fase
+    const emessiPerMagFase = new Map();
+    for (const row of emessiRes.recordset) {
+        emessiPerMagFase.set(`${row.ol_magaz}_${row.ol_fase}`, row.qta_emessa || 0);
     }
 
     // Arricchisci ap_ordin con le quantita emesse dalla nostra app
@@ -150,34 +171,6 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
             ap.ap_ordin = (ap.ap_ordin || 0) + qtaEmessa;
         }
     }
-
-    let filtroOrdSQL = '';
-    const ordReq = pool.request().input('codart', sql.NVarChar, codart);
-    if (filtroMagaz) {
-        ordReq.input('magaz_ord', sql.SmallInt, parseInt(filtroMagaz, 10));
-        filtroOrdSQL += ' AND ol.ol_magaz = @magaz_ord';
-    }
-    if (filtroFase) {
-        ordReq.input('fase_ord', sql.SmallInt, parseInt(filtroFase, 10));
-        filtroOrdSQL += ' AND ol.ol_fase = @fase_ord';
-    }
-
-    const ordRes = await ordReq.query(`
-        SELECT
-            ol.ol_codart, ol.ol_magaz, ol.ol_fase,
-            ol.ol_tipork, ol.ol_stato,
-            MIN(ol.ol_datcons) AS min_datcons,
-            SUM(CASE WHEN ol.ol_tipork IN ('H','O') AND ol.ol_stato = 'S' THEN ol.ol_quant ELSE 0 END) AS opc,
-            SUM(CASE WHEN ol.ol_tipork IN ('H','O') AND ol.ol_stato <> 'S' THEN ol.ol_quant ELSE 0 END) AS op,
-            SUM(CASE WHEN ol.ol_tipork = 'Y' AND ol.ol_stato = 'S' THEN ol.ol_quant ELSE 0 END) AS ipc,
-            SUM(CASE WHEN ol.ol_tipork = 'Y' AND ol.ol_stato <> 'S' THEN ol.ol_quant ELSE 0 END) AS ip
-        FROM dbo.ordlist ol
-        WHERE ol.ol_codart = @codart
-          AND ol.ol_tipork IN ('H','O','Y')
-          ${filtroOrdSQL}
-        GROUP BY ol.ol_codart, ol.ol_magaz, ol.ol_fase, ol.ol_tipork, ol.ol_stato, ol.ol_stasino
-        ORDER BY ol.ol_magaz, ol.ol_fase, MIN(ol.ol_datcons)
-    `);
 
     const totaliFase = {};
 

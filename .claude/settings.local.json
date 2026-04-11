@@ -85,7 +85,8 @@
       "Bash(node -c gb2/js/gb2-dbconfig.js)",
       "Bash(curl -k https://localhost:3000/api/mrp/check-anagra-column)",
       "Bash(node -c utils/pdfOrdine.js)",
-      "Bash(node -c config/db-gb2.js)"
+      "Bash(node -c config/db-gb2.js)",
+      "Bash(node -c routes/gb2/articoli.js)"
     ]
   }
 }
