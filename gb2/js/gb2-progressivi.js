@@ -1957,18 +1957,18 @@ const MrpProgressivi = (() => {
         if (!thead) return;
         thead.innerHTML = `
             <th style="width:30px;"></th>
-            <th>Operazione</th>
-            <th>Anno</th>
-            <th>Ser</th>
-            <th>Num.Doc</th>
-            <th>Riga</th>
-            <th>Mag</th>
-            <th>Fase</th>
-            <th>Data Cons.</th>
-            <th>Q.tà Ordinata</th>
-            <th>Q.tà Evasa</th>
-            <th>Stato</th>
-            <th>Fornitore</th>
+            <th data-sort="desc_tipo" style="cursor:pointer;">Operazione \u21C5</th>
+            <th data-sort="mo_anno" style="cursor:pointer;">Anno \u21C5</th>
+            <th data-sort="mo_serie" style="cursor:pointer;">Ser \u21C5</th>
+            <th data-sort="mo_numord" style="cursor:pointer;">Num.Doc \u21C5</th>
+            <th data-sort="mo_riga" style="cursor:pointer;">Riga \u21C5</th>
+            <th data-sort="mo_magaz" style="cursor:pointer;">Mag \u21C5</th>
+            <th data-sort="mo_fase" style="cursor:pointer;">Fase \u21C5</th>
+            <th data-sort="mo_datcons" style="cursor:pointer;">Data Cons. \u21C5</th>
+            <th data-sort="mo_quant" style="cursor:pointer;">Q.t\u00e0 Ordinata \u21C5</th>
+            <th data-sort="mo_quaeva" style="cursor:pointer;">Q.t\u00e0 Evasa \u21C5</th>
+            <th data-sort="mo_flevas" style="cursor:pointer;">Stato \u21C5</th>
+            <th data-sort="fornitore" style="cursor:pointer;">Fornitore \u21C5</th>
         `;
     }
 
