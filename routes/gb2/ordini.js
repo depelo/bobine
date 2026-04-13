@@ -670,28 +670,133 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
             }
         }
 
-        // Query 3: elaborazioni con conteggi (su 163 — tabelle app)
+        // Query 3: elaborazioni + snapshot fornitori per classificazione ordini
         let elaborazioni = [];
         try {
+            // Elaborazioni base
             const elabRes = await poolApp.request()
                 .input('ambiente2', sql.VarChar(20), ambiente)
                 .query(`
-                    SELECT e.ID, e.Fingerprint, e.TotaleProposte, e.TotaleGestite, e.RilevatoIl,
-                        (SELECT COUNT(DISTINCT CONCAT(oe2.ord_anno,'-',oe2.ord_serie,'-',oe2.ord_numord))
-                         FROM dbo.ordini_emessi oe2
-                         WHERE oe2.elaborazione_id = CAST(e.ID AS VARCHAR)
-                           AND oe2.ambiente = @ambiente2) AS num_ordini,
-                        (SELECT COUNT(*)
-                         FROM [GB2].[dbo].[SnapshotProposte] sp
-                         JOIN dbo.ordini_emessi oe3 ON sp.OrdineEmessoID = oe3.id
-                         WHERE sp.ElaborazioneID = e.ID
-                           AND sp.ol_quant <> oe3.quantita_ordinata) AS num_modificate
+                    SELECT e.ID, e.Fingerprint, e.TotaleProposte, e.TotaleGestite, e.RilevatoIl
                     FROM [GB2].[dbo].[ElaborazioniMRP] e
                     WHERE e.Ambiente = @ambiente2
                     ORDER BY e.Fingerprint DESC
                 `);
+
+            // Per ogni elaborazione, calcola conteggi confrontando ordini vs snapshot
+            for (const e of elabRes.recordset) {
+                const eid = e.ID;
+
+                // Fornitori + articoli nello snapshot (le proposte MRP)
+                const snapRes = await poolApp.request()
+                    .input('eid', sql.Int, eid)
+                    .query(`SELECT ol_conto, ol_codart, ol_quant FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID = @eid`);
+
+                // Set di fornitori proposti e mappa articolo→quantita per match
+                const fornProposti = new Set(snapRes.recordset.map(s => s.ol_conto));
+                const proposteMap = {}; // key: conto_codart → ol_quant
+                snapRes.recordset.forEach(s => {
+                    proposteMap[s.ol_conto + '_' + s.ol_codart] = s.ol_quant;
+                });
+
+                // Ordini emessi per questa elaborazione
+                const oeRes = await poolApp.request()
+                    .input('eid2', sql.VarChar(50), String(eid))
+                    .input('amb', sql.VarChar(20), ambiente)
+                    .query(`
+                        SELECT ord_anno, ord_serie, ord_numord, ol_conto, ol_codart, quantita_ordinata
+                        FROM dbo.ordini_emessi
+                        WHERE elaborazione_id = @eid2 AND ambiente = @amb
+                    `);
+
+                // Raggruppa per ordine e classifica
+                const ordiniMap = {};
+                oeRes.recordset.forEach(r => {
+                    const key = r.ord_anno + '-' + r.ord_serie + '-' + r.ord_numord;
+                    if (!ordiniMap[key]) ordiniMap[key] = { conto: r.ol_conto, righe: [] };
+                    ordiniMap[key].righe.push(r);
+                });
+
+                let numOrdini = 0, numAccettati = 0, numModificati = 0, numIndipendenti = 0, numMisti = 0;
+                let numPofIgnorate = (e.TotaleProposte || 0) - (e.TotaleGestite || 0);
+
+                for (const ord of Object.values(ordiniMap)) {
+                    numOrdini++;
+                    const fornNelleProp = fornProposti.has(ord.conto);
+
+                    if (!fornNelleProp) {
+                        // Fornitore non nelle proposte → ordine indipendente
+                        numIndipendenti++;
+                        continue;
+                    }
+
+                    // Fornitore nelle proposte → classifica per riga
+                    let righeAccettate = 0, righeModificate = 0, righeIndip = 0;
+                    for (const r of ord.righe) {
+                        const propKey = r.ol_conto + '_' + r.ol_codart;
+                        const propQta = proposteMap[propKey];
+                        if (propQta === undefined) {
+                            righeIndip++; // articolo non nella proposta
+                        } else if (Number(propQta) === Number(r.quantita_ordinata)) {
+                            righeAccettate++;
+                        } else {
+                            righeModificate++;
+                        }
+                    }
+
+                    if (righeIndip > 0 && (righeAccettate > 0 || righeModificate > 0)) {
+                        numMisti++;
+                    } else if (righeModificate > 0) {
+                        numModificati++;
+                    } else if (righeAccettate > 0) {
+                        numAccettati++;
+                    } else {
+                        numIndipendenti++; // tutte le righe indipendenti
+                    }
+                }
+
+                e.num_ordini = numOrdini;
+                e.num_accettati = numAccettati;
+                e.num_modificati = numModificati;
+                e.num_indipendenti = numIndipendenti;
+                e.num_misti = numMisti;
+                e.num_pof_ignorate = numPofIgnorate;
+
+                // Salva classificazione per ogni ordine (key → categoria)
+                for (const [key, ord] of Object.entries(ordiniMap)) {
+                    const fornNelleProp = fornProposti.has(ord.conto);
+                    let cat;
+                    if (!fornNelleProp) {
+                        cat = 'indipendente';
+                    } else {
+                        let ra = 0, rm = 0, ri = 0;
+                        for (const r of ord.righe) {
+                            const pq = proposteMap[r.ol_conto + '_' + r.ol_codart];
+                            if (pq === undefined) ri++;
+                            else if (Number(pq) === Number(r.quantita_ordinata)) ra++;
+                            else rm++;
+                        }
+                        if (ri > 0 && (ra > 0 || rm > 0)) cat = 'misto';
+                        else if (rm > 0) cat = 'modificata';
+                        else if (ra > 0) cat = 'accettata';
+                        else cat = 'indipendente';
+                    }
+                    // Applica agli ordini raggruppati
+                    const ordMatch = ordini.find(o =>
+                        o.ord_anno + '-' + o.ord_serie + '-' + o.ord_numord === key &&
+                        String(o.elaborazione_id) === String(eid)
+                    );
+                    if (ordMatch) ordMatch.categoria = cat;
+                }
+            }
+
             elaborazioni = elabRes.recordset;
-        } catch (_) {}
+        } catch (elabErr) {
+            console.warn('[Storico] Calcolo elaborazioni fallito:', elabErr.message);
+        }
+
+        // Ordini senza elaborazione → indipendente
+        ordini.forEach(o => { if (!o.categoria) o.categoria = 'indipendente'; });
 
         res.json({ ordini, elaborazioni });
     } catch (err) {

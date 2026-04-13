@@ -2567,15 +2567,24 @@ const MrpProposta = (() => {
         const overlay = document.getElementById('modalStoricoOverlay');
         if (!overlay) return;
         overlay.classList.add('open');
-        // Applica filtro checkbox corrente (solo se elaborazione è un ID server, non timestamp client)
-        const chk = document.getElementById('storicoFiltroElab');
-        const filtri = {};
-        const elab = MrpApp.state.elaborazione;
-        if (chk && chk.checked && elab && elab.id) {
-            filtri.elaborazione_id = String(elab.id);
-        }
-        await caricaStorico(filtri);
+        // Carica tutti gli ordini — il filtro per elaborazione e client-side (dropdown)
+        await caricaStorico();
     }
+
+    // ── Stato filtri storico ──
+    const _storicoFiltri = {
+        elaborazioneId: null,
+        categorie: new Set(['accettata', 'modificata', 'misto', 'indipendente']),
+        elabCollapsed: new Set()
+    };
+    let _storicoData = null; // cache dati per filtri client-side
+
+    const _catConfig = {
+        accettata:     { label: 'P.O.F. Accettate',  color: 'var(--success)', tip: 'Ordini emessi verso fornitori proposti, con quantit\u00E0 identiche alla proposta MRP' },
+        modificata:    { label: 'P.O.F. Modificate',  color: 'var(--warning)', tip: 'Ordini verso fornitori proposti, ma con quantit\u00E0 diverse dalla proposta MRP' },
+        misto:         { label: 'Misti',              color: '#7c3aed',        tip: 'Ordini con sia articoli dalla proposta MRP che articoli aggiunti manualmente' },
+        indipendente:  { label: 'Indipendenti',       color: 'var(--primary)', tip: 'Ordini verso fornitori non presenti nelle proposte MRP' }
+    };
 
     function _renderOrdineRow(o) {
         const dataStr = o.data_emissione ? new Date(o.data_emissione).toLocaleDateString('it-IT', {
@@ -2586,46 +2595,136 @@ const MrpProposta = (() => {
             ? '<span class="storico-email-ok" title="Email inviata">\u2714</span>'
             : '<span class="storico-email-no" title="Email non inviata">\u2716</span>';
         const origBadge = o.origine === 'bcube' ? '<span style="font-size:0.65rem;background:#dbeafe;color:#7c3aed;padding:1px 5px;border-radius:4px;margin-left:4px;">BCube</span>' : '';
+        const cat = o.categoria || 'indipendente';
+        const catCfg = _catConfig[cat] || _catConfig.indipendente;
+        const catBadge = '<span class="storico-cat-badge cat-' + cat + '" title="' + escAttr(catCfg.tip) + '">' + esc(catCfg.label) + '</span>';
 
-        return `<tr>
-            <td>${dataStr}</td>
-            <td><strong>${o.ord_numord}/${o.ord_serie}</strong>${origBadge}</td>
-            <td>${esc(o.fornitore_nome || '')} <small>(${o.fornitore_codice})</small></td>
-            <td class="num">${o.num_righe}</td>
-            <td class="num">\u20ac ${totale}</td>
-            <td class="center">${emailIcon}</td>
-            <td>
-                <button class="btn-storico-visualizza" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Visualizza ordine">\uD83D\uDD0D</button>
-                <button class="btn-storico-pdf" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Scarica PDF">\u2B07</button>
-            </td>
-        </tr>`;
+        return '<tr class="storico-row-' + cat + ' storico-elab-rows" data-cat="' + cat + '" data-elab="' + escAttr(o.elaborazione_id || '') + '">' +
+            '<td>' + dataStr + '</td>' +
+            '<td><strong>' + o.ord_numord + '/' + o.ord_serie + '</strong>' + origBadge + catBadge + '</td>' +
+            '<td>' + esc(o.fornitore_nome || '') + ' <small>(' + o.fornitore_codice + ')</small></td>' +
+            '<td class="num">' + o.num_righe + '</td>' +
+            '<td class="num">\u20ac ' + totale + '</td>' +
+            '<td class="center">' + emailIcon + '</td>' +
+            '<td>' +
+                '<button class="btn-storico-visualizza" data-anno="' + o.ord_anno + '" data-serie="' + escAttr(o.ord_serie) + '" data-numord="' + o.ord_numord + '" title="Visualizza ordine">\uD83D\uDD0D</button>' +
+                '<button class="btn-storico-pdf" data-anno="' + o.ord_anno + '" data-serie="' + escAttr(o.ord_serie) + '" data-numord="' + o.ord_numord + '" title="Scarica PDF">\u2B07</button>' +
+            '</td></tr>';
     }
 
     function _renderElabHeader(e) {
         const fpDate = e.Fingerprint ? new Date(e.Fingerprint).toLocaleDateString('it-IT', {
             day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
         }) : '?';
-        const gestite = e.TotaleGestite || 0;
-        const ignorate = (e.TotaleProposte || 0) - gestite;
         const ordini = e.num_ordini || 0;
-        const modif = e.num_modificate || 0;
+        const accettati = e.num_accettati || 0;
+        const modificati = e.num_modificati || 0;
+        const indipendenti = e.num_indipendenti || 0;
+        const misti = e.num_misti || 0;
+        const pofIgnorate = e.num_pof_ignorate || 0;
 
-        let stats = `${e.TotaleProposte} proposte`;
-        stats += ` \u00B7 <strong>${ordini}</strong> ordini emessi`;
-        stats += ` \u00B7 ${gestite} gestite`;
-        stats += ` \u00B7 ${ignorate} ignorate`;
-        if (modif > 0) stats += ` \u00B7 <span style="color:var(--warning);">${modif} modificate</span>`;
+        let stats = e.TotaleProposte + ' proposte \u00B7 <strong>' + ordini + '</strong> ordini';
+        const detOrd = [];
+        if (accettati > 0) detOrd.push('<span title="' + escAttr(_catConfig.accettata.tip) + '" style="cursor:help;">' + accettati + ' P.O.F. accettate</span>');
+        if (modificati > 0) detOrd.push('<span title="' + escAttr(_catConfig.modificata.tip) + '" style="color:var(--warning);cursor:help;">' + modificati + ' P.O.F. modificate</span>');
+        if (misti > 0) detOrd.push('<span title="' + escAttr(_catConfig.misto.tip) + '" style="color:#7c3aed;cursor:help;">' + misti + ' misti</span>');
+        if (indipendenti > 0) detOrd.push('<span title="' + escAttr(_catConfig.indipendente.tip) + '" style="cursor:help;">' + indipendenti + ' indipendenti</span>');
+        if (detOrd.length > 0) stats += ' (' + detOrd.join(', ') + ')';
+        stats += ' \u00B7 <span title="Proposte MRP non evase" style="cursor:help;">' + pofIgnorate + ' ignorate</span>';
 
-        return `<tr class="storico-elab-header">
-            <td colspan="7" style="background:var(--bg);padding:10px 8px;border-bottom:2px solid var(--primary);">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <span style="font-size:1rem;">\uD83D\uDCCB</span>
-                    <strong style="font-size:0.9rem;">Elaborazione del ${fpDate}</strong>
-                    <span style="font-size:0.78rem;color:var(--text-muted);">${stats}</span>
-                    <button class="btn-storico-dettaglio-elab" data-elab-id="${e.ID}" style="margin-left:auto;font-size:0.73rem;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Dettaglio elaborazione">\uD83D\uDCC4 Dettaglio</button>
-                </div>
-            </td>
-        </tr>`;
+        const isCollapsed = _storicoFiltri.elabCollapsed.has(String(e.ID));
+        const toggleClass = isCollapsed ? ' collapsed' : '';
+
+        return '<tr class="storico-elab-header" data-elab-id="' + e.ID + '">' +
+            '<td colspan="7" style="background:var(--bg);padding:10px 8px;border-bottom:2px solid var(--primary);">' +
+                '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                    '<span class="storico-elab-toggle' + toggleClass + '">\u25BC</span>' +
+                    '<strong style="font-size:0.9rem;">Elaborazione del ' + fpDate + '</strong>' +
+                    '<span style="font-size:0.78rem;color:var(--text-muted);">' + stats + '</span>' +
+                    '<button class="btn-storico-dettaglio-elab" data-elab-id="' + e.ID + '" style="margin-left:auto;font-size:0.73rem;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Dettaglio elaborazione">\uD83D\uDCC4 Dettaglio</button>' +
+                '</div>' +
+            '</td></tr>';
+    }
+
+    function _renderStoricoKPI(ordini) {
+        const kpi = document.getElementById('storicoKPI');
+        if (!kpi) return;
+        const totOrdini = ordini.length;
+        const totValore = ordini.reduce((s, o) => s + Number(o.totale_documento || 0), 0);
+        const totFornitori = new Set(ordini.map(o => o.fornitore_codice)).size;
+        kpi.innerHTML =
+            '<div class="storico-kpi-item"><span class="storico-kpi-value">' + totOrdini + '</span> ordini</div>' +
+            '<div class="storico-kpi-item">\u20ac <span class="storico-kpi-value">' + totValore.toLocaleString('it-IT', { minimumFractionDigits: 2 }) + '</span></div>' +
+            '<div class="storico-kpi-item"><span class="storico-kpi-value">' + totFornitori + '</span> fornitori</div>';
+    }
+
+    function _renderStoricoChips(ordini) {
+        const container = document.getElementById('storicoChips');
+        if (!container) return;
+        const counts = { accettata: 0, modificata: 0, misto: 0, indipendente: 0 };
+        ordini.forEach(o => { counts[o.categoria || 'indipendente'] = (counts[o.categoria || 'indipendente'] || 0) + 1; });
+
+        container.innerHTML = '';
+        for (const [cat, cfg] of Object.entries(_catConfig)) {
+            const isActive = _storicoFiltri.categorie.has(cat);
+            const chip = document.createElement('span');
+            chip.className = 'storico-chip' + (isActive ? ' active' : '');
+            chip.dataset.cat = cat;
+            chip.title = cfg.tip;
+            chip.innerHTML = '<strong>' + counts[cat] + '</strong> ' + cfg.label;
+            chip.addEventListener('click', () => {
+                if (_storicoFiltri.categorie.has(cat)) {
+                    _storicoFiltri.categorie.delete(cat);
+                    chip.classList.remove('active');
+                } else {
+                    _storicoFiltri.categorie.add(cat);
+                    chip.classList.add('active');
+                }
+                _applicaFiltriStorico();
+            });
+            container.appendChild(chip);
+        }
+    }
+
+    function _renderStoricoElabDropdown(elaborazioni) {
+        const sel = document.getElementById('storicoFiltroElab');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">Tutte le elaborazioni</option>';
+        if (MrpApp.state.elaborazione && MrpApp.state.elaborazione.id) {
+            sel.innerHTML += '<option value="' + MrpApp.state.elaborazione.id + '">\u2B50 Elaborazione corrente</option>';
+        }
+        elaborazioni.forEach(e => {
+            const fpDate = e.Fingerprint ? new Date(e.Fingerprint).toLocaleDateString('it-IT', {
+                day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : '?';
+            sel.innerHTML += '<option value="' + e.ID + '">' + fpDate + ' (' + (e.num_ordini || 0) + ' ordini)</option>';
+        });
+        sel.value = _storicoFiltri.elaborazioneId || '';
+        sel.addEventListener('change', () => {
+            _storicoFiltri.elaborazioneId = sel.value || null;
+            _applicaFiltriStorico();
+        });
+    }
+
+    function _applicaFiltriStorico() {
+        const rows = document.querySelectorAll('.storico-elab-rows');
+        const headers = document.querySelectorAll('.storico-elab-header');
+
+        rows.forEach(row => {
+            const cat = row.dataset.cat;
+            const elab = row.dataset.elab;
+            const catOk = _storicoFiltri.categorie.has(cat);
+            const elabOk = !_storicoFiltri.elaborazioneId || elab === _storicoFiltri.elaborazioneId;
+            const collapsed = _storicoFiltri.elabCollapsed.has(elab);
+            row.style.display = (catOk && elabOk && !collapsed) ? '' : 'none';
+        });
+
+        // Nascondi header elaborazione se filtro elab attivo e non corrisponde
+        headers.forEach(h => {
+            const eid = h.dataset.elabId;
+            const elabOk = !_storicoFiltri.elaborazioneId || eid === _storicoFiltri.elaborazioneId;
+            h.style.display = elabOk ? '' : 'none';
+        });
     }
 
     async function caricaStorico(filtri = {}) {
@@ -2638,7 +2737,6 @@ const MrpProposta = (() => {
 
         try {
             const params = new URLSearchParams();
-            if (filtri.elaborazione_id) params.set('elaborazione_id', filtri.elaborazione_id);
             if (filtri.fornitore) params.set('fornitore', filtri.fornitore);
             if (filtri.da) params.set('da', filtri.da);
             if (filtri.a) params.set('a', filtri.a);
@@ -2649,20 +2747,21 @@ const MrpProposta = (() => {
 
             const ordini = data.ordini || [];
             const elaborazioni = data.elaborazioni || [];
+            _storicoData = data;
 
             if (ordini.length === 0 && elaborazioni.length === 0) {
                 body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">Nessun ordine emesso</td></tr>';
+                document.getElementById('storicoKPI').innerHTML = '';
+                document.getElementById('storicoChips').innerHTML = '';
                 return;
             }
 
-            // Se filtrato per elaborazione singola, mostra lista piatta
-            if (filtri.elaborazione_id) {
-                body.innerHTML = ordini.map(o => _renderOrdineRow(o)).join('');
-                return;
-            }
+            // KPI, Chips, Dropdown
+            _renderStoricoKPI(ordini);
+            _renderStoricoChips(ordini);
+            _renderStoricoElabDropdown(elaborazioni);
 
             // Raggruppamento per elaborazione
-            // Mappa ordini per elaborazione_id
             const ordiniPerElab = {};
             const ordiniSenzaElab = [];
             ordini.forEach(o => {
@@ -2676,58 +2775,40 @@ const MrpProposta = (() => {
             });
 
             let html = '';
-
-            // Render per elaborazione (ordine cronologico decrescente)
             for (const e of elaborazioni) {
                 const eid = String(e.ID);
                 const ordiniElab = ordiniPerElab[eid] || [];
-                if (ordiniElab.length === 0 && !filtri.mostra_vuote) continue;
-
+                if (ordiniElab.length === 0) continue;
                 html += _renderElabHeader(e);
                 html += ordiniElab.map(o => _renderOrdineRow(o)).join('');
             }
-
-            // Ordini senza elaborazione
             if (ordiniSenzaElab.length > 0) {
-                html += `<tr class="storico-elab-header"><td colspan="7" style="background:var(--bg);padding:10px 8px;border-bottom:2px solid var(--text-muted);">
-                    <strong style="font-size:0.9rem;color:var(--text-muted);">Ordini senza elaborazione</strong>
-                </td></tr>`;
+                html += '<tr class="storico-elab-header" data-elab-id="none"><td colspan="7" style="background:var(--bg);padding:10px 8px;border-bottom:2px solid var(--text-muted);"><strong style="font-size:0.9rem;color:var(--text-muted);">Ordini senza elaborazione</strong></td></tr>';
                 html += ordiniSenzaElab.map(o => _renderOrdineRow(o)).join('');
             }
-
             body.innerHTML = html;
+
+            // Applica filtri correnti (collapse, categorie)
+            _applicaFiltriStorico();
         } catch (err) {
             if (loading) loading.style.display = 'none';
-            body.innerHTML = `<tr><td colspan="7" style="color:var(--danger); padding:12px;">Errore: ${esc(err.message)}</td></tr>`;
+            body.innerHTML = '<tr><td colspan="7" style="color:var(--danger); padding:12px;">Errore: ' + esc(err.message) + '</td></tr>';
         }
     }
 
     function initStorico() {
-        // Close button
         const closeBtn = document.getElementById('modalStoricoClose');
         if (closeBtn) closeBtn.addEventListener('click', () => {
             document.getElementById('modalStoricoOverlay').classList.remove('open');
         });
 
-        // Click su overlay
         const overlay = document.getElementById('modalStoricoOverlay');
         if (overlay) overlay.addEventListener('click', (e) => {
             if (e.target === overlay) overlay.classList.remove('open');
         });
 
-        // Bottone apri storico
         const btnApri = document.getElementById('btnApriStorico');
         if (btnApri) btnApri.addEventListener('click', apriStorico);
-
-        // Filtro solo elaborazione corrente
-        const chkElab = document.getElementById('storicoFiltroElab');
-        if (chkElab) chkElab.addEventListener('change', () => {
-            const filtri = {};
-            if (chkElab.checked && MrpApp.state.elaborazioneId) {
-                filtri.elaborazione_id = MrpApp.state.elaborazioneId;
-            }
-            caricaStorico(filtri);
-        });
 
         // Delegazione click sulla tabella storico
         const tbody = document.getElementById('storicoBody');
@@ -2748,6 +2829,22 @@ const MrpProposta = (() => {
             if (btnDetElab) {
                 e.stopPropagation();
                 await apriDettaglioElaborazione(parseInt(btnDetElab.dataset.elabId, 10));
+                return;
+            }
+            // Click su testata elaborazione → collassa/espande
+            const elabHeader = e.target.closest('.storico-elab-header');
+            if (elabHeader && !e.target.closest('button')) {
+                const eid = elabHeader.dataset.elabId;
+                if (!eid) return;
+                const toggle = elabHeader.querySelector('.storico-elab-toggle');
+                if (_storicoFiltri.elabCollapsed.has(eid)) {
+                    _storicoFiltri.elabCollapsed.delete(eid);
+                    if (toggle) toggle.classList.remove('collapsed');
+                } else {
+                    _storicoFiltri.elabCollapsed.add(eid);
+                    if (toggle) toggle.classList.add('collapsed');
+                }
+                _applicaFiltriStorico();
             }
         });
     }

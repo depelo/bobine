@@ -813,17 +813,18 @@
 
     <!-- MODALE STORICO ORDINI EMESSI -->
     <div id="modalStoricoOverlay" class="mrp-modal-overlay">
-        <div class="mrp-modal" style="max-width:920px; max-height:85vh;">
+        <div class="mrp-modal" style="max-width:960px; max-height:85vh;">
             <div class="mrp-modal-header">
                 <h3 style="margin:0;">Storico Ordini Emessi</h3>
                 <button type="button" id="modalStoricoClose" class="mrp-modal-close">&times;</button>
             </div>
             <div class="mrp-modal-body" style="padding:16px; overflow-y:auto;">
-                <div class="storico-filtri" id="storicoFiltri">
-                    <label class="storico-filtro-check">
-                        <input type="checkbox" id="storicoFiltroElab" checked>
-                        Solo elaborazione corrente
-                    </label>
+                <div id="storicoKPI" class="storico-kpi-bar"></div>
+                <div class="storico-filtri-bar" id="storicoFiltriBarra">
+                    <select id="storicoFiltroElab" class="storico-select-elab">
+                        <option value="">Tutte le elaborazioni</option>
+                    </select>
+                    <div class="storico-chip-group" id="storicoChips"></div>
                 </div>
                 <div id="storicoLoading" style="display:none; text-align:center; padding:20px; color:var(--text-muted);">Caricamento...</div>
                 <table class="storico-tabella">
