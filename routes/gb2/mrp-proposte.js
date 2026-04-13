@@ -570,7 +570,7 @@ function getPoliticaRiordino(art) {
 
     // Aggiungi dettagli scorta minima e lotto se presenti
     if (pol === 'M' && art.ar_scomin) {
-        descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_ggrior || 0}, s.lotto 0)`;
+        descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_minord || 0}, lead time ${art.ar_ggrior || 0} gg)`;
     }
     if (pol === 'F') {
         const desint = (art.ar_desint || '').trim();
