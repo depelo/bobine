@@ -2567,7 +2567,9 @@ const MrpProposta = (() => {
         const overlay = document.getElementById('modalStoricoOverlay');
         if (!overlay) return;
         overlay.classList.add('open');
-        // Carica tutti gli ordini — il filtro per elaborazione e client-side (dropdown)
+        // Default: elaborazione corrente selezionata
+        const currentElabId = MrpApp.state.elaborazione ? String(MrpApp.state.elaborazione.id) : null;
+        _storicoFiltri.elaborazioneId = currentElabId;
         await caricaStorico();
     }
 
@@ -2580,10 +2582,10 @@ const MrpProposta = (() => {
     let _storicoData = null; // cache dati per filtri client-side
 
     const _catConfig = {
-        accettata:     { label: 'P.O.F. Accettate',  color: 'var(--success)', tip: 'Ordini emessi verso fornitori proposti, con quantit\u00E0 identiche alla proposta MRP' },
-        modificata:    { label: 'P.O.F. Modificate',  color: 'var(--warning)', tip: 'Ordini verso fornitori proposti, ma con quantit\u00E0 diverse dalla proposta MRP' },
-        misto:         { label: 'Misti',              color: '#7c3aed',        tip: 'Ordini con sia articoli dalla proposta MRP che articoli aggiunti manualmente' },
-        indipendente:  { label: 'Indipendenti',       color: 'var(--primary)', tip: 'Ordini verso fornitori non presenti nelle proposte MRP' }
+        accettata:     { label: 'P.O.F. Accettate',  cssVar: '--storico-accettata',     tip: 'Ordini emessi verso fornitori proposti, con quantit\u00E0 identiche alla proposta MRP' },
+        modificata:    { label: 'P.O.F. Modificate',  cssVar: '--storico-modificata',    tip: 'Ordini verso fornitori proposti, ma con quantit\u00E0 diverse dalla proposta MRP' },
+        misto:         { label: 'Misti',              cssVar: '--storico-misto',          tip: 'Ordini con sia articoli dalla proposta MRP che articoli aggiunti manualmente' },
+        indipendente:  { label: 'Indipendenti',       cssVar: '--storico-indipendente',  tip: 'Ordini verso fornitori non presenti nelle proposte MRP' }
     };
 
     function _renderOrdineRow(o) {
@@ -2649,9 +2651,15 @@ const MrpProposta = (() => {
     function _renderStoricoKPI(ordini) {
         const kpi = document.getElementById('storicoKPI');
         if (!kpi) return;
-        const totOrdini = ordini.length;
-        const totValore = ordini.reduce((s, o) => s + Number(o.totale_documento || 0), 0);
-        const totFornitori = new Set(ordini.map(o => o.fornitore_codice)).size;
+        // Filtra ordini visibili in base a elaborazione e categorie selezionate
+        const filtrati = ordini.filter(o => {
+            const catOk = _storicoFiltri.categorie.has(o.categoria || 'indipendente');
+            const elabOk = !_storicoFiltri.elaborazioneId || String(o.elaborazione_id) === _storicoFiltri.elaborazioneId;
+            return catOk && elabOk;
+        });
+        const totOrdini = filtrati.length;
+        const totValore = filtrati.reduce((s, o) => s + Number(o.totale_documento || 0), 0);
+        const totFornitori = new Set(filtrati.map(o => o.fornitore_codice)).size;
         kpi.innerHTML =
             '<div class="storico-kpi-item"><span class="storico-kpi-value">' + totOrdini + '</span> ordini</div>' +
             '<div class="storico-kpi-item">\u20ac <span class="storico-kpi-value">' + totValore.toLocaleString('it-IT', { minimumFractionDigits: 2 }) + '</span></div>' +
@@ -2661,18 +2669,46 @@ const MrpProposta = (() => {
     function _renderStoricoChips(ordini) {
         const container = document.getElementById('storicoChips');
         if (!container) return;
+        const filtrati = ordini.filter(o =>
+            !_storicoFiltri.elaborazioneId || String(o.elaborazione_id) === _storicoFiltri.elaborazioneId
+        );
         const counts = { accettata: 0, modificata: 0, misto: 0, indipendente: 0 };
-        ordini.forEach(o => { counts[o.categoria || 'indipendente'] = (counts[o.categoria || 'indipendente'] || 0) + 1; });
+        filtrati.forEach(o => { counts[o.categoria || 'indipendente']++; });
 
         container.innerHTML = '';
         for (const [cat, cfg] of Object.entries(_catConfig)) {
             const isActive = _storicoFiltri.categorie.has(cat);
+            const currentColor = getComputedStyle(document.documentElement).getPropertyValue(cfg.cssVar).trim();
+
             const chip = document.createElement('span');
             chip.className = 'storico-chip' + (isActive ? ' active' : '');
             chip.dataset.cat = cat;
             chip.title = cfg.tip;
-            chip.innerHTML = '<strong>' + counts[cat] + '</strong> ' + cfg.label;
-            chip.addEventListener('click', () => {
+
+            // Testo del chip
+            const textSpan = document.createElement('span');
+            textSpan.innerHTML = '<strong>' + counts[cat] + '</strong> ' + cfg.label;
+            chip.appendChild(textSpan);
+
+            // Color picker inline
+            const picker = document.createElement('input');
+            picker.type = 'color';
+            picker.className = 'storico-chip-color';
+            picker.value = currentColor || '#000000';
+            picker.title = 'Cambia colore: ' + cfg.label;
+            picker.addEventListener('input', (e) => {
+                e.stopPropagation();
+                if (typeof MrpTheme !== 'undefined' && MrpTheme.setColor) {
+                    MrpTheme.setColor(cfg.cssVar, e.target.value);
+                } else {
+                    document.documentElement.style.setProperty(cfg.cssVar, e.target.value);
+                }
+            });
+            picker.addEventListener('click', (e) => e.stopPropagation()); // non toggle il chip
+            chip.appendChild(picker);
+
+            // Click sul chip (non sul picker) → toggle filtro
+            textSpan.addEventListener('click', () => {
                 if (_storicoFiltri.categorie.has(cat)) {
                     _storicoFiltri.categorie.delete(cat);
                     chip.classList.remove('active');
@@ -2682,6 +2718,7 @@ const MrpProposta = (() => {
                 }
                 _applicaFiltriStorico();
             });
+
             container.appendChild(chip);
         }
     }
@@ -2689,20 +2726,21 @@ const MrpProposta = (() => {
     function _renderStoricoElabDropdown(elaborazioni) {
         const sel = document.getElementById('storicoFiltroElab');
         if (!sel) return;
+        const currentElabId = MrpApp.state.elaborazione ? String(MrpApp.state.elaborazione.id) : null;
         sel.innerHTML = '<option value="">Tutte le elaborazioni</option>';
-        if (MrpApp.state.elaborazione && MrpApp.state.elaborazione.id) {
-            sel.innerHTML += '<option value="' + MrpApp.state.elaborazione.id + '">\u2B50 Elaborazione corrente</option>';
-        }
         elaborazioni.forEach(e => {
             const fpDate = e.Fingerprint ? new Date(e.Fingerprint).toLocaleDateString('it-IT', {
                 day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
             }) : '?';
-            sel.innerHTML += '<option value="' + e.ID + '">' + fpDate + ' (' + (e.num_ordini || 0) + ' ordini)</option>';
+            const isCurrent = currentElabId && String(e.ID) === currentElabId;
+            const star = isCurrent ? '\u2B50 ' : '';
+            sel.innerHTML += '<option value="' + e.ID + '">' + star + fpDate + ' (' + (e.num_ordini || 0) + ' ordini)</option>';
         });
         sel.value = _storicoFiltri.elaborazioneId || '';
         sel.addEventListener('change', () => {
             _storicoFiltri.elaborazioneId = sel.value || null;
             _applicaFiltriStorico();
+            if (_storicoData) _renderStoricoKPI(_storicoData.ordini || []);
         });
     }
 
@@ -2719,12 +2757,27 @@ const MrpProposta = (() => {
             row.style.display = (catOk && elabOk && !collapsed) ? '' : 'none';
         });
 
-        // Nascondi header elaborazione se filtro elab attivo e non corrisponde
         headers.forEach(h => {
             const eid = h.dataset.elabId;
             const elabOk = !_storicoFiltri.elaborazioneId || eid === _storicoFiltri.elaborazioneId;
             h.style.display = elabOk ? '' : 'none';
         });
+
+        // Aggiorna KPI e conteggi chip in base ai filtri
+        if (_storicoData) {
+            _renderStoricoKPI(_storicoData.ordini || []);
+            // Ricalcola conteggi chip per l'elaborazione selezionata
+            const ordiniPerConteggio = (_storicoData.ordini || []).filter(o =>
+                !_storicoFiltri.elaborazioneId || String(o.elaborazione_id) === _storicoFiltri.elaborazioneId
+            );
+            const counts = { accettata: 0, modificata: 0, misto: 0, indipendente: 0 };
+            ordiniPerConteggio.forEach(o => { counts[o.categoria || 'indipendente']++; });
+            document.querySelectorAll('.storico-chip').forEach(chip => {
+                const cat = chip.dataset.cat;
+                const strong = chip.querySelector('strong');
+                if (strong) strong.textContent = counts[cat] || 0;
+            });
+        }
     }
 
     async function caricaStorico(filtri = {}) {
@@ -2862,6 +2915,13 @@ const MrpProposta = (() => {
 
         elTitolo.textContent = 'Dettaglio Elaborazione';
         elIcona.textContent = '\uD83D\uDCCB';
+
+        // Aggancia close sulla croce
+        const closeBtn = document.getElementById('modalGenericClose');
+        if (closeBtn) {
+            const handler = () => { overlay.classList.remove('open'); closeBtn.removeEventListener('click', handler); };
+            closeBtn.addEventListener('click', handler);
+        }
         elMsg.innerHTML = '<div style="text-align:center;padding:24px;"><span style="animation:unifiedPulse 1.2s infinite;">Caricamento...</span></div>';
         elAzioni.innerHTML = '';
         overlay.classList.add('open');
