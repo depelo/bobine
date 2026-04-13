@@ -1565,6 +1565,89 @@ const MrpProgressivi = (() => {
         await caricaOrdiniModale(codart, '', '');
     }
 
+    // ── Ordinamento tabella Ordini/Impegni ──
+    let _ordiniModaleData = [];
+    let _ordiniModaleSortCol = null;
+    let _ordiniModaleSortAsc = true;
+
+    function _renderOrdiniModaleRows(data) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(o => {
+            const tr = document.createElement('tr');
+            if (o.mo_tipork === 'Y') tr.className = 'modal-row-impprod';
+            else if (o.mo_tipork === 'H' || o.mo_tipork === 'R') tr.className = 'modal-row-ordprod';
+            else tr.className = 'modal-row-ordforn';
+
+            const drillBtn = o.mo_tipork === 'Y'
+                ? `<button class="btn-drill-padre" title="Mostra ordini produzione padre" data-codart="${esc(o.mo_codart)}" data-magaz="${esc(String(o.mo_magaz || ''))}" data-fase="${esc(String(o.mo_fase || ''))}">🔍</button>`
+                : '';
+
+            tr.innerHTML = `
+                <td style="text-align:center">${drillBtn}</td>
+                <td>${esc(o.desc_tipo || o.mo_tipork)}</td>
+                <td>${esc(o.mo_anno)}</td>
+                <td>${esc(o.mo_serie)}</td>
+                <td>${esc(o.mo_numord)}</td>
+                <td>${esc(o.mo_riga)}</td>
+                <td style="text-align:center">${esc(o.mo_magaz)}</td>
+                <td style="text-align:center">${esc(o.mo_fase)}</td>
+                <td>${fmtDate(o.mo_datcons)}</td>
+                <td style="text-align:right">${fmt(o.mo_quant)}</td>
+                <td style="text-align:right">${fmt(o.mo_quaeva)}</td>
+                <td>${esc(o.mo_flevas)}</td>
+                <td>${esc(o.fornitore || '')}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function _sortOrdiniModale(col) {
+        if (_ordiniModaleSortCol === col) {
+            _ordiniModaleSortAsc = !_ordiniModaleSortAsc;
+        } else {
+            _ordiniModaleSortCol = col;
+            _ordiniModaleSortAsc = true;
+        }
+        const sorted = [..._ordiniModaleData].sort((a, b) => {
+            let va = a[col], vb = b[col];
+            if (va === null || va === undefined) va = '';
+            if (vb === null || vb === undefined) vb = '';
+            // Numeri
+            if (typeof va === 'number' && typeof vb === 'number') return _ordiniModaleSortAsc ? va - vb : vb - va;
+            // Date
+            if (col === 'mo_datcons') {
+                const da = new Date(va || 0), db = new Date(vb || 0);
+                return _ordiniModaleSortAsc ? da - db : db - da;
+            }
+            // Stringhe
+            const sa = String(va).toLowerCase(), sb = String(vb).toLowerCase();
+            return _ordiniModaleSortAsc ? sa.localeCompare(sb) : sb.localeCompare(sa);
+        });
+        _renderOrdiniModaleRows(sorted);
+
+        // Aggiorna indicatori nelle intestazioni
+        document.querySelectorAll('#tblModalOrdini thead th[data-sort]').forEach(th => {
+            const base = th.textContent.replace(/ [▲▼⇅]$/, '');
+            if (th.dataset.sort === col) {
+                th.textContent = base + (_ordiniModaleSortAsc ? ' ▲' : ' ▼');
+            } else {
+                th.textContent = base + ' ⇅';
+            }
+        });
+    }
+
+    // Delegazione click sulle intestazioni
+    (function initOrdiniSort() {
+        document.addEventListener('click', (e) => {
+            const th = e.target.closest('#tblModalOrdini thead th[data-sort]');
+            if (th && _ordiniModaleData.length > 0) {
+                _sortOrdiniModale(th.dataset.sort);
+            }
+        });
+    })();
+
     async function caricaOrdiniModale(codart, magaz, fase) {
         const tbody = document.getElementById('modalOrdiniBody');
         const loading = document.getElementById('modalOrdiniLoading');
@@ -1618,40 +1701,10 @@ const MrpProgressivi = (() => {
                 return;
             }
 
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-                
-                // Colore per tipo operazione
-                if (o.mo_tipork === 'Y') {
-                    tr.className = 'modal-row-impprod';
-                } else if (o.mo_tipork === 'H' || o.mo_tipork === 'R') {
-                    tr.className = 'modal-row-ordprod';
-                } else {
-                    tr.className = 'modal-row-ordforn';
-                }
-
-                // Bottone drill-through solo per Imp.Prod
-                const drillBtn = o.mo_tipork === 'Y'
-                    ? `<button class="btn-drill-padre" title="Mostra ordini produzione padre" data-codart="${esc(o.mo_codart)}" data-magaz="${esc(String(o.mo_magaz || ''))}" data-fase="${esc(String(o.mo_fase || ''))}">🔍</button>`
-                    : '';
-
-                tr.innerHTML = `
-                    <td style="text-align:center">${drillBtn}</td>
-                    <td>${esc(o.desc_tipo || o.mo_tipork)}</td>
-                    <td>${esc(o.mo_anno)}</td>
-                    <td>${esc(o.mo_serie)}</td>
-                    <td>${esc(o.mo_numord)}</td>
-                    <td>${esc(o.mo_riga)}</td>
-                    <td style="text-align:center">${esc(o.mo_magaz)}</td>
-                    <td style="text-align:center">${esc(o.mo_fase)}</td>
-                    <td>${fmtDate(o.mo_datcons)}</td>
-                    <td style="text-align:right">${fmt(o.mo_quant)}</td>
-                    <td style="text-align:right">${fmt(o.mo_quaeva)}</td>
-                    <td>${esc(o.mo_flevas)}</td>
-                    <td>${esc(o.fornitore || '')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            _ordiniModaleData = data;
+            _ordiniModaleSortCol = null;
+            _ordiniModaleSortAsc = true;
+            _renderOrdiniModaleRows(data);
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
@@ -1665,7 +1718,7 @@ const MrpProgressivi = (() => {
 
         const codartList = splitCodartComposito(codart);
         const titoloCod = codartList.length > 1 ? codartList.join(' + ') : codart;
-        titolo.textContent = `RMP (Generati/Confermati): ${titoloCod}`;
+        titolo.textContent = `MRP (Generati/Confermati): ${titoloCod}`;
 
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (thead) {

@@ -378,7 +378,7 @@
             <div class="modal-ordini-toolbar">
                 <div class="modal-ordini-tabs">
                     <button type="button" id="modalTabOrdini" class="modal-tab active">Ordini/Impegni</button>
-                    <button type="button" id="modalTabRmp" class="modal-tab">RMP (Generati/Confermati)</button>
+                    <button type="button" id="modalTabRmp" class="modal-tab">MRP (Generati/Confermati)</button>
                 </div>
                 <div class="modal-ordini-legenda">
                     <span class="legenda-item legenda-ordforn">Ord. Fornitore</span>
@@ -393,18 +393,18 @@
                         <thead>
                             <tr>
                                 <th style="width:30px;"></th>
-                                <th>Operazione</th>
-                                <th>Anno</th>
-                                <th>Ser</th>
-                                <th>Num.Doc</th>
-                                <th>Riga</th>
-                                <th>Mag</th>
-                                <th>Fase</th>
-                                <th>Data Cons.</th>
-                                <th>Q.tà Ordinata</th>
-                                <th>Q.tà Evasa</th>
-                                <th>Stato</th>
-                                <th>Fornitore</th>
+                                <th data-sort="desc_tipo" style="cursor:pointer;">Operazione ⇅</th>
+                                <th data-sort="mo_anno" style="cursor:pointer;">Anno ⇅</th>
+                                <th data-sort="mo_serie" style="cursor:pointer;">Ser ⇅</th>
+                                <th data-sort="mo_numord" style="cursor:pointer;">Num.Doc ⇅</th>
+                                <th data-sort="mo_riga" style="cursor:pointer;">Riga ⇅</th>
+                                <th data-sort="mo_magaz" style="cursor:pointer;">Mag ⇅</th>
+                                <th data-sort="mo_fase" style="cursor:pointer;">Fase ⇅</th>
+                                <th data-sort="mo_datcons" style="cursor:pointer;">Data Cons. ⇅</th>
+                                <th data-sort="mo_quant" style="cursor:pointer;">Q.tà Ordinata ⇅</th>
+                                <th data-sort="mo_quaeva" style="cursor:pointer;">Q.tà Evasa ⇅</th>
+                                <th data-sort="mo_flevas" style="cursor:pointer;">Stato ⇅</th>
+                                <th data-sort="fornitore" style="cursor:pointer;">Fornitore ⇅</th>
                             </tr>
                         </thead>
                         <tbody id="modalOrdiniBody"></tbody>
