@@ -1,13 +1,12 @@
 -- ============================================================
 -- SP: usp_CreaOrdineFornitore
--- Database: MRP (cross-database verso UJET11)
+-- Database: [GB2] sul server di destinazione (BCUBE2 o prova)
 -- Scopo: Crea un ordine fornitore atomico (testord + movord)
 --         con lock applicativo per gestire concorrenza
 -- ============================================================
--- Deploy: eseguire su MRP — il placeholder {{UJET11_REF}}
---         viene sostituito al deploy in base al profilo attivo:
---         Produzione: [BCUBE2].[UJET11].[dbo]
---         Prova:      [UJET11].[dbo]  (locale al server di prova)
+-- Deploy: deployata nel DB [GB2] del server di destinazione.
+--         Referenzia [UJET11].[dbo] che e cross-database LOCALE
+--         (stesso server). Zero linked server, zero MSDTC.
 -- Compatibilita: SQL Server 2016+ (OPENJSON richiede compat level 130)
 -- ============================================================
 
@@ -130,7 +129,7 @@ BEGIN
         a.ar_controa = COALESCE(ar.ar_controa, 0),
         a.valore     = a.quantita * a.prezzo
     FROM #articoli a
-    LEFT JOIN {{UJET11_REF}}.[artico] ar ON a.codart = ar.ar_codart;
+    LEFT JOIN [UJET11].[dbo].[artico] ar ON a.codart = ar.ar_codart;
 
     -- Fallback per contocontr: prende da ultimo ordine dello stesso articolo
     UPDATE a
@@ -138,7 +137,7 @@ BEGIN
     FROM #articoli a
     OUTER APPLY (
         SELECT TOP 1 mo.mo_contocontr
-        FROM {{UJET11_REF}}.[movord] mo
+        FROM [UJET11].[dbo].[movord] mo
         WHERE mo.mo_codart = a.codart
           AND mo.mo_tipork = 'O'
           AND mo.mo_contocontr > 0
@@ -164,7 +163,7 @@ BEGIN
         @forn_codbanc = COALESCE(an_codbanc, 0),
         @forn_email   = COALESCE(an_email, ''),
         @forn_fax     = COALESCE(an_faxtlx, '')
-    FROM {{UJET11_REF}}.[anagra]
+    FROM [UJET11].[dbo].[anagra]
     WHERE an_conto = @fornitore_codice;
 
     IF @forn_nome IS NULL OR @forn_nome = ''
@@ -177,11 +176,11 @@ BEGIN
     -- Descrizione condizioni di pagamento
     SET @pag_descr = '';
     BEGIN TRY
-        IF OBJECT_ID('{{UJET11_REF}}.[codpaga]', 'U') IS NOT NULL
-            EXEC sp_executesql N'SELECT @d = COALESCE(cp_descr, '''') FROM {{UJET11_REF}}.[codpaga] WHERE cp_codpaga = @c',
+        IF OBJECT_ID('[UJET11].[dbo].[codpaga]', 'U') IS NOT NULL
+            EXEC sp_executesql N'SELECT @d = COALESCE(cp_descr, '''') FROM [UJET11].[dbo].[codpaga] WHERE cp_codpaga = @c',
                 N'@c SMALLINT, @d VARCHAR(100) OUTPUT', @c = @forn_codpag, @d = @pag_descr OUTPUT;
-        ELSE IF OBJECT_ID('{{UJET11_REF}}.[tabpaga]', 'U') IS NOT NULL
-            EXEC sp_executesql N'SELECT @d = COALESCE(tp_descr, '''') FROM {{UJET11_REF}}.[tabpaga] WHERE tp_codpaga = @c',
+        ELSE IF OBJECT_ID('[UJET11].[dbo].[tabpaga]', 'U') IS NOT NULL
+            EXEC sp_executesql N'SELECT @d = COALESCE(tp_descr, '''') FROM [UJET11].[dbo].[tabpaga] WHERE tp_codpaga = @c',
                 N'@c SMALLINT, @d VARCHAR(100) OUTPUT', @c = @forn_codpag, @d = @pag_descr OUTPUT;
     END TRY
     BEGIN CATCH
@@ -203,13 +202,13 @@ BEGIN
     );
 
     BEGIN TRY
-        IF OBJECT_ID('{{UJET11_REF}}.[tabciva]', 'U') IS NOT NULL
+        IF OBJECT_ID('[UJET11].[dbo].[tabciva]', 'U') IS NOT NULL
         BEGIN
             EXEC sp_executesql N'
                 INSERT INTO #iva_lookup (codiva, perc_iva)
                 SELECT DISTINCT a.ar_codiva, COALESCE(iv.ci_perc, 22.00)
                 FROM #articoli a
-                LEFT JOIN {{UJET11_REF}}.[tabciva] iv ON a.ar_codiva = iv.ci_codiva
+                LEFT JOIN [UJET11].[dbo].[tabciva] iv ON a.ar_codiva = iv.ci_codiva
             ';
         END
     END TRY
@@ -258,7 +257,7 @@ BEGIN
 
     -- Prossimo numero ordine da tabnuma (fonte autoritativa BCube)
     SELECT @numord = tb_numprog + 1
-    FROM {{UJET11_REF}}.[tabnuma]
+    FROM [UJET11].[dbo].[tabnuma]
     WHERE codditt  = @codditt
       AND tb_numtipo  = 'O'
       AND tb_numserie = @serie
@@ -268,13 +267,13 @@ BEGIN
     IF @numord IS NULL
     BEGIN
         SELECT @numord = ISNULL(MAX(td_numord), 0) + 1
-        FROM {{UJET11_REF}}.[testord]
+        FROM [UJET11].[dbo].[testord]
         WHERE codditt   = @codditt
           AND td_tipork  = 'O'
           AND td_anno    = @anno
           AND td_serie   = @serie;
 
-        INSERT INTO {{UJET11_REF}}.[tabnuma]
+        INSERT INTO [UJET11].[dbo].[tabnuma]
             (codditt, tb_numtipo, tb_numserie, tb_numcodl, tb_numprog)
         VALUES
             (@codditt, 'O', @serie, @anno, @numord);
@@ -282,7 +281,7 @@ BEGIN
     ELSE
     BEGIN
         -- Aggiorna tabnuma con il nuovo progressivo
-        UPDATE {{UJET11_REF}}.[tabnuma]
+        UPDATE [UJET11].[dbo].[tabnuma]
         SET tb_numprog = @numord
         WHERE codditt  = @codditt
           AND tb_numtipo  = 'O'
@@ -293,7 +292,7 @@ BEGIN
     -- ============================================================
     -- 5a. INSERT testord
     -- ============================================================
-    INSERT INTO {{UJET11_REF}}.[testord] (
+    INSERT INTO [UJET11].[dbo].[testord] (
         codditt, td_tipork, td_anno, td_serie, td_numord,
         td_conto, td_datord, td_tipobf, td_datcons,
         td_codpaga, td_datapag,
@@ -340,7 +339,7 @@ BEGIN
     -- ============================================================
     -- 5b. INSERT movord (N righe)
     -- ============================================================
-    INSERT INTO {{UJET11_REF}}.[movord] (
+    INSERT INTO [UJET11].[dbo].[movord] (
         codditt, mo_tipork, mo_anno, mo_serie, mo_numord, mo_riga,
         mo_codart, mo_datcons, mo_magaz, mo_unmis,
         mo_descr, mo_desint,
@@ -372,14 +371,10 @@ BEGIN
 
     -- ============================================================
     -- 5c. AGGIORNAMENTO SALDI BCube (keyord + artpro + artprox + lotcpro)
-    -- Chiama la SP orchestra di BCube che:
-    --   1. Popola keyord (tabella chiavi ordine per tracciamento allocazioni)
-    --   2. Aggiorna artpro.ap_ordin (quantita ordinata a fornitore)
-    --   3. Aggiorna artprox e lotcpro (saldi per articolo/lotto)
-    -- Senza questa chiamata, artpro.ap_ordin non viene incrementato,
-    -- BCube vede saldi sbagliati, e la cancellazione ordine non funziona.
+    -- Chiama la SP orchestra di BCube che popola keyord e aggiorna i saldi.
+    -- Funziona perche la SP sta su [GB2] dello stesso server di [UJET11] — locale.
     -- ============================================================
-    EXEC {{UJET11_REF}}.bussp_bsorgsor9_faggiorn2
+    EXEC [UJET11].[dbo].bussp_bsorgsor9_faggiorn2
         'O', @anno, @serie, @numord, @codditt, @oggi, @operatore;
 
     -- Rilascia lock
@@ -388,25 +383,16 @@ BEGIN
     COMMIT TRANSACTION;
 
     -- ============================================================
-    -- 5c. Registro emissione in ordini_emessi (fuori dalla transazione critica)
+    -- NOTA ARCHITETTURALE — ordini_emessi
     -- ============================================================
-    BEGIN TRY
-        INSERT INTO dbo.ordini_emessi (
-            ol_progr, ol_tipork, ol_codart, ol_conto, ol_quant, ol_fase, ol_magaz,
-            ord_anno, ord_serie, ord_numord, ord_riga,
-            quantita_ordinata, elaborazione_id, data_emissione, operatore
-        )
-        SELECT
-            a.ol_progr, 'O', a.codart, @fornitore_codice, a.quantita, a.fase, a.magaz,
-            @anno, @serie, @numord, a.riga,
-            a.quantita, @elaborazione_id, GETDATE(), @operatore
-        FROM #articoli a
-        WHERE a.ol_progr > 0;
-    END TRY
-    BEGIN CATCH
-        -- Non bloccare l'emissione se il registro fallisce
-        PRINT 'Warning: impossibile registrare in ordini_emessi: ' + ERROR_MESSAGE();
-    END CATCH
+    -- La tabella ordini_emessi NON vive su questo server.
+    -- E' il registro delle emissioni della nostra app e risiede su
+    -- MRP@163 ([MRP].[dbo].[ordini_emessi]) — il server dell'applicazione.
+    -- L'INSERT in ordini_emessi viene fatto da Node.js DOPO il successo
+    -- di questa SP, usando il pool verso 163.
+    -- Non tentare mai di scrivere ordini_emessi da qui: questa SP gira
+    -- su [GB2] del server BCube/prova, e non ha visibilita su 163.
+    -- ============================================================
 
     -- ============================================================
     -- 6. Resultset di ritorno per Node.js
@@ -434,7 +420,7 @@ BEGIN
         @tot_doc            AS totale_documento,
         @oggi               AS data_ordine;
 
-    -- Resultset 2: righe articolo inserite (per PDF)
+    -- Resultset 2: righe articolo inserite (per PDF + registrazione ordini_emessi da Node.js)
     SELECT
         a.riga              AS mo_riga,
         a.codart            AS mo_codart,
@@ -446,7 +432,8 @@ BEGIN
         a.valore            AS mo_valore,
         a.data_consegna     AS mo_datcons,
         a.fase              AS mo_fase,
-        a.magaz             AS mo_magaz
+        a.magaz             AS mo_magaz,
+        a.ol_progr          AS ol_progr
     FROM #articoli a
     ORDER BY a.riga;
 

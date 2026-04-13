@@ -109,15 +109,18 @@ process.on('SIGINT', () => {
 server.listen(PORT, '0.0.0.0', async () => {
     console.log(`Server API in ascolto in HTTPS sulla porta ${PORT} all'indirizzo https://rotoli.ujet.it`);
 
-    // Auto-deploy oggetti SQL del modulo MRP/GB2
-    try {
-        const { getPoolProd } = require('./config/db-gb2');
-        const pool = await getPoolProd();
-        const results = await createGb2Routes.deployProductionObjects(pool);
-        console.log('[GB2] Auto-deploy SQL completato:', results.map(r => `${r.file}: ${r.status}`).join(', '));
-    } catch (err) {
-        console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);
-    }
+    // Auto-deploy oggetti SQL del modulo MRP/GB2 — in background (non blocca l'avvio)
+    (async () => {
+        try {
+            const { getPoolProd, getPoolBcube } = require('./config/db-gb2');
+            const poolProd = await getPoolProd();
+            const poolTarget = await getPoolBcube(); // BCUBE2 diretto per le SP
+            const results = await createGb2Routes.deployProductionObjects(poolProd, poolTarget);
+            console.log('[GB2] Auto-deploy SQL completato:', results.map(r => `${r.file}: ${r.status}`).join(', '));
+        } catch (err) {
+            console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);
+        }
+    })();
 
     // Segnala a PM2 che il worker e pronto
     if (typeof process.send === 'function') {

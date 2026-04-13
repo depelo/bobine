@@ -42,7 +42,8 @@ router.post('/deploy-sp', authMiddleware, async (req, res) => {
         const poolProd = await getPoolProd();
         const uid = getUserId(req);
         if (isProduction(uid)) {
-            const results = await deployProductionObjects(poolProd);
+            const poolTarget = await getPoolBcube();
+            const results = await deployProductionObjects(poolProd, poolTarget);
             res.json({ success: true, results });
         } else {
             const profile = getActiveProfile(uid);
@@ -58,8 +59,10 @@ router.post('/deploy-sp', authMiddleware, async (req, res) => {
 // Verifica esistenza SP senza fare nulla
 router.get('/check-sp', authMiddleware, async (req, res) => {
     try {
-        const poolSP = await getPoolProd();
         const uid = getUserId(req);
+        const isProd = isProduction(uid);
+        // Le SP stanno nel [GB2] del server di destinazione (BCUBE2 in prod, server prova in test)
+        const poolSP = isProd ? (await getPoolBcube() || await getPoolMRP(uid)) : await getPoolMRP(uid);
         const profile = getActiveProfile(uid);
         const spName = getSpName('usp_CreaOrdineFornitore', profile);
         const spExists = await checkSpExists(poolSP, spName);
@@ -84,10 +87,12 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         if (!fornitore_codice) return res.status(400).json({ error: 'fornitore_codice obbligatorio' });
         if (!Array.isArray(articoli) || articoli.length === 0) return res.status(400).json({ error: 'articoli vuoto' });
 
-        // Le SP vivono sempre su MRP@163 (pool produzione), con suffisso per profili di prova
-        const poolSP = await getPoolProd();
-        const profile = getActiveProfile(getUserId(req));
-        const spName = getSpName('usp_CreaOrdineFornitore', profile);
+        // Le SP vivono nel DB [GB2] del server di destinazione (BCUBE2 o prova)
+        const uid = getUserId(req);
+        const isProd = isProduction(uid);
+        const poolSP = isProd ? (await getPoolBcube() || await getPoolMRP(uid)) : await getPoolMRP(uid);
+        const profile = getActiveProfile(uid);
+        const spName = '[GB2].[dbo].' + getSpName('usp_CreaOrdineFornitore', profile);
 
         // Check SP esiste
         const spExists = await checkSpExists(poolSP, spName);
@@ -101,14 +106,13 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
 
         // Chiama la SP — con firma operatore GB2{IDUser}
         const { elaborazione_id } = req.body;
-        const uid = getUserId(req);
         const operatoreCode = uid ? 'GB2' + uid : 'GB2IDerror';
         const result = await poolSP.request()
             .input('json_articoli', sql.NVarChar(sql.MAX), JSON.stringify(articoli))
             .input('fornitore_codice', sql.Int, parseInt(fornitore_codice, 10))
             .input('operatore', sql.VarChar(20), operatoreCode)
             .input('elaborazione_id', sql.VarChar(50), elaborazione_id || '')
-            .execute('dbo.' + spName);
+            .execute(spName);
 
         if (!result.recordsets || !result.recordsets[0] || !result.recordsets[0][0]) {
             return res.status(500).json({ error: 'La stored procedure non ha restituito dati' });
@@ -122,31 +126,52 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         const ambiente = dbProfile.ambiente || 'produzione';
         const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente });
 
-        // Marca l'ambiente sulle righe ordini_emessi appena create dalla SP
+        // Aggiornamento saldi BCube (keyord+artpro) avviene DENTRO la SP stessa
+        // (EXEC [UJET11].[dbo].bussp_bsorgsor9_faggiorn2 — locale, zero MSDTC)
+
+        // ── Registrazione in ordini_emessi ──
+        // ordini_emessi vive SEMPRE su MRP@163 (poolProd) — il server dell'applicazione.
+        // La SP su BCUBE2/prova non ha visibilita su 163, quindi l'INSERT lo fa Node.js.
+        const poolOE = await getPoolProd();
+        const oeIds = []; // ID inseriti, servono per SnapshotProposte
         try {
-            await poolSP.request()
-                .input('anno', sql.SmallInt, ordine.anno)
-                .input('serie', sql.VarChar(3), ordine.serie)
-                .input('numord', sql.Int, ordine.numord)
-                .input('ambiente', sql.VarChar(20), ambiente)
-                .query(`UPDATE dbo.ordini_emessi SET ambiente=@ambiente WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
-        } catch (ambErr) {
-            console.warn('[Emetti Ordine] Update ambiente fallito (colonna potrebbe non esistere):', ambErr.message);
+            for (const riga of righeOrdine) {
+                if (!riga.ol_progr || riga.ol_progr <= 0) continue;
+                const insRes = await poolOE.request()
+                    .input('ol_progr', sql.Int, riga.ol_progr)
+                    .input('ol_codart', sql.NVarChar, riga.mo_codart)
+                    .input('ol_conto', sql.Int, parseInt(fornitore_codice, 10))
+                    .input('ol_quant', sql.Decimal(18, 9), riga.mo_quant)
+                    .input('ol_fase', sql.SmallInt, riga.mo_fase || 0)
+                    .input('ol_magaz', sql.SmallInt, riga.mo_magaz || 1)
+                    .input('ord_anno', sql.SmallInt, ordine.anno)
+                    .input('ord_serie', sql.VarChar(3), ordine.serie)
+                    .input('ord_numord', sql.Int, ordine.numord)
+                    .input('ord_riga', sql.Int, riga.mo_riga)
+                    .input('quantita_ordinata', sql.Decimal(18, 9), riga.mo_quant)
+                    .input('elaborazione_id', sql.VarChar(50), elaborazione_id || '')
+                    .input('operatore', sql.VarChar(20), operatoreCode)
+                    .input('ambiente', sql.VarChar(20), ambiente)
+                    .query(`INSERT INTO dbo.ordini_emessi
+                        (ol_progr, ol_tipork, ol_codart, ol_conto, ol_quant, ol_fase, ol_magaz,
+                         ord_anno, ord_serie, ord_numord, ord_riga,
+                         quantita_ordinata, elaborazione_id, data_emissione, operatore, ambiente)
+                        VALUES (@ol_progr, 'O', @ol_codart, @ol_conto, @ol_quant, @ol_fase, @ol_magaz,
+                                @ord_anno, @ord_serie, @ord_numord, @ord_riga,
+                                @quantita_ordinata, @elaborazione_id, GETDATE(), @operatore, @ambiente);
+                        SELECT SCOPE_IDENTITY() AS id`);
+                const newId = insRes.recordset[0]?.id;
+                if (newId) oeIds.push({ id: newId, ol_progr: riga.ol_progr });
+            }
+        } catch (oeErr) {
+            console.warn('[Emetti Ordine] INSERT ordini_emessi fallito (ordine BCube creato):', oeErr.message);
         }
 
-        // Aggiorna SnapshotProposte: segna le proposte come gestite
-        if (elaborazione_id) {
+        // ── Aggiorna SnapshotProposte: segna le proposte come gestite ──
+        if (elaborazione_id && oeIds.length > 0) {
             try {
-                const poolGB2 = await getPoolProd();
-                // Recupera gli ordini_emessi appena inseriti dalla SP
-                const oeRes = await poolSP.request()
-                    .input('anno', sql.SmallInt, ordine.anno)
-                    .input('serie', sql.VarChar(3), ordine.serie)
-                    .input('numord', sql.Int, ordine.numord)
-                    .query(`SELECT id, ol_progr FROM dbo.ordini_emessi WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
-
-                for (const oe of oeRes.recordset) {
-                    await poolGB2.request()
+                for (const oe of oeIds) {
+                    await poolOE.request()
                         .input('eid', sql.Int, parseInt(elaborazione_id, 10))
                         .input('progr', sql.Int, oe.ol_progr)
                         .input('oeId', sql.Int, oe.id)
@@ -158,10 +183,10 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
                 }
 
                 // Aggiorna contatore gestite
-                const cntRes = await poolGB2.request()
+                const cntRes = await poolOE.request()
                     .input('eid', sql.Int, parseInt(elaborazione_id, 10))
                     .query(`SELECT COUNT(*) AS cnt FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID=@eid AND Gestita=1`);
-                await poolGB2.request()
+                await poolOE.request()
                     .input('eid', sql.Int, parseInt(elaborazione_id, 10))
                     .input('gestite', sql.Int, cntRes.recordset[0].cnt)
                     .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
@@ -202,11 +227,12 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'Nessun ordine da emettere' });
         }
 
-        const poolSP = await getPoolProd();
         const uid = getUserId(req);
+        const isProdBatch = isProduction(uid);
+        const poolSP = isProdBatch ? (await getPoolBcube() || await getPoolMRP(uid)) : await getPoolMRP(uid);
         const operatoreCode = uid ? 'GB2' + uid : 'GB2IDerror';
         const profile = getActiveProfile(uid);
-        const spName = getSpName('usp_CreaOrdineFornitore', profile);
+        const spName = '[GB2].[dbo].' + getSpName('usp_CreaOrdineFornitore', profile);
         const spExists = await checkSpExists(poolSP, spName);
         if (!spExists) {
             return res.status(409).json({ error: 'SP_NOT_FOUND', sp: spName });
@@ -220,7 +246,7 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
                     .input('fornitore_codice', sql.Int, parseInt(ord.fornitore_codice, 10))
                     .input('operatore', sql.VarChar(20), operatoreCode)
                     .input('elaborazione_id', sql.VarChar(50), req.body.elaborazione_id || '')
-                    .execute('dbo.' + spName);
+                    .execute(spName);
 
                 const ordine = result.recordsets[0][0];
                 const righeOrdine = result.recordsets[1] || [];
@@ -364,25 +390,12 @@ router.post('/annulla-ordine', authMiddleware, async (req, res) => {
             console.log('[Annulla] Ordine', numordInt + '/' + serie + '/' + annoInt, 'cancellato da SP BCube');
 
             // 5. Pulizia nostra: ordini_emessi + SnapshotProposte
+            // ordini_emessi vive SEMPRE su MRP@163 (poolProd) — il server dell'applicazione.
+            // ORDINE CRITICO: prima riapri SnapshotProposte (servono gli ID), poi cancella.
             const poolProd = await getPoolProd();
-            try {
-                await poolProd.request()
-                    .input('anno', sql.SmallInt, annoInt)
-                    .input('serie', sql.VarChar(3), serie)
-                    .input('numord', sql.Int, numordInt)
-                    .query(`DELETE FROM dbo.ordini_emessi
-                            WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
-            } catch (_) {}
 
             try {
-                // Riapri le proposte nello snapshot
-                const oeIds = await poolProd.request()
-                    .input('anno', sql.SmallInt, annoInt)
-                    .input('serie', sql.VarChar(3), serie)
-                    .input('numord', sql.Int, numordInt)
-                    .query(`SELECT ID FROM dbo.ordini_emessi
-                            WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
-                // Se ci sono snapshot da riaprire
+                // 5a. Riapri le proposte nello snapshot PRIMA di cancellare ordini_emessi
                 await poolProd.request()
                     .input('anno', sql.SmallInt, annoInt)
                     .input('serie', sql.VarChar(3), serie)
@@ -393,6 +406,39 @@ router.post('/annulla-ordine', authMiddleware, async (req, res) => {
                                 SELECT id FROM dbo.ordini_emessi
                                 WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord
                             )`);
+            } catch (_) {}
+
+            try {
+                // 5b. Aggiorna contatore gestite nell'elaborazione
+                // Recupera l'elaborazione_id dall'ordine che stiamo cancellando
+                const elab = await poolProd.request()
+                    .input('anno', sql.SmallInt, annoInt)
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, numordInt)
+                    .query(`SELECT DISTINCT elaborazione_id FROM dbo.ordini_emessi
+                            WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord
+                              AND elaborazione_id <> ''`);
+                for (const row of elab.recordset) {
+                    const eid = parseInt(row.elaborazione_id, 10);
+                    if (!eid) continue;
+                    const cntRes = await poolProd.request()
+                        .input('eid', sql.Int, eid)
+                        .query(`SELECT COUNT(*) AS cnt FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID=@eid AND Gestita=1`);
+                    await poolProd.request()
+                        .input('eid', sql.Int, eid)
+                        .input('gestite', sql.Int, cntRes.recordset[0].cnt)
+                        .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
+                }
+            } catch (_) {}
+
+            try {
+                // 5c. ORA cancella da ordini_emessi (dopo aver usato gli ID sopra)
+                await poolProd.request()
+                    .input('anno', sql.SmallInt, annoInt)
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, numordInt)
+                    .query(`DELETE FROM dbo.ordini_emessi
+                            WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
             } catch (_) {}
 
             res.json({ success: true, message: 'Ordine ' + numordInt + '/' + serie + ' annullato' });
@@ -569,27 +615,20 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
 
 router.get('/storico-ordini', authMiddleware, async (req, res) => {
     try {
-        // ordini_emessi + testord + anagra vivono in MRP@163 (sempre, anche per profili prova)
-        const pool = await getPoolProd();
-        const { elaborazione_id, fornitore, da, a } = req.query;
-        const profile = getActiveProfile(getUserId(req));
+        const uid = getUserId(req);
+        const profile = getActiveProfile(uid);
         const ambiente = (profile && profile.ambiente) || 'produzione';
+        const { elaborazione_id, fornitore, da, a } = req.query;
 
-        let where = '1=1';
-        const rq = pool.request();
-
-        // Filtra per ambiente corrente (produzione/prova)
-        // Usa try nella query principale; nel fallback si omette se colonna non esiste
-        let hasAmbienteFilter = true;
-        where += ' AND ISNULL(oe.ambiente, \'produzione\') = @ambiente';
+        // Query 1: ordini_emessi + elaborazioni (su 163/MRP — tabelle app)
+        const poolApp = await getPoolProd();
+        let where = 'ISNULL(oe.ambiente, \'produzione\') = @ambiente';
+        const rq = poolApp.request();
         rq.input('ambiente', sql.VarChar(20), ambiente);
 
         if (elaborazione_id) {
-            // Filtra per ordini le cui proposte (ol_progr) fanno parte della snapshot
-            // dell'elaborazione corrente — non per elaborazione_id testuale che può
-            // avere formato diverso (vecchio timestamp vs nuovo ID intero)
-            where += ' AND oe.ol_progr IN (SELECT ol_progr FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID = @eid)';
-            rq.input('eid', sql.Int, parseInt(elaborazione_id, 10));
+            where += ' AND oe.elaborazione_id = @eid';
+            rq.input('eid', sql.VarChar(50), elaborazione_id);
         }
         if (fornitore) {
             where += ' AND oe.ol_conto = @forn';
@@ -604,64 +643,189 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
             rq.input('a', sql.DateTime, new Date(a));
         }
 
-        // Query con fallback per colonne email (potrebbero non esistere ancora)
-        let queryResult;
-        try {
-            queryResult = await rq.query(`
-                SELECT
-                    oe.ord_anno, oe.ord_serie, oe.ord_numord,
-                    oe.ol_conto AS fornitore_codice,
-                    MAX(an.an_descr1) AS fornitore_nome,
-                    MIN(oe.data_emissione) AS data_emissione,
-                    oe.elaborazione_id,
-                    COUNT(*) AS num_righe,
-                    MAX(t.td_totdoc) AS totale_documento,
-                    oe.operatore,
-                    MAX(CAST(ISNULL(oe.email_inviata, 0) AS INT)) AS email_inviata,
-                    MAX(oe.email_inviata_il) AS email_inviata_il
-                FROM dbo.ordini_emessi oe
-                LEFT JOIN dbo.testord t
-                    ON t.codditt='UJET11' AND t.td_tipork='O'
-                    AND t.td_anno=oe.ord_anno AND t.td_serie=oe.ord_serie AND t.td_numord=oe.ord_numord
-                LEFT JOIN dbo.anagra an ON oe.ol_conto = an.an_conto
-                WHERE ${where}
-                GROUP BY oe.ord_anno, oe.ord_serie, oe.ord_numord, oe.ol_conto, oe.elaborazione_id, oe.operatore
-                ORDER BY MIN(oe.data_emissione) DESC
-            `);
-        } catch (colErr) {
-            // Fallback senza colonne email/ambiente (pre-deploy: colonne non esistono ancora)
-            const where2 = where.replace(/ AND ISNULL\(oe\.ambiente.*?@ambiente\)/, '');
-            const rq2 = pool.request();
-            if (elaborazione_id) rq2.input('eid', sql.Int, parseInt(elaborazione_id, 10));
-            if (fornitore) rq2.input('forn', sql.Int, parseInt(fornitore, 10));
-            if (da) rq2.input('da', sql.DateTime, new Date(da));
-            if (a) rq2.input('a', sql.DateTime, new Date(a));
-            queryResult = await rq2.query(`
-                SELECT
-                    oe.ord_anno, oe.ord_serie, oe.ord_numord,
-                    oe.ol_conto AS fornitore_codice,
-                    MAX(an.an_descr1) AS fornitore_nome,
-                    MIN(oe.data_emissione) AS data_emissione,
-                    oe.elaborazione_id,
-                    COUNT(*) AS num_righe,
-                    MAX(t.td_totdoc) AS totale_documento,
-                    oe.operatore,
-                    0 AS email_inviata,
-                    NULL AS email_inviata_il
-                FROM dbo.ordini_emessi oe
-                LEFT JOIN dbo.testord t
-                    ON t.codditt='UJET11' AND t.td_tipork='O'
-                    AND t.td_anno=oe.ord_anno AND t.td_serie=oe.ord_serie AND t.td_numord=oe.ord_numord
-                LEFT JOIN dbo.anagra an ON oe.ol_conto = an.an_conto
-                WHERE ${where2}
-                GROUP BY oe.ord_anno, oe.ord_serie, oe.ord_numord, oe.ol_conto, oe.elaborazione_id, oe.operatore
-                ORDER BY MIN(oe.data_emissione) DESC
-            `);
+        const oeResult = await rq.query(`
+            SELECT ord_anno, ord_serie, ord_numord, ol_conto AS fornitore_codice,
+                   MIN(data_emissione) AS data_emissione, elaborazione_id,
+                   COUNT(*) AS num_righe, operatore,
+                   MAX(CAST(ISNULL(email_inviata, 0) AS INT)) AS email_inviata,
+                   MAX(email_inviata_il) AS email_inviata_il,
+                   ISNULL(origine, 'gb2') AS origine
+            FROM dbo.ordini_emessi oe
+            WHERE ${where}
+            GROUP BY ord_anno, ord_serie, ord_numord, ol_conto, elaborazione_id, operatore, ISNULL(origine, 'gb2')
+            ORDER BY MIN(data_emissione) DESC
+        `);
+
+        const ordini = oeResult.recordset;
+
+        // Query 2: nomi fornitori + totali ordine (su BCube/UJET11 — connessione diretta)
+        if (ordini.length > 0) {
+            const poolErp = await getPoolERP(uid);
+            // Raccogli chiavi uniche
+            const conti = [...new Set(ordini.map(o => o.fornitore_codice))];
+            const ordKeys = [...new Set(ordini.map(o => o.ord_anno + '-' + o.ord_serie + '-' + o.ord_numord))];
+
+            // Nomi fornitori
+            const anagMap = {};
+            if (conti.length > 0) {
+                const anagRes = await poolErp.request()
+                    .input('conti', sql.NVarChar(sql.MAX), JSON.stringify(conti))
+                    .query(`SELECT an_conto, an_descr1 FROM dbo.anagra WHERE an_conto IN (SELECT CAST(value AS INT) FROM OPENJSON(@conti))`);
+                anagRes.recordset.forEach(r => { anagMap[r.an_conto] = r.an_descr1; });
+            }
+
+            // Totali documenti
+            const totMap = {};
+            if (ordKeys.length > 0) {
+                const jsonKeys = JSON.stringify(ordKeys.map(k => { const p = k.split('-'); return { a: parseInt(p[0]), s: p[1], n: parseInt(p[2]) }; }));
+                const totRes = await poolErp.request()
+                    .input('keys', sql.NVarChar(sql.MAX), jsonKeys)
+                    .query(`
+                        SELECT t.td_anno, t.td_serie, t.td_numord, t.td_totdoc
+                        FROM dbo.testord t
+                        INNER JOIN OPENJSON(@keys) WITH (a INT, s VARCHAR(3), n INT) k
+                            ON t.td_anno = k.a AND t.td_serie = k.s AND t.td_numord = k.n
+                        WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+                    `);
+                totRes.recordset.forEach(r => { totMap[r.td_anno + '-' + r.td_serie + '-' + r.td_numord] = r.td_totdoc; });
+            }
+
+            // Merge in Node.js
+            ordini.forEach(o => {
+                o.fornitore_nome = anagMap[o.fornitore_codice] || '';
+                o.totale_documento = totMap[o.ord_anno + '-' + o.ord_serie + '-' + o.ord_numord] || 0;
+            });
         }
 
-        res.json({ ordini: queryResult.recordset });
+        // Query 3: elaborazioni con conteggi (su 163 — tabelle app)
+        let elaborazioni = [];
+        try {
+            const elabRes = await poolApp.request()
+                .input('ambiente2', sql.VarChar(20), ambiente)
+                .query(`
+                    SELECT e.ID, e.Fingerprint, e.TotaleProposte, e.TotaleGestite, e.RilevatoIl,
+                        (SELECT COUNT(DISTINCT CONCAT(oe2.ord_anno,'-',oe2.ord_serie,'-',oe2.ord_numord))
+                         FROM dbo.ordini_emessi oe2
+                         WHERE oe2.elaborazione_id = CAST(e.ID AS VARCHAR)
+                           AND ISNULL(oe2.ambiente,'produzione') = @ambiente2) AS num_ordini,
+                        (SELECT COUNT(*)
+                         FROM [GB2].[dbo].[SnapshotProposte] sp
+                         JOIN dbo.ordini_emessi oe3 ON sp.OrdineEmessoID = oe3.id
+                         WHERE sp.ElaborazioneID = e.ID
+                           AND sp.ol_quant <> oe3.quantita_ordinata) AS num_modificate
+                    FROM [GB2].[dbo].[ElaborazioniMRP] e
+                    WHERE e.Ambiente = @ambiente2
+                    ORDER BY e.Fingerprint DESC
+                `);
+            elaborazioni = elabRes.recordset;
+        } catch (_) {}
+
+        res.json({ ordini, elaborazioni });
     } catch (err) {
         console.error('[Storico Ordini] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Dettaglio completo di un'elaborazione MRP (snapshot proposte + ordini emessi)
+router.get('/elaborazione-dettaglio/:id', authMiddleware, async (req, res) => {
+    try {
+        const elabId = parseInt(req.params.id, 10);
+        const pool = await getPoolProd();
+        const uid = getUserId(req);
+        const profile = getActiveProfile(uid);
+        const ambiente = (profile && profile.ambiente) || 'produzione';
+
+        // Testata elaborazione
+        const elabRes = await pool.request()
+            .input('eid', sql.Int, elabId)
+            .input('ambiente', sql.VarChar(20), ambiente)
+            .query(`
+                SELECT ID, Fingerprint, TotaleProposte, TotaleGestite, RilevatoIl, Ambiente
+                FROM [GB2].[dbo].[ElaborazioniMRP]
+                WHERE ID = @eid AND Ambiente = @ambiente
+            `);
+        if (!elabRes.recordset.length) {
+            return res.status(404).json({ error: 'Elaborazione non trovata' });
+        }
+        const elab = elabRes.recordset[0];
+
+        // Query 1: snapshot + ordini_emessi (su 163 — tabelle app)
+        const dettaglioApp = await pool.request()
+            .input('eid', sql.Int, elabId)
+            .query(`
+                SELECT sp.ol_progr, sp.ol_codart, sp.ol_conto, sp.ol_quant, sp.ol_datcons,
+                       sp.ol_unmis, sp.ol_fase, sp.ol_magaz, sp.Gestita, sp.OrdineEmessoID,
+                       oe.ord_anno, oe.ord_serie, oe.ord_numord, oe.ord_riga,
+                       oe.quantita_ordinata, oe.data_emissione, oe.operatore,
+                       ISNULL(oe.origine, 'gb2') AS origine
+                FROM [GB2].[dbo].[SnapshotProposte] sp
+                LEFT JOIN dbo.ordini_emessi oe ON sp.OrdineEmessoID = oe.id
+                WHERE sp.ElaborazioneID = @eid
+                ORDER BY sp.ol_conto, sp.ol_codart, sp.ol_datcons
+            `);
+
+        // Query 2: nomi fornitori + descrizioni articoli (su BCube/UJET11 — connessione diretta)
+        const poolErp = await getPoolERP(uid);
+        const conti = [...new Set(dettaglioApp.recordset.map(r => r.ol_conto))];
+        const codarts = [...new Set(dettaglioApp.recordset.map(r => r.ol_codart))];
+
+        const anagMap = {}, artMap = {};
+        if (conti.length > 0) {
+            const anagRes = await poolErp.request()
+                .input('conti', sql.NVarChar(sql.MAX), JSON.stringify(conti))
+                .query('SELECT an_conto, an_descr1 FROM dbo.anagra WHERE an_conto IN (SELECT CAST(value AS INT) FROM OPENJSON(@conti))');
+            anagRes.recordset.forEach(r => { anagMap[r.an_conto] = r.an_descr1; });
+        }
+        if (codarts.length > 0) {
+            const artRes = await poolErp.request()
+                .input('codarts', sql.NVarChar(sql.MAX), JSON.stringify(codarts))
+                .query("SELECT ar_codart, ar_descr FROM dbo.artico WHERE ar_codart IN (SELECT value FROM OPENJSON(@codarts))");
+            artRes.recordset.forEach(r => { artMap[r.ar_codart] = r.ar_descr; });
+        }
+
+        // Merge in Node.js
+        const dettaglio = { recordset: dettaglioApp.recordset.map(r => ({
+            ...r,
+            fornitore_nome: anagMap[r.ol_conto] || '',
+            articolo_descr: artMap[r.ol_codart] || ''
+        })) };
+
+        // Conteggi
+        const proposte = dettaglio.recordset;
+        const gestite = proposte.filter(p => p.Gestita);
+        const ignorate = proposte.filter(p => !p.Gestita);
+        const modificate = gestite.filter(p => p.quantita_ordinata && p.ol_quant !== p.quantita_ordinata);
+
+        // Raggruppa per fornitore
+        const fornitori = {};
+        for (const p of proposte) {
+            const fk = String(p.ol_conto);
+            if (!fornitori[fk]) {
+                fornitori[fk] = {
+                    codice: p.ol_conto,
+                    nome: p.fornitore_nome || fk,
+                    proposte: []
+                };
+            }
+            fornitori[fk].proposte.push(p);
+        }
+
+        res.json({
+            elaborazione: {
+                id: elab.ID,
+                fingerprint: elab.Fingerprint,
+                totaleProposte: elab.TotaleProposte,
+                totaleGestite: elab.TotaleGestite,
+                rilevatoIl: elab.RilevatoIl,
+                numOrdini: [...new Set(gestite.map(g => g.ord_numord))].length,
+                numModificate: modificate.length,
+                numIgnorate: ignorate.length
+            },
+            fornitori: Object.values(fornitori)
+        });
+    } catch (err) {
+        console.error('[Elaborazione Dettaglio] Errore:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -670,11 +834,14 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
 router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req, res) => {
     try {
         const { anno, serie, numord } = req.params;
-        // testord/movord/anagra/ordini_emessi sono su MRP@163 (sempre)
-        const pool = await getPoolProd();
+        const uid = getUserId(req);
+        // testord/movord/anagra → connessione diretta a UJET11 (BCube)
+        const poolErp = await getPoolERP(uid);
+        // ordini_emessi → sempre su 163
+        const poolApp = await getPoolProd();
 
-        // Testata ordine + fornitore
-        const testata = await pool.request()
+        // Testata ordine + fornitore (su BCube diretto)
+        const testata = await poolErp.request()
             .input('anno', sql.SmallInt, parseInt(anno, 10))
             .input('serie', sql.VarChar(3), serie)
             .input('numord', sql.Int, parseInt(numord, 10))
@@ -698,19 +865,19 @@ router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req,
             return res.status(404).json({ error: 'Ordine non trovato' });
         }
 
-        // Descrizione pagamento
+        // Descrizione pagamento (su BCube diretto)
         let pag_descr = '';
         try {
-            const pag = await pool.request()
+            const pag = await poolErp.request()
                 .input('codpaga', sql.SmallInt, testata.recordset[0].td_codpaga)
-                .query("SELECT tb_descr AS cp_descr FROM dbo.tabpaga WHERE tb_codpaga = @codpaga");
+                .query("SELECT tb_despaga AS cp_descr FROM dbo.tabpaga WHERE tb_codpaga = @codpaga");
             if (pag.recordset.length) pag_descr = pag.recordset[0].cp_descr || '';
         } catch (_) {}
 
         const ordine = { ...testata.recordset[0], pagamento_descr: pag_descr };
 
-        // Righe ordine
-        const righeRes = await pool.request()
+        // Righe ordine (su BCube diretto)
+        const righeRes = await poolErp.request()
             .input('anno', sql.SmallInt, parseInt(anno, 10))
             .input('serie', sql.VarChar(3), serie)
             .input('numord', sql.Int, parseInt(numord, 10))
@@ -723,10 +890,10 @@ router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req,
                 ORDER BY mo_riga
             `);
 
-        // Stato email da ordini_emessi
+        // Stato email da ordini_emessi (su 163)
         let emailInviata = false, emailInviataIl = null;
         try {
-            const oeRes = await pool.request()
+            const oeRes = await poolApp.request()
                 .input('anno', sql.SmallInt, parseInt(anno, 10))
                 .input('serie', sql.VarChar(3), serie)
                 .input('numord', sql.Int, parseInt(numord, 10))

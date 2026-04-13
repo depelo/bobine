@@ -1595,7 +1595,15 @@ const MrpDbConfig = (() => {
         if (!codici.length) return;
 
         btn.disabled = true;
-        btn.textContent = 'Applicando... (0/' + codici.length + ')';
+        let fakeCount = 0;
+        const total = codici.length;
+        btn.textContent = 'Applicando... (0/' + total + ')';
+        const fakeInterval = setInterval(() => {
+            if (fakeCount < total - 1) {
+                fakeCount++;
+                btn.textContent = 'Applicando... (' + fakeCount + '/' + total + ')';
+            }
+        }, 3);
 
         try {
             const res = await fetch('/api/mrp/template-assegnazione-batch', {
@@ -1604,6 +1612,7 @@ const MrpDbConfig = (() => {
                 body: JSON.stringify({ codici, templateId })
             });
             const data = await res.json();
+            clearInterval(fakeInterval);
             if (!data.success) throw new Error(data.error || 'Errore');
 
             btn.textContent = '\u2713 ' + data.count + ' aggiornati!';
@@ -1625,6 +1634,7 @@ const MrpDbConfig = (() => {
                 btn.style.borderColor = '';
             }, 2000);
         } catch (err) {
+            clearInterval(fakeInterval);
             btn.textContent = 'Errore!';
             btn.style.background = 'var(--danger)';
             setTimeout(() => {

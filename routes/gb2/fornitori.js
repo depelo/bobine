@@ -411,28 +411,41 @@ router.put('/template-assegnazione-batch', authMiddleware, async (req, res) => {
         const userId = getUserId(req);
         const poolProd = await getPoolProd();
 
+        // Una singola query con OPENJSON — da N round-trip a 1 round-trip
+        const jsonCodici = JSON.stringify(codici.map(c => parseInt(c, 10)));
         let count = 0;
-        for (const codice of codici) {
-            if (tid) {
-                await poolProd.request()
-                    .input('uid', sql.Int, userId)
-                    .input('forn', sql.Int, parseInt(codice, 10))
-                    .input('tid', sql.Int, tid)
-                    .query(`
-                        MERGE [GB2].[dbo].[EmailTemplateAssegnazioni] AS target
-                        USING (SELECT @uid AS IDUser, @forn AS FornitoreCode) AS source
-                        ON target.IDUser = source.IDUser AND target.FornitoreCode = source.FornitoreCode
-                        WHEN MATCHED THEN UPDATE SET TemplateID = @tid, UpdatedAt = GETDATE()
-                        WHEN NOT MATCHED THEN INSERT (IDUser, FornitoreCode, TemplateID) VALUES (@uid, @forn, @tid);
-                    `);
-            } else {
-                await poolProd.request()
-                    .input('uid', sql.Int, userId)
-                    .input('forn', sql.Int, parseInt(codice, 10))
-                    .query('DELETE FROM [GB2].[dbo].[EmailTemplateAssegnazioni] WHERE IDUser = @uid AND FornitoreCode = @forn');
-            }
-            count++;
+
+        if (tid) {
+            // Assegna template: MERGE in blocco
+            const result = await poolProd.request()
+                .input('uid', sql.Int, userId)
+                .input('tid', sql.Int, tid)
+                .input('jsonCodici', sql.NVarChar(sql.MAX), jsonCodici)
+                .query(`
+                    MERGE [GB2].[dbo].[EmailTemplateAssegnazioni] AS target
+                    USING (
+                        SELECT @uid AS IDUser, CAST(value AS INT) AS FornitoreCode
+                        FROM OPENJSON(@jsonCodici)
+                    ) AS source
+                    ON target.IDUser = source.IDUser AND target.FornitoreCode = source.FornitoreCode
+                    WHEN MATCHED THEN UPDATE SET TemplateID = @tid, UpdatedAt = GETDATE()
+                    WHEN NOT MATCHED THEN INSERT (IDUser, FornitoreCode, TemplateID) VALUES (@uid, source.FornitoreCode, @tid);
+                `);
+            count = result.rowsAffected.reduce((a, b) => a + b, 0);
+        } else {
+            // Rimuovi assegnazione: DELETE in blocco
+            const result = await poolProd.request()
+                .input('uid', sql.Int, userId)
+                .input('jsonCodici', sql.NVarChar(sql.MAX), jsonCodici)
+                .query(`
+                    DELETE target
+                    FROM [GB2].[dbo].[EmailTemplateAssegnazioni] AS target
+                    INNER JOIN OPENJSON(@jsonCodici) AS j ON target.FornitoreCode = CAST(j.value AS INT)
+                    WHERE target.IDUser = @uid
+                `);
+            count = result.rowsAffected[0] || 0;
         }
+
         res.json({ success: true, count });
     } catch (err) {
         console.error('[Template Batch] Errore:', err);

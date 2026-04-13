@@ -867,3 +867,60 @@
     color: white;
     border-color: var(--primary);
 }
+
+/* ============================================
+   MODALE UNIFICATA — Emetti Tutti + Invia Email
+   Stati per riga fornitore nella tabella batch
+   ============================================ */
+.unified-row-waiting { opacity: 0.5; }
+.unified-row-waiting td { color: var(--text-muted); }
+.unified-row-emitting { opacity: 1; }
+.unified-row-emitting .unified-status { animation: unifiedPulse 1.2s infinite; }
+.unified-row-emitted { opacity: 1; }
+.unified-row-emitted .unified-status { color: var(--success); font-weight: 900; }
+.unified-row-emit-failed { opacity: 1; }
+.unified-row-emit-failed td { background: #fef2f2; }
+.unified-row-emit-failed .unified-status { color: var(--danger); font-weight: 900; }
+.unified-row-sending-email { opacity: 1; }
+.unified-row-sending-email .unified-status { color: var(--warning); animation: unifiedPulse 1.2s infinite; }
+.unified-row-email-sent { opacity: 1; }
+.unified-row-email-sent td { background: #f5f3ff; }
+.unified-row-email-sent .unified-status { color: #7c3aed; font-weight: 900; }
+.unified-row-email-failed .unified-status { color: var(--danger); }
+
+@keyframes unifiedPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.unified-progress-section {
+    margin-bottom: 14px;
+}
+.unified-progress-label {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.unified-progress-track {
+    background: #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    height: 20px;
+}
+.unified-progress-bar {
+    height: 100%;
+    background: var(--success);
+    width: 0%;
+    transition: width 0.3s;
+    border-radius: 8px;
+}
+.unified-warning-box {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #92400e;
+    text-align: center;
+}

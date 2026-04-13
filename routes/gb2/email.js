@@ -3,6 +3,7 @@
  */
 const { encrypt, decrypt } = require('../../config/crypto');
 const smtp = require('../../config/smtp-gb2');
+const { generaPdfOrdine } = require('../../utils/pdfOrdine');
 module.exports = function(router, deps) {
     const { sql, getPoolMRP, getPoolProd, getPoolBcube, getActiveProfile, isProduction,
             PRODUCTION_PROFILE, authMiddleware } = deps;
@@ -133,11 +134,11 @@ router.post('/smtp/test', authMiddleware, async (req, res) => {
 
 // Funzione interna: compila template per un ordine (usata da preview e invio)
 async function _compilaEmailOrdine(userId, anno, serie, numord, template_id) {
-    const pool = await getPoolProd();
+    const pool = await getPoolProd();         // tabelle app (GB2, EmailTemplates, ecc.)
+    const poolErp = await getPoolERP(userId); // tabelle BCube (testord, anagra, tabpaga)
 
-    // Dati ordine (testata) — arricchita con campi bancari e pagamento
-    // per evitare una seconda query nella route preview-ordine-email
-    const ordRes = await pool.request()
+    // Dati ordine (testata) — su BCube diretto, arricchita con campi bancari e pagamento
+    const ordRes = await poolErp.request()
         .input('anno', sql.SmallInt, parseInt(anno, 10))
         .input('serie', sql.VarChar(3), serie)
         .input('numord', sql.Int, parseInt(numord, 10))
@@ -218,8 +219,8 @@ async function _compilaEmailOrdine(userId, anno, serie, numord, template_id) {
         .query(`SELECT Name AS NomeCompleto FROM [GA].[dbo].[Users] WHERE IDUser = @uid`);
     const nomeOperatore = (operRes.recordset.length && operRes.recordset[0].NomeCompleto) || '';
 
-    // Conteggio righe
-    const righeCount = await pool.request()
+    // Conteggio righe (su BCube diretto)
+    const righeCount = await poolErp.request()
         .input('anno', sql.SmallInt, parseInt(anno, 10))
         .input('serie', sql.VarChar(3), serie)
         .input('numord', sql.Int, parseInt(numord, 10))

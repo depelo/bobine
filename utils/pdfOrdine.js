@@ -1,15 +1,39 @@
 /**
  * Generazione PDF Ordine Fornitore — replica layout BCube (Crystal Reports)
  * Layout verificato su Ujetorfo.rpt (Italia) e Ujetorfv.rpt (Estero).
- * Usa PDFKit per generare un Buffer PDF server-side.
- * Formato pagina: A4 (595x842 pt).
+ * Usa pdfmake per generare un Buffer PDF server-side — layout dichiarativo a tabelle.
+ * Formato pagina: A4.
  *
  * Riferimento completo: gb2/BCUBE-PDF-ORDINI-REFERENCE.md
  */
 
-const PDFDocument = require('pdfkit');
+const PdfPrinter = require('pdfmake/src/printer');
 const path = require('path');
 const fs = require('fs');
+
+// ============================================================
+// FONT
+// ============================================================
+const fonts = {
+    Helvetica: {
+        normal: 'Helvetica', bold: 'Helvetica-Bold',
+        italics: 'Helvetica-Oblique', bolditalics: 'Helvetica-BoldOblique'
+    }
+};
+const printer = new PdfPrinter(fonts);
+
+// ============================================================
+// ASSETS (caricati una volta al boot)
+// ============================================================
+const ASSETS_DIR = path.join(__dirname, '..', 'assets');
+const LOGO_B64 = (() => {
+    const p = path.join(ASSETS_DIR, 'logo-ujet.jpeg');
+    return fs.existsSync(p) ? 'data:image/jpeg;base64,' + fs.readFileSync(p).toString('base64') : null;
+})();
+const FIRMA_B64 = (() => {
+    const p = path.join(ASSETS_DIR, 'firma-tardioli.png');
+    return fs.existsSync(p) ? 'data:image/png;base64,' + fs.readFileSync(p).toString('base64') : null;
+})();
 
 // ============================================================
 // DATI AZIENDA (hardcodati, da PDF reale BCube)
@@ -37,7 +61,7 @@ const NOTE_LEGALI_IT = 'SI AVVERTE CHE, QUALORA QUESTO ORDINE NON VENISSE CONFER
 const NOTE_LEGALI_EX = 'SI AVVERTE CHE, QUALORA CODESTO ORDINE NON VENISSE CONFERMATO ENTRO 8 GIORNI DALLA DATA DI INVIO, TUTTE LE CONDIZIONI IN ESSO CONTENUTE SI CONSIDERANO ACCETTATE.\nIMPORTANTE:  Indicare sempre il numero d\'ordine sia in fattura che nelle bolle di consegna.\nP.O. Number must be indicated on invoice - delivery note.\nINVIARE FATTURA IN DUPLICE COPIA.';
 
 // ============================================================
-// FORMATTER HELPERS
+// FORMATTER HELPERS (identici al vecchio pdfOrdine)
 // ============================================================
 function fmtData(d) {
     if (!d) return '';
@@ -65,27 +89,407 @@ function fmtSconti(sc1, sc2, sc3) {
     return sconti.map(s => fmtNum(s, 2) + '%').join('+');
 }
 
-function s(val) { return (val || '').toString().replace(/\r/g, '').replace(/\u00d0/g, '').trim(); }
+function ss(val) { return (val || '').toString().replace(/\r/g, '').replace(/\u00d0/g, '').trim(); }
 
 // ============================================================
-// COSTANTI LAYOUT
+// LAYOUT BORDI — sottili e neri, stile Crystal Reports
 // ============================================================
-const C = {
-    nero: '#000000',
-    grigio: '#666666',
-    grigioChiaro: '#999999',
-    lineaGrigio: '#BBBBBB',
-    lineaScuro: '#666666'
+const thinBorders = {
+    hLineWidth: () => 0.4,
+    vLineWidth: () => 0.4,
+    hLineColor: () => '#000',
+    vLineColor: () => '#000',
+    paddingLeft: () => 3,
+    paddingRight: () => 3,
+    paddingTop: () => 2,
+    paddingBottom: () => 2
 };
 
-const MARGIN = { left: 30, top: 28, right: 30, bottom: 30 };
-const PAGE_W = 595 - MARGIN.left - MARGIN.right; // ~535 pt utili
-const PAGE_BREAK_Y = 738; // soglia per page break (prima del footer)
+const thinBordersPadded = {
+    ...thinBorders,
+    paddingTop: () => 2,
+    paddingBottom: () => 4
+};
 
-// Percorsi assets (logo e firma)
-const ASSETS_DIR = path.join(__dirname, '..', 'assets');
-const LOGO_PATH = path.join(ASSETS_DIR, 'logo-ujet.jpeg');
-const FIRMA_PATH = path.join(ASSETS_DIR, 'firma-tardioli.jpeg');
+// Helper: cella con label grigia sopra e valore bold sotto
+function labelValue(label, value) {
+    return { text: [{ text: label + '\n', fontSize: 6.5, color: '#555' }, { text: value || '', fontSize: 8, bold: true }] };
+}
+
+// ============================================================
+// BUILDER: HEADER (logo + azienda SX | destinatario DX)
+// ============================================================
+function buildHeader(ordine, isEstero, isProva) {
+    // Dati azienda colonna sinistra
+    const aziendaStack = [];
+    if (LOGO_B64) {
+        aziendaStack.push({ image: LOGO_B64, fit: [140, 45], margin: [0, 0, 0, 4] });
+    } else {
+        aziendaStack.push({ text: 'U.Jet', fontSize: 18, bold: true });
+    }
+    aziendaStack.push({ text: AZIENDA.nome, bold: true, fontSize: 8 });
+    aziendaStack.push({ text: AZIENDA.indirizzo, fontSize: 7.5 });
+    aziendaStack.push({ text: AZIENDA.cap_citta, fontSize: 7.5 });
+    aziendaStack.push({ text: 'Tel: ' + AZIENDA.tel + ' - Fax: ' + AZIENDA.fax, fontSize: 7.5 });
+
+    if (!isEstero) {
+        aziendaStack.push({ text: 'Mail: ' + AZIENDA.email, fontSize: 7.5 });
+        aziendaStack.push({ text: 'PEC: ' + AZIENDA.pec, fontSize: 7.5 });
+        aziendaStack.push({ text: 'Website: ' + AZIENDA.web, fontSize: 7.5, margin: [0, 0, 0, 3] });
+    }
+
+    aziendaStack.push({ text: AZIENDA.capsoc, fontSize: 6 });
+    aziendaStack.push({ text: AZIENDA.registro, fontSize: 6 });
+
+    if (!isEstero) {
+        aziendaStack.push({ text: 'Codice destinatario univoco (SDI): ' + AZIENDA.sdi, fontSize: 6 });
+    }
+
+    // Destinatario colonna destra
+    const destStack = [];
+
+    // "PROVA" + "ORDINE D'ACQUISTO"
+    if (isProva) {
+        destStack.push({ text: 'PROVA', fontSize: 10, bold: true, color: '#cc0000', alignment: 'right' });
+    }
+    destStack.push({ text: 'ORDINE D\'ACQUISTO', fontSize: 11, bold: true, alignment: 'right', margin: [0, 0, 0, 10] });
+
+    destStack.push({ text: 'Destinatario :', fontSize: 7, color: '#555' });
+
+    // Nome fornitore + ( categoria )
+    const nomeFornitore = ss(ordine.fornitore_nome).toUpperCase();
+    const categ = ordine.fornitore_categ ? '( ' + ordine.fornitore_categ + ' )' : '';
+    if (categ) {
+        destStack.push({
+            columns: [
+                { text: nomeFornitore, fontSize: 10, bold: true, width: '*' },
+                { text: categ, fontSize: 8, color: '#555', width: 35, alignment: 'right' }
+            ],
+            margin: [0, 2, 0, 0]
+        });
+    } else {
+        destStack.push({ text: nomeFornitore, fontSize: 10, bold: true, margin: [0, 2, 0, 0] });
+    }
+
+    // Indirizzo
+    if (ss(ordine.fornitore_indirizzo)) {
+        destStack.push({ text: ss(ordine.fornitore_indirizzo), fontSize: 8, margin: [0, 2, 0, 0] });
+    }
+
+    // CAP Citta (Prov) — formula @CITTAPROV
+    const cittaParts = [ss(ordine.fornitore_cap), ss(ordine.fornitore_citta).toUpperCase()];
+    if (ss(ordine.fornitore_prov)) cittaParts.push('(' + ss(ordine.fornitore_prov) + ')');
+    destStack.push({ text: cittaParts.filter(Boolean).join(' '), fontSize: 8 });
+
+    // Fax
+    if (ss(ordine.fornitore_fax)) {
+        destStack.push({
+            columns: [
+                { text: 'Fax :', fontSize: 7, color: '#555', width: 28 },
+                { text: ss(ordine.fornitore_fax), fontSize: 8, width: '*' }
+            ],
+            margin: [0, 4, 0, 0]
+        });
+    }
+
+    // Luogo di destinazione (DESTDIV) — se presente
+    if (ss(ordine.dest_nome)) {
+        destStack.push({ text: '', margin: [0, 4, 0, 0] });
+        destStack.push({ text: 'Luogo di destinazione :', fontSize: 7, color: '#555' });
+        destStack.push({ text: ss(ordine.dest_nome), fontSize: 8, bold: true });
+        if (ss(ordine.dest_indirizzo)) {
+            destStack.push({ text: ss(ordine.dest_indirizzo), fontSize: 8 });
+        }
+        const destCitta = [ss(ordine.dest_cap), ss(ordine.dest_citta)];
+        if (ss(ordine.dest_prov)) destCitta.push('(' + ss(ordine.dest_prov) + ')');
+        destStack.push({ text: destCitta.filter(Boolean).join(' '), fontSize: 8 });
+    }
+
+    return {
+        columns: [
+            { width: 230, stack: aziendaStack },
+            { width: '*', stack: destStack }
+        ],
+        columnGap: 20,
+        margin: [0, 0, 0, 8]
+    };
+}
+
+// ============================================================
+// BUILDER: METADATI (titolo + griglia conto/pagamento/porto)
+// ============================================================
+function buildMetadati(ordine, isEstero) {
+    const numSerie = ss(ordine.serie) ? ordine.numord + '/' + ss(ordine.serie) : String(ordine.numord);
+    const titolo = 'Ordine d\'Acquisto n\u00b0 ' + numSerie + ' del ' + fmtData(ordine.data_ordine);
+
+    // Banca — Italia: da testord (banca appoggio azienda), Estero: da anagra (banca fornitore)
+    const banca1 = isEstero ? ss(ordine.fornitore_banca_1) : ss(ordine.banca_appoggio_1);
+    const banca2 = isEstero ? ss(ordine.fornitore_banca_2) : ss(ordine.banca_appoggio_2);
+    const bancaStr = [banca1, banca2].filter(Boolean).join(' - ');
+
+    // Porto descrizione
+    const portoDescr = ss(ordine.porto_descr);
+
+    // Valuta
+    const valutaLabel = isEstero ? ss(ordine.valuta_nome) : (ss(ordine.valuta_sigla) || 'EUR');
+
+    return [
+        // Tabella titolo + rif
+        {
+            table: {
+                widths: ['*', 90],
+                body: [[
+                    { text: titolo, fontSize: 9.5, bold: true },
+                    { text: 'Rif. / Ref.' + (ss(ordine.riferimento) ? '\n' + ss(ordine.riferimento) : ''), fontSize: 7, bold: true }
+                ]]
+            },
+            layout: thinBorders
+        },
+        // Tabella conto | pagamento | banca
+        {
+            table: {
+                widths: [52, 175, '*'],
+                body: [[
+                    labelValue('conto', String(ordine.fornitore_codice || '')),
+                    labelValue('pagamento / terms', ss(ordine.pagamento_descr)),
+                    labelValue('banca d\'appoggio / bank', bancaStr)
+                ]]
+            },
+            layout: thinBordersPadded,
+            margin: [0, -0.4, 0, 0]
+        },
+        // Tabella spedizione | vettore
+        {
+            table: {
+                widths: ['*', '*'],
+                body: [[
+                    { text: 'spedizione a mezzo del / despatch by', fontSize: 6.5, color: '#555' },
+                    { text: 'vettore', fontSize: 6.5, color: '#555' }
+                ]]
+            },
+            layout: thinBorders,
+            margin: [0, -0.4, 0, 0]
+        },
+        // Tabella porto | valuta | imballo
+        {
+            table: {
+                widths: [165, 115, '*'],
+                body: [[
+                    labelValue('porto', portoDescr),
+                    labelValue('valuta', valutaLabel),
+                    { text: [{ text: 'imballo / packaging\n', fontSize: 6.5, color: '#555' }, { text: 'GRATIS', fontSize: 8, bold: true }], alignment: 'right' }
+                ]]
+            },
+            layout: thinBordersPadded,
+            margin: [0, -0.4, 0, 0]
+        }
+    ];
+}
+
+// ============================================================
+// BUILDER: DESCRIZIONE RIGA (con tutte le sotto-righe Crystal)
+// ============================================================
+function buildDescrizioneRiga(r, isEstero) {
+    const parts = [];
+    const isDescRiga = ss(r.mo_codart) === 'D';
+
+    // Descrizione principale
+    parts.push({ text: ss(r.mo_descr), fontSize: 8 });
+
+    // Descrizione integrativa
+    if (ss(r.mo_desint)) {
+        const desintParts = [];
+        // Codice alternativo (solo Italia, nella stessa riga della desint)
+        if (!isEstero && ss(r.ar_codalt) && ss(r.ar_codalt) !== 'D') {
+            desintParts.push({ text: '(' + ss(r.ar_codalt) + ') ', fontSize: 6.5, color: '#555' });
+        }
+        desintParts.push({ text: ss(r.mo_desint), fontSize: 6.5, color: '#555' });
+        parts.push({ text: desintParts });
+    }
+
+    // LOT (solo se lotto > 0)
+    if (r.mo_lotto && Number(r.mo_lotto) > 0) {
+        parts.push({ text: 'LOT ' + r.mo_lotto, fontSize: 6.5, color: '#555' });
+    }
+
+    // Note articolo (ar_note)
+    if (ss(r.ar_note)) {
+        parts.push({ text: ss(r.ar_note), fontSize: 6, color: '#555' });
+    }
+
+    // N.B. note riga (mo_note)
+    if (ss(r.mo_note)) {
+        parts.push({ text: [{ text: 'N.B.: ', bold: true, fontSize: 6.5, color: '#555' }, { text: ss(r.mo_note), fontSize: 6.5, color: '#555' }] });
+    }
+
+    // Riferimenti fornitore (tabella CODARFO)
+    if (ss(r.rif_fornitore)) {
+        let rifStr = 'Riferimenti fornitore: ' + ss(r.rif_fornitore);
+        if (ss(r.rif_note)) rifStr += '    ' + ss(r.rif_note);
+        parts.push({ text: rifStr, fontSize: 6.5, color: '#555' });
+    }
+
+    // Conversione UM (solo Italia, se UM diverse)
+    if (!isEstero && ss(r.mo_unmis) !== ss(r.mo_ump) && r.ar_conver && Number(r.ar_conver) !== 0) {
+        const conv = Math.round(1 / Number(r.ar_conver));
+        parts.push({ text: '1 ' + ss(r.mo_unmis) + ' = ' + conv + ' ' + ss(r.mo_ump), fontSize: 6, color: '#555' });
+    }
+
+    return { stack: parts };
+}
+
+// ============================================================
+// BUILDER: TABELLA ARTICOLI
+// ============================================================
+function buildTabellaArticoli(righe, isEstero) {
+    // Header colonne (con label IT + EN)
+    const mkHeader = (it, en, align) => ({
+        text: [{ text: it + '\n', bold: true, fontSize: 7 }, { text: en, fontSize: 5.5, color: '#555' }],
+        alignment: align || 'left'
+    });
+
+    const headerRow = isEstero
+        ? [
+            mkHeader('Cod.articolo', 'Our Code'),
+            mkHeader('Descrizione', 'Description'),
+            mkHeader('UM', 'Unit', 'center'),
+            mkHeader('Q.t\u00e0', 'Quantity', 'right'),
+            mkHeader('Prezzo', 'Unit Price', 'right'),
+            mkHeader('Sconti', 'Disc.', 'right'),
+            mkHeader('Cons.', 'Deliv.time', 'center'),
+            mkHeader('Note', 'Remarks')
+        ]
+        : [
+            mkHeader('Cod.articolo', 'Our Code'),
+            mkHeader('Descrizione', 'Description'),
+            mkHeader('UM', 'Unit', 'center'),
+            mkHeader('Quantit\u00e0', 'Quantity', 'right'),
+            mkHeader('Prezzo', 'Unit Price', 'right'),
+            mkHeader('Sconti', 'Discount', 'right'),
+            mkHeader('Data Spedizione', 'Shipping Date', 'center'),
+            mkHeader('Note', 'Remarks')
+        ];
+
+    const body = [headerRow];
+
+    for (const r of righe) {
+        const isDescRiga = ss(r.mo_codart) === 'D';
+
+        // Formula @UM
+        let um = '';
+        if (!isDescRiga) {
+            if (isEstero) {
+                um = ss(r.mo_unmis);
+            } else {
+                um = (ss(r.mo_unmis) === ss(r.mo_ump)) ? ss(r.mo_ump) : ss(r.mo_unmis);
+            }
+        }
+
+        // Formula @QUANT
+        let quant = '';
+        if (!isDescRiga) {
+            if (isEstero) {
+                quant = fmtNum(r.mo_quant, 2);
+            } else {
+                quant = fmtNum((ss(r.mo_unmis) === ss(r.mo_ump)) ? r.mo_quant : r.mo_colli, 2);
+            }
+        }
+
+        body.push([
+            { text: isDescRiga ? '' : ss(r.mo_codart), fontSize: 8 },
+            buildDescrizioneRiga(r, isEstero),
+            { text: um, fontSize: 8, alignment: 'center' },
+            { text: quant, fontSize: 8, alignment: 'right' },
+            { text: isDescRiga ? '' : fmtPrezzo(r.mo_prezzo), fontSize: 8, alignment: 'right' },
+            { text: isDescRiga ? '' : fmtSconti(r.mo_scont1, r.mo_scont2, r.mo_scont3), fontSize: 6, alignment: 'right' },
+            { text: isDescRiga ? '' : fmtData(r.mo_datcons), fontSize: 7, alignment: 'center' },
+            { text: '', fontSize: 7 } // Note/Remarks (colonna per uso futuro)
+        ]);
+    }
+
+    return {
+        table: {
+            headerRows: 1, // pdfmake ripete l'header su ogni pagina automaticamente
+            widths: [52, '*', 20, 58, 45, 28, 65, 28],
+            body
+        },
+        layout: thinBorders
+    };
+}
+
+// ============================================================
+// BUILDER: FOOTER (totale + note + firma + note legali)
+// ============================================================
+function buildFooter(ordine, isEstero) {
+    const valSigla = ss(ordine.valuta_sigla) || 'EUR';
+
+    // Note ordine (an_note + an_note2 + td_note)
+    const noteList = [ss(ordine.fornitore_note), ss(ordine.fornitore_note2), ss(ordine.note_ordine)].filter(Boolean);
+    const noteText = noteList.join('\n');
+
+    const content = [];
+
+    // Totale ordine
+    content.push({
+        columns: [
+            { text: '', width: '*' },
+            { text: 'totale ordine', fontSize: 7, color: '#555', width: 'auto', margin: [0, 5, 12, 0] },
+            { text: valSigla + '  ' + fmtNum(ordine.totale_merce, 2), fontSize: 11, bold: true, width: 'auto', alignment: 'right' }
+        ],
+        margin: [0, 8, 0, 0]
+    });
+
+    // "Si autorizza l'emissione..."
+    content.push({
+        text: 'Si autorizza l\'emissione del presente ordine in deroga alla procedura 005 D.G.',
+        fontSize: 6.5, margin: [0, 10, 0, 0]
+    });
+
+    // Tabella note/remarks | saluti + firma
+    const firmaStack = [
+        { text: 'Distinti saluti / Regards', fontSize: 7, color: '#555', alignment: 'right' },
+        { text: AZIENDA.nome, fontSize: 8, bold: true, margin: [0, 3, 0, 0], alignment: 'right' },
+        { text: AZIENDA.firma_nome, fontSize: 8, margin: [0, 1, 0, 0], alignment: 'right' }
+    ];
+    if (FIRMA_B64) {
+        firmaStack.push({ image: FIRMA_B64, fit: [90, 30], alignment: 'right', margin: [0, 4, 0, 0] });
+    }
+
+    content.push({
+        table: {
+            widths: ['*', 180],
+            body: [[
+                {
+                    stack: [
+                        { text: 'note / remarks', fontSize: 7, color: '#555' },
+                        noteText ? { text: noteText, fontSize: 6.5, margin: [0, 4, 0, 0] } : {}
+                    ]
+                },
+                { stack: firmaStack }
+            ]]
+        },
+        layout: { ...thinBorders, paddingTop: () => 4, paddingBottom: () => 4 },
+        margin: [0, 8, 0, 0]
+    });
+
+    // Nota DM/shelf-life (bold, solo Italia)
+    if (!isEstero) {
+        content.push({
+            text: 'Per i dispositivi in ordine si chiede di inviare lotti preferibilmente univoci, tassativamente con il massimo di residuo di vita, quantomeno mai inferiore ai 2/3 della sua shelf-life.',
+            fontSize: 6, bold: true, margin: [0, 10, 0, 0]
+        });
+    }
+
+    // Note legali
+    const noteLegali = isEstero ? NOTE_LEGALI_EX : NOTE_LEGALI_IT;
+    // Rimuovi la frase shelf-life dalle note legali IT per non duplicarla
+    const noteLegaliClean = isEstero ? noteLegali :
+        noteLegali.replace(/\n\nPer i dispositivi.*shelf-life\./s, '');
+
+    content.push({ text: noteLegaliClean, fontSize: 5.5, margin: [0, 6, 0, 0], lineHeight: 1.15 });
+
+    return content;
+}
 
 // ============================================================
 // FUNZIONE PRINCIPALE
@@ -94,508 +498,35 @@ async function generaPdfOrdine(ordine, righe, options = {}) {
     return new Promise((resolve, reject) => {
         try {
             const isProva = options.ambiente === 'prova';
-            const isEstero = s(ordine.fornitore_tipo) === 'EXTRA_UE';
+            const isEstero = ss(ordine.fornitore_tipo) === 'EXTRA_UE';
 
-            const doc = new PDFDocument({
-                size: 'A4',
-                margins: MARGIN,
+            const docDefinition = {
+                pageSize: 'A4',
+                pageMargins: [30, 28, 30, 30],
+                defaultStyle: { font: 'Helvetica', fontSize: 7.5, lineHeight: 1.15 },
                 info: {
-                    Title: `${isProva ? '[PROVA] ' : ''}Ordine ${ordine.numord}/${s(ordine.serie)} - ${s(ordine.fornitore_nome)}`,
-                    Author: 'U.Jet s.r.l. - GB2',
-                    Subject: 'Ordine d\'Acquisto Fornitore'
-                }
-            });
+                    title: (isProva ? '[PROVA] ' : '') + 'Ordine ' + ordine.numord + '/' + ss(ordine.serie) + ' - ' + ss(ordine.fornitore_nome),
+                    author: 'U.Jet s.r.l. - GB2',
+                    subject: 'Ordine d\'Acquisto Fornitore'
+                },
+                content: [
+                    buildHeader(ordine, isEstero, isProva),
+                    ...buildMetadati(ordine, isEstero),
+                    buildTabellaArticoli(righe, isEstero),
+                    ...buildFooter(ordine, isEstero)
+                ]
+            };
 
+            const pdfDoc = printer.createPdfKitDocument(docDefinition);
             const chunks = [];
-            doc.on('data', chunk => chunks.push(chunk));
-            doc.on('end', () => resolve(Buffer.concat(chunks)));
-            doc.on('error', err => reject(err));
-
-            renderPdf(doc, ordine, righe, isEstero, isProva);
-            doc.end();
+            pdfDoc.on('data', chunk => chunks.push(chunk));
+            pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
+            pdfDoc.on('error', err => reject(err));
+            pdfDoc.end();
         } catch (err) {
             reject(err);
         }
     });
-}
-
-// (Watermark diagonale rimosso — "PROVA" appare ora nel titolo dell'header)
-
-// ============================================================
-// SEZIONI RIUTILIZZABILI (ripetute su ogni pagina)
-// ============================================================
-
-function renderHeader(doc, ordine, isEstero, isProva) {
-    const x0 = MARGIN.left;
-    let y = MARGIN.top;
-
-    // --- COLONNA SINISTRA: Dati azienda (come BCube) ---
-    const xLeft = x0;
-    const leftW = 280;
-    let yL = y;
-
-    // Logo (se disponibile, altrimenti testo grande)
-    if (fs.existsSync(LOGO_PATH)) {
-        try { doc.image(LOGO_PATH, xLeft, yL, { height: 50 }); } catch (_) {}
-        yL += 55;
-    } else {
-        doc.fontSize(18).font('Helvetica-Bold').fillColor(C.nero)
-            .text('U.Jet', xLeft, yL);
-        yL += 24;
-    }
-
-    doc.fontSize(7.5).font('Helvetica').fillColor(C.nero);
-    doc.text(AZIENDA.nome, xLeft, yL, { width: leftW }); yL += 10;
-    doc.text(AZIENDA.indirizzo, xLeft, yL, { width: leftW }); yL += 9;
-    doc.text(AZIENDA.cap_citta, xLeft, yL, { width: leftW }); yL += 9;
-    doc.text(`Tel: ${AZIENDA.tel} - Fax: ${AZIENDA.fax}`, xLeft, yL, { width: leftW }); yL += 9;
-
-    if (!isEstero) {
-        doc.text(`Mail: ${AZIENDA.email}`, xLeft, yL, { width: leftW }); yL += 9;
-        doc.text(`PEC: ${AZIENDA.pec}`, xLeft, yL, { width: leftW }); yL += 9;
-        doc.text(`Website: ${AZIENDA.web}`, xLeft, yL, { width: leftW }); yL += 11;
-    } else {
-        yL += 11;
-    }
-
-    doc.fontSize(6.5).fillColor('#555555');
-    doc.text(AZIENDA.capsoc, xLeft, yL, { width: leftW }); yL += 8;
-    doc.text(AZIENDA.registro, xLeft, yL, { width: leftW }); yL += 8;
-
-    if (!isEstero) {
-        doc.text(`Codice destinatario univoco (SDI): ${AZIENDA.sdi}`, xLeft, yL, { width: leftW });
-        yL += 8;
-    }
-
-    // --- COLONNA DESTRA: Destinatario + Destinazione ---
-    const xRight = x0 + 290;
-    const rightW = PAGE_W - 290;
-    let yR = y;
-
-    // "ORDINE D'ACQUISTO" (con prefisso PROVA in rosso se ambiente prova)
-    if (isProva) {
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#cc0000')
-            .text('PROVA', xRight, yR, { width: rightW, align: 'right', continued: false });
-        yR += 13;
-    }
-    doc.fontSize(10).font('Helvetica-Bold').fillColor(C.nero)
-        .text('ORDINE D\'ACQUISTO', xRight, yR, { width: rightW, align: 'right' });
-    yR += 16;
-
-    // Destinatario
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('Destinatario :', xRight, yR);
-    yR += 10;
-
-    doc.fontSize(9.5).font('Helvetica-Bold').fillColor(C.nero)
-        .text(s(ordine.fornitore_nome).toUpperCase(), xRight, yR, { width: rightW - 50 });
-
-    // ( an_categ ) a destra sulla stessa riga
-    if (ordine.fornitore_categ) {
-        doc.fontSize(8).font('Helvetica').fillColor(C.grigio)
-            .text(`( ${ordine.fornitore_categ} )`, xRight + rightW - 45, yR, { width: 45, align: 'right' });
-    }
-    yR += 13;
-
-    doc.fontSize(8).font('Helvetica').fillColor(C.nero);
-    if (s(ordine.fornitore_indirizzo)) {
-        doc.text(s(ordine.fornitore_indirizzo), xRight, yR, { width: rightW }); yR += 10;
-    }
-
-    // CAP Citta (Prov) — formula @CITTAPROV
-    const cittaParts = [s(ordine.fornitore_cap), s(ordine.fornitore_citta).toUpperCase()];
-    if (s(ordine.fornitore_prov)) cittaParts.push(`(${s(ordine.fornitore_prov)})`);
-    doc.text(cittaParts.filter(Boolean).join(' '), xRight, yR, { width: rightW }); yR += 11;
-
-    // Fax
-    if (s(ordine.fornitore_fax)) {
-        doc.fontSize(7).fillColor(C.grigio).text('Fax :', xRight, yR);
-        doc.fontSize(8).fillColor(C.nero).text(s(ordine.fornitore_fax), xRight + 30, yR);
-        yR += 11;
-    }
-
-    // Blocco "Luogo di destinazione" (se presente)
-    if (s(ordine.dest_nome)) {
-        yR += 4;
-        doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-            .text('Luogo di destinazione :', xRight, yR);
-        yR += 10;
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero)
-            .text(s(ordine.dest_nome), xRight, yR, { width: rightW }); yR += 10;
-        doc.font('Helvetica');
-        if (s(ordine.dest_indirizzo)) {
-            doc.text(s(ordine.dest_indirizzo), xRight, yR, { width: rightW }); yR += 10;
-        }
-        const destCitta = [s(ordine.dest_cap), s(ordine.dest_citta)];
-        if (s(ordine.dest_prov)) destCitta.push(`(${s(ordine.dest_prov)})`);
-        doc.text(destCitta.filter(Boolean).join(' '), xRight, yR, { width: rightW }); yR += 10;
-    }
-
-    return Math.max(yL, yR) + 8;
-}
-
-function renderMetadati(doc, ordine, isEstero) {
-    const x0 = MARGIN.left;
-    let y = doc._currentY || MARGIN.top;
-
-    // Titolo ordine: "Ordine d'Acquisto n° 276/F del 03/04/2026"
-    const numSerie = s(ordine.serie) ? `${ordine.numord}/${s(ordine.serie)}` : String(ordine.numord);
-    const titolo = `Ordine d'Acquisto n\u00b0 ${numSerie} del ${fmtData(ordine.data_ordine)}`;
-
-    doc.fontSize(9.5).font('Helvetica-Bold').fillColor(C.nero).text(titolo, x0, y);
-
-    // Rif. / Ref.
-    if (s(ordine.riferimento)) {
-        doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-            .text('Rif. / Ref.', x0 + 350, y);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero)
-            .text(s(ordine.riferimento), x0 + 400, y, { width: 135 });
-    }
-    y += 15;
-
-    // Linea sotto titolo
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.5).strokeColor(C.lineaScuro).stroke();
-    y += 6;
-
-    // --- Griglia metadati (con linee di separazione come nel Crystal) ---
-    const labelFont = () => doc.fontSize(7).font('Helvetica').fillColor(C.grigio);
-    const valueFont = () => doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero);
-
-    // Riga 1: conto | pagamento | banca
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
-    y += 3;
-
-    labelFont().text('conto', x0 + 2, y);
-    valueFont().text(ordine.fornitore_codice || '', x0 + 2, y + 9);
-
-    labelFont().text('pagamento / terms', x0 + 82, y);
-    valueFont().text(s(ordine.pagamento_descr), x0 + 82, y + 9, { width: 220 });
-
-    labelFont().text('banca d\'appoggio / bank', x0 + 330, y);
-    const banca1 = isEstero ? s(ordine.fornitore_banca_1) : s(ordine.banca_appoggio_1);
-    const banca2 = isEstero ? s(ordine.fornitore_banca_2) : s(ordine.banca_appoggio_2);
-    const bancaStr = [banca1, banca2].filter(Boolean).join(' - ');
-    valueFont().text(bancaStr, x0 + 330, y + 9, { width: PAGE_W - 332 });
-
-    y += 24;
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
-    y += 3;
-
-    // Riga 2: spedizione a mezzo del | vettore
-    labelFont().text('spedizione a mezzo del / despatch by', x0 + 2, y);
-    let trasp = '';
-    const acuradi = s(ordine.acuradi);
-    if (acuradi === 'D') trasp = 'Destinatario';
-    else if (acuradi === 'V') trasp = 'Vettore';
-    else if (acuradi === 'M') trasp = 'Mittente';
-    valueFont().text(trasp, x0 + 180, y);
-
-    labelFont().text('vettore', x0 + 330, y);
-
-    y += 16;
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
-    y += 3;
-
-    // Riga 3: porto | valuta | imballo
-    labelFont().text('porto', x0 + 2, y);
-    valueFont().text(s(ordine.porto_descr), x0 + 2, y + 9, { width: 170 });
-
-    labelFont().text('valuta', x0 + 200, y);
-    const valutaLabel = isEstero ? s(ordine.valuta_nome) : s(ordine.valuta_sigla);
-    valueFont().text(valutaLabel || 'EUR', x0 + 200, y + 9);
-
-    labelFont().text('imballo / packaging', x0 + 400, y);
-    valueFont().text('GRATIS', x0 + 400, y + 9);
-
-    y += 24;
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.5).strokeColor(C.lineaScuro).stroke();
-    y += 4;
-
-    return y;
-}
-
-function getColonne(isEstero) {
-    const x0 = MARGIN.left;
-    // Layout colonne allineato al Crystal BCube — piu largo e leggibile
-    if (isEstero) {
-        return [
-            { it: 'Cod.articolo', en: 'Our Code',     x: x0,       w: 65,  align: 'left' },
-            { it: 'Descrizione',  en: 'Description',   x: x0 + 65,  w: 180, align: 'left' },
-            { it: 'UM',           en: 'Unit',           x: x0 + 245, w: 25,  align: 'center' },
-            { it: 'Q.t\u00e0',   en: 'Quantity',       x: x0 + 270, w: 62,  align: 'right' },
-            { it: 'Prezzo',       en: 'Unit Price',     x: x0 + 332, w: 55,  align: 'right' },
-            { it: 'Sconti',       en: 'Disc.',          x: x0 + 387, w: 35,  align: 'right' },
-            { it: 'Cons.',        en: 'Deliv.time',     x: x0 + 422, w: 78,  align: 'center' },
-            { it: 'Note',         en: 'Remarks',        x: x0 + 500, w: 35,  align: 'left' }
-        ];
-    }
-    return [
-        { it: 'Cod.articolo', en: 'Our Code',     x: x0,       w: 65,  align: 'left' },
-        { it: 'Descrizione',  en: 'Description',   x: x0 + 65,  w: 180, align: 'left' },
-        { it: 'UM',           en: 'Unit',           x: x0 + 245, w: 25,  align: 'center' },
-        { it: 'Quantit\u00e0',en: 'Quantity',       x: x0 + 270, w: 62,  align: 'right' },
-        { it: 'Prezzo',       en: 'Unit Price',     x: x0 + 332, w: 55,  align: 'right' },
-        { it: 'Sconti',       en: 'Discount',       x: x0 + 387, w: 35,  align: 'right' },
-        { it: 'Data Spedizione', en: 'Shipping Date', x: x0 + 422, w: 78, align: 'center' },
-        { it: 'Note',         en: 'Remarks',        x: x0 + 500, w: 35,  align: 'left' }
-    ];
-}
-
-function renderColonneHeader(doc, isEstero) {
-    const x0 = MARGIN.left;
-    const cols = getColonne(isEstero);
-    let y = doc._currentY || MARGIN.top;
-
-    const headerH = 24;
-    // Sfondo + bordo esterno
-    doc.rect(x0, y, PAGE_W, headerH).fillAndStroke('#EAEAEA', C.lineaScuro);
-
-    // Linee verticali tra colonne
-    doc.lineWidth(0.3).strokeColor(C.lineaGrigio);
-    for (let i = 1; i < cols.length; i++) {
-        doc.moveTo(cols[i].x, y).lineTo(cols[i].x, y + headerH).stroke();
-    }
-
-    // Testo colonne — label italiana + inglese sotto
-    for (const col of cols) {
-        doc.fillColor('#333333').fontSize(7).font('Helvetica-Bold')
-            .text(col.it, col.x + 3, y + 3, { width: col.w - 6, align: col.align });
-        doc.fontSize(5.5).font('Helvetica').fillColor(C.grigio)
-            .text(col.en, col.x + 3, y + 13, { width: col.w - 6, align: col.align });
-    }
-
-    return y + headerH;
-}
-
-// ============================================================
-// RENDER PAGINA COMPLETA HEADER (per nuova pagina)
-// ============================================================
-function renderPageHeader(doc, ordine, isEstero, isProva) {
-    let y = renderHeader(doc, ordine, isEstero, isProva);
-    doc._currentY = y;
-    y = renderMetadati(doc, ordine, isEstero);
-    doc._currentY = y;
-    y = renderColonneHeader(doc, isEstero);
-    return y;
-}
-
-// ============================================================
-// RENDER PDF COMPLETO
-// ============================================================
-function renderPdf(doc, ordine, righe, isEstero, isProva) {
-    const x0 = MARGIN.left;
-    const cols = getColonne(isEstero);
-
-    // --- Prima pagina: header + metadati + colonne ---
-    let y = renderPageHeader(doc, ordine, isEstero, isProva);
-
-    // --- Righe articoli ---
-    for (const r of righe) {
-        const isDescRiga = s(r.mo_codart) === 'D'; // riga descrizione libera
-
-        // Calcola altezza necessaria per questa riga (tutte le sotto-righe)
-        doc.fontSize(8).font('Helvetica');
-        const descr = s(r.mo_descr);
-        const desint = s(r.mo_desint);
-        const descrH = doc.heightOfString(descr, { width: cols[1].w - 4 });
-        let rowH = Math.max(descrH + 4, 14);
-        if (desint) rowH += 10;
-        if (r.mo_lotto && Number(r.mo_lotto) > 0) rowH += 10;
-        if (s(r.ar_note)) rowH += 10;
-        if (s(r.mo_note)) rowH += 10;
-        if (s(r.rif_fornitore)) rowH += 10;
-        if (!isEstero && s(r.mo_unmis) !== s(r.mo_ump) && r.ar_conver) rowH += 10;
-
-        // Page break se necessario
-        if (y + rowH > PAGE_BREAK_Y) {
-            doc.addPage();
-            y = renderPageHeader(doc, ordine, isEstero, isProva);
-        }
-
-        // --- Riga b: codart | descr | UM | quant | prezzo | sconti | data ---
-        const yRow = y;
-        doc.fontSize(8).font('Helvetica').fillColor(C.nero);
-
-        // Codice articolo (vuoto per righe tipo "D")
-        if (!isDescRiga) {
-            doc.text(s(r.mo_codart), cols[0].x + 2, y + 2, { width: cols[0].w - 4 });
-        }
-
-        // Descrizione
-        doc.text(descr, cols[1].x + 2, y + 2, { width: cols[1].w - 4 });
-
-        if (!isDescRiga) {
-            // UM — formula @UM
-            let um;
-            if (isEstero) {
-                um = s(r.mo_unmis);
-            } else {
-                um = (s(r.mo_unmis) === s(r.mo_ump)) ? s(r.mo_ump) : s(r.mo_unmis);
-            }
-            doc.text(um, cols[2].x + 2, y + 2, { width: cols[2].w - 4, align: 'center' });
-
-            // Quantita — formula @QUANT
-            let quant;
-            if (isEstero) {
-                quant = r.mo_quant;
-            } else {
-                quant = (s(r.mo_unmis) === s(r.mo_ump)) ? r.mo_quant : r.mo_colli;
-            }
-            doc.text(fmtNum(quant, 2), cols[3].x + 2, y + 2, { width: cols[3].w - 4, align: 'right' });
-
-            // Prezzo
-            doc.text(fmtPrezzo(r.mo_prezzo), cols[4].x + 2, y + 2, { width: cols[4].w - 4, align: 'right' });
-
-            // Sconti
-            const scontiStr = fmtSconti(r.mo_scont1, r.mo_scont2, r.mo_scont3);
-            doc.fontSize(6).text(scontiStr, cols[5].x + 2, y + 2, { width: cols[5].w - 4, align: 'right' });
-
-            // Data consegna
-            doc.fontSize(7).text(fmtData(r.mo_datcons), cols[6].x + 2, y + 2, { width: cols[6].w - 4, align: 'center' });
-        }
-
-        y += Math.max(descrH + 4, 14);
-
-        // --- Riga c: codice alternativo | descrizione integrativa ---
-        if (desint) {
-            doc.fontSize(6.5).fillColor(C.grigio);
-            if (!isEstero && s(r.ar_codalt) && s(r.ar_codalt) !== 'D') {
-                doc.text(`(${s(r.ar_codalt)})`, cols[0].x + 2, y, { width: cols[0].w - 4 });
-            }
-            doc.text(desint, cols[1].x + 2, y, { width: cols[1].w - 4 });
-            y += 10;
-        }
-
-        // --- Riga d: LOT (solo se lotto > 0) ---
-        if (r.mo_lotto && Number(r.mo_lotto) > 0) {
-            doc.fontSize(6.5).fillColor(C.grigio)
-                .text(`LOT ${r.mo_lotto}`, cols[1].x + 2, y, { width: cols[1].w - 4 });
-            y += 10;
-        }
-
-        // --- Riga e: note articolo ---
-        if (s(r.ar_note)) {
-            doc.fontSize(6).fillColor(C.grigio)
-                .text(s(r.ar_note), cols[1].x + 2, y, { width: cols[1].w + cols[2].w + cols[3].w - 4 });
-            y += 10;
-        }
-
-        // --- Riga f: N.B. note riga ---
-        if (s(r.mo_note)) {
-            doc.fontSize(6.5).font('Helvetica-Bold').fillColor(C.grigio)
-                .text('N.B.:', cols[0].x + 2, y);
-            doc.font('Helvetica')
-                .text(s(r.mo_note), cols[1].x + 2, y, { width: cols[1].w + cols[2].w + cols[3].w - 4 });
-            y += 10;
-        }
-
-        // --- Riga g: Riferimenti fornitore ---
-        if (s(r.rif_fornitore)) {
-            doc.fontSize(6.5).font('Helvetica').fillColor(C.grigio);
-            let rifStr = 'Riferimenti fornitore: ' + s(r.rif_fornitore);
-            if (s(r.rif_note)) rifStr += '    ' + s(r.rif_note);
-            doc.text(rifStr, cols[0].x + 2, y, { width: cols[1].x + cols[1].w - cols[0].x - 4 });
-            y += 10;
-        }
-
-        // --- Riga h: Conversione UM (solo Italia, se UM diverse) ---
-        if (!isEstero && s(r.mo_unmis) !== s(r.mo_ump) && r.ar_conver && Number(r.ar_conver) !== 0) {
-            const conv = Math.round(1 / Number(r.ar_conver));
-            doc.fontSize(6).fillColor(C.grigio)
-                .text(`1 ${s(r.mo_unmis)} = ${conv} ${s(r.mo_ump)}`, cols[1].x + 2, y, { width: 200 });
-            y += 10;
-        }
-
-        // Bordo orizzontale sotto la riga + verticali tra colonne
-        doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
-        // Linee verticali tra colonne (dall'inizio riga al fondo)
-        doc.lineWidth(0.2).strokeColor(C.lineaGrigio);
-        for (let i = 1; i < cols.length; i++) {
-            doc.moveTo(cols[i].x, yRow).lineTo(cols[i].x, y).stroke();
-        }
-        // Bordi laterali sinistro e destro
-        doc.moveTo(x0, yRow).lineTo(x0, y).stroke();
-        doc.moveTo(x0 + PAGE_W, yRow).lineTo(x0 + PAGE_W, y).stroke();
-        y += 2;
-    }
-
-    // Linea finale tabella
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.5).strokeColor(C.lineaScuro).stroke();
-    y += 12;
-
-    // ============================================================
-    // TOTALE ORDINE
-    // ============================================================
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('totale ordine', x0 + 350, y);
-    const valSigla = s(ordine.valuta_sigla) || 'EUR';
-    doc.fontSize(10).font('Helvetica-Bold').fillColor(C.nero)
-        .text(`${valSigla}  ${fmtNum(ordine.totale_merce, 2)}`, x0 + 410, y - 1, { width: 125, align: 'right' });
-    y += 20;
-
-    // ============================================================
-    // FOOTER — note, saluti, firma, note legali
-    // ============================================================
-
-    // Verifica spazio per footer (~200pt necessari)
-    if (y > 580) {
-        doc.addPage();
-        y = MARGIN.top;
-    }
-
-    // "Si autorizza l'emissione..."
-    doc.fontSize(6).font('Helvetica').fillColor(C.grigioChiaro)
-        .text('Si autorizza l\'emissione del presente ordine in deroga alla procedura 005 D.G.', x0, y, { width: PAGE_W });
-    y += 14;
-
-    // Linea separazione
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
-    y += 6;
-
-    // Note (an_note + an_note2 + td_note) a sinistra, Totale+Firma a destra
-    const noteY = y;
-    doc.fontSize(7).fillColor(C.grigio).text('note / remarks', x0, y);
-    y += 10;
-
-    const noteList = [s(ordine.fornitore_note), s(ordine.fornitore_note2), s(ordine.note_ordine)].filter(Boolean);
-    const noteText = noteList.join('\n');
-    let noteHeight = 0;
-    if (noteText) {
-        doc.fontSize(6.5).font('Helvetica');
-        noteHeight = doc.heightOfString(noteText, { width: 300, lineGap: 1.5 });
-
-        // Se le note sono troppo lunghe per stare sulla pagina, nuova pagina
-        if (y + noteHeight + 80 > 810) {
-            doc.addPage();
-            y = MARGIN.top;
-            doc.fontSize(7).fillColor(C.grigio).text('note / remarks (continua)', x0, y);
-            y += 10;
-        }
-
-        doc.fontSize(6.5).font('Helvetica').fillColor('#444444')
-            .text(noteText, x0, y, { width: 300, lineGap: 1.5 });
-    }
-
-    // Colonna destra: saluti + firma
-    const xFirma = x0 + 370;
-    let yF = noteY;
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('Distinti saluti / Regards', xFirma, yF);
-    yF += 12;
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero)
-        .text(AZIENDA.nome, xFirma, yF);
-    yF += 11;
-    doc.fontSize(8).font('Helvetica').fillColor(C.nero)
-        .text(AZIENDA.firma_nome, xFirma, yF);
-    yF += 18;
-
-    y = Math.max(y + noteHeight + 6, yF) + 10;
-
-    // Note legali
-    doc.fontSize(5.5).font('Helvetica').fillColor('#444444');
-    const noteLegali = isEstero ? NOTE_LEGALI_EX : NOTE_LEGALI_IT;
-    doc.text(noteLegali, x0, y, { width: PAGE_W, lineGap: 1.2 });
-
 }
 
 module.exports = { generaPdfOrdine, AZIENDA };

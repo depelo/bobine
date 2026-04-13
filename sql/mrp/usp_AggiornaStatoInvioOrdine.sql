@@ -1,7 +1,17 @@
 -- ============================================================
 -- SP: usp_AggiornaStatoInvioOrdine
--- Database: MRP (cross-database verso [UJET11].[dbo].*)
--- Scopo: Aggiorna lo stato di stampa/invio di un ordine
+-- Database: [GB2] sul server di destinazione (BCUBE2 o prova)
+-- Scopo: Aggiorna lo stato di stampa/invio di un ordine in testord
+-- ============================================================
+-- Deploy: deployata nel DB [GB2] del server di destinazione.
+--         Referenzia [UJET11].[dbo] che e cross-database LOCALE.
+-- ============================================================
+-- NOTA ARCHITETTURALE — ordini_emessi
+-- La tabella ordini_emessi NON vive su questo server.
+-- Risiede su MRP@163 ([MRP].[dbo].[ordini_emessi]) — il server
+-- dell'applicazione. Ogni aggiornamento a ordini_emessi (email,
+-- ambiente, cancellazione) viene fatto da Node.js via pool verso 163.
+-- Non tentare mai di scrivere ordini_emessi da qui.
 -- ============================================================
 
 IF EXISTS (SELECT 1 FROM sys.objects WHERE name = 'usp_AggiornaStatoInvioOrdine' AND type = 'P')

@@ -2,7 +2,7 @@
   CONOSCENZE PROGETTO GB2 (Gabriele 2.0) — APP MRP WEB
   Modulo integrato nell'ecosistema PortalUjet
   Documento destinato a un'IA che prende in mano il progetto
-  Data: 9 Aprile 2026
+  Ultimo aggiornamento: 13 Aprile 2026
 ================================================================================
 
 INDICE
@@ -61,166 +61,137 @@ copre solo le specificita dell'app GB2/MRP.
 
 Stack:
   - Backend: Node.js + Express, integrato nel server.js principale (porta 443)
-  - Database: SQL Server 2022 su 192.168.0.163
+  - Database: SQL Server 2022
   - Frontend: SPA vanilla (HTML + CSS + JS, NO framework)
-  - PDF: PDFKit (server-side)
-  - Email: Nodemailer
+  - PDF: pdfmake 0.1.72 (layout dichiarativo a tabelle, stile Crystal Reports)
+  - Email: Nodemailer (SMTP per operatore, futuro: Microsoft Graph API)
   - Libreria DB: mssql (node-mssql)
   - Dev locale: server.js + PM2 (stessi file di produzione)
   - Crittografia: AES-256-GCM (config/crypto.js)
 
 Server:
-  - 192.168.0.163 (PC-SVILUPPO): server dove gira l'app (server.js/PM2, porta 443).
-    Ospita i database: MRP, GB2, GA, BOB, CAP, PE, e una COPIA di UJET11 (solo prova).
-  - bcube2: server ERP di produzione. Ospita il VERO database UJET11 con i dati
-    reali usati dai 40 dipendenti. L'app NON si connette direttamente a bcube2.
+  - 192.168.0.163: server dove gira l'app (server.js/PM2, porta 443).
+    Ospita i database propri dell'app: MRP, GB2, GA, BOB, CAP, PE.
+    Ospita anche una COPIA di UJET11 (usabile come profilo prova).
+  - BCUBE2: server BCube di produzione. Ospita il database UJET11 con i dati
+    reali usati dai 40 dipendenti.
+  - Server di prova: qualsiasi server con un database UJET11 (163, o altri
+    configurati dall'operatore nel profilo prova).
 
---- MAPPA DEI DATABASE E COME SI RAGGIUNGONO ---
+--- PRINCIPIO FONDAMENTALE: CONNESSIONI DIRETTE, ZERO VISTE ---
 
-  Ci sono due categorie di dati, ognuna con il suo percorso di accesso:
+  L'app si connette SEMPRE direttamente al server dove vive UJET11.
+  NON usa viste, NON usa linked server, NON usa intermediari.
 
-  A) DATI ERP (tabelle UJET11: artico, anagra, movord, ordlist, testord, ecc.)
-     Questi dati vivono su BCUBE2 in produzione. L'app non si collega mai
-     direttamente a BCUBE2. Invece:
-     - IN PRODUZIONE: il pool si connette a MRP@163 dove ci sono 21 viste
-       che fanno da ponte trasparente (SELECT * FROM [BCUBE2].[UJET11].[dbo].[...]).
-       Le query vedono le stesse tabelle come se fossero locali.
-     - IN PROVA: il pool si connette DIRETTAMENTE a UJET11 sul server di prova
-       (es. UJET11@163 che e una copia, o altri server configurati dall'operatore).
-       Le viste NON vengono usate. Le stesse query funzionano perche i nomi
-       delle tabelle sono identici.
-     Il codice non deve preoccuparsi di questa differenza: usa getPoolMRP(userId)
-     e il pool giusto viene restituito automaticamente.
+  L'operatore sceglie l'ambiente (produzione o profilo prova).
+  L'ambiente definisce SU QUALE SERVER si trova UJET11.
+  Il pool si connette direttamente a quel server.
+  Le tabelle hanno gli stessi nomi ovunque (dbo.testord, dbo.anagra, ecc.).
+  Il codice non cambia — cambia solo il server a cui il pool si connette.
 
-  B) DATI LOCALI SU 163 (sempre li, sia in produzione che in prova)
-     Tre database fisici su 192.168.0.163 che NON cambiano mai a seconda del modo:
-     - MRP: tabelle custom (ordini_emessi, Politica, ScMin, VarScMin),
-            stored procedures (usp_CreaOrdineFornitore + varianti _T{id}),
-            e le 21 viste ponte verso BCUBE2.
-     - GB2:  silos dell'app (Operators, UserPreferences, TestProfiles,
-            ElaborazioniMRP, SnapshotProposte).
-     - Analisi_scorte (su bcube2, via vista Riep in MRP): tabella ETL di Fabrizio.
-     Questi si raggiungono SEMPRE con getPoolProd(), che punta a MRP@163.
-     Per GB2 si usa naming cross-database: [GB2].[dbo].[NomeTabella].
+--- MAPPA DEI DATABASE ---
+
+  A) TABELLE BCUBE (database UJET11):
+     artico, anagra, movord, ordlist, testord, artfasi, tabpaga, tabport,
+     tabvalu, tabnuma, artpro, movmag, destdiv, codarfo, keyord, ecc.
+
+     Dove vivono: sul server scelto dall'operatore.
+     - Produzione → BCUBE2
+     - Prova → il server configurato nel profilo (puo essere 163 o qualunque altro)
+
+     Come raggiungerle: getPoolERP(userId)
+     - In produzione: poolBcube (connessione diretta a BCUBE2/UJET11)
+     - In prova: getPoolMRP(uid) (connessione diretta a server_prova/UJET11)
+     In entrambi i casi e una CONNESSIONE DIRETTA al database UJET11.
+
+  B) TABELLE DELL'APP (database MRP e GB2 su 163):
+     Stanno SEMPRE su 192.168.0.163, indipendentemente dall'ambiente.
+     Non cambiano mai server. Si raggiungono SEMPRE con getPoolProd().
+
+     Database MRP@163:
+       ordini_emessi  — registro ordini emessi da GB2
+
+     Database GB2@163 (naming cross-database [GB2].[dbo].[...]):
+       Operators, UserPreferences, TestProfiles, ElaborazioniMRP,
+       SnapshotProposte, EmailTemplates, EmailTemplateAssegnazioni,
+       EmailDrafts, DeployVersion
+
+  C) STORED PROCEDURES (database [GB2] sul server di destinazione):
+     Le SP (usp_CreaOrdineFornitore, usp_AggiornaStatoInvioOrdine) vivono
+     nel database [GB2] sullo STESSO server di UJET11. Referenziano
+     [UJET11].[dbo] come cross-database locale — zero MSDTC.
+     Deploy automatico al boot con versioning (DEPLOY_VERSION in helpers.js).
+
+--- I 4 POOL E QUANDO USARLI ---
+
+  getPoolERP(userId) — TABELLE BCUBE (lettura e scrittura)
+    Connessione diretta al server dove vive UJET11.
+    Produzione: poolBcube (BCUBE2 diretto, singleton, 10 conn).
+    Prova: getPoolMRP(uid) (server prova diretto).
+    USARE PER: qualsiasi query su testord, anagra, movord, ordlist, artico,
+    artfasi, tabpaga, tabport, tabvalu, tabnuma, artpro, destdiv, codarfo,
+    keyord, movmag, e qualsiasi altra tabella di UJET11.
+
+  getPoolProd() — TABELLE APP (sempre su 163)
+    Connessione a MRP@163. NON cambia con l'ambiente.
+    USARE PER: ordini_emessi, [GB2].[dbo].[...] (ElaborazioniMRP,
+    SnapshotProposte, UserPreferences, EmailTemplates, ecc.)
+    NON USARE PER: tabelle BCube (testord, anagra, ecc.)
+
+  getPoolMRP(userId) — pool utente (segue l'ambiente)
+    Produzione: restituisce poolProd (163/MRP).
+    Prova: restituisce il pool diretto al server prova.
+    ATTENZIONE: in produzione punta a 163 dove le tabelle BCube sono
+    raggiungibili solo tramite vecchie viste (legacy, da non usare).
+    Per le tabelle BCube usare SEMPRE getPoolERP, non getPoolMRP.
+
+  getPoolRiep(userId) — tabella Riep (caso speciale)
+    Produzione: vista MRP → Analisi_scorte su BCUBE2.
+    Prova con Riep locale: pool prova.
+    Prova senza Riep: fallback a getPoolProd (dati reali, sola lettura).
 
 --- REGOLA DECISIONALE PER SCEGLIERE IL POOL (CRITICA) ---
 
   Quando scrivi una nuova query, chiediti:
-  "Sto leggendo/scrivendo dati ERP che in produzione vivono su BCUBE2?"
+  "Questa tabella fa parte di UJET11 (BCube) o dell'app (163)?"
 
-  SI (artico, movord, ordlist, anagra, testord, movmag, artpro, ecc.)
-    → usa getPoolMRP(userId)
-    In produzione passera dalle viste MRP@163 → BCUBE2.
-    In prova andra diretto su UJET11@server_prova.
+  TABELLA BCUBE (testord, anagra, artico, movord, ordlist, ecc.)
+    → usa getPoolERP(userId)
+    Connessione diretta al server dell'ambiente corrente.
 
-  NO (ordini_emessi, SP, [GB2].*, ElaborazioniMRP, SnapshotProposte, ecc.)
+  TABELLA APP (ordini_emessi, [GB2].[dbo].[...], ecc.)
     → usa getPoolProd()
-    Punta SEMPRE a MRP@163 indipendentemente dal modo dell'operatore.
-    Per tabelle GB2 usa naming cross-database [GB2].[dbo].[...].
+    Sempre su 163, non cambia con l'ambiente.
 
-  CASO SPECIALE — Riep:
-    → usa getPoolRiep(userId)
-    In produzione: passa dalla vista in MRP (→ BCUBE2.Analisi_scorte).
-    In prova CON Riep locale: usa il pool prova.
-    In prova SENZA Riep locale: fallback a getPoolProd() (dati reali, sola lettura).
+  QUERY MISTA (dati BCube + dati app nella stessa vista)
+    NON fare JOIN cross-database. Fare DUE QUERY SEPARATE:
+    - Query 1: dati BCube via getPoolERP(userId)
+    - Query 2: dati app via getPoolProd()
+    - Merge in Node.js per chiave (codice fornitore, codice articolo, ecc.)
 
-  ERRORE TIPICO DA EVITARE:
-    Usare getPoolMRP(userId) per ordini_emessi o tabelle GB2. In prova,
-    getPoolMRP restituisce il pool verso UJET11@server_prova dove quelle
-    tabelle NON esistono → errore a runtime. Queste tabelle stanno su MRP@163
-    e si raggiungono SOLO con getPoolProd().
+  ERRORI DA EVITARE:
+    ✗ getPoolProd() per tabelle BCube → passa da viste legacy, lento, non funziona in prova
+    ✗ getPoolMRP() per tabelle BCube in produzione → stesso problema
+    ✗ JOIN tra tabelle BCube e tabelle GB2 in una sola query → impossibile cross-server
 
---- PATTERN SCRITTURA SU ANAGRA E TABELLE UJET11 (CRITICO) ---
+--- SCRITTURA SU TABELLE BCUBE ---
 
-  Le tabelle ERP (anagra, testord, movord, ecc.) in PRODUZIONE vivono su BCUBE2.
-  Le raggiungiamo in LETTURA tramite le 21 viste in MRP@163 (SELECT * FROM [BCUBE2]...).
-  Ma le viste NON supportano scrittura (UPDATE/ALTER TABLE) cross-server.
+  Per SCRIVERE su tabelle UJET11 (UPDATE anagra, ALTER TABLE, ecc.):
+  - In prova: getPoolERP(userId) → diretto, funziona
+  - In produzione: poolBcube o connessione diretta temporanea a BCUBE2/UJET11
 
-  PROBLEMA: quando devi SCRIVERE su anagra (es. modifica email, banca, classificazione):
-  - In PROVA: getPoolMRP(userId) → UJET11 diretto → UPDATE funziona
-  - In PRODUZIONE: getPoolMRP(userId) → MRP@163 → vista → BCUBE2... UPDATE FALLISCE
-    perche SQL Server non permette UPDATE via linked server su viste
+  Se serve ALTER TABLE in produzione + la tabella ha una vista legacy su 163:
+    await poolProd.request().batch("EXEC sp_refreshview 'dbo.anagra'");
 
-  SOLUZIONE — CONNESSIONE DIRETTA TEMPORANEA:
-  In produzione, per QUALSIASI scrittura su tabelle UJET11 (anagra, testord, ecc.):
+  Le SP BCube (bussp_bsorgsor9_fcancella, bussp_bsorgsor9_faggiorn2) si chiamano
+  tramite getPoolERP perche vivono su UJET11 dello stesso server.
 
-    1. Apri una connessione temporanea direttamente a BCUBE2/UJET11:
-       const tempPool = await new sql.ConnectionPool({
-           server: PRODUCTION_PROFILE.server_ujet11,  // 'BCUBE2'
-           database: 'UJET11',
-           user: PRODUCTION_PROFILE.user,
-           password: PRODUCTION_PROFILE.password,
-           ...
-       }).connect();
+--- VISTE LEGACY SU MRP@163 (DEPRECATED — NON USARE) ---
 
-    2. Esegui UPDATE/ALTER TABLE su tempPool (diretto, niente viste)
-
-    3. CHIUDI tempPool nel finally (e un pool temporaneo, non un singleton)
-
-    4. Se hai fatto ALTER TABLE (aggiunta colonna), refresha la vista:
-       await poolProd.request().batch("EXEC sp_refreshview 'dbo.anagra'");
-
-  REGOLA PER NUOVE FUNZIONALITA:
-    Ogni volta che scrivi codice che fa UPDATE/INSERT/ALTER su tabelle ERP:
-    - Se isProduction(userId) → connessione diretta temporanea a BCUBE2
-    - Se !isProduction(userId) → getPoolMRP(userId) diretto
-    - Le LETTURE vanno sempre bene con getPoolMRP (via viste in prod, diretto in prova)
-
-  QUERY MISTE (JOIN tra tabelle ERP e tabelle GB2):
-    Le tabelle GB2 stanno SEMPRE su 163. In prova, se il server e diverso da 163,
-    il cross-database [GB2].[dbo].[...] non funziona da quel server.
-    Soluzione: fare DUE QUERY SEPARATE e merge in Node.js.
-    - Query 1: dati ERP via getPoolMRP(userId) → segue l'ambiente
-    - Query 2: dati GB2 via getPoolProd() → sempre su 163
-    - Merge: unisci i risultati in JavaScript per codice fornitore/chiave
-
-  VISTE MANCANTI IN PRODUZIONE:
-    Le 21 viste in MRP@163 non coprono tutte le tabelle UJET11. Mancano:
-    tabport, tabvalu, destdiv, codarfo (e altre).
-    Se una nuova funzionalita richiede una tabella non presente come vista:
-    - Chiedere a Fabrizio di creare la vista (stesso pattern SELECT * FROM [BCUBE2]...)
-    - Oppure fare query separate (la tabella e raggiungibile da getPoolMRP in prova)
-
-  ESEMPI GIA IMPLEMENTATI CON QUESTO PATTERN:
-    - PUT /fornitore-anagrafica/:codice — modifica email/banca in anagra
-    - PUT /fornitore-classificazione/:codice — modifica HH_TipoReport in anagra
-    - POST /deploy-anagra-column — ALTER TABLE + sp_refreshview + UPDATE
-    - GET /fornitori-template — due query separate (ERP + GB2) con merge
-
---- POOL BCUBE2 — CONNESSIONE DIRETTA PER QUERY PESANTI ---
-
-  In produzione le viste MRP (SELECT * FROM [BCUBE2].[UJET11].[dbo].[...]) sono
-  ~5x piu lente delle query dirette a BCUBE2 per operazioni con JOIN.
-  Motivo: il linked server tira i dati e fa i JOIN localmente su 163 (VM debole).
-  Con connessione diretta, i JOIN girano su BCUBE2 (server potente).
-
-  Benchmark reale (ordini-padre, 6 JOIN su movord 1.1M righe):
-    Via viste MRP: 3065ms
-    Diretto BCUBE2: 660ms
-
-  SOLUZIONE — poolBcube (singleton, 10 conn):
-    config/db-gb2.js esporta getPoolBcube() → connessione diretta a BCUBE2/UJET11.
-    Usato SOLO in produzione per query ERP pesanti (letture con JOIN).
-    In prova si usa getPoolMRP (gia diretto al server prova).
-
-  PATTERN getPoolERP(userId) — definito localmente in ogni modulo route:
-    async function getPoolERP(userId) {
-        if (isProduction(userId)) {
-            const bcube = await getPoolBcube();
-            if (bcube) return bcube;  // fallback a getPoolMRP se BCUBE2 non raggiungibile
-        }
-        return getPoolMRP(userId);
-    }
-
-  DOVE USARE getPoolERP:
-    Tutte le query ERP con JOIN pesanti (progressivi, ordini-padre, ordine-pdf, consumi)
-    → articoli.js, mrp-proposte.js, ordini.js, email.js (invio email)
-
-  DOVE NON USARE getPoolERP:
-    - Query che accedono a [GB2].[dbo].[...] (GB2 non esiste su BCUBE2)
-    - Health check (deve testare la connessione normale)
-    - Deploy SP (opera su MRP@163)
-    - getPoolRiep (Riep e su Analisi_scorte, non su UJET11)
+  Esistono 21 viste in MRP@163 che fanno SELECT * FROM [BCUBE2].[UJET11].[dbo].[...].
+  Queste sono un RESIDUO dell'architettura precedente. NON usarle nel nuovo codice.
+  Il codice vecchio che ancora le usa va migrato a getPoolERP + query separate.
+  Le viste restano per compatibilita con eventuali altri sistemi ma GB2 non le usa piu.
 
 --- STRUTTURA FILE ROUTE (SCOMPOSIZIONE gb2Routes.js) ---
 
@@ -303,31 +274,24 @@ Server:
     - Con 8 operatori simultanei: max 1 pool prod (30 conn) + 8 pool prova (5 conn ciascuno)
 
   Funzioni esportate (tutte accettano userId):
-    getPoolMRP(userId)       — pool DATI ERP: produzione (→ viste MRP) o prova (→ UJET11 diretto)
-    getPoolProd()            — pool DATI LOCALI 163: MRP, GB2, SP (SEMPRE lo stesso)
+    getPoolERP(userId)       — pool TABELLE BCube: connessione diretta a UJET11
+                               Produzione: poolBcube (BCUBE2 diretto)
+                               Prova: getPoolMRP(uid) (server prova diretto)
+    getPoolProd()            — pool TABELLE APP: MRP@163, GB2@163 (SEMPRE lo stesso)
+    getPoolMRP(userId)       — pool utente (produzione=poolProd, prova=server prova)
+                               NON usare per tabelle BCube — usare getPoolERP
     getPoolRiep(userId)      — pool per Riep con fallback a produzione se manca in prova
     getActiveProfile(userId) — profilo attivo per l'utente
     isProduction(userId)     — true se l'utente e in produzione
     switchToTest(userId, p)  — crea pool prova individuale per l'utente
     switchToProduction(userId) — chiude pool prova, torna a produzione
+    getPoolBcube()           — singleton connessione diretta BCUBE2/UJET11 (solo prod)
 
   Le route ottengono userId da getUserId(req) e lo passano a tutte le funzioni pool.
-  In dev mode (skipAuth), userId = 0 (default).
+  getUserId legge req.user.globalId (JWT payload) — corrisponde a GA.Users.IDUser.
 
   config/db.js (principale): pool per GA, PE, ET, BOB (NON usato da GB2)
   Le rotte GB2 usano SOLO db-gb2.js, MAI db.js
-
---- LISTA COMPLETA DELLE 21 VISTE MRP (ponte verso BCUBE2, SOLO PRODUZIONE) ---
-
-  artico, anagra, artfasi, artpro, artmaga, artdef, artdefx,
-  movord, movdis, movmag, ordlist, testord,
-  tabmaga, tabnuma, tabciva, tabpaga,
-  listprod, zzassdisp,
-  __MOTIPORK, __MMTIPORK,
-  Riep (punta a BCUBE2.Analisi_scorte.dbo.Riep — tabella ETL di Fabrizio)
-
-  REGOLA INVIOLABILE: le viste devono SEMPRE puntare a [BCUBE2].[UJET11].[dbo].*
-  (cross-server). NON modificarle mai per profili di prova — la prova non usa le viste.
 
 
 ================================================================================
@@ -337,9 +301,15 @@ Server:
 I file di GB2 sono distribuiti nella root del progetto bobine:
 
   routes/
-    gb2Routes.js              # TUTTE le API REST (~2900 righe). File centrale.
-                              # Factory function: createGb2Routes({ io, skipAuth })
-                              # skipAuth usato solo in contesti di test specifici
+    gb2Routes.js              # Aggregatore: importa e monta i 7 moduli sotto
+    gb2/
+      helpers.js              # Costanti, deploy, DEPLOY_VERSION, utility condivise
+      articoli.js             # Progressivi MRP, getPoolERP, caricaMRP
+      mrp-proposte.js         # Proposta ordini, consumi, rilevazione ordini BCube
+      ordini.js               # Emissione, annullamento, storico ordini, PDF, deploy-sp
+      email.js                # SMTP, invio email, preview, template, drafts
+      fornitori.js            # Anagrafica fornitori, template assegnazioni batch
+      db-profiles.js          # Switch profili prova/produzione
 
   config/
     db-gb2.js                 # Pool MRP: produzione hardcoded da .env, prova dinamico
@@ -376,11 +346,13 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
     create_snapshot_proposte.sql # DDL tabella SnapshotProposte in GB2 (foto proposte)
     create_user_preferences.sql # DDL tabella preferenze utente (colori, label, SMTP)
     create_test_profiles.sql  # DDL tabella profili di prova per operatore
-    usp_CreaOrdineFornitore.sql # SP creazione ordine atomico (con placeholder {{UJET11_REF}})
+    usp_CreaOrdineFornitore.sql # SP creazione ordine atomico (cross-db locale [UJET11].[dbo])
     usp_AggiornaStatoInvioOrdine.sql # SP aggiornamento stato invio
+    create_email_templates.sql # DDL tabella template email
+    create_email_template_assegnazioni.sql # DDL assegnazioni template per fornitore
 
   utils/
-    pdfOrdine.js              # Generazione PDF ordine fornitore
+    pdfOrdine.js              # Generazione PDF ordine fornitore (pdfmake, layout tabelle)
 
   setup-gb2.js                # Script one-time: crea DB GB2, registra modulo in GA
   ecosystem.config.js         # Configurazione PM2 (fork mode, 1 istanza)
@@ -412,7 +384,7 @@ FILE IN .GITIGNORE:
 
   Per i dettagli delle colonne, consultare conoscenze.txt nella root.
 
---- DATABASE MRP (su 192.168.0.163 — tabelle custom + viste) ---
+--- DATABASE MRP (su 192.168.0.163 — tabelle custom dell'app) ---
 
   ordini_emessi         Registro emissioni ordini dal MRP web
     id                  PK identity
@@ -427,8 +399,8 @@ FILE IN .GITIGNORE:
     ambiente            VARCHAR(20) — 'produzione' o 'prova' (v3, default 'produzione')
                         Indice IX_ordini_emessi_ambiente per filtro ambiente
     NOTA: al primo deploy di ambiente, tutti gli ordini esistenti vengono marcati 'prova'
-    REGOLA: tutte le query su ordini_emessi usano SEMPRE getPoolProd(), MAI getPoolMRP(),
-            perche la tabella risiede nel database MRP su 163 dove le SP la alimentano.
+    REGOLA: tutte le query su ordini_emessi usano SEMPRE getPoolProd(),
+            perche la tabella risiede su MRP@163. Node.js la alimenta dopo il successo della SP.
 
 --- DATABASE GB2 (silos app su 192.168.0.163) ---
 
@@ -491,7 +463,7 @@ FILE IN .GITIGNORE:
 
   Riep                  Tabella ETL con storico movimenti aggregati (345k righe)
                         Alimenta i grafici consumi/previsioni dell'app
-                        Accessibile via vista [MRP].[dbo].[Riep] in produzione
+                        Raggiunta via getPoolRiep(userId)
 
 
 ================================================================================
@@ -673,31 +645,32 @@ Passo 1 — Conferma (client-side):
   Dati in MrpApp.state.ordiniConfermati. NIENTE va in DB in questa fase.
 
 Passo 2 — Emissione (POST /emetti-ordine):
-  Chiama SP usp_CreaOrdineFornitore (o usp_CreaOrdineFornitore_T{id} in prova).
-  La SP usa il placeholder {{UJET11_REF}} risolto al deploy:
-  - Produzione: [BCUBE2].[UJET11].[dbo] (scrive su UJET11 di produzione)
-  - Prova T3:   [SERVER_PROVA].[UJET11].[dbo] (scrive su UJET11 di prova)
+  Pool SP: in produzione usa poolBcube (BCUBE2 diretto), in prova usa getPoolMRP(uid).
+  Chiama [GB2].[dbo].usp_CreaOrdineFornitore (o _T{id} in prova) sul server target.
+  La SP vive nel DB [GB2] sullo stesso server di [UJET11] — tutto locale, zero MSDTC.
   La SP:
   a) Parsa JSON articoli con OPENJSON
-  b) Arricchisce da artico (descrizione, IVA)
+  b) Arricchisce da [UJET11].[dbo].[artico] (descrizione, IVA) — cross-database locale
   c) Calcola castelletto IVA
   d) LOCK applicativo (sp_getapplock) per serializzare numerazione
-  e) Legge numord da tabnuma (fonte autoritativa BCube) e la aggiorna
-  f) INSERT testord + movord su UJET11
-  g) INSERT ordini_emessi (registro locale)
-  h) Restituisce testata + righe per il PDF
+  e) Legge numord da [UJET11].[dbo].[tabnuma] e la aggiorna
+  f) INSERT testord + movord su [UJET11].[dbo]
+  g) EXEC [UJET11].[dbo].bussp_bsorgsor9_faggiorn2 — aggiorna keyord+artpro (locale)
+  h) Restituisce testata + righe (con ol_progr) per il PDF e per Node.js
+  La SP NON scrive in ordini_emessi (vive su 163, non raggiungibile dalla SP).
+  Operatore: firma 'GB2{IDUser}' (es. GB220 per utente 20)
 
-Passo 2b — Post-emissione (dopo successo SP, in Node.js):
-  a) UPDATE ordini_emessi SET ambiente = 'produzione'|'prova' (via getPoolProd)
-  b) UPDATE SnapshotProposte SET Gestita=1, OrdineEmessoID=id (via poolGB2)
-  c) UPDATE ElaborazioniMRP SET TotaleGestite = COUNT(...) (via poolGB2)
+Passo 2b — Post-emissione (dopo successo SP, in Node.js su poolProd = 163):
+  a) INSERT ordini_emessi per ogni riga (con SCOPE_IDENTITY per recuperare ID)
+  b) UPDATE SnapshotProposte SET Gestita=1, OrdineEmessoID=id
+  c) UPDATE ElaborazioniMRP SET TotaleGestite = COUNT(...)
 
 Passo 2c — Controllo duplicati (pre-emissione):
   POST /controlla-duplicato verifica se esistono gia ordini per stessi
   articoli+fornitore+elaborazione in ordini_emessi. Se si, mostra warning
   con opzione Procedi/Annulla.
 
-Passo 3 — PDF generato server-side con PDFKit, ritornato come base64.
+Passo 3 — PDF generato server-side con pdfmake, ritornato come base64.
 
 Passo 4 — UI: ri-fetch dati dal server (data-driven, mai manipolazione DOM diretta).
 
@@ -715,20 +688,68 @@ Passo 6 — Storico (modale):
 9. GENERAZIONE PDF E INVIO EMAIL
 ================================================================================
 
-File: utils/pdfOrdine.js
-Il PDF replica il layout degli ordini BCube originali.
-Se l'ambiente e "prova", il PDF ha filigrana "[PROVA]".
+PDF — PDFMAKE (layout dichiarativo a tabelle):
+  File: utils/pdfOrdine.js
+  Motore: pdfmake 0.1.72 (CommonJS, puro JS, zero dipendenze native).
+  Il PDF replica il layout degli ordini BCube (Crystal Reports) usando tabelle
+  dichiarative — celle con bordi chiusi automatici, come Crystal.
+  Firma funzione: generaPdfOrdine(ordine, righe, options) → Promise<Buffer>
+  Due layout: Italia (IT/UE) e Estero (EXTRA_UE) con note legali diverse.
+  Se ambiente e "prova", il titolo mostra "PROVA" in rosso.
+  Header ripetuto su ogni pagina (pdfmake headerRows).
+  Assets: logo-ujet.jpeg + firma-tardioli.png (sfondo trasparente) in assets/.
 
-SMTP: config/smtp-gb2.js
-Ogni operatore ha la PROPRIA configurazione SMTP in [GB2].[dbo].[UserPreferences].
-4 operatori dell'ufficio acquisti → 4 email diverse (es. gabriel@ujet.it, marco@ujet.it).
-Le password SMTP sono crittate AES-256-GCM (config/crypto.js).
-In prova, il campo EmailProva del profilo redirige tutte le email a un indirizzo di test.
+  COMPONENTI PDF (formule Crystal implementate):
+    - Riga tipo "D" (descrizione libera, senza codart/UM/quant/prezzo)
+    - Formula @UM: Estero=unmis, Italia=ump se unmis===ump altrimenti unmis
+    - Formula @QUANT: Estero=quant, Italia=quant se unmis===ump altrimenti colli
+    - Prezzo 4 decimali, sconti (sc1+sc2+sc3)
+    - Codice alternativo (ar_codalt) sotto il codice principale
+    - Descrizione integrativa (mo_desint)
+    - LOT (mo_lotto se > 0)
+    - Note articolo (ar_note), N.B. note riga (mo_note)
+    - Riferimenti fornitore (tabella CODARFO: caf_codarfo + caf_desnote)
+    - Conversione UM (1 MQ = 100 PZ se unmis !== ump)
+    - Luogo destinazione diversa (DESTDIV: dd_nomdest, dd_inddest, dd_locdest)
+    - Note ordine (an_note + an_note2 + td_note)
+    - Banca: Italia=banca appoggio da testord, Estero=banca fornitore da anagra
+    - Firma autografa (PNG con sfondo trasparente)
+    - "( XX )" = an_categ (categoria fornitore, NON codice pagamento)
+    - "GRATIS" = testo fisso (td_imballo NON esiste in testord)
 
-API SMTP (per operatore):
-  GET  /smtp/config  — legge la config SMTP dell'operatore loggato
-  POST /smtp/config  — salva/aggiorna (password crittata se fornita)
-  POST /smtp/test    — verifica connessione SMTP
+  MIGRAZIONE DA PDFKIT (13/04/2026):
+    PDFKit usava linee e coordinate manuali — produceva bordi aperti e celle
+    non chiuse. pdfmake ragiona per tabelle dichiarative come Crystal Reports:
+    dichiari la struttura e il motore disegna i bordi. Risultato identico
+    all'originale BCube.
+
+EMAIL — SMTP (per operatore):
+  Config: config/smtp-gb2.js
+  Ogni operatore ha la PROPRIA configurazione SMTP in [GB2].[dbo].[UserPreferences].
+  Le password SMTP sono crittate AES-256-GCM (config/crypto.js).
+  In prova, il campo EmailProva del profilo redirige tutte le email a un indirizzo di test.
+
+  API SMTP (per operatore):
+    GET  /smtp/config  — legge la config SMTP dell'operatore loggato
+    POST /smtp/config  — salva/aggiorna (password crittata se fornita)
+    POST /smtp/test    — verifica connessione SMTP
+
+MODALE UNIFICATA "EMETTI TUTTI + INVIA EMAIL":
+  Quando l'operatore clicca "Emetti Tutti", si apre direttamente il modale
+  "Invia Tutte le Email" con una barra di avanzamento emissione in cima.
+  Le righe si accendono man mano (waiting → emitting → emitted → email_sent).
+  L'operatore puo inviare email prima che l'emissione finisca (auto-queue).
+  Se chiude la modale, il lavoro continua in background e la modale si riapre.
+  State machine: _batchUnifiedState (fornitori[], autoSendSet, autoSendAll).
+  File: gb2/js/gb2-proposta.js (funzioni: emettiTuttiHandler, eseguiEmissioneBatch,
+  gestisciInviaSelezionate, _inviaEmailPerFornitore, chiudiModaleUnificato).
+
+FUTURO — MICROSOFT GRAPH API:
+  Microsoft sta eliminando Basic Auth per SMTP/IMAP su 365. La strada raccomandata
+  e Microsoft Graph API con OAuth 2.0. Serve App Registration in Azure Entra ID
+  (Tenant ID, Client ID, Client Secret) con permessi Mail.Send e Mail.Read.
+  Con Graph API: invio + lettura email con un'unica configurazione aziendale,
+  zero SMTP per operatore, webhook per notifiche real-time.
 
 
 ================================================================================
@@ -746,8 +767,8 @@ PRODUZIONE:
 PROVA:
   Profili per operatore in [GB2].[dbo].[TestProfiles] (password crittate AES).
   Ogni operatore puo avere piu profili di prova su server diversi.
-  Pool dinamico: si connette a UJET11 sul server di prova (accesso diretto,
-  senza viste MRP). Switch a caldo: tenta connessione, se ok chiude vecchio pool.
+  Pool dinamico: si connette DIRETTAMENTE a UJET11 sul server di prova.
+  Switch a caldo: tenta connessione, se ok chiude vecchio pool.
 
   Chiave di crittografia: .env DB_ENCRYPTION_KEY (64 hex = 32 byte).
   NON CAMBIARE MAI dopo il primo uso — le password salvate diventano illeggibili.
@@ -779,20 +800,23 @@ vedi la sezione 2 "ARCHITETTURA TECNICA". Qui solo i dettagli operativi.
 ESEMPIO CONCRETO — produzione vs prova (profilo test ID=3, server=192.168.1.50):
 
   PRODUZIONE:
-    getPoolMRP(userId) → MRP@163 → query su viste → dati da [BCUBE2].[UJET11]
-    SP: usp_CreaOrdineFornitore (senza suffisso)
-        Scrive su [BCUBE2].[UJET11].[dbo].[testord], [movord], [tabnuma]
+    getPoolERP(userId) → poolBcube → BCUBE2/UJET11 (connessione diretta)
+    SP: [GB2].[dbo].usp_CreaOrdineFornitore (senza suffisso, su BCUBE2)
+        Referenzia [UJET11].[dbo].testord, movord, tabnuma (cross-database locale)
 
   PROVA:
-    getPoolMRP(userId) → UJET11@192.168.1.50 (DIRETTO, niente viste)
-    SP: usp_CreaOrdineFornitore_T3 su MRP@163 (suffisso _T3)
-        Scrive su [192.168.1.50].[UJET11].[dbo].[testord], [movord], [tabnuma]
+    getPoolERP(userId) → getPoolMRP(uid) → 192.168.1.50/UJET11 (connessione diretta)
+    SP: [GB2].[dbo].usp_CreaOrdineFornitore_T3 (su server prova)
+        Referenzia [UJET11].[dbo].testord, movord, tabnuma (cross-database locale)
+
+  In ENTRAMBI i casi: connessione diretta al server, zero viste, zero linked server.
 
 SP CON SUFFISSO UNIVOCO:
-  Ogni profilo di prova genera SP con suffisso _T{ID} su MRP@163.
-  Le SP usano {{UJET11_REF}} risolto al deploy: [SERVER_PROVA].[UJET11].[dbo]
-  Cosi convivono tutte su MRP senza conflitti.
-  Quando un profilo viene eliminato, le SP suffissate vengono droppate (pulizia).
+  Le SP vivono nel DB [GB2] del server di destinazione (non piu su MRP@163).
+  In produzione: [GB2].[dbo].usp_CreaOrdineFornitore su BCUBE2.
+  In prova: [GB2].[dbo].usp_CreaOrdineFornitore_T3 sul server prova.
+  Le SP referenziano [UJET11].[dbo] — cross-database locale (stesso server).
+  Quando un profilo viene eliminato, le SP suffissate vengono droppate.
   Le route chiamano getSpName('usp_CreaOrdineFornitore', profile) che restituisce
   il nome con o senza suffisso in base al profilo attivo.
 
@@ -874,30 +898,61 @@ Vedi GUIDA-SVILUPPO-LOCALE.txt per il setup completo.
 15. AUTO-DEPLOY SQL
 ================================================================================
 
+ARCHITETTURA SP — DB [GB2] SUL SERVER DI DESTINAZIONE:
+  Le SP (usp_CreaOrdineFornitore, usp_AggiornaStatoInvioOrdine) vivono nel database
+  [GB2] sul server di destinazione (BCUBE2 in produzione, server prova in test).
+  NON usano linked server — referenziano [UJET11].[dbo] come cross-database LOCALE
+  (stesso server). Questo elimina MSDTC e rende tutto ~5x piu veloce.
+
+  Server di destinazione (BCUBE2 o prova):
+    [GB2].[dbo].DeployVersion          — 1 riga: Versione, DeployedAt
+    [GB2].[dbo].usp_CreaOrdineFornitore — include EXEC [UJET11].[dbo].bussp_bsorgsor9_faggiorn2
+    [GB2].[dbo].usp_AggiornaStatoInvioOrdine
+  Server MRP@163:
+    [MRP].[dbo].ordini_emessi          — registro ordini emessi da GB2
+    [GB2].[dbo].Operators, UserPreferences, ElaborazioniMRP, SnapshotProposte, ecc.
+
+VERSIONING DEPLOY:
+  Costante DEPLOY_VERSION = '2.0' in helpers.js. Al boot e allo switch profilo,
+  il sistema confronta con [GB2].[dbo].[DeployVersion].Versione sul server target.
+  Se uguale → skip (~50ms). Se diversa → deploy completo + aggiorna versione.
+  Il suffisso prova e incluso nella versionKey: es. '2.0_T1' per prova T1.
+
 AVVIO (produzione e sviluppo — server.js):
-  Chiama deployProductionObjects(poolProd):
-  1. Tabelle GB2: create_test_profiles.sql, create_user_preferences.sql
-  2. Tabelle GB2: create_elaborazioni_mrp.sql, create_snapshot_proposte.sql
-  3. Tabelle MRP: create_ordini_emessi.sql (con ALTER per email/ambiente)
-  4. SP MRP: usp_CreaOrdineFornitore.sql (placeholder {{UJET11_REF}} → [BCUBE2].[UJET11].[dbo])
-  5. SP MRP: usp_AggiornaStatoInvioOrdine.sql
-  Tutti i file usano IF NOT EXISTS per essere idempotenti.
+  Chiama deployProductionObjects(poolProd, poolTarget) in background (fire-and-forget):
+  1. Tabelle GB2 locali su MRP@163: create_test_profiles, create_user_preferences,
+     create_elaborazioni_mrp, create_snapshot_proposte, create_email_templates,
+     create_email_template_assegnazioni
+  2. ordini_emessi su MRP@163 (con ALTER per email/ambiente/origine)
+  3. SP su BCUBE2/[GB2] via deploySPToTarget(poolTarget, ''):
+     - Crea DB [GB2] se non esiste
+     - Crea tabella DeployVersion se non esiste
+     - Check versione → skip se '2.0' gia presente
+     - Apre pool temporaneo diretto a [GB2] per creare le SP
+     - Aggiorna versione
 
 SWITCH A PROVA:
-  Chiama deployTestObjects(poolProd, poolTest, testProfile):
-  1. ordini_emessi su UJET11 del server di prova (pool test)
-  2. SP suffissate _T{id} su MRP@163 (pool produzione) con {{UJET11_REF}} → [SERVER].[UJET11].[dbo]
+  Chiama deployTestObjects(poolProd, poolTest, testProfile) in background:
+  1. SP suffissate _T{id} su [GB2] del server prova (es. usp_CreaOrdineFornitore_T1)
+  2. ordini_emessi su UJET11 del server prova (solo se suffix presente)
   3. Check dbo.Riep nel server di prova
+  4. Versioning con chiave '2.0_T{id}'
 
 ELIMINAZIONE PROFILO:
-  Chiama dropTestSPs(poolProd, testDbId):
-  Droppa usp_CreaOrdineFornitore_T{id} e usp_AggiornaStatoInvioOrdine_T{id} da MRP.
+  Chiama dropTestSPs(poolTarget, testDbId):
+  Droppa usp_CreaOrdineFornitore_T{id} e usp_AggiornaStatoInvioOrdine_T{id} da [GB2].
 
-SP CON PLACEHOLDER:
-  I file SQL delle SP usano {{UJET11_REF}} al posto del riferimento cross-database.
-  Il deploy lo sostituisce con il valore calcolato dal profilo attivo:
-  - Produzione: [BCUBE2].[UJET11].[dbo]  (server_ujet11 da .env)
-  - Prova T3 su 192.168.1.50: [192.168.1.50].[UJET11].[dbo]  (server dal profilo)
+FILE SQL — NESSUN PLACEHOLDER:
+  I file SQL delle SP usano direttamente [UJET11].[dbo] (cross-database locale).
+  NON hanno piu il placeholder {{UJET11_REF}}. Funziona perche la SP sta su [GB2]
+  dello stesso server dove sta [UJET11], quindi il cross-database e locale.
+  La SP include anche EXEC [UJET11].[dbo].bussp_bsorgsor9_faggiorn2 per aggiornare
+  keyord+artpro dopo la creazione ordine (tutto locale, zero MSDTC).
+
+POOL SINGLETON CON MUTEX (db-gb2.js):
+  getPoolProd() e getPoolBcube() usano il pattern "connecting promise" per evitare
+  race condition: se due richieste arrivano mentre il pool sta connettendo,
+  entrambe attendono la stessa promise invece di creare pool duplicati.
 
 
 ================================================================================
@@ -985,11 +1040,14 @@ FALLBACK QUERY:
    Profili di prova per operatore in [GB2].[dbo].[TestProfiles].
    SMTP per operatore in [GB2].[dbo].[UserPreferences].
 
-4. SP SEMPRE SU MRP@163:
-   Le stored procedures vivono sempre nel database MRP su 192.168.0.163.
-   In produzione: nomi senza suffisso (usp_CreaOrdineFornitore).
-   In prova: nomi con suffisso _T{id} (usp_CreaOrdineFornitore_T3).
-   Le route le chiamano SEMPRE via pool produzione (getPoolProd).
+4. SP NEL DB [GB2] DEL SERVER DI DESTINAZIONE:
+   Le stored procedures vivono nel database [GB2] sullo STESSO server dei dati BCube
+   (BCUBE2 in produzione, server prova in test). Referenziano [UJET11].[dbo] come
+   cross-database locale — zero linked server, zero MSDTC.
+   In produzione: nomi senza suffisso, chiamate via poolBcube (BCUBE2 diretto).
+   In prova: nomi con suffisso _T{id}, chiamate via getPoolMRP(uid).
+   ordini_emessi vive SEMPRE su MRP@163 (poolProd) — scritto da Node.js, non dalla SP.
+   Deploy automatico al boot con versioning (DEPLOY_VERSION in helpers.js).
 
 5. PROVA = ACCESSO DIRETTO A UJET11:
    Il pool di prova si connette a UJET11 sul server di prova.
@@ -999,9 +1057,22 @@ FALLBACK QUERY:
    Password profili di prova e SMTP crittate AES-256-GCM (config/crypto.js).
    Chiave in .env (DB_ENCRYPTION_KEY). NON cambiarla dopo il primo uso.
 
-7. SMTP PER OPERATORE:
+7. SMTP PER OPERATORE (attuale) → GRAPH API (futuro):
    Ogni operatore configura il proprio SMTP in UserPreferences.
    L'email dell'ordine parte dall'email dell'operatore che la invia.
+   FUTURO: migrare a Microsoft Graph API (OAuth 2.0, App Registration Azure).
+   Microsoft sta eliminando Basic Auth per SMTP su 365.
+
+8. POOL SINGLETON CON MUTEX:
+   getPoolProd() e getPoolBcube() usano pattern "connecting promise" —
+   se due richieste arrivano mentre il pool sta connettendo, entrambe attendono
+   la stessa promise. Evita creazione pool duplicati al boot.
+
+9. SEPARAZIONE RESPONSABILITA SP vs NODE.JS:
+   La SP su BCUBE2 fa SOLO logica BCube (testord, movord, tabnuma, faggiorn2).
+   ordini_emessi (il nostro registro) e gestito da Node.js via poolProd (163).
+   Stesso pattern per annullamento: SP cancella da BCube, Node.js pulisce ordini_emessi.
+   Ordine critico annullamento: prima UPDATE SnapshotProposte (servono ID), poi DELETE.
 
 
 ================================================================================

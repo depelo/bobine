@@ -92,7 +92,10 @@
       "Bash(node -c gb2/js/gb2-progressivi.js)",
       "Bash(node -c routes/gb2/mrp-proposte.js)",
       "Bash(node -c routes/gb2/ordini.js)",
-      "Bash(node -c routes/adminRoutes.js)"
+      "Bash(node -c routes/adminRoutes.js)",
+      "Bash(node test_pdfmake.js)",
+      "Bash(node import_bcube_orders.js)",
+      "Bash(wc -l /c/Users/depel/Documents/progetto/ujet/bobine/routes/gb2/*.js)"
     ]
   }
 }

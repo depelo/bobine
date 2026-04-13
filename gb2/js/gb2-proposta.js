@@ -756,10 +756,13 @@ const MrpProposta = (() => {
 
         // Costruisci bottoni
         let bottoni = '';
-        if (fornitoriPronti > 0) {
+        const emissioneAttiva = _batchUnifiedState.active && _batchUnifiedState.emissioneProgress.done < _batchUnifiedState.emissioneProgress.total;
+        if (emissioneAttiva) {
+            bottoni += `<button type="button" class="btn-emetti-tutti" id="btnMostraProgresso">\uD83D\uDCCA Mostra progresso</button>`;
+        } else if (fornitoriPronti > 0) {
             bottoni += `<button type="button" class="btn-emetti-tutti" id="btnEmettiTutti">&#x1F4E8; Emetti Tutti</button>`;
         }
-        if (emailPendenti > 0) {
+        if (emailPendenti > 0 && !emissioneAttiva) {
             bottoni += `<button type="button" class="btn-invia-tutte-email" id="btnInviaTutteEmail">\u2709\uFE0F Invia Tutte le Email</button>`;
         }
 
@@ -771,6 +774,8 @@ const MrpProposta = (() => {
 
         const btnEmetti = document.getElementById('btnEmettiTutti');
         if (btnEmetti) btnEmetti.addEventListener('click', emettiTuttiHandler);
+        const btnProgresso = document.getElementById('btnMostraProgresso');
+        if (btnProgresso) btnProgresso.addEventListener('click', () => inviaTutteEmailHandler());
         const btnEmail = document.getElementById('btnInviaTutteEmail');
         if (btnEmail) btnEmail.addEventListener('click', inviaTutteEmailHandler);
     }
@@ -1185,6 +1190,7 @@ const MrpProposta = (() => {
                 ${data.ordine.num_righe} articol${data.ordine.num_righe > 1 ? 'i' : 'o'} &mdash;
                 Totale \u20ac ${Number(data.ordine.totale_documento || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}
             </div>
+            <div class="unified-warning-box" style="margin-top:10px;">\u26A0\uFE0F L'ordine \u00E8 stato registrato nel gestionale ma il fornitore non lo ricever\u00E0 finch\u00E9 non invii l'email.</div>
         `;
 
         azioni.innerHTML = '';
@@ -1697,17 +1703,39 @@ const MrpProposta = (() => {
 
     async function inviaTutteEmailHandler() {
         const pendenti = [];
+        // Email gia pendenti (ordini emessi in precedenza, email non ancora inviata)
         ordiniEmessi.forEach((emesso, fk) => {
             if (!emesso.email_inviata) {
                 pendenti.push({ ...emesso, fornitore_codice: fk });
             }
         });
-        if (pendenti.length === 0) return;
+
+        // Se c'e un'emissione in corso, aggiungi anche i fornitori in attesa
+        // (verranno mostrati come righe waiting nella tabella)
+        if (_batchUnifiedState.active) {
+            _batchUnifiedState.fornitori.forEach(f => {
+                const fk = String(f.fornitore_codice);
+                // Non aggiungere se gia presente nei pendenti (gia emesso e in ordiniEmessi)
+                if (pendenti.some(p => String(p.fornitore_codice) === fk)) return;
+                if (f.status === 'emit_failed') return; // non mostrare i falliti
+                pendenti.push({
+                    fornitore_codice: fk,
+                    fornitore_nome: f.nome,
+                    fornitore_email: f.emissioneResult ? f.emissioneResult.fornitore_email : '',
+                    numord: f.emissioneResult ? f.emissioneResult.numord : null,
+                    serie: f.emissioneResult ? f.emissioneResult.serie : null,
+                    anno: f.emissioneResult ? f.emissioneResult.anno : null,
+                    _emissioneInCorso: (f.status === 'waiting' || f.status === 'emitting')
+                });
+            });
+        }
+
+        if (pendenti.length === 0 && !_batchUnifiedState.active) return;
 
         _batchCustomOverrides.clear();
 
-        // Mostra modale riepilogativa con tabella interattiva
-        const risultato = await modaleBatchEmail(pendenti);
+        // Mostra modale — se c'e emissione in corso, attiva modalita emissione (barra avanzamento + stati riga)
+        const risultato = await modaleBatchEmail(pendenti, { emissioneMode: _batchUnifiedState.active });
         if (!risultato) return;
 
         const { righeSelezionate } = risultato;
@@ -1774,27 +1802,41 @@ const MrpProposta = (() => {
     }
 
     /** Modale batch: tabella con checkbox, dropdown template, modifica manuale */
-    async function modaleBatchEmail(pendenti) {
-        // Carica bozze salvate dal DB per pre-popolare overrides e badge
-        try {
-            const draftResp = await fetch(`${MrpApp.API_BASE}/email-drafts`, { credentials: 'include' });
-            const draftData = await draftResp.json();
-            if (draftData.drafts) {
-                draftData.drafts.forEach(d => {
-                    const key = pendenti.find(p =>
-                        String(p.anno) === String(d.Anno) &&
-                        String(p.serie).trim() === String(d.Serie).trim() &&
-                        String(p.numord) === String(d.NumOrd)
-                    );
-                    if (key) {
-                        const fk = String(key.fornitore_codice || '');
-                        if (!_batchCustomOverrides.has(fk)) {
-                            _batchCustomOverrides.set(fk, { oggetto_custom: d.OggettoCustom, corpo_custom: d.CorpoCustom });
+    /**
+     * Modale batch email — usata sia per "Invia Tutte le Email" (modalità normale)
+     * sia per "Emetti Tutti" (modalità emissione: righe partono in stato waiting,
+     * barra avanzamento in cima, si accendono man mano che gli ordini vengono emessi).
+     *
+     * @param {Array} pendenti - array di oggetti fornitore (con dati ordine se disponibili)
+     * @param {Object} opts - { emissioneMode: boolean }
+     *   In emissioneMode le righe non hanno ancora anno/serie/numord, checkbox e controlli
+     *   sono disabilitati finché lo stato non diventa 'emitted'.
+     */
+    async function modaleBatchEmail(pendenti, opts = {}) {
+        const emissioneMode = !!opts.emissioneMode;
+
+        // Carica bozze salvate dal DB per pre-popolare overrides e badge (solo se non in emissione)
+        if (!emissioneMode) {
+            try {
+                const draftResp = await fetch(`${MrpApp.API_BASE}/email-drafts`, { credentials: 'include' });
+                const draftData = await draftResp.json();
+                if (draftData.drafts) {
+                    draftData.drafts.forEach(d => {
+                        const key = pendenti.find(p =>
+                            String(p.anno) === String(d.Anno) &&
+                            String(p.serie).trim() === String(d.Serie).trim() &&
+                            String(p.numord) === String(d.NumOrd)
+                        );
+                        if (key) {
+                            const fk = String(key.fornitore_codice || '');
+                            if (!_batchCustomOverrides.has(fk)) {
+                                _batchCustomOverrides.set(fk, { oggetto_custom: d.OggettoCustom, corpo_custom: d.CorpoCustom });
+                            }
                         }
-                    }
-                });
-            }
-        } catch (_) { /* ignora */ }
+                    });
+                }
+            } catch (_) { /* ignora */ }
+        }
 
         return new Promise(resolve => {
             const overlay = document.getElementById('modalGenericOverlay');
@@ -1804,7 +1846,6 @@ const MrpProposta = (() => {
             const elAzioni = document.getElementById('modalGenericAzioni');
             if (!overlay) { resolve(null); return; }
 
-            // Genera options HTML con optgroup per fornitore
             function buildBatchOptions(fk, selectedTid) {
                 const personalizzati = _emailTemplates.filter(t => String(t.fornitoreCode) === fk);
                 const generici = _emailTemplates.filter(t => !t.fornitoreCode);
@@ -1832,46 +1873,78 @@ const MrpProposta = (() => {
                 const selWidget = document.querySelector('.select-template-forn[data-forn="' + fk + '"]');
                 const selectedTid = selWidget ? selWidget.value : String(getTemplateIdPerFornitore(fk) || '');
                 const email = p.fornitore_email || p.email_fornitore || '';
+                // In emissioneMode le righe partono disabilitate (waiting)
+                const isWaiting = emissioneMode && !p.numord;
+                const chkDisabled = isWaiting || !email ? ' disabled' : '';
+                const chkChecked = !isWaiting && email ? ' checked' : '';
+                const ctrlDisabled = isWaiting ? ' disabled' : '';
+                const rowClass = isWaiting ? ' class="unified-row-waiting"' : '';
+                const ordLabel = p.numord ? esc(p.numord + '/' + p.serie) : '\u2014';
+                const emailLabel = isWaiting ? '\u2014' : (email ? esc(email) : '<em>mancante</em>');
+                const emailColor = isWaiting ? 'var(--text-muted)' : (email ? 'var(--text-muted)' : 'var(--danger)');
+                const statusIcon = isWaiting ? '<span class="unified-status" style="color:var(--text-muted);">\u23F3</span>' : '';
 
-                const selHtml = '<select class="batch-tpl-sel" data-forn="' + escAttr(fk) + '" style="font-size:0.76rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;max-width:150px;">' +
+                const selHtml = '<select class="batch-tpl-sel" data-forn="' + escAttr(fk) + '" style="font-size:0.76rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;max-width:150px;"' + ctrlDisabled + '>' +
                     buildBatchOptions(fk, selectedTid) + '</select>';
 
-                return '<tr data-forn="' + escAttr(fk) + '">' +
-                    '<td style="text-align:center;"><input type="checkbox" class="batch-chk" data-forn="' + escAttr(fk) + '" checked style="accent-color:var(--primary);" /></td>' +
-                    '<td><strong>' + esc(p.numord + '/' + p.serie) + '</strong></td>' +
+                return '<tr id="batchRow_' + escAttr(fk) + '"' + rowClass + ' data-forn="' + escAttr(fk) + '">' +
+                    '<td style="text-align:center;"><input type="checkbox" class="batch-chk" id="batchChk_' + escAttr(fk) + '" data-forn="' + escAttr(fk) + '"' + chkDisabled + chkChecked + ' style="accent-color:var(--primary);" /></td>' +
+                    '<td id="batchOrd_' + escAttr(fk) + '"><strong>' + ordLabel + '</strong></td>' +
                     '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(p.fornitore_nome || '') + '">' + esc(p.fornitore_nome || fk) + '</td>' +
-                    '<td style="font-size:0.73rem;color:' + (email ? 'var(--text-muted)' : 'var(--danger)') + ';max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="' + escAttr(email) + '">' + (email ? esc(email) : '<em>mancante</em>') + '</td>' +
+                    '<td id="batchEmail_' + escAttr(fk) + '" style="font-size:0.73rem;color:' + emailColor + ';max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="' + escAttr(email) + '">' + emailLabel + '</td>' +
                     '<td>' + selHtml + '</td>' +
                     '<td style="text-align:center;white-space:nowrap;">' +
-                        '<button class="batch-edit-btn" data-forn="' + escAttr(fk) + '" style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Modifica manuale">\u270E</button>' +
+                        '<button class="batch-edit-btn" id="batchEdit_' + escAttr(fk) + '" data-forn="' + escAttr(fk) + '" style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Modifica manuale"' + ctrlDisabled + '>\u270E</button>' +
                         '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" style="display:' + ((_batchCustomOverrides.has(fk) || _emailTemplates.some(t => String(t.id) === selectedTid && t.fornitoreCode)) ? 'inline' : 'none') + ';font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
                     '</td>' +
-                    '<td id="batchSt_' + escAttr(fk) + '" style="text-align:center;width:28px;"></td>' +
+                    '<td id="batchSt_' + escAttr(fk) + '" style="text-align:center;width:32px;">' + statusIcon + '</td>' +
                     '</tr>';
             }).join('');
 
             elTitolo.textContent = 'Invia Tutte le Email';
             elIcona.textContent = '\u2709';
+
+            // Barra avanzamento (solo in emissioneMode)
+            const progressHtml = emissioneMode ?
+                '<div class="unified-progress-section" id="unifiedProgressSection">' +
+                    '<div class="unified-progress-label" id="unifiedProgressLabel">Emissione: 0/' + pendenti.length + '</div>' +
+                    '<div class="unified-progress-track"><div class="unified-progress-bar" id="unifiedProgressBar"></div></div>' +
+                '</div>' : '';
+
+            // Info riga
+            const infoHtml = emissioneMode
+                ? '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;"><strong>' + pendenti.length + '</strong> ordini in emissione. Seleziona e invia le email appena pronti.</div>'
+                : '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;"><strong>' + pendenti.length + '</strong> email pronte. Seleziona, personalizza e invia.</div>';
+
+            // Avviso email (solo in emissioneMode)
+            const warningHtml = emissioneMode
+                ? '<div class="unified-warning-box">\u26A0\uFE0F Gli ordini vengono registrati nel gestionale ma i fornitori non li riceveranno finch\u00E9 non invii le email.</div>'
+                : '';
+
             elMsg.innerHTML =
                 '<div style="text-align:left;">' +
-                    '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;"><strong>' + pendenti.length + '</strong> email pronte. Seleziona, personalizza e invia.</div>' +
+                    progressHtml +
+                    infoHtml +
                     '<div style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">' +
                         '<table class="emetti-riepilogo-table" style="width:100%;margin:0;">' +
                             '<thead><tr>' +
                                 '<th style="width:28px;text-align:center;"><input type="checkbox" id="batchChkAll" checked style="accent-color:var(--primary);" /></th>' +
-                                '<th>Ordine</th><th>Fornitore</th><th>Email</th><th>Template</th><th style="text-align:center;">Azioni</th><th style="width:28px;"></th>' +
+                                '<th>Ordine</th><th>Fornitore</th><th>Email</th><th>Template</th><th style="text-align:center;">Azioni</th><th style="width:32px;"></th>' +
                             '</tr></thead>' +
                             '<tbody>' + righeHtml + '</tbody>' +
                         '</table>' +
                     '</div>' +
+                    warningHtml +
                 '</div>';
+
+            if (emissioneMode) _batchUnifiedState.modalOpen = true;
 
             elAzioni.innerHTML = '';
 
             // --- Checkbox "seleziona tutto" ---
             const chkAll = document.getElementById('batchChkAll');
             if (chkAll) chkAll.addEventListener('change', () => {
-                document.querySelectorAll('.batch-chk').forEach(cb => { cb.checked = chkAll.checked; });
+                document.querySelectorAll('.batch-chk:not(:disabled)').forEach(cb => { cb.checked = chkAll.checked; });
                 aggiornaContoBatch();
             });
             document.querySelectorAll('.batch-chk').forEach(cb => cb.addEventListener('change', aggiornaContoBatch));
@@ -1881,15 +1954,14 @@ const MrpProposta = (() => {
                 sel.addEventListener('change', () => {
                     const fk = sel.dataset.forn;
                     const badge = document.querySelector('.batch-edit-badge[data-forn="' + fk + '"]');
-                    // Rimuove bozza se presente
-                    if (_batchCustomOverrides.has(fk)) {
-                        _batchCustomOverrides.delete(fk);
-                    }
-                    // Mostra badge se è un messaggio personalizzato (ha fornitoreCode)
+                    if (_batchCustomOverrides.has(fk)) _batchCustomOverrides.delete(fk);
                     const tid = parseInt(sel.value, 10);
                     const tpl = _emailTemplates.find(t => t.id === tid);
-                    if (badge) {
-                        badge.style.display = (tpl && tpl.fornitoreCode) ? 'inline' : 'none';
+                    if (badge) badge.style.display = (tpl && tpl.fornitoreCode) ? 'inline' : 'none';
+                    // Salva selezione nello stato unificato
+                    if (emissioneMode) {
+                        const f = _batchUnifiedState.fornitori.find(x => String(x.fornitore_codice) === fk);
+                        if (f) f.selectedTemplateId = sel.value;
                     }
                 });
             });
@@ -1898,13 +1970,19 @@ const MrpProposta = (() => {
             document.querySelectorAll('.batch-edit-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     const fk = btn.dataset.forn;
-                    const emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
+                    // In emissioneMode, l'emesso e nello stato unificato
+                    let emesso;
+                    if (emissioneMode) {
+                        const f = _batchUnifiedState.fornitori.find(x => String(x.fornitore_codice) === fk);
+                        emesso = f ? f.emissioneResult : null;
+                    } else {
+                        emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
+                    }
                     if (!emesso) return;
 
                     const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
                     const tid = tplSel ? parseInt(tplSel.value, 10) : null;
 
-                    // Feedback visivo: loading
                     const origText = btn.textContent;
                     btn.classList.add('loading');
                     btn.textContent = '\u23F3';
@@ -1920,13 +1998,9 @@ const MrpProposta = (() => {
                         btn.classList.remove('loading');
                         btn.textContent = origText;
 
-                        if (prevData.error) {
-                            alert('Errore: ' + prevData.error);
-                            return;
-                        }
+                        if (prevData.error) { alert('Errore: ' + prevData.error); return; }
 
                         const esistente = _batchCustomOverrides.get(fk);
-                        // Si apre su modalAnteprimaOverlay (z-index 1150), sopra il batch (z-index 1100)
                         const risultato = await modaleAnteprimaEmail({
                             ordine: emesso.numord + '/' + emesso.serie,
                             fornitore: prevData.fornitore_nome,
@@ -1941,18 +2015,14 @@ const MrpProposta = (() => {
                         if (risultato) {
                             _batchCustomOverrides.set(fk, { oggetto_custom: risultato.oggetto, corpo_custom: risultato.corpo });
                             const badge = document.querySelector('.batch-edit-badge[data-forn="' + fk + '"]');
-                            if (badge) {
-                                badge.style.display = 'inline';
-                                badge.title = risultato.oggetto.substring(0, 60);
-                            }
-                            // Salva bozza nel DB per persistenza
+                            if (badge) { badge.style.display = 'inline'; badge.title = risultato.oggetto.substring(0, 60); }
                             try {
                                 await fetch(`${MrpApp.API_BASE}/email-drafts`, {
                                     credentials: 'include', method: 'PUT',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ anno: emesso.anno, serie: emesso.serie, numord: emesso.numord, oggetto: risultato.oggetto, corpo: risultato.corpo })
                                 });
-                            } catch (_) { /* best-effort */ }
+                            } catch (_) {}
                         }
                     } catch (err) {
                         btn.classList.remove('loading');
@@ -1966,45 +2036,57 @@ const MrpProposta = (() => {
             const contoSpan = document.createElement('span');
             contoSpan.id = 'batchConto';
             contoSpan.style.cssText = 'font-size:0.82rem;color:var(--text-muted);margin-right:auto;';
-            contoSpan.textContent = pendenti.length + ' selezionate';
 
             function aggiornaContoBatch() {
                 const n = document.querySelectorAll('.batch-chk:checked').length;
                 contoSpan.textContent = n + ' selezionate';
-                btnInvia.disabled = n === 0;
-                btnInvia.style.opacity = n === 0 ? '0.5' : '1';
+                if (btnInvia) {
+                    btnInvia.disabled = n === 0;
+                    btnInvia.style.opacity = n === 0 ? '0.5' : '1';
+                }
             }
+            contoSpan.textContent = document.querySelectorAll('.batch-chk:checked').length + ' selezionate';
 
             function cleanup(result) {
-                overlay.classList.remove('open');
+                if (emissioneMode) {
+                    chiudiModaleUnificato();
+                } else {
+                    overlay.classList.remove('open');
+                }
                 resolve(result);
             }
 
             const btnAnnulla = document.createElement('button');
-            btnAnnulla.textContent = 'Annulla';
+            btnAnnulla.textContent = emissioneMode ? 'Chiudi' : 'Annulla';
             btnAnnulla.className = 'mrp-btn mrp-btn-secondary';
             btnAnnulla.style.cssText = 'padding:8px 20px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-weight:600;font-size:0.85rem;';
             btnAnnulla.addEventListener('click', () => cleanup(null));
 
             const btnInvia = document.createElement('button');
+            btnInvia.id = 'unifiedBtnInvia';
             btnInvia.textContent = '\u2709 Invia Selezionate';
             btnInvia.className = 'mrp-btn mrp-btn-primary';
             btnInvia.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
             btnInvia.addEventListener('click', () => {
-                const righeSelezionate = [];
-                document.querySelectorAll('.batch-chk:checked').forEach(cb => {
-                    const fk = cb.dataset.forn;
-                    const emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
-                    if (!emesso) return;
-                    const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
-                    const tid = tplSel ? parseInt(tplSel.value, 10) : null;
-                    righeSelezionate.push({ ...emesso, templateId: tid });
-                });
-                // Disabilita tutto
-                document.querySelectorAll('.batch-chk,.batch-tpl-sel,.batch-edit-btn,#batchChkAll').forEach(el => el.disabled = true);
-                btnInvia.disabled = true; btnInvia.style.opacity = '0.5'; btnInvia.textContent = 'Invio in corso...';
-                btnAnnulla.disabled = true; btnAnnulla.style.opacity = '0.5';
-                resolve({ righeSelezionate });
+                if (emissioneMode) {
+                    // Modalita unificata: gestione queue
+                    gestisciInviaSelezionate();
+                } else {
+                    // Modalita normale: raccogli e risolvi
+                    const righeSelezionate = [];
+                    document.querySelectorAll('.batch-chk:checked').forEach(cb => {
+                        const fk = cb.dataset.forn;
+                        const emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
+                        if (!emesso) return;
+                        const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
+                        const tid = tplSel ? parseInt(tplSel.value, 10) : null;
+                        righeSelezionate.push({ ...emesso, templateId: tid });
+                    });
+                    document.querySelectorAll('.batch-chk,.batch-tpl-sel,.batch-edit-btn,#batchChkAll').forEach(el => el.disabled = true);
+                    btnInvia.disabled = true; btnInvia.style.opacity = '0.5'; btnInvia.textContent = 'Invio in corso...';
+                    btnAnnulla.disabled = true; btnAnnulla.style.opacity = '0.5';
+                    resolve({ righeSelezionate });
+                }
             });
 
             elAzioni.appendChild(contoSpan);
@@ -2015,13 +2097,392 @@ const MrpProposta = (() => {
             const closeBtn = document.getElementById('modalGenericClose');
             const closeHandler = () => { cleanup(null); closeBtn.removeEventListener('click', closeHandler); };
             closeBtn.addEventListener('click', closeHandler);
+
+            aggiornaContoBatch();
         });
     }
 
     // ============================================================
-    // EMETTI TUTTI (batch)
+    // MODALE UNIFICATA — Emetti Tutti + Invia Email
+    // State machine a livello modulo (sopravvive a close/reopen)
+    // ============================================================
+
+    const _batchUnifiedState = {
+        active: false,
+        fornitori: [],       // { fornitore_codice, nome, articoli, status, emissioneResult, selectedTemplateId, emailError }
+        autoSendSet: new Set(),
+        autoSendAll: false,
+        modalOpen: false,
+        emissioneProgress: { done: 0, total: 0, successi: 0, falliti: 0 },
+        emailProgress: { done: 0, total: 0, successi: 0, falliti: 0 }
+    };
+
+    function _resetBatchState() {
+        _batchUnifiedState.active = false;
+        _batchUnifiedState.fornitori = [];
+        _batchUnifiedState.autoSendSet.clear();
+        _batchUnifiedState.autoSendAll = false;
+        _batchUnifiedState.modalOpen = false;
+        _batchUnifiedState.emissioneProgress = { done: 0, total: 0, successi: 0, falliti: 0 };
+        _batchUnifiedState.emailProgress = { done: 0, total: 0, successi: 0, falliti: 0 };
+    }
+
+    /** Genera le options HTML per il dropdown template di un fornitore */
+    function _buildUnifiedTplOptions(fk, selectedTid) {
+        const personalizzati = _emailTemplates.filter(t => String(t.fornitoreCode) === fk);
+        const generici = _emailTemplates.filter(t => !t.fornitoreCode);
+        let html = '';
+        if (personalizzati.length) {
+            html += '<optgroup label="\u2605 Personalizzati">';
+            personalizzati.forEach(t => {
+                const sel = String(t.id) === selectedTid ? ' selected' : '';
+                html += '<option value="' + t.id + '"' + sel + '>' + esc(t.nome) + '</option>';
+            });
+            html += '</optgroup>';
+        }
+        html += '<optgroup label="Template">';
+        generici.forEach(t => {
+            const sel = String(t.id) === selectedTid ? ' selected' : '';
+            const badge = t.isSystem ? ' [S]' : '';
+            html += '<option value="' + t.id + '"' + sel + '>' + esc(t.nome) + badge + '</option>';
+        });
+        html += '</optgroup>';
+        return html;
+    }
+
+    /** Icone per ogni stato */
+    function _statusIcon(status) {
+        switch (status) {
+            case 'waiting':       return '<span class="unified-status" style="color:var(--text-muted);">\u23F3</span>';
+            case 'emitting':      return '<span class="unified-status">\uD83D\uDD04</span>';
+            case 'emitted':       return '<span class="unified-status">\u2705</span>';
+            case 'emit_failed':   return '<span class="unified-status">\u274C</span>';
+            case 'sending_email': return '<span class="unified-status">\u23F3</span>';
+            case 'email_sent':    return '<span class="unified-status">\uD83D\uDCE8</span>';
+            case 'email_failed':  return '<span class="unified-status">\u274C\uFE0F</span>';
+            default:              return '';
+        }
+    }
+
+    // renderRigaUnificata rimossa — ora le righe sono generate da modaleBatchEmail()
+
+    /** Aggiorna in-place una singola riga senza re-render completo */
+    function aggiornaRigaUnificata(fk) {
+        if (!_batchUnifiedState.modalOpen) return;
+        const f = _batchUnifiedState.fornitori.find(x => String(x.fornitore_codice) === String(fk));
+        if (!f) return;
+        const row = document.getElementById('batchRow_' + fk);
+        if (!row) return;
+
+        const isReady = f.status === 'emitted' || f.status === 'email_failed';
+        const email = f.emissioneResult ? (f.emissioneResult.fornitore_email || '') : '';
+
+        // CSS class riga
+        row.className = 'unified-row-' + f.status.replace('_', '-');
+
+        // Icona status
+        const stCell = document.getElementById('batchSt_' + fk);
+        if (stCell) stCell.innerHTML = _statusIcon(f.status);
+
+        // Ordine label
+        const ordCell = document.getElementById('batchOrd_' + fk);
+        if (ordCell && f.emissioneResult) {
+            ordCell.innerHTML = '<strong>' + esc(f.emissioneResult.numord + '/' + f.emissioneResult.serie) + '</strong>';
+        }
+
+        // Email
+        const emailCell = document.getElementById('batchEmail_' + fk);
+        if (emailCell && f.emissioneResult) {
+            emailCell.style.color = email ? 'var(--text-muted)' : 'var(--danger)';
+            emailCell.title = email;
+            emailCell.innerHTML = email ? esc(email) : '<em>mancante</em>';
+        }
+
+        // Checkbox
+        const chk = document.getElementById('batchChk_' + fk);
+        if (chk) {
+            chk.disabled = !isReady || !email;
+            if (isReady && email && f.status === 'emitted') chk.checked = true;
+            if (f.status === 'email_sent' || f.status === 'sending_email') chk.disabled = true;
+        }
+
+        // Template select + edit button
+        const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
+        const editBtn = document.getElementById('batchEdit_' + fk);
+        if (tplSel) tplSel.disabled = !isReady;
+        if (editBtn) editBtn.disabled = !isReady;
+
+        // Aggiorna conteggio selezionate e stato bottone invia
+        const contoEl = document.getElementById('batchConto');
+        const btnInviaEl = document.getElementById('unifiedBtnInvia');
+        if (contoEl) {
+            const n = document.querySelectorAll('.batch-chk:checked').length;
+            contoEl.textContent = n + ' selezionate';
+            if (btnInviaEl && btnInviaEl.textContent !== 'Invio in corso...') {
+                btnInviaEl.disabled = n === 0;
+                btnInviaEl.style.opacity = n === 0 ? '0.5' : '1';
+            }
+        }
+    }
+
+    /** Aggiorna barra avanzamento emissione */
+    function aggiornaProgressoEmissione() {
+        if (!_batchUnifiedState.modalOpen) return;
+        const p = _batchUnifiedState.emissioneProgress;
+        const bar = document.getElementById('unifiedProgressBar');
+        const label = document.getElementById('unifiedProgressLabel');
+        if (!bar || !label) return;
+
+        const perc = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+        bar.style.width = perc + '%';
+
+        if (p.done >= p.total) {
+            label.innerHTML = '<strong>Emissione completata</strong> \u2014 ' +
+                '<span style="color:var(--success);">' + p.successi + ' emess' + (p.successi > 1 ? 'i' : 'o') + '</span>' +
+                (p.falliti > 0 ? ' \u2014 <span style="color:var(--danger);">' + p.falliti + ' fallit' + (p.falliti > 1 ? 'i' : 'o') + '</span>' : '');
+        } else {
+            const current = _batchUnifiedState.fornitori.find(f => f.status === 'emitting');
+            label.textContent = 'Emissione: ' + p.done + '/' + p.total + (current ? ' \u2014 ' + current.nome : '');
+        }
+    }
+
+    // _aggiornaContoUnificato e apriModaleUnificato rimossi — ora usa modaleBatchEmail(pendenti, {emissioneMode: true})
+
+    /** Loop emissione batch — gira in background, indipendente dalla modale */
+    async function eseguiEmissioneBatch() {
+        const st = _batchUnifiedState;
+
+        for (let i = 0; i < st.fornitori.length; i++) {
+            const f = st.fornitori[i];
+            if (f.status !== 'waiting') continue;
+
+            f.status = 'emitting';
+            aggiornaRigaUnificata(f.fornitore_codice);
+            aggiornaProgressoEmissione();
+
+            const body = {
+                fornitore_codice: parseInt(f.fornitore_codice, 10),
+                elaborazione_id: MrpApp.state.elaborazioneId || '',
+                articoli: f.articoli.map(a => ({
+                    codart: a.ol_codart,
+                    fase: parseInt(a.ol_fase, 10) || 0,
+                    magaz: parseInt(a.ol_magaz, 10) || 1,
+                    quantita: a.quantita_confermata,
+                    data_consegna: a.data_consegna,
+                    prezzo: a.prezzo,
+                    unmis: a.ol_unmis || 'PZ',
+                    ol_progr: parseInt(a.ol_progr, 10) || 0
+                }))
+            };
+
+            try {
+                const data = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
+
+                if (data.success) {
+                    f.status = 'emitted';
+                    f.emissioneResult = {
+                        anno: data.ordine.anno,
+                        serie: data.ordine.serie,
+                        numord: data.ordine.numord,
+                        fornitore_codice: f.fornitore_codice,
+                        fornitore_nome: f.nome,
+                        fornitore_email: data.ordine.fornitore_email || '',
+                        pdf_base64: data.pdf_base64,
+                        pdf_filename: data.pdf_filename,
+                        totale_documento: data.ordine.totale_documento
+                    };
+                    pdfCache.set(String(f.fornitore_codice), { pdf_base64: data.pdf_base64, pdf_filename: data.pdf_filename });
+                    st.emissioneProgress.successi++;
+
+                    // Auto-send se richiesto
+                    if ((st.autoSendAll || st.autoSendSet.has(String(f.fornitore_codice))) && f.emissioneResult.fornitore_email) {
+                        _inviaEmailPerFornitore(String(f.fornitore_codice)); // fire-and-forget
+                    }
+                } else {
+                    f.status = 'emit_failed';
+                    f.emailError = data.error || 'Errore emissione';
+                    st.emissioneProgress.falliti++;
+                }
+            } catch (err) {
+                f.status = 'emit_failed';
+                f.emailError = err.message;
+                st.emissioneProgress.falliti++;
+            }
+
+            st.emissioneProgress.done++;
+            aggiornaRigaUnificata(f.fornitore_codice);
+            aggiornaProgressoEmissione();
+        }
+
+        // Emissione completata — ricarica proposte in background
+        caricaProposta().catch(() => {});
+
+        // Se la modale e chiusa e tutte le email sono state inviate (o non richieste), riapri
+        _checkCompletamentoUnificato();
+    }
+
+    /** Gestisce click su "Invia Selezionate" */
+    function gestisciInviaSelezionate() {
+        const st = _batchUnifiedState;
+
+        // Raccogli righe checked
+        document.querySelectorAll('.unified-chk:checked').forEach(cb => {
+            const fk = cb.dataset.forn;
+            const f = st.fornitori.find(x => String(x.fornitore_codice) === fk);
+            if (!f) return;
+
+            // Salva template selezionato nello stato
+            const tplSel = document.getElementById('unified_tpl_' + fk);
+            if (tplSel) f.selectedTemplateId = tplSel.value;
+
+            if (f.status === 'emitted') {
+                // Gia emesso: invia subito
+                _inviaEmailPerFornitore(fk);
+            } else if (f.status === 'waiting' || f.status === 'emitting') {
+                // Non ancora emesso: metti in coda
+                st.autoSendSet.add(fk);
+            }
+        });
+
+        // Se select-all e checked, marca autoSendAll
+        const chkAll = document.getElementById('unifiedChkAll');
+        if (chkAll && chkAll.checked) st.autoSendAll = true;
+
+        // Feedback visuale
+        const btnInvia = document.getElementById('unifiedBtnInvia');
+        if (btnInvia) {
+            btnInvia.textContent = 'Invio in corso...';
+            btnInvia.disabled = true;
+            btnInvia.style.opacity = '0.5';
+        }
+    }
+
+    /** Invia email per un singolo fornitore (usa _inviaEmailDirect esistente) */
+    async function _inviaEmailPerFornitore(fk) {
+        const st = _batchUnifiedState;
+        const f = st.fornitori.find(x => String(x.fornitore_codice) === String(fk));
+        if (!f || !f.emissioneResult) return;
+
+        f.status = 'sending_email';
+        aggiornaRigaUnificata(fk);
+
+        const override = _batchCustomOverrides.get(String(fk)) || {};
+        const tplSel = document.getElementById('unified_tpl_' + fk);
+        const tid = f.selectedTemplateId || (tplSel ? tplSel.value : null);
+        const sendOpts = { template_id: tid ? parseInt(tid, 10) : null };
+        if (override.oggetto_custom) {
+            sendOpts.oggetto_custom = override.oggetto_custom;
+            sendOpts.corpo_custom = override.corpo_custom;
+        }
+
+        const emesso = f.emissioneResult;
+        const result = await _inviaEmailDirect(emesso, sendOpts);
+
+        if (result.success) {
+            f.status = 'email_sent';
+            st.emailProgress.successi++;
+            if (_templateMode === 'ultima_scelta' && tid) {
+                onTemplateSelectChange(String(fk), parseInt(tid, 10));
+            }
+        } else {
+            f.status = 'email_failed';
+            f.emailError = result.error || 'Errore invio';
+            st.emailProgress.falliti++;
+        }
+
+        st.emailProgress.done++;
+        aggiornaRigaUnificata(fk);
+        aggiornaBarraEmettiTutti();
+        _checkCompletamentoUnificato();
+    }
+
+    /** Verifica se tutto e completato e gestisce riapertura modale */
+    function _checkCompletamentoUnificato() {
+        const st = _batchUnifiedState;
+        const emissioneFinita = st.emissioneProgress.done >= st.emissioneProgress.total;
+        if (!emissioneFinita) return;
+
+        // Controlla se ci sono ancora email in volo
+        const emailInVolo = st.fornitori.some(f => f.status === 'sending_email');
+        if (emailInVolo) return;
+
+        // Ci sono ancora email da inviare? (righe emesse ma non ancora inviate)
+        const emailDaInviare = st.fornitori.some(f => f.status === 'emitted');
+        if (emailDaInviare) return; // l'utente non ha ancora inviato — lascia i bottoni
+
+        // Tutto completato (emissione + email inviate o nessuna email richiesta)
+        if (!st.modalOpen) {
+            riaperiModaleUnificato();
+        } else {
+            _mostraRiepilogoFinale();
+        }
+    }
+
+    /** Riapre la modale dallo stato corrente (dopo close durante operazioni) */
+    function riaperiModaleUnificato() {
+        // Riapre "Invia Tutte le Email" — raccogliera pendenti + stato emissione
+        inviaTutteEmailHandler();
+    }
+
+    /** Mostra riepilogo finale nel footer della modale */
+    function _mostraRiepilogoFinale() {
+        const st = _batchUnifiedState;
+        const elAzioni = document.getElementById('modalGenericAzioni');
+        if (!elAzioni) return;
+
+        elAzioni.innerHTML = '';
+
+        let msgR = '';
+        const ep = st.emissioneProgress;
+        const mp = st.emailProgress;
+        if (ep.successi > 0) msgR += '<span style="color:var(--success);font-weight:600;">' + ep.successi + ' emess' + (ep.successi > 1 ? 'i' : 'o') + '</span>';
+        if (mp.successi > 0) msgR += ' \u2014 <span style="color:#7c3aed;font-weight:600;">' + mp.successi + ' email inviat' + (mp.successi > 1 ? 'e' : 'a') + '</span>';
+        if (ep.falliti > 0) msgR += ' \u2014 <span style="color:var(--danger);font-weight:600;">' + ep.falliti + ' errori emissione</span>';
+        if (mp.falliti > 0) msgR += ' \u2014 <span style="color:var(--danger);font-weight:600;">' + mp.falliti + ' errori email</span>';
+
+        const rSpan = document.createElement('span');
+        rSpan.style.cssText = 'font-size:0.85rem;margin-right:auto;';
+        rSpan.innerHTML = msgR;
+        elAzioni.appendChild(rSpan);
+
+        const btnChiudi = document.createElement('button');
+        btnChiudi.textContent = 'Chiudi';
+        btnChiudi.className = 'mrp-btn mrp-btn-primary';
+        btnChiudi.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+        btnChiudi.addEventListener('click', () => {
+            _batchUnifiedState.modalOpen = false;
+            document.getElementById('modalGenericOverlay').classList.remove('open');
+            _resetBatchState();
+            aggiornaBarraEmettiTutti();
+        });
+        elAzioni.appendChild(btnChiudi);
+    }
+
+    /** Chiude la modale ma le operazioni continuano in background */
+    function chiudiModaleUnificato() {
+        _batchUnifiedState.modalOpen = false;
+        const overlay = document.getElementById('modalGenericOverlay');
+        if (overlay) overlay.classList.remove('open');
+
+        // Se l'emissione e finita, resetta SEMPRE lo stato quando l'utente chiude.
+        // Le email non inviate restano in ordiniEmessi e si possono inviare
+        // con il bottone "Invia Tutte le Email" che legge da ordiniEmessi (dati freschi).
+        const emissioneFinita = _batchUnifiedState.emissioneProgress.done >= _batchUnifiedState.emissioneProgress.total;
+        const emailInVolo = _batchUnifiedState.fornitori.some(f => f.status === 'sending_email');
+        if (emissioneFinita && !emailInVolo) {
+            _resetBatchState();
+        }
+        // Se emissione ancora in corso, le operazioni continuano in background.
+        // _checkCompletamentoUnificato() riaprira la modale al completamento.
+        aggiornaBarraEmettiTutti();
+    }
+
+    // ============================================================
+    // EMETTI TUTTI (batch) — flusso unificato emissione + email
     // ============================================================
     async function emettiTuttiHandler() {
+        if (_batchUnifiedState.active) return; // gia in corso
+
         if (!await assicuraSPEsiste()) return;
 
         const completati = document.querySelectorAll('.proposta-fornitore-header.fornitore-completato');
@@ -2029,7 +2490,7 @@ const MrpProposta = (() => {
 
         completati.forEach(h => {
             const fc = h.dataset.forn;
-            if (ordiniEmessi.has(fc)) return; // gia emesso
+            if (ordiniEmessi.has(fc)) return;
             const articoliFornitore = [];
             const confermati = MrpApp.state.ordiniConfermati;
             confermati.forEach((ordine, key) => {
@@ -2055,75 +2516,26 @@ const MrpProposta = (() => {
 
         if (!conferma) return;
 
-        // Apri modale progresso
-        const overlay = document.getElementById('modalBatchOverlay');
-        const progressBar = document.getElementById('batchProgressBar');
-        const progressLabel = document.getElementById('batchProgressLabel');
-        const logEl = document.getElementById('batchLog');
-        const risultatoEl = document.getElementById('batchRisultato');
-        const btnChiudi = document.getElementById('btnBatchChiudi');
+        // Inizializza stato unificato per tracciare emissione
+        _resetBatchState();
+        _batchUnifiedState.active = true;
+        _batchUnifiedState.emissioneProgress.total = fornitori.length;
+        _batchUnifiedState.fornitori = fornitori.map(f => ({
+            fornitore_codice: f.fornitore_codice,
+            nome: f.nome,
+            articoli: f.articoli,
+            status: 'waiting',
+            emissioneResult: null,
+            selectedTemplateId: String(getTemplateIdPerFornitore(f.fornitore_codice) || ''),
+            emailError: null
+        }));
 
-        progressBar.style.width = '0%';
-        logEl.innerHTML = '';
-        risultatoEl.style.display = 'none';
-        btnChiudi.style.display = 'none';
-        overlay.classList.add('open');
+        // Lancia emissione in background
+        eseguiEmissioneBatch();
 
-        let successi = 0, falliti = 0;
-
-        for (let i = 0; i < fornitori.length; i++) {
-            const f = fornitori[i];
-            const perc = Math.round(((i + 1) / fornitori.length) * 100);
-            progressLabel.textContent = `${i + 1}/${fornitori.length} \u2014 ${f.nome}`;
-            progressBar.style.width = perc + '%';
-
-            const body = {
-                fornitore_codice: parseInt(f.fornitore_codice, 10),
-                elaborazione_id: MrpApp.state.elaborazioneId || '',
-                articoli: f.articoli.map(a => ({
-                    codart: a.ol_codart,
-                    fase: parseInt(a.ol_fase, 10) || 0,
-                    magaz: parseInt(a.ol_magaz, 10) || 1,
-                    quantita: a.quantita_confermata,
-                    data_consegna: a.data_consegna,
-                    prezzo: a.prezzo,
-                    unmis: a.ol_unmis || 'PZ',
-                    ol_progr: parseInt(a.ol_progr, 10) || 0
-                }))
-            };
-
-            const data = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
-
-            if (data.success) {
-                successi++;
-                // Salva PDF in cache per download immediato
-                pdfCache.set(String(f.fornitore_codice), {
-                    pdf_base64: data.pdf_base64,
-                    pdf_filename: data.pdf_filename
-                });
-                logEl.innerHTML += `<div style="color:var(--success);">\u2713 ${esc(f.nome)} \u2014 Ordine ${data.ordine.numord}/${data.ordine.serie}</div>`;
-            } else {
-                falliti++;
-                logEl.innerHTML += `<div style="color:var(--danger);">\u2717 ${esc(f.nome)} \u2014 ${esc(data.error || 'Errore')}</div>`;
-            }
-
-            logEl.scrollTop = logEl.scrollHeight;
-        }
-
-        // Ricarica proposta dal DB — l'UI riflette lo stato reale
-        await caricaProposta();
-
-        progressLabel.textContent = 'Completato';
-        progressBar.style.width = '100%';
-        risultatoEl.style.display = 'block';
-        risultatoEl.innerHTML = `
-            <div style="text-align:center; margin-top:12px; font-size:0.95rem;">
-                <strong style="color:var(--success);">${successi} emess${successi > 1 ? 'i' : 'o'}</strong>
-                ${falliti > 0 ? ` &mdash; <strong style="color:var(--danger);">${falliti} fallit${falliti > 1 ? 'i' : 'o'}</strong>` : ''}
-            </div>
-        `;
-        btnChiudi.style.display = '';
-        btnChiudi.onclick = () => overlay.classList.remove('open');
+        // Apri il modale "Invia Tutte le Email" — mostrera le email gia pendenti
+        // + le nuove che si aggiungono man mano dall'emissione
+        inviaTutteEmailHandler();
     }
 
     // ============================================================

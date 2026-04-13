@@ -59,16 +59,21 @@ function buildPoolConfig(server, database, user, password, maxConns) {
 // ============================================================
 
 let poolProd = null;
+let poolProdConnecting = null; // Mutex: evita race condition se due richieste arrivano in parallelo
 
 async function getPoolProd() {
-    if (!poolProd) {
+    if (poolProd) return poolProd;
+    if (poolProdConnecting) return poolProdConnecting;
+    poolProdConnecting = (async () => {
         poolProd = await new sql.ConnectionPool(
             buildPoolConfig(PRODUCTION_PROFILE.server, PRODUCTION_PROFILE.database_mrp,
                 PRODUCTION_PROFILE.user, PRODUCTION_PROFILE.password, POOL_MAX_PROD)
         ).connect();
         console.log('[DB] Pool PRODUZIONE connesso — ' + PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp + ' (max ' + POOL_MAX_PROD + ')');
-    }
-    return poolProd;
+        poolProdConnecting = null;
+        return poolProd;
+    })();
+    return poolProdConnecting;
 }
 
 console.log('[DB] Configurazione produzione:', PRODUCTION_PROFILE.label, '—', PRODUCTION_PROFILE.server + '/' + PRODUCTION_PROFILE.database_mrp);
@@ -81,11 +86,14 @@ console.log('[DB] Configurazione produzione:', PRODUCTION_PROFILE.label, '—', 
 // ============================================================
 
 let poolBcube = null;
+let poolBcubeConnecting = null; // Mutex: evita race condition se due richieste arrivano in parallelo
 
 async function getPoolBcube() {
-    if (!poolBcube) {
-        const server = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
-        const db = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+    if (poolBcube) return poolBcube;
+    if (poolBcubeConnecting) return poolBcubeConnecting;
+    const server = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
+    const db = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+    poolBcubeConnecting = (async () => {
         try {
             poolBcube = await new sql.ConnectionPool(
                 buildPoolConfig(server, db, PRODUCTION_PROFILE.user, PRODUCTION_PROFILE.password, 10)
@@ -95,8 +103,10 @@ async function getPoolBcube() {
             console.warn('[DB] Pool BCUBE2 non disponibile (fallback a viste MRP):', err.message);
             poolBcube = null;
         }
-    }
-    return poolBcube;
+        poolBcubeConnecting = null;
+        return poolBcube;
+    })();
+    return poolBcubeConnecting;
 }
 
 // ============================================================
