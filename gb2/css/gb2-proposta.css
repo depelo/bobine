@@ -991,35 +991,35 @@
     border-color: transparent;
 }
 .storico-chip[data-cat="accettata"].active {
-    background: var(--success);
+    background: var(--storico-accettata);
 }
 .storico-chip[data-cat="modificata"].active {
-    background: var(--warning);
+    background: var(--storico-modificata);
 }
 .storico-chip[data-cat="misto"].active {
-    background: #7c3aed;
+    background: var(--storico-misto);
 }
 .storico-chip[data-cat="indipendente"].active {
-    background: var(--primary);
+    background: var(--storico-indipendente);
 }
 /* Conteggio colorato quando chip non attivo */
-.storico-chip[data-cat="accettata"]:not(.active) strong { color: var(--success); }
-.storico-chip[data-cat="modificata"]:not(.active) strong { color: var(--warning); }
-.storico-chip[data-cat="misto"]:not(.active) strong { color: #7c3aed; }
-.storico-chip[data-cat="indipendente"]:not(.active) strong { color: var(--primary); }
+.storico-chip[data-cat="accettata"]:not(.active) strong { color: var(--storico-accettata); }
+.storico-chip[data-cat="modificata"]:not(.active) strong { color: var(--storico-modificata); }
+.storico-chip[data-cat="misto"]:not(.active) strong { color: var(--storico-misto); }
+.storico-chip[data-cat="indipendente"]:not(.active) strong { color: var(--storico-indipendente); }
 
 /* Riga ordine con border-left colorato */
 .storico-tabella tr.storico-row-accettata td:first-child {
-    border-left: 3px solid var(--success);
+    border-left: 3px solid var(--storico-accettata);
 }
 .storico-tabella tr.storico-row-modificata td:first-child {
-    border-left: 3px solid var(--warning);
+    border-left: 3px solid var(--storico-modificata);
 }
 .storico-tabella tr.storico-row-misto td:first-child {
-    border-left: 3px solid #7c3aed;
+    border-left: 3px solid var(--storico-misto);
 }
 .storico-tabella tr.storico-row-indipendente td:first-child {
-    border-left: 3px solid var(--primary);
+    border-left: 3px solid var(--storico-indipendente);
 }
 
 /* Badge categoria */
@@ -1030,10 +1030,22 @@
     margin-left: 4px;
     font-weight: 600;
 }
-.storico-cat-badge.cat-accettata { background: #dcfce7; color: var(--success); }
-.storico-cat-badge.cat-modificata { background: #fef3c7; color: #b45309; }
-.storico-cat-badge.cat-misto { background: #ede9fe; color: #7c3aed; }
-.storico-cat-badge.cat-indipendente { background: #dbeafe; color: var(--primary); }
+.storico-cat-badge.cat-accettata { background: color-mix(in srgb, var(--storico-accettata) 15%, white); color: var(--storico-accettata); }
+.storico-cat-badge.cat-modificata { background: color-mix(in srgb, var(--storico-modificata) 15%, white); color: var(--storico-modificata); }
+.storico-cat-badge.cat-misto { background: color-mix(in srgb, var(--storico-misto) 15%, white); color: var(--storico-misto); }
+.storico-cat-badge.cat-indipendente { background: color-mix(in srgb, var(--storico-indipendente) 15%, white); color: var(--storico-indipendente); }
+
+/* Color picker inline nei chip */
+.storico-chip-color {
+    width: 14px;
+    height: 14px;
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    vertical-align: middle;
+    margin-left: 4px;
+}
 
 /* Testata elaborazione collassabile */
 .storico-elab-header {

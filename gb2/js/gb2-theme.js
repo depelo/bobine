@@ -77,6 +77,16 @@ const MrpTheme = (() => {
             ]
         },
         {
+            id: 'storico',
+            label: 'Storico Ordini',
+            vars: [
+                { name: '--storico-accettata', label: 'P.O.F. Accettata', default: '#16a34a' },
+                { name: '--storico-modificata', label: 'P.O.F. Modificata', default: '#d97706' },
+                { name: '--storico-misto', label: 'Ordine Misto', default: '#7c3aed' },
+                { name: '--storico-indipendente', label: 'Ordine Indipendente', default: '#2563eb' }
+            ]
+        },
+        {
             id: 'typography',
             label: 'Tipografia',
             vars: [

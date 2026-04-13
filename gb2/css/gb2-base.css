@@ -51,6 +51,12 @@
     --forn-it: #2e7d32;
     --forn-ue: #1565c0;
     --forn-extra-ue: #e65100;
+
+    /* Storico ordini — categorie */
+    --storico-accettata: #16a34a;
+    --storico-modificata: #d97706;
+    --storico-misto: #7c3aed;
+    --storico-indipendente: #2563eb;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
