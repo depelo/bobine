@@ -3,8 +3,8 @@
  */
 const { generaPdfOrdine } = require('../../utils/pdfOrdine');
 module.exports = function(router, deps) {
-    const { sql, getPoolMRP, getPoolProd, getActiveProfile, isProduction,
-            PRODUCTION_PROFILE, authMiddleware, getPoolBcube } = deps;
+    const { sql, getPoolDest, getPool163, getActiveProfile,
+            PRODUCTION_PROFILE, authMiddleware } = deps;
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const getSpName = helpers.getSpName;
@@ -12,19 +12,11 @@ module.exports = function(router, deps) {
     const deployProductionObjects = helpers.deployProductionObjects;
     const deployTestObjects = helpers.deployTestObjects;
 
-    async function getPoolERP(userId) {
-        if (isProduction(userId)) {
-            const bcube = await getPoolBcube();
-            if (bcube) return bcube;
-        }
-        return getPoolMRP(userId);
-    }
-
 router.get('/health', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const result = await pool.request().query('SELECT 1 AS ok');
-        const poolMRP = await getPoolMRP(getUserId(req));
+        const poolMRP = await getPoolDest(getUserId(req));
         const resultMRP = await poolMRP.request().query('SELECT 1 AS ok');
         res.json({
             status: 'ok',
@@ -39,18 +31,12 @@ router.get('/health', authMiddleware, async (req, res) => {
 
 router.post('/deploy-sp', authMiddleware, async (req, res) => {
     try {
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
         const uid = getUserId(req);
-        if (isProduction(uid)) {
-            const poolTarget = await getPoolBcube();
-            const results = await deployProductionObjects(poolProd, poolTarget);
-            res.json({ success: true, results });
-        } else {
-            const profile = getActiveProfile(uid);
-            const poolTest = await getPoolMRP(uid);
-            const deploy = await deployTestObjects(poolProd, poolTest, profile);
-            res.json({ success: true, results: deploy.results, hasRiep: deploy.hasRiep });
-        }
+        const profile = getActiveProfile(uid);
+        const poolTarget = await getPoolDest(uid);
+        const deploy = await deployTestObjects(poolProd, poolTarget, profile);
+        res.json({ success: true, results: deploy.results, hasRiep: deploy.hasRiep });
     } catch (err) {
         res.status(500).json({ error: err.message, detail: 'Errore durante il deploy delle stored procedure' });
     }
@@ -60,14 +46,12 @@ router.post('/deploy-sp', authMiddleware, async (req, res) => {
 router.get('/check-sp', authMiddleware, async (req, res) => {
     try {
         const uid = getUserId(req);
-        const isProd = isProduction(uid);
-        // Le SP stanno nel [GB2] del server di destinazione (BCUBE2 in prod, server prova in test)
-        const poolSP = isProd ? (await getPoolBcube() || await getPoolMRP(uid)) : await getPoolMRP(uid);
+        const poolSP = await getPoolDest(uid);
         const profile = getActiveProfile(uid);
         const spName = getSpName('usp_CreaOrdineFornitore', profile);
         const spExists = await checkSpExists(poolSP, spName);
         // Verifica anche che la tabella ordini_emessi esista (nel pool attivo)
-        const poolData = await getPoolMRP(uid);
+        const poolData = await getPoolDest(uid);
         const tblResult = await poolData.request().query(
             "SELECT OBJECT_ID('dbo.ordini_emessi', 'U') AS id"
         );
@@ -89,10 +73,9 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
 
         // Le SP vivono nel DB [GB2] del server di destinazione (BCUBE2 o prova)
         const uid = getUserId(req);
-        const isProd = isProduction(uid);
-        const poolSP = isProd ? (await getPoolBcube() || await getPoolMRP(uid)) : await getPoolMRP(uid);
+        const poolSP = await getPoolDest(uid);
         const profile = getActiveProfile(uid);
-        const spName = '[GB2].[dbo].' + getSpName('usp_CreaOrdineFornitore', profile);
+        const spName = '[GB2_SP].[dbo].' + getSpName('usp_CreaOrdineFornitore', profile);
 
         // Check SP esiste
         const spExists = await checkSpExists(poolSP, spName);
@@ -121,10 +104,11 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         const ordine = result.recordsets[0][0];
         const righeOrdine = result.recordsets[1] || [];
 
-        // Genera PDF (con watermark se in ambiente prova)
+        // Genera PDF (con label PROVA se non in server default)
         const dbProfile = getActiveProfile(getUserId(req));
-        const ambiente = dbProfile.ambiente || 'produzione';
-        const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente });
+        const serverDest = (dbProfile.server || 'BCUBE2').trim();
+        const isProva = !!(dbProfile._testDbId);
+        const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProva ? 'prova' : 'produzione' });
 
         // Aggiornamento saldi BCube (keyord+artpro) avviene DENTRO la SP stessa
         // (EXEC [UJET11].[dbo].bussp_bsorgsor9_faggiorn2 — locale, zero MSDTC)
@@ -132,7 +116,7 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         // ── Registrazione in ordini_emessi ──
         // ordini_emessi vive SEMPRE su MRP@163 (poolProd) — il server dell'applicazione.
         // La SP su BCUBE2/prova non ha visibilita su 163, quindi l'INSERT lo fa Node.js.
-        const poolOE = await getPoolProd();
+        const poolOE = await getPool163();
         const oeIds = []; // ID inseriti, servono per SnapshotProposte
         try {
             for (const riga of righeOrdine) {
@@ -151,7 +135,7 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
                     .input('quantita_ordinata', sql.Decimal(18, 9), riga.mo_quant)
                     .input('elaborazione_id', sql.VarChar(50), elaborazione_id || '')
                     .input('operatore', sql.VarChar(20), operatoreCode)
-                    .input('ambiente', sql.VarChar(20), ambiente)
+                    .input('ambiente', sql.VarChar(20), serverDest)
                     .query(`INSERT INTO dbo.ordini_emessi
                         (ol_progr, ol_tipork, ol_codart, ol_conto, ol_quant, ol_fase, ol_magaz,
                          ord_anno, ord_serie, ord_numord, ord_riga,
@@ -197,7 +181,7 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
 
         res.json({
             success: true,
-            ambiente,
+            ambiente: serverDest,
             ordine: {
                 anno: ordine.anno,
                 serie: ordine.serie,
@@ -228,11 +212,10 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
         }
 
         const uid = getUserId(req);
-        const isProdBatch = isProduction(uid);
-        const poolSP = isProdBatch ? (await getPoolBcube() || await getPoolMRP(uid)) : await getPoolMRP(uid);
+        const poolSP = await getPoolDest(uid);
         const operatoreCode = uid ? 'GB2' + uid : 'GB2IDerror';
         const profile = getActiveProfile(uid);
-        const spName = '[GB2].[dbo].' + getSpName('usp_CreaOrdineFornitore', profile);
+        const spName = '[GB2_SP].[dbo].' + getSpName('usp_CreaOrdineFornitore', profile);
         const spExists = await checkSpExists(poolSP, spName);
         if (!spExists) {
             return res.status(409).json({ error: 'SP_NOT_FOUND', sp: spName });
@@ -251,8 +234,9 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
                 const ordine = result.recordsets[0][0];
                 const righeOrdine = result.recordsets[1] || [];
                 const dbProf = getActiveProfile(getUserId(req));
-                const ambienteBatch = dbProf.ambiente || 'produzione';
-                const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: ambienteBatch });
+                const serverDestBatch = (dbProf.server || 'BCUBE2').trim();
+                const isProvaBatch = !!(dbProf._testDbId);
+                const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProvaBatch ? 'prova' : 'produzione' });
 
                 // Marca ambiente
                 try {
@@ -260,7 +244,7 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
                         .input('anno', sql.SmallInt, ordine.anno)
                         .input('serie', sql.VarChar(3), ordine.serie)
                         .input('numord', sql.Int, ordine.numord)
-                        .input('ambiente', sql.VarChar(20), ambienteBatch)
+                        .input('ambiente', sql.VarChar(20), serverDestBatch)
                         .query(`UPDATE dbo.ordini_emessi SET ambiente=@ambiente WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
                 } catch (_) {}
 
@@ -307,27 +291,12 @@ router.post('/annulla-ordine', authMiddleware, async (req, res) => {
         if (!anno || !serie || !numord) return res.status(400).json({ error: 'anno, serie e numord obbligatori' });
 
         const uid = getUserId(req);
-        const isProd = isProduction(uid);
         const annoInt = parseInt(anno, 10);
         const numordInt = parseInt(numord, 10);
 
-        // Pool verso UJET11 (dove stanno testord/movord)
-        let poolERP, tempPool = null;
-        if (isProd) {
-            const remoteServer = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
-            const dbName = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
-            tempPool = await new sql.ConnectionPool({
-                server: remoteServer, database: dbName,
-                user: PRODUCTION_PROFILE.user, password: PRODUCTION_PROFILE.password,
-                options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
-                pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
-            }).connect();
-            poolERP = tempPool;
-        } else {
-            poolERP = await getPoolMRP(uid);
-        }
+        const poolERP = await getPoolDest(uid);
 
-        try {
+        {
             // 1. Verifica che l'ordine esista
             const checkOrd = await poolERP.request()
                 .input('anno', sql.SmallInt, annoInt)
@@ -392,7 +361,7 @@ router.post('/annulla-ordine', authMiddleware, async (req, res) => {
             // 5. Pulizia nostra: ordini_emessi + SnapshotProposte
             // ordini_emessi vive SEMPRE su MRP@163 (poolProd) — il server dell'applicazione.
             // ORDINE CRITICO: prima riapri SnapshotProposte (servono gli ID), poi cancella.
-            const poolProd = await getPoolProd();
+            const poolProd = await getPool163();
 
             try {
                 // 5a. Riapri le proposte nello snapshot PRIMA di cancellare ordini_emessi
@@ -442,8 +411,6 @@ router.post('/annulla-ordine', authMiddleware, async (req, res) => {
             } catch (_) {}
 
             res.json({ success: true, message: 'Ordine ' + numordInt + '/' + serie + ' annullato' });
-        } finally {
-            if (tempPool) try { await tempPool.close(); } catch (_) {}
         }
     } catch (err) {
         console.error('[Annulla] Errore:', err);
@@ -456,7 +423,7 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
     try {
         const { anno, serie, numord } = req.params;
         const uid = getUserId(req);
-        const pool = await getPoolERP(uid);
+        const pool = await getPoolDest(uid);
         const annoInt = parseInt(anno, 10);
         const numordInt = parseInt(numord, 10);
 
@@ -592,8 +559,9 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
                 ORDER BY m.mo_riga
             `);
 
-        const ambiente = isProduction(uid) ? 'produzione' : 'prova';
-        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset, { ambiente });
+        const dbProfPdf = getActiveProfile(uid);
+        const isProvaPdf = !!(dbProfPdf._testDbId);
+        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset, { ambiente: isProvaPdf ? 'prova' : 'produzione' });
 
         // Nome file formato BCube
         const fornNome = (ordine.fornitore_nome || '').trim().replace(/[\\/:*?"<>|]/g, '_');
@@ -617,12 +585,12 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
     try {
         const uid = getUserId(req);
         const profile = getActiveProfile(uid);
-        const ambiente = (profile && profile.ambiente) || 'produzione';
+        const ambiente = (profile.server || 'BCUBE2').trim();
         const { elaborazione_id, fornitore, da, a } = req.query;
 
         // Query 1: ordini_emessi + elaborazioni (su 163/MRP — tabelle app)
-        const poolApp = await getPoolProd();
-        let where = 'ISNULL(oe.ambiente, \'produzione\') = @ambiente';
+        const poolApp = await getPool163();
+        let where = 'oe.ambiente = @ambiente';
         const rq = poolApp.request();
         rq.input('ambiente', sql.VarChar(20), ambiente);
 
@@ -660,7 +628,7 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
 
         // Query 2: nomi fornitori + totali ordine (su BCube/UJET11 — connessione diretta)
         if (ordini.length > 0) {
-            const poolErp = await getPoolERP(uid);
+            const poolErp = await getPoolDest(uid);
             // Raccogli chiavi uniche
             const conti = [...new Set(ordini.map(o => o.fornitore_codice))];
             const ordKeys = [...new Set(ordini.map(o => o.ord_anno + '-' + o.ord_serie + '-' + o.ord_numord))];
@@ -707,7 +675,7 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
                         (SELECT COUNT(DISTINCT CONCAT(oe2.ord_anno,'-',oe2.ord_serie,'-',oe2.ord_numord))
                          FROM dbo.ordini_emessi oe2
                          WHERE oe2.elaborazione_id = CAST(e.ID AS VARCHAR)
-                           AND ISNULL(oe2.ambiente,'produzione') = @ambiente2) AS num_ordini,
+                           AND oe2.ambiente = @ambiente2) AS num_ordini,
                         (SELECT COUNT(*)
                          FROM [GB2].[dbo].[SnapshotProposte] sp
                          JOIN dbo.ordini_emessi oe3 ON sp.OrdineEmessoID = oe3.id
@@ -731,10 +699,10 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
 router.get('/elaborazione-dettaglio/:id', authMiddleware, async (req, res) => {
     try {
         const elabId = parseInt(req.params.id, 10);
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const uid = getUserId(req);
         const profile = getActiveProfile(uid);
-        const ambiente = (profile && profile.ambiente) || 'produzione';
+        const ambiente = (profile.server || 'BCUBE2').trim();
 
         // Testata elaborazione
         const elabRes = await pool.request()
@@ -766,7 +734,7 @@ router.get('/elaborazione-dettaglio/:id', authMiddleware, async (req, res) => {
             `);
 
         // Query 2: nomi fornitori + descrizioni articoli (su BCube/UJET11 — connessione diretta)
-        const poolErp = await getPoolERP(uid);
+        const poolErp = await getPoolDest(uid);
         const conti = [...new Set(dettaglioApp.recordset.map(r => r.ol_conto))];
         const codarts = [...new Set(dettaglioApp.recordset.map(r => r.ol_codart))];
 
@@ -836,9 +804,9 @@ router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req,
         const { anno, serie, numord } = req.params;
         const uid = getUserId(req);
         // testord/movord/anagra → connessione diretta a UJET11 (BCube)
-        const poolErp = await getPoolERP(uid);
+        const poolErp = await getPoolDest(uid);
         // ordini_emessi → sempre su 163
-        const poolApp = await getPoolProd();
+        const poolApp = await getPool163();
 
         // Testata ordine + fornitore (su BCube diretto)
         const testata = await poolErp.request()
@@ -909,13 +877,13 @@ router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req,
         } catch (_) {}
 
         // Genera PDF
-        const dbProfile = getActiveProfile(getUserId(req));
-        const ambiente = (dbProfile && dbProfile.ambiente) || 'produzione';
-        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset, { ambiente });
+        const dbProfileDet = getActiveProfile(getUserId(req));
+        const isProvaDet = !!(dbProfileDet._testDbId);
+        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset, { ambiente: isProvaDet ? 'prova' : 'produzione' });
 
         res.json({
             success: true,
-            ambiente,
+            ambiente: (dbProfileDet.server || 'BCUBE2').trim(),
             ordine: {
                 anno: ordine.anno,
                 serie: ordine.serie,
@@ -949,7 +917,7 @@ router.post('/controlla-duplicato', authMiddleware, async (req, res) => {
         }
 
         // ordini_emessi è sempre su MRP@163
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const oeRes = await pool.request()
             .input('forn', sql.Int, parseInt(fornitore_codice, 10))
             .input('eid', sql.VarChar(50), String(elaborazione_id))

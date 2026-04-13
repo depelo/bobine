@@ -2,20 +2,11 @@
  * GB2 Routes — Classificazione fornitori + anagrafica + template assegnazioni
  */
 module.exports = function(router, deps) {
-    const { sql, getPoolMRP, getPoolProd, getActiveProfile, isProduction,
-            PRODUCTION_PROFILE, authMiddleware, getPoolBcube } = deps;
+    const { sql, getPoolDest, getPool163, getActiveProfile,
+            PRODUCTION_PROFILE, authMiddleware } = deps;
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const executeSqlFile = helpers.executeSqlFile;
-
-    // Pool ERP ottimizzato per letture (diretto BCUBE2 in produzione)
-    async function getPoolERP(userId) {
-        if (isProduction(userId)) {
-            const bcube = await getPoolBcube();
-            if (bcube) return bcube;
-        }
-        return getPoolMRP(userId);
-    }
     const path = require('path');
     const fs = require('fs');
 
@@ -25,7 +16,7 @@ router.get('/user/preferences', authMiddleware, async (req, res) => {
         if (!userId) {
             return res.json({ colorPreset: 'default', customColors: {}, customLabels: {} });
         }
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPool163();
         const result = await pool.request()
             .input('userId', sql.Int, userId)
             .query('SELECT ColorPreset, CustomColors, CustomLabels FROM [GB2].[dbo].[UserPreferences] WHERE IDUser = @userId');
@@ -58,7 +49,7 @@ router.post('/user/preferences', authMiddleware, async (req, res) => {
             return res.json({ success: true });
         }
         const { colorPreset, customColors, customLabels } = req.body;
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPool163();
 
         const colorsJson = JSON.stringify(customColors || {});
         const labelsJson = JSON.stringify(customLabels || {});
@@ -93,7 +84,7 @@ router.post('/user/preferences', authMiddleware, async (req, res) => {
 // Lista template visibili all'operatore
 router.get('/email-templates', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const includeInactive = req.query.include_inactive === '1';
 
@@ -128,7 +119,7 @@ router.get('/email-templates', authMiddleware, async (req, res) => {
 // Singolo template per ID
 router.get('/email-templates/:id', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const result = await pool.request()
             .input('id', sql.Int, parseInt(req.params.id, 10))
             .query(`
@@ -151,7 +142,7 @@ router.get('/email-templates/:id', authMiddleware, async (req, res) => {
 // Crea template personale
 router.post('/email-templates', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const { nome, oggetto, corpo, lingua, isDefault, fornitoreCode } = req.body;
 
@@ -187,7 +178,7 @@ router.post('/email-templates', authMiddleware, async (req, res) => {
 // Aggiorna template (solo propri, non di sistema)
 router.put('/email-templates/:id', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const templateId = parseInt(req.params.id, 10);
         const { nome, oggetto, corpo, lingua, isDefault } = req.body;
@@ -229,7 +220,7 @@ router.put('/email-templates/:id', authMiddleware, async (req, res) => {
 // Elimina template (soft delete: IsActive=0)
 router.delete('/email-templates/:id', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const templateId = parseInt(req.params.id, 10);
 
@@ -253,7 +244,7 @@ router.delete('/email-templates/:id', authMiddleware, async (req, res) => {
 // Riattiva template disattivato
 router.put('/email-templates/:id/reactivate', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const templateId = parseInt(req.params.id, 10);
 
@@ -280,7 +271,7 @@ router.put('/email-templates/:id/reactivate', authMiddleware, async (req, res) =
 // Lista assegnazioni fornitore-template dell'operatore
 router.get('/email-template-assegnazioni', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
 
         const result = await pool.request()
@@ -300,7 +291,7 @@ router.get('/email-template-assegnazioni', authMiddleware, async (req, res) => {
 // Upsert assegnazione fornitore-template
 router.put('/email-template-assegnazione/:fornitoreCode', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const fornitoreCode = parseInt(req.params.fornitoreCode, 10);
         const { templateId } = req.body;
@@ -335,12 +326,12 @@ router.put('/email-template-assegnazione/:fornitoreCode', authMiddleware, async 
 // Lista fornitori attivi (da ordini) con assegnazione template
 router.get('/fornitori-template', authMiddleware, async (req, res) => {
     try {
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
         const userId = getUserId(req);
 
         // Query leggera su anagra (tipo F) + pagamento — senza CTE su ordlist/testord che sono lente
         // Il campo ultimo_ordine viene recuperato on-demand nel pannello espanso
-        const poolERP = await getPoolERP(userId);
+        const poolERP = await getPoolDest(userId);
 
         const erpResult = await poolERP.request().query(`
             SELECT an.an_conto AS codice, RTRIM(an.an_descr1) AS nome,
@@ -409,7 +400,7 @@ router.put('/template-assegnazione-batch', authMiddleware, async (req, res) => {
         if (!Array.isArray(codici) || !codici.length) return res.status(400).json({ error: 'codici obbligatorio (array)' });
         const tid = templateId ? parseInt(templateId, 10) : null;
         const userId = getUserId(req);
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
 
         // Una singola query con OPENJSON — da N round-trip a 1 round-trip
         const jsonCodici = JSON.stringify(codici.map(c => parseInt(c, 10)));
@@ -455,7 +446,7 @@ router.put('/template-assegnazione-batch', authMiddleware, async (req, res) => {
 
 router.put('/template-mode', authMiddleware, async (req, res) => {
     try {
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
         const userId = getUserId(req);
         const { mode } = req.body;
 
@@ -488,29 +479,15 @@ router.put('/template-mode', authMiddleware, async (req, res) => {
 router.get('/check-anagra-column', authMiddleware, async (req, res) => {
     try {
         const uid = getUserId(req);
-        const isProd = isProduction(uid);
+        const pool = await getPoolDest(uid);
         let exists = false;
 
-        if (isProd) {
-            // Produzione: check sulla tabella reale in BCUBE2 via poolProd cross-server
-            const poolProd = await getPoolProd();
-            const profile = getActiveProfile(uid);
-            const linkedServer = (profile.server_ujet11 || PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
-            const dbName = (profile.database_ujet11 || PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
-            const r = await poolProd.request().query(
-                `SELECT 1 AS ok FROM [${linkedServer}].[${dbName}].INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'`
-            );
-            exists = r.recordset.length > 0;
-        } else {
-            // Prova: check diretto su UJET11
-            const pool = await getPoolMRP(uid);
-            const r = await pool.request().query(
-                "SELECT 1 AS ok FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'"
-            );
-            exists = r.recordset.length > 0;
-        }
+        const r = await pool.request().query(
+            "SELECT 1 AS ok FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'"
+        );
+        exists = r.recordset.length > 0;
 
-        res.json({ exists, isProduction: isProd });
+        res.json({ exists });
     } catch (err) {
         console.error('[GB2] check-anagra-column error:', err.message);
         res.json({ exists: false, error: err.message });
@@ -521,89 +498,47 @@ router.get('/check-anagra-column', authMiddleware, async (req, res) => {
 router.post('/deploy-anagra-column', authMiddleware, async (req, res) => {
     try {
         const uid = getUserId(req);
-        const isProd = isProduction(uid);
+        const pool = await getPoolDest(uid);
 
-        if (isProd) {
-            // PRODUZIONE: DDL (ALTER TABLE) richiede connessione DIRETTA a BCUBE2
-            // perche SQL Server non supporta ALTER TABLE cross-server via linked server.
-            // Dopo il DDL, refresh della vista in MRP e UPDATE via la vista.
-            const poolProd = await getPoolProd();
-            const profile = getActiveProfile(uid);
-            const remoteServer = (profile.server_ujet11 || PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
-            const dbName = (profile.database_ujet11 || PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
+        // 1. Verifica che non esista gia
+        const check = await pool.request().query(
+            "SELECT 1 AS ok FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'"
+        );
+        if (check.recordset.length === 0) {
+            // 2. ALTER TABLE diretto
+            await pool.request().batch('ALTER TABLE dbo.anagra ADD HH_TipoReport VARCHAR(10) NULL');
+            const serverDest = (getActiveProfile(uid).server || 'BCUBE2').trim();
+            console.log('[GB2] Colonna HH_TipoReport creata su ' + serverDest);
 
-            // 1. Verifica che non esista gia (via linked server — SELECT funziona)
-            const check = await poolProd.request().query(
-                `SELECT 1 AS ok FROM [${remoteServer}].[${dbName}].INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'`
-            );
-            if (check.recordset.length === 0) {
-                // 2. Connessione diretta temporanea a BCUBE2 per il DDL
-                const directPool = await new sql.ConnectionPool({
-                    server: remoteServer,
-                    database: dbName,
-                    user: PRODUCTION_PROFILE.user,
-                    password: PRODUCTION_PROFILE.password,
-                    options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
-                    pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
-                }).connect();
-
-                try {
-                    // 2a. ALTER TABLE diretto
-                    await directPool.request().batch('ALTER TABLE dbo.anagra ADD HH_TipoReport VARCHAR(10) NULL');
-                    console.log('[GB2] Colonna HH_TipoReport creata su ' + remoteServer + '/' + dbName);
-
-                    // 2b. ms_description
-                    try {
-                        await directPool.request().batch(
-                            "EXEC sp_addextendedproperty " +
-                            "@name=N'MS_Description', " +
-                            "@value=N'GB2: classificazione fornitore per layout PDF ordine (IT/UE/EXTRA_UE). Creata da GB2.', " +
-                            "@level0type=N'SCHEMA', @level0name=N'dbo', " +
-                            "@level1type=N'TABLE', @level1name=N'anagra', " +
-                            "@level2type=N'COLUMN', @level2name=N'HH_TipoReport'"
-                        );
-                    } catch (descErr) {
-                        console.warn('[GB2] ms_description non aggiunta (non critico):', descErr.message);
-                    }
-                } finally {
-                    try { await directPool.close(); } catch (_) {}
-                }
-
-                // 3. Refresh vista in MRP per renderla visibile
-                await poolProd.request().batch("EXEC sp_refreshview 'dbo.anagra'");
-                console.log('[GB2] Vista anagra refreshata dopo ALTER TABLE su ' + remoteServer);
+            // 2b. ms_description
+            try {
+                await pool.request().batch(
+                    "EXEC sp_addextendedproperty " +
+                    "@name=N'MS_Description', " +
+                    "@value=N'GB2: classificazione fornitore per layout PDF ordine (IT/UE/EXTRA_UE). Creata da GB2.', " +
+                    "@level0type=N'SCHEMA', @level0name=N'dbo', " +
+                    "@level1type=N'TABLE', @level1name=N'anagra', " +
+                    "@level2type=N'COLUMN', @level2name=N'HH_TipoReport'"
+                );
+            } catch (descErr) {
+                console.warn('[GB2] ms_description non aggiunta (non critico):', descErr.message);
             }
-
-            // 4. Popola via la vista (ora aggiornata) — usa il file SQL logica UPDATE
-            const updateResult = await poolProd.request().query(`
-                UPDATE dbo.anagra
-                SET HH_TipoReport = CASE
-                    WHEN RTRIM(ISNULL(an_nazion1, '')) IN ('A','B','BG','CZ','DK','DE','EW','E','F','FIN','GR','H','HR','IRL','L','LT','LV','M','NL','P','PL','RO','S','SK','SLO') THEN 'UE'
-                    WHEN RTRIM(ISNULL(an_nazion1, '')) <> '' THEN 'EXTRA_UE'
-                    WHEN LEN(RTRIM(ISNULL(an_prov, ''))) = 2 THEN 'IT'
-                    WHEN RTRIM(ISNULL(an_pariva, '')) = '' THEN 'IT'
-                    WHEN LEN(RTRIM(an_pariva)) = 11 AND ISNUMERIC(RTRIM(an_pariva)) = 1 THEN 'IT'
-                    ELSE 'EXTRA_UE'
-                END
-                WHERE an_tipo = 'F' AND HH_TipoReport IS NULL
-            `);
-            res.json({ success: true, rowsUpdated: updateResult.rowsAffected[0] || 0, mode: 'production' });
-
-        } else {
-            // PROVA: esegue il file SQL direttamente su UJET11
-            const pool = await getPoolMRP(uid);
-            const sqlDir = path.join(__dirname, '..', 'sql', 'mrp');
-            const filePath = path.join(sqlDir, 'deploy_anagra_hh_tiporeport.sql');
-            if (!fs.existsSync(filePath)) {
-                return res.status(500).json({ error: 'File SQL non trovato: deploy_anagra_hh_tiporeport.sql' });
-            }
-            await executeSqlFile(pool, filePath);
-            // Conta quanti aggiornati
-            const cnt = await pool.request().query(
-                "SELECT COUNT(*) AS cnt FROM dbo.anagra WHERE an_tipo='F' AND HH_TipoReport IS NOT NULL"
-            );
-            res.json({ success: true, rowsUpdated: cnt.recordset[0].cnt, mode: 'test' });
         }
+
+        // 3. Popola
+        const updateResult = await pool.request().query(`
+            UPDATE dbo.anagra
+            SET HH_TipoReport = CASE
+                WHEN RTRIM(ISNULL(an_nazion1, '')) IN ('A','B','BG','CZ','DK','DE','EW','E','F','FIN','GR','H','HR','IRL','L','LT','LV','M','NL','P','PL','RO','S','SK','SLO') THEN 'UE'
+                WHEN RTRIM(ISNULL(an_nazion1, '')) <> '' THEN 'EXTRA_UE'
+                WHEN LEN(RTRIM(ISNULL(an_prov, ''))) = 2 THEN 'IT'
+                WHEN RTRIM(ISNULL(an_pariva, '')) = '' THEN 'IT'
+                WHEN LEN(RTRIM(an_pariva)) = 11 AND ISNUMERIC(RTRIM(an_pariva)) = 1 THEN 'IT'
+                ELSE 'EXTRA_UE'
+            END
+            WHERE an_tipo = 'F' AND HH_TipoReport IS NULL
+        `);
+        res.json({ success: true, rowsUpdated: updateResult.rowsAffected[0] || 0 });
     } catch (err) {
         console.error('[GB2] deploy-anagra-column error:', err.message);
         res.status(500).json({ error: err.message });
@@ -613,7 +548,7 @@ router.post('/deploy-anagra-column', authMiddleware, async (req, res) => {
 // Lista fornitori con classificazione HH_TipoReport
 router.get('/fornitori-classificazione', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolMRP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         // Verifica prima se la colonna esiste
         const colCheck = await pool.request().query(
             "SELECT 1 AS ok FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='anagra' AND COLUMN_NAME='HH_TipoReport'"
@@ -647,33 +582,13 @@ router.put('/fornitore-classificazione/:codice', authMiddleware, async (req, res
             return res.status(400).json({ error: 'codice fornitore non valido' });
         }
         const uid = getUserId(req);
-        const isProd = isProduction(uid);
+        const pool = await getPoolDest(uid);
 
-        let pool;
-        let tempPool = null;
-        if (isProd) {
-            const remoteServer = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
-            const dbName = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
-            tempPool = await new sql.ConnectionPool({
-                server: remoteServer, database: dbName,
-                user: PRODUCTION_PROFILE.user, password: PRODUCTION_PROFILE.password,
-                options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
-                pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
-            }).connect();
-            pool = tempPool;
-        } else {
-            pool = await getPoolMRP(uid);
-        }
-
-        try {
-            await pool.request()
-                .input('tipo', sql.VarChar, tipo)
-                .input('codice', sql.Int, codice)
-                .query('UPDATE dbo.anagra SET HH_TipoReport = @tipo WHERE an_conto = @codice');
-            res.json({ success: true });
-        } finally {
-            if (tempPool) try { await tempPool.close(); } catch (_) {}
-        }
+        await pool.request()
+            .input('tipo', sql.VarChar, tipo)
+            .input('codice', sql.Int, codice)
+            .query('UPDATE dbo.anagra SET HH_TipoReport = @tipo WHERE an_conto = @codice');
+        res.json({ success: true });
     } catch (err) {
         console.error('[GB2] fornitore-classificazione PUT error:', err.message);
         res.status(500).json({ error: err.message });
@@ -684,7 +599,7 @@ router.put('/fornitore-classificazione/:codice', authMiddleware, async (req, res
 router.get('/fornitore-ultimo-ordine/:codice', authMiddleware, async (req, res) => {
     try {
         const codice = parseInt(req.params.codice, 10);
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const r = await pool.request()
             .input('codice', sql.Int, codice)
             .query("SELECT TOP 1 td_datord AS ultimo_ordine FROM dbo.testord WHERE codditt='UJET11' AND td_tipork='O' AND td_conto=@codice ORDER BY td_datord DESC");
@@ -696,8 +611,6 @@ router.get('/fornitore-ultimo-ordine/:codice', authMiddleware, async (req, res) 
 });
 
 // Aggiorna email e/o banca di un fornitore in anagrafica
-// In prova: scrive direttamente su UJET11 del server di prova via getPoolMRP
-// In produzione: connessione diretta temporanea a BCUBE2 (ALTER/UPDATE non passa via linked server viste)
 router.put('/fornitore-anagrafica/:codice', authMiddleware, async (req, res) => {
     try {
         const codice = parseInt(req.params.codice, 10);
@@ -705,7 +618,6 @@ router.put('/fornitore-anagrafica/:codice', authMiddleware, async (req, res) => 
 
         const { email, banca1, banca2, abi, cab, iban, swift } = req.body;
         const uid = getUserId(req);
-        const isProd = isProduction(uid);
 
         const sets = [];
         const params = { codice };
@@ -718,24 +630,9 @@ router.put('/fornitore-anagrafica/:codice', authMiddleware, async (req, res) => 
         if (swift !== undefined) { params.swift = (swift || '').trim(); sets.push('an_swift = @swift'); }
         if (!sets.length) return res.status(400).json({ error: 'Nessun campo da aggiornare' });
 
-        let pool;
-        let tempPool = null;
-        if (isProd) {
-            // Produzione: connessione diretta a BCUBE2
-            const remoteServer = (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2').trim();
-            const dbName = (PRODUCTION_PROFILE.database_ujet11 || 'UJET11').trim();
-            tempPool = await new sql.ConnectionPool({
-                server: remoteServer, database: dbName,
-                user: PRODUCTION_PROFILE.user, password: PRODUCTION_PROFILE.password,
-                options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
-                pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
-            }).connect();
-            pool = tempPool;
-        } else {
-            pool = await getPoolMRP(uid);
-        }
+        const pool = await getPoolDest(uid);
 
-        try {
+        {
             const request = pool.request().input('codice', sql.Int, codice);
             if (params.email !== undefined) request.input('email', sql.VarChar, params.email);
             if (params.banca1 !== undefined) request.input('banca1', sql.VarChar, params.banca1);
@@ -746,7 +643,9 @@ router.put('/fornitore-anagrafica/:codice', authMiddleware, async (req, res) => 
             if (params.swift !== undefined) request.input('swift', sql.VarChar, params.swift);
             const updateResult = await request.query(`UPDATE dbo.anagra SET ${sets.join(', ')} WHERE an_conto = @codice`);
             const rowsAffected = updateResult.rowsAffected[0] || 0;
-            console.log('[GB2] fornitore-anagrafica UPDATE:', codice, '| sets:', sets.join(', '), '| rows:', rowsAffected, '| isProd:', isProd);
+            const profile = getActiveProfile(uid);
+            const serverDest = (profile.server || 'BCUBE2').trim();
+            console.log('[GB2] fornitore-anagrafica UPDATE:', codice, '| sets:', sets.join(', '), '| rows:', rowsAffected, '| server:', serverDest);
 
             const verifica = await pool.request().input('codice', sql.Int, codice)
                 .query(`SELECT RTRIM(ISNULL(an_email,'')) AS email, RTRIM(ISNULL(an_banc1,'')) AS banca1,
@@ -756,14 +655,9 @@ router.put('/fornitore-anagrafica/:codice', authMiddleware, async (req, res) => 
             const dopo = verifica.recordset[0] || {};
 
             // Info connessione per il modale di conferma
-            const profile = getActiveProfile(uid);
-            const serverInfo = isProd
-                ? (PRODUCTION_PROFILE.server_ujet11 || 'BCUBE2') + ' / ' + (PRODUCTION_PROFILE.database_ujet11 || 'UJET11')
-                : (profile.server || '192.168.0.163') + ' / ' + (profile.database_ujet11 || 'UJET11');
+            const serverInfo = serverDest + ' / ' + (profile.database_ujet11 || 'UJET11');
 
-            res.json({ success: true, rowsAffected, verifica: dopo, server: serverInfo, ambiente: isProd ? 'produzione' : 'prova' });
-        } finally {
-            if (tempPool) try { await tempPool.close(); } catch (_) {}
+            res.json({ success: true, rowsAffected, verifica: dopo, server: serverInfo, ambiente: serverDest });
         }
     } catch (err) {
         console.error('[GB2] fornitore-anagrafica PUT error:', err.message);

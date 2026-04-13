@@ -1,9 +1,9 @@
 -- ============================================================
 -- SP: usp_AggiornaStatoInvioOrdine
--- Database: [GB2] sul server di destinazione (BCUBE2 o prova)
+-- Database: [GB2_SP] sul server di destinazione (BCUBE2 o prova)
 -- Scopo: Aggiorna lo stato di stampa/invio di un ordine in testord
 -- ============================================================
--- Deploy: deployata nel DB [GB2] del server di destinazione.
+-- Deploy: deployata nel DB [GB2_SP] del server di destinazione.
 --         Referenzia [UJET11].[dbo] che e cross-database LOCALE.
 -- ============================================================
 -- NOTA ARCHITETTURALE — ordini_emessi

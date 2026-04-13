@@ -1,10 +1,10 @@
 -- ============================================================
 -- SP: usp_CreaOrdineFornitore
--- Database: [GB2] sul server di destinazione (BCUBE2 o prova)
+-- Database: [GB2_SP] sul server di destinazione (BCUBE2 o prova)
 -- Scopo: Crea un ordine fornitore atomico (testord + movord)
 --         con lock applicativo per gestire concorrenza
 -- ============================================================
--- Deploy: deployata nel DB [GB2] del server di destinazione.
+-- Deploy: deployata nel DB [GB2_SP] del server di destinazione.
 --         Referenzia [UJET11].[dbo] che e cross-database LOCALE
 --         (stesso server). Zero linked server, zero MSDTC.
 -- Compatibilita: SQL Server 2016+ (OPENJSON richiede compat level 130)
@@ -372,7 +372,7 @@ BEGIN
     -- ============================================================
     -- 5c. AGGIORNAMENTO SALDI BCube (keyord + artpro + artprox + lotcpro)
     -- Chiama la SP orchestra di BCube che popola keyord e aggiorna i saldi.
-    -- Funziona perche la SP sta su [GB2] dello stesso server di [UJET11] — locale.
+    -- Funziona perche la SP sta su [GB2_SP] dello stesso server di [UJET11] — locale.
     -- ============================================================
     EXEC [UJET11].[dbo].bussp_bsorgsor9_faggiorn2
         'O', @anno, @serie, @numord, @codditt, @oggi, @operatore;
@@ -391,7 +391,7 @@ BEGIN
     -- L'INSERT in ordini_emessi viene fatto da Node.js DOPO il successo
     -- di questa SP, usando il pool verso 163.
     -- Non tentare mai di scrivere ordini_emessi da qui: questa SP gira
-    -- su [GB2] del server BCube/prova, e non ha visibilita su 163.
+    -- su [GB2_SP] del server destinazione, e non ha visibilita su 163.
     -- ============================================================
 
     -- ============================================================

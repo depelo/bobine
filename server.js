@@ -112,10 +112,10 @@ server.listen(PORT, '0.0.0.0', async () => {
     // Auto-deploy oggetti SQL del modulo MRP/GB2 — in background (non blocca l'avvio)
     (async () => {
         try {
-            const { getPoolProd, getPoolBcube } = require('./config/db-gb2');
-            const poolProd = await getPoolProd();
-            const poolTarget = await getPoolBcube(); // BCUBE2 diretto per le SP
-            const results = await createGb2Routes.deployProductionObjects(poolProd, poolTarget);
+            const { getPool163, getPoolDest } = require('./config/db-gb2');
+            const pool163 = await getPool163();
+            const poolTarget = await getPoolDest(0); // server destinazione default
+            const results = await createGb2Routes.deployProductionObjects(pool163, poolTarget);
             console.log('[GB2] Auto-deploy SQL completato:', results.map(r => `${r.file}: ${r.status}`).join(', '));
         } catch (err) {
             console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);

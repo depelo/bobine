@@ -5,24 +5,16 @@ const { encrypt, decrypt } = require('../../config/crypto');
 const smtp = require('../../config/smtp-gb2');
 const { generaPdfOrdine } = require('../../utils/pdfOrdine');
 module.exports = function(router, deps) {
-    const { sql, getPoolMRP, getPoolProd, getPoolBcube, getActiveProfile, isProduction,
+    const { sql, getPoolDest, getPool163, getActiveProfile,
             PRODUCTION_PROFILE, authMiddleware } = deps;
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const compilaTemplate = helpers.compilaTemplate;
 
-    async function getPoolERP(userId) {
-        if (isProduction(userId)) {
-            const bcube = await getPoolBcube();
-            if (bcube) return bcube;
-        }
-        return getPoolMRP(userId);
-    }
-
 router.get('/smtp/config', authMiddleware, async (req, res) => {
     try {
         const userId = getUserId(req);
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
         const result = await poolProd.request()
             .input('userId', sql.Int, userId)
             .query(`SELECT SmtpHost, SmtpPort, SmtpSecure, SmtpUser,
@@ -59,7 +51,7 @@ router.post('/smtp/config', authMiddleware, async (req, res) => {
         const { host, port, secure, user, password, from_address, from_name, firma } = req.body;
 
         const encPassword = (password && password.trim()) ? encrypt(password) : null;
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
 
         // Upsert: se la riga UserPreferences esiste, aggiorna; altrimenti crea
         const exists = await poolProd.request()
@@ -134,8 +126,8 @@ router.post('/smtp/test', authMiddleware, async (req, res) => {
 
 // Funzione interna: compila template per un ordine (usata da preview e invio)
 async function _compilaEmailOrdine(userId, anno, serie, numord, template_id) {
-    const pool = await getPoolProd();         // tabelle app (GB2, EmailTemplates, ecc.)
-    const poolErp = await getPoolERP(userId); // tabelle BCube (testord, anagra, tabpaga)
+    const pool = await getPool163();         // tabelle app (GB2, EmailTemplates, ecc.)
+    const poolErp = await getPoolDest(userId); // tabelle BCube (testord, anagra, tabpaga)
 
     // Dati ordine (testata) — su BCube diretto, arricchita con campi bancari e pagamento
     const ordRes = await poolErp.request()
@@ -272,9 +264,10 @@ router.post('/preview-ordine-email', authMiddleware, async (req, res) => {
 
         // Info ambiente
         const dbProfile = getActiveProfile(userId);
-        const ambiente = dbProfile.ambiente || 'produzione';
+        const ambiente = (dbProfile.server || 'BCUBE2').trim();
+        const isProva = !!(dbProfile._testDbId);
         let destinatario = preview.fornitore_email;
-        if (ambiente === 'prova') {
+        if (isProva) {
             destinatario = (dbProfile.email_prova || '').trim() || '(email prova non configurata)';
         }
 
@@ -335,7 +328,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         }
 
         // Leggi dati ordine per email (fornitore, articoli)
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const testataRes = await pool.request()
             .input('anno', sql.SmallInt, parseInt(anno, 10))
             .input('serie', sql.VarChar(3), serie)
@@ -365,11 +358,12 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
 
         // Redirect email in ambiente prova
         const dbProfile = getActiveProfile(getUserId(req));
-        const ambiente = dbProfile.ambiente || 'produzione';
+        const ambiente = (dbProfile.server || 'BCUBE2').trim();
+        const isProva = !!(dbProfile._testDbId);
         let destinatari = destinatariReali;
         let emailReale = destinatariReali.join(', ');
 
-        if (ambiente === 'prova') {
+        if (isProva) {
             const emailProva = (dbProfile.email_prova || '').trim();
             if (!emailProva) {
                 return res.status(400).json({
@@ -424,7 +418,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         }
 
         const nomeFile = pdf_filename || `OrdineForn${anno}${serie}${String(numord).padStart(6,'0')}.pdf`;
-        const prefissoProva = ambiente === 'prova' ? '[PROVA] ' : '';
+        const prefissoProva = isProva ? '[PROVA] ' : '';
 
         // --- Compilazione oggetto e corpo email ---
         let oggetto, corpoHtml;
@@ -441,7 +435,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         }
 
         // Avviso prova in testa
-        const avvisoProva = ambiente === 'prova'
+        const avvisoProva = isProva
             ? `<div style="background:#fff3cd; padding:10px 14px; border:1px solid #ffc107; border-radius:4px; margin-bottom:16px;">
                 <strong>⚠️ ORDINE DI PROVA</strong> — Il destinatario reale sarebbe stato: <strong>${emailReale}</strong>
                </div>`
@@ -468,7 +462,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
 
         // Aggiorna stato invio nel DB (SP su MRP@163)
         try {
-            const poolSP = await getPoolProd();
+            const poolSP = await getPool163();
             const spNameAggiorna = getSpName('usp_AggiornaStatoInvioOrdine', getActiveProfile(getUserId(req)));
             const spExists = await checkSpExists(poolSP, spNameAggiorna);
             if (spExists) {
@@ -485,7 +479,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
 
         // Aggiorna tracciamento email in ordini_emessi (sempre su MRP@163)
         try {
-            const poolOE = await getPoolProd();
+            const poolOE = await getPool163();
             await poolOE.request()
                 .input('anno', sql.SmallInt, parseInt(anno, 10))
                 .input('serie', sql.VarChar(3), serie)
@@ -506,7 +500,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             ordine: { anno, serie, numord, fornitore: ordine.fornitore_nome }
         };
 
-        if (ambiente === 'prova') {
+        if (isProva) {
             risposta.ambiente = 'prova';
             risposta.email_reale = emailReale;
             risposta.email_prova = destinatari.join(', ');
@@ -514,7 +508,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
 
         // Cancella eventuale bozza dopo invio riuscito
         try {
-            const poolDraft = await getPoolProd();
+            const poolDraft = await getPool163();
             await poolDraft.request()
                 .input('uid', sql.Int, userId)
                 .input('anno', sql.SmallInt, parseInt(anno, 10))
@@ -539,7 +533,7 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
 // GET /email-drafts — tutte le bozze dell'operatore (o filtrate per ordine)
 router.get('/email-drafts', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const { anno, serie, numord } = req.query;
 
@@ -564,7 +558,7 @@ router.get('/email-drafts', authMiddleware, async (req, res) => {
 // PUT /email-drafts — upsert bozza (salva o aggiorna)
 router.put('/email-drafts', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const { anno, serie, numord, oggetto, corpo } = req.body;
 
@@ -596,7 +590,7 @@ router.put('/email-drafts', authMiddleware, async (req, res) => {
 // DELETE /email-drafts — cancella bozza specifica
 router.delete('/email-drafts', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolProd();
+        const pool = await getPool163();
         const userId = getUserId(req);
         const { anno, serie, numord } = req.body;
 

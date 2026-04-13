@@ -83,13 +83,10 @@ BEGIN
         PRINT 'Indice IX_ordini_emessi_ambiente creato.';
     END
 
-    -- Migrazione retroattiva: marca come 'prova' tutti gli ordini che hanno ancora il default 'produzione'
-    -- (tutti quelli emessi prima dell'introduzione della colonna ambiente)
-    IF EXISTS (SELECT 1 FROM dbo.ordini_emessi WHERE ambiente = 'produzione')
-    BEGIN
-        UPDATE dbo.ordini_emessi SET ambiente = 'prova' WHERE ambiente = 'produzione';
-        PRINT 'Ordini esistenti marcati come prova.';
-    END
+    -- Migrazione retroattiva RIMOSSA (13/04/2026):
+    -- Il vecchio codice convertiva tutti i 'produzione' in 'prova' ad ogni deploy.
+    -- Questo era sbagliato perche cancellava i dati produzione reali.
+    -- La colonna ambiente viene ora valorizzata correttamente al momento dell'INSERT.
 
     -- Colonna origine: 'gb2' (emesso dalla nostra app) o 'bcube' (emesso da BCube, rilevato da noi)
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('ordini_emessi') AND name = 'origine')

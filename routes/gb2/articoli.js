@@ -2,26 +2,16 @@
  * GB2 Routes — Ricerca articoli + progressivi + caricaMRP
  */
 module.exports = function(router, deps) {
-    const { sql, getPoolMRP, getPoolProd, getActiveProfile, isProduction,
-            PRODUCTION_PROFILE, authMiddleware, getPoolBcube } = deps;
+    const { sql, getPoolDest, getPool163, getActiveProfile,
+            PRODUCTION_PROFILE, authMiddleware } = deps;
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const getPoliticaRiordino = helpers.getPoliticaRiordino;
 
-    // Pool ERP ottimizzato: in produzione usa poolBcube (diretto, JOIN 5x piu veloci),
-    // in prova usa getPoolMRP (diretto su UJET11 del server prova).
-    async function getPoolERP(userId) {
-        if (isProduction(userId)) {
-            const bcube = await getPoolBcube();
-            if (bcube) return bcube;
-        }
-        return getPoolMRP(userId);
-    }
-
 router.get('/articoli/search', authMiddleware, async (req, res) => {
     try {
         const { q, field } = req.query; // field: 'codart' | 'codalt' | 'descr'
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
 
         let where = '';
         if (q && q.trim()) {
@@ -62,7 +52,7 @@ router.get('/articoli/search', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/articoli/:codart/fasi', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const result = await pool.request()
             .input('codart', sql.NVarChar, req.params.codart)
             .query(`
@@ -84,7 +74,7 @@ router.get('/articoli/:codart/fasi', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/magazzini', authMiddleware, async (req, res) => {
     try {
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const result = await pool.request()
             .query(`
                 SELECT tb_codmaga, tb_desmaga
@@ -137,7 +127,7 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
         // 2) Emissioni dalla nostra app (ordini_emessi su MRP@163)
         (async () => {
             try {
-                const poolEmessi = await getPoolProd();
+                const poolEmessi = await getPool163();
                 return await poolEmessi.request()
                     .input('codart_em', sql.NVarChar, codart)
                     .query(`
@@ -552,7 +542,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
 
         const artResult = await pool.request()
             .input('codart', sql.NVarChar, codart)
@@ -772,7 +762,7 @@ router.get('/progressivi/expand', authMiddleware, async (req, res) => {
         const { codart, livello } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const liv = parseInt(livello, 10) || 1;
         const righe = [];
 
@@ -848,7 +838,7 @@ router.get('/ordini-dettaglio', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 
@@ -913,7 +903,7 @@ router.get('/ordini-rmp', authMiddleware, async (req, res) => {
         const { codart, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const request = pool.request().input('codart', sql.NVarChar, codart);
 
         let filtri = '';
@@ -968,7 +958,7 @@ router.get('/ordini-padre', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 
@@ -1044,7 +1034,7 @@ router.get('/ordini-padre-rmp', authMiddleware, async (req, res) => {
         const { codart, magaz, fase } = req.query;
         if (!codart) return res.status(400).json({ error: 'codart richiesto' });
 
-        const pool = await getPoolERP(getUserId(req));
+        const pool = await getPoolDest(getUserId(req));
         const request = pool.request()
             .input('codart', sql.NVarChar, codart);
 

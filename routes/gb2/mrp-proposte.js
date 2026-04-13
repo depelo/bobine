@@ -2,19 +2,11 @@
  * GB2 Routes — Proposte ordini MRP + consumi storici
  */
 module.exports = function(router, deps) {
-    const { sql, getPoolMRP, getPoolProd, getActiveProfile, isProduction,
-            PRODUCTION_PROFILE, authMiddleware, getPoolBcube } = deps;
+    const { sql, getPoolDest, getPool163, getActiveProfile,
+            PRODUCTION_PROFILE, authMiddleware } = deps;
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const getPoolRiep = helpers.getPoolRiep;
-
-    async function getPoolERP(userId) {
-        if (isProduction(userId)) {
-            const bcube = await getPoolBcube();
-            if (bcube) return bcube;
-        }
-        return getPoolMRP(userId);
-    }
 
 router.get('/consumi/sprint-multi', authMiddleware, async (req, res) => {
     try {
@@ -89,7 +81,7 @@ router.get('/consumi/marathon-multi', authMiddleware, async (req, res) => {
 
         const uid = getUserId(req);
         const poolRiep = await getPoolRiep(uid);
-        const poolData = await getPoolERP(uid);
+        const poolData = await getPoolDest(uid);
         const placeholders = codarts.map((_, i) => `@c${i}`).join(', ');
 
         // Query Riep (potrebbe essere su pool produzione)
@@ -191,7 +183,7 @@ router.get('/consumi/marathon/:codart', authMiddleware, async (req, res) => {
         const codart = req.params.codart;
         const uid = getUserId(req);
         const poolRiepData = await getPoolRiep(uid);
-        const poolData = await getPoolERP(uid);
+        const poolData = await getPoolDest(uid);
 
         const riepResult = await poolRiepData.request()
             .input('codart', sql.NVarChar, codart)
@@ -236,19 +228,9 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
     try {
         const userId = getUserId(req);
         const profile = getActiveProfile(userId);
-        const ambiente = (profile && profile.ambiente) || 'produzione';
-        const isProd = isProduction(userId);
-        const poolGB2 = await getPoolProd();
-
-        // In produzione: usa poolBcube (diretto a BCUBE2, JOIN 5x piu veloci).
-        // In prova: usa getPoolMRP (diretto a UJET11 del server prova).
-        // Fallback: se poolBcube non disponibile, usa getPoolMRP (viste MRP).
-        let pool;
-        if (isProd) {
-            pool = await getPoolBcube() || await getPoolMRP(userId);
-        } else {
-            pool = await getPoolMRP(userId);
-        }
+        const serverDest = (profile.server || 'BCUBE2').trim();
+        const poolGB2 = await getPool163();
+        const pool = await getPoolDest(userId);
 
         // ─── 3 query in PARALLELO (indipendenti tra loro) ───
         const [result, fpRes, emissioniRes, ordiniBcubeRes] = await Promise.all([
@@ -293,14 +275,14 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
             (async () => {
                 try {
                     return await poolGB2.request()
-                        .input('amb', sql.VarChar(20), ambiente)
+                        .input('amb', sql.VarChar(20), serverDest)
                         .query(`
                             SELECT ol_progr, ord_anno, ord_serie, ord_numord, ol_codart, ol_conto,
                                    quantita_ordinata, data_emissione, elaborazione_id,
                                    ISNULL(email_inviata, 0) AS email_inviata, email_inviata_il,
                                    ISNULL(origine, 'gb2') AS origine
                             FROM dbo.ordini_emessi
-                            WHERE ISNULL(ambiente, 'produzione') = @amb
+                            WHERE ambiente = @amb
                         `);
                 } catch (_) {
                     try {
@@ -343,7 +325,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 // 2) Check se elaborazione già registrata
                 let elabRes = await poolGB2.request()
                     .input('fp', sql.DateTime, fingerprint)
-                    .input('amb', sql.VarChar(20), ambiente)
+                    .input('amb', sql.VarChar(20), serverDest)
                     .query(`
                         SELECT ID, TotaleProposte, TotaleGestite, Fingerprint, RilevatoIl
                         FROM [GB2].[dbo].[ElaborazioniMRP]
@@ -358,7 +340,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                             .input('fp', sql.DateTime, fingerprint)
                             .input('tot', sql.Int, result.recordset.length)
                             .input('uid', sql.Int, userId)
-                            .input('amb', sql.VarChar(20), ambiente)
+                            .input('amb', sql.VarChar(20), serverDest)
                             .query(`
                                 INSERT INTO [GB2].[dbo].[ElaborazioniMRP]
                                     (Fingerprint, TotaleProposte, TotaleGestite, IDUser, Ambiente)
@@ -371,7 +353,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                         if (dupErr.number === 2601 || dupErr.number === 2627) {
                             const retry = await poolGB2.request()
                                 .input('fp', sql.DateTime, fingerprint)
-                                .input('amb', sql.VarChar(20), ambiente)
+                                .input('amb', sql.VarChar(20), serverDest)
                                 .query(`SELECT ID FROM [GB2].[dbo].[ElaborazioniMRP] WHERE Fingerprint=@fp AND Ambiente=@amb`);
                             elabId = retry.recordset[0].ID;
                         } else {
@@ -505,7 +487,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                         .input('numord', sql.Int, o.td_numord)
                         .input('riga', sql.Int, o.mo_riga || 0)
                         .input('qta', sql.Decimal(18, 9), o.mo_quant || 0)
-                        .input('amb', sql.VarChar(20), ambiente)
+                        .input('amb', sql.VarChar(20), serverDest)
                         .query(`INSERT INTO dbo.ordini_emessi
                             (ol_progr, ol_codart, ol_conto, ol_magaz, ol_fase,
                              ord_anno, ord_serie, ord_numord, ord_riga, quantita_ordinata,

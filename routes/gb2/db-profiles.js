@@ -3,7 +3,7 @@
  */
 const { encrypt, decrypt } = require('../../config/crypto');
 module.exports = function(router, deps) {
-    const { sql, getPoolMRP, getPoolProd, getActiveProfile, isProduction,
+    const { sql, getPoolDest, getPool163, getActiveProfile,
             PRODUCTION_PROFILE, authMiddleware, switchToTest, switchToProduction, setTestHasRiep } = deps;
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
@@ -22,7 +22,7 @@ router.get('/db/active-profile', authMiddleware, (req, res) => {
 router.get('/db/profiles', authMiddleware, async (req, res) => {
     try {
         const userId = getUserId(req);
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
 
         // Profilo produzione (senza password)
         const { password: _, ...prodSafe } = PRODUCTION_PROFILE;
@@ -76,7 +76,7 @@ router.post('/db/switch-test', authMiddleware, async (req, res) => {
         if (!testProfileId) return res.status(400).json({ error: 'testProfileId richiesto' });
 
         const userId = getUserId(req);
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
 
         // Leggi il profilo dal DB (inclusa password crittata)
         const result = await poolProd.request()
@@ -122,7 +122,7 @@ router.post('/db/switch-test', authMiddleware, async (req, res) => {
         // Le SP servono solo al momento dell'emissione ordine, non adesso.
         (async () => {
             try {
-                const poolTest = await getPoolMRP(uid);
+                const poolTest = await getPoolDest(uid);
                 const deploy = await deployTestObjects(poolProd, poolTest, testProfile);
                 setTestHasRiep(uid, deploy.hasRiep);
                 console.log('[GB2] Deploy background T' + row.ID + ':', deploy.results.map(r => `${r.file}: ${r.status}`).join(', '), '| hasRiep:', deploy.hasRiep);
@@ -151,7 +151,7 @@ router.post('/db/profiles', authMiddleware, async (req, res) => {
 
         const encPassword = encrypt(password);
 
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
         const result = await poolProd.request()
             .input('userId', sql.Int, userId)
             .input('label', sql.VarChar(100), label)
@@ -188,7 +188,7 @@ router.put('/db/profiles/:id', authMiddleware, async (req, res) => {
     try {
         const dbId = parseInt(req.params.id, 10);
         const userId = getUserId(req);
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
 
         // Verifica che il profilo appartenga all'utente
         const check = await poolProd.request()
@@ -243,7 +243,7 @@ router.delete('/db/profiles/:id', authMiddleware, async (req, res) => {
     try {
         const dbId = parseInt(req.params.id, 10);
         const userId = getUserId(req);
-        const poolProd = await getPoolProd();
+        const poolProd = await getPool163();
 
         const result = await poolProd.request()
             .input('id', sql.Int, dbId)

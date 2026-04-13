@@ -5,19 +5,8 @@
 const path = require('path');
 const fs = require('fs');
 
-function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProduction,
+function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServerDest,
     getTestHasRiep, PRODUCTION_PROFILE }) {
-
-    // Calcola il prefisso cross-database per raggiungere UJET11 nelle SP
-    function getUjet11Ref(profile) {
-        if (!profile) return '[UJET11].[dbo]';
-        const linkedServer = (profile.server_ujet11 || profile.server || '').trim();
-        const dbName = (profile.database_ujet11 || 'UJET11').trim();
-        if (linkedServer) {
-            return `[${linkedServer}].[${dbName}].[dbo]`;
-        }
-        return `[${dbName}].[dbo]`;
-    }
 
     function getSpSuffix(profile) {
         if (!profile || !profile._testDbId) return '';
@@ -35,9 +24,7 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
         }
         const batches = sqlText.split(/^\s*GO\s*$/im).filter(b => b.trim());
         for (const batch of batches) {
-            if (batch.trim()) {
-                await pool.request().batch(batch);
-            }
+            if (batch.trim()) await pool.request().batch(batch);
         }
     }
 
@@ -53,39 +40,35 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
     }
 
     // Versione deploy — incrementare quando si modificano le SP o le tabelle
-    const DEPLOY_VERSION = '2.1';
+    const DEPLOY_VERSION = '2.2';
 
     /**
-     * Deploy SP e tabelle nel DB [GB2] del server di destinazione.
+     * Deploy SP e tabelle nel DB [GB2_SP] del server di destinazione.
      * Le SP stanno sullo stesso server di [UJET11] — zero linked server.
+     * Il DB si chiama sempre GB2_SP, sia su BCUBE2 che su qualsiasi server prova.
      * Con versioning: se la versione e uguale, skip (~50ms).
-     *
-     * @param {ConnectionPool} poolTarget — pool verso il server di destinazione (BCUBE2 o prova)
-     * @param {ConnectionPool} poolProd — pool MRP@163 (per tabelle locali GB2: Operators, ecc.)
-     * @param {string} [suffix=''] — suffisso SP per prova (es. '_T1')
      */
     async function deploySPToTarget(poolTarget, suffix) {
         const sqlDir = path.join(__dirname, '..', '..', 'sql', 'mrp');
         const results = [];
 
-        // 1. Crea DB [GB2] sul server di destinazione se non esiste
+        // 1. Crea DB [GB2_SP] sul server di destinazione se non esiste
         try {
             await poolTarget.request().batch(`
-                IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name='GB2')
-                    CREATE DATABASE [GB2]
+                IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name='GB2_SP')
+                    CREATE DATABASE [GB2_SP]
             `);
         } catch (e) {
-            // DB potrebbe gia esistere o permessi insufficienti
-            console.warn('[Deploy] Creazione DB GB2:', e.message);
+            console.warn('[Deploy] Creazione DB GB2_SP:', e.message);
         }
 
         // 2. Crea tabella DeployVersion se non esiste
         try {
             await poolTarget.request().batch(`
-                IF NOT EXISTS (SELECT 1 FROM [GB2].sys.tables WHERE name='DeployVersion')
+                IF NOT EXISTS (SELECT 1 FROM [GB2_SP].sys.tables WHERE name='DeployVersion')
                 BEGIN
-                    CREATE TABLE [GB2].[dbo].[DeployVersion] (Versione VARCHAR(10) NOT NULL, DeployedAt DATETIME NOT NULL DEFAULT GETDATE());
-                    INSERT INTO [GB2].[dbo].[DeployVersion] (Versione) VALUES ('0.0');
+                    CREATE TABLE [GB2_SP].[dbo].[DeployVersion] (Versione VARCHAR(10) NOT NULL, DeployedAt DATETIME NOT NULL DEFAULT GETDATE());
+                    INSERT INTO [GB2_SP].[dbo].[DeployVersion] (Versione) VALUES ('0.0');
                 END
             `);
         } catch (_) {}
@@ -94,7 +77,7 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
         const versionKey = DEPLOY_VERSION + (suffix || '');
         try {
             const verRes = await poolTarget.request().query(
-                "SELECT Versione FROM [GB2].[dbo].[DeployVersion]"
+                "SELECT Versione FROM [GB2_SP].[dbo].[DeployVersion]"
             );
             const currentVersion = verRes.recordset.length ? (verRes.recordset[0].Versione || '').trim() : '0.0';
             if (currentVersion === versionKey) {
@@ -102,20 +85,19 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
             }
         } catch (_) {}
 
-        // 4. Deploy SP nel DB [GB2] — connessione diretta al DB [GB2] (non USE prefix)
-        // Apriamo un pool temporaneo connesso direttamente a [GB2] sullo stesso server
-        let poolGB2Target = null;
+        // 4. Deploy SP nel DB [GB2_SP] — connessione diretta
+        let poolSPTarget = null;
         try {
             const serverAddr = poolTarget.config.server;
-            poolGB2Target = await new sql.ConnectionPool({
-                server: serverAddr, database: 'GB2',
+            poolSPTarget = await new sql.ConnectionPool({
+                server: serverAddr, database: 'GB2_SP',
                 user: poolTarget.config.user, password: poolTarget.config.password,
                 options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
                 pool: { max: 2, min: 0, idleTimeoutMillis: 10000 }
             }).connect();
         } catch (connErr) {
-            console.warn('[Deploy] Connessione a [GB2] fallita:', connErr.message);
-            return { skipped: false, version: versionKey, results: [{ file: 'GB2 conn', status: 'error', error: connErr.message }] };
+            console.warn('[Deploy] Connessione a [GB2_SP] fallita:', connErr.message);
+            return { skipped: false, version: versionKey, results: [{ file: 'GB2_SP conn', status: 'error', error: connErr.message }] };
         }
 
         try {
@@ -130,53 +112,40 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
                     }
                     const batches = sqlText.split(/^\s*GO\s*$/im).filter(b => b.trim());
                     for (const b of batches) {
-                        if (b.trim()) await poolGB2Target.request().batch(b);
+                        if (b.trim()) await poolSPTarget.request().batch(b);
                     }
                     results.push({ file, status: 'ok', suffix: suffix || '' });
                 } catch (err) { results.push({ file, status: 'error', error: err.message }); }
             }
         } finally {
-            try { await poolGB2Target.close(); } catch (_) {}
+            try { await poolSPTarget.close(); } catch (_) {}
         }
 
-        // 5. Deploy ordini_emessi sul server di destinazione (se non in MRP locale)
-        const oeFile = path.join(sqlDir, 'create_ordini_emessi.sql');
-        if (fs.existsSync(oeFile) && suffix) {
-            // In prova: ordini_emessi va su UJET11 del server prova
-            try {
-                let oeSql = fs.readFileSync(oeFile, 'utf-8');
-                oeSql = oeSql.replace(/\[MRP\]\.\[dbo\]/g, '[dbo]');
-                const batches = oeSql.split(/^\s*GO\s*$/im).filter(b => b.trim());
-                for (const b of batches) { if (b.trim()) await poolTarget.request().batch(b); }
-                results.push({ file: 'create_ordini_emessi.sql', status: 'ok' });
-            } catch (err) { results.push({ file: 'create_ordini_emessi.sql', status: 'error', error: err.message }); }
-        }
-
-        // 6. Aggiorna versione
+        // 5. Aggiorna versione
         try {
             await poolTarget.request()
                 .input('ver', sql.VarChar(10), versionKey)
-                .query("UPDATE [GB2].[dbo].[DeployVersion] SET Versione=@ver, DeployedAt=GETDATE()");
+                .query("UPDATE [GB2_SP].[dbo].[DeployVersion] SET Versione=@ver, DeployedAt=GETDATE()");
         } catch (_) {}
 
         return { skipped: false, version: versionKey, results };
     }
 
     /**
-     * Deploy completo produzione:
-     * - SP sul server di destinazione (BCUBE2 via poolTarget)
-     * - Tabelle locali su MRP@163 (poolProd)
+     * Deploy completo (al boot):
+     * - Tabelle app su MRP@163 (pool163)
+     * - SP sul server di destinazione default (poolTarget)
      */
-    async function deployProductionObjects(poolProd, poolTarget) {
+    async function deployProductionObjects(pool163, poolTarget) {
         const sqlDir = path.join(__dirname, '..', '..', 'sql', 'mrp');
         const results = [];
 
-        // Tabelle locali GB2 su MRP@163 (Operators, Preferences, ecc.)
+        // Tabelle app su MRP@163
         for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql', 'create_email_templates.sql', 'create_email_template_assegnazioni.sql']) {
             const filePath = path.join(sqlDir, file);
             if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
             try {
-                await executeSqlFile(poolProd, filePath);
+                await executeSqlFile(pool163, filePath);
                 results.push({ file, status: 'ok' });
             } catch (err) { results.push({ file, status: 'error', error: err.message }); }
         }
@@ -185,12 +154,12 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
         const oeFile = path.join(sqlDir, 'create_ordini_emessi.sql');
         if (fs.existsSync(oeFile)) {
             try {
-                await executeSqlFile(poolProd, oeFile);
+                await executeSqlFile(pool163, oeFile);
                 results.push({ file: 'create_ordini_emessi.sql', status: 'ok' });
             } catch (err) { results.push({ file: 'create_ordini_emessi.sql', status: 'error', error: err.message }); }
         }
 
-        // SP sul server di destinazione (con versioning)
+        // SP sul server destinazione (con versioning)
         if (poolTarget) {
             const spDeploy = await deploySPToTarget(poolTarget, '');
             if (spDeploy.skipped) {
@@ -205,16 +174,12 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
 
     /**
      * Deploy per profilo di prova:
-     * - SP suffissate nel [GB2] del server prova (poolTest)
-     * - ordini_emessi su UJET11 del server prova
+     * - SP suffissate nel [GB2_SP] del server prova
      */
-    async function deployTestObjects(poolProd, poolTest, testProfile) {
+    async function deployTestObjects(pool163, poolTest, testProfile) {
         const suffix = '_T' + testProfile._testDbId;
-
-        // SP sul server di prova (con versioning + suffisso)
         const spDeploy = await deploySPToTarget(poolTest, suffix);
 
-        // Check Riep
         let hasRiep = false;
         try {
             const riepCheck = await poolTest.request()
@@ -236,29 +201,28 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
         for (const sp of spNames) {
             try {
                 await poolTarget.request().batch(
-                    `IF EXISTS (SELECT 1 FROM [GB2].sys.objects WHERE name='${sp}' AND type='P') DROP PROCEDURE [GB2].[dbo].[${sp}]`
+                    `IF EXISTS (SELECT 1 FROM [GB2_SP].sys.objects WHERE name='${sp}' AND type='P') DROP PROCEDURE [GB2_SP].[dbo].[${sp}]`
                 );
             } catch (_) {}
         }
     }
 
     async function checkSpExists(pool, spName) {
-        // Supporta nomi con prefisso [GB2].[dbo]. — cerca nel DB corretto
-        const cleanName = spName.replace(/^\[GB2\]\.\[dbo\]\./, '');
+        const cleanName = spName.replace(/^\[GB2_SP\]\.\[dbo\]\./, '').replace(/^\[GB2\]\.\[dbo\]\./, '');
         const r = await pool.request()
             .input('name', sql.NVarChar, cleanName)
-            .query("SELECT 1 AS ok FROM [GB2].sys.objects WHERE name=@name AND type='P'");
+            .query("SELECT 1 AS ok FROM [GB2_SP].sys.objects WHERE name=@name AND type='P'");
         return r.recordset.length > 0;
     }
 
     function getUserId(req) {
-        // JWT payload: globalId = IDUser (da GA.dbo.Users), id = IDOperator
         return (req.user && (req.user.globalId || req.user.IDUser)) || 0;
     }
 
     async function getPoolRiep(userId) {
-        if (isProduction(userId) || getTestHasRiep(userId)) return getPoolMRP(userId);
-        return getPoolProd();
+        if (getTestHasRiep(userId)) return getPoolDest(userId);
+        // Default: Riep e raggiungibile da pool163 (vista verso Analisi_scorte su BCUBE2)
+        return getPool163();
     }
 
     function getPoliticaRiordino(art) {
@@ -276,10 +240,11 @@ function createHelpers({ sql, getPoolMRP, getPoolProd, getActiveProfile, isProdu
     }
 
     return {
-        getUjet11Ref, getSpSuffix, getSpName,
+        getSpSuffix, getSpName,
         executeSqlFile, compilaTemplate,
         deployProductionObjects, deployTestObjects, dropTestSPs,
-        checkSpExists, getUserId, getPoolRiep, getPoliticaRiordino
+        checkSpExists, getUserId, getPoolRiep, getPoliticaRiordino,
+        getServerDest
     };
 }
 

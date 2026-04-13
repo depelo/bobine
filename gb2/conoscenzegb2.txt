@@ -141,14 +141,16 @@ Server:
   getPoolMRP(userId) — pool utente (segue l'ambiente)
     Produzione: restituisce poolProd (163/MRP).
     Prova: restituisce il pool diretto al server prova.
-    ATTENZIONE: in produzione punta a 163 dove le tabelle BCube sono
-    raggiungibili solo tramite vecchie viste (legacy, da non usare).
-    Per le tabelle BCube usare SEMPRE getPoolERP, non getPoolMRP.
+    NON usare per tabelle BCube — in produzione punta a 163 dove
+    le tabelle BCube non esistono. Per BCube usare SEMPRE getPoolERP.
 
   getPoolRiep(userId) — tabella Riep (caso speciale)
-    Produzione: vista MRP → Analisi_scorte su BCUBE2.
-    Prova con Riep locale: pool prova.
+    Riep e una tabella ETL di Fabrizio in Analisi_scorte su BCUBE2.
+    In MRP@163 esiste una vista dbo.Riep che punta a quella tabella.
+    Produzione: getPoolMRP → poolProd → vista Riep su 163.
+    Prova con Riep locale: pool prova diretto.
     Prova senza Riep: fallback a getPoolProd (dati reali, sola lettura).
+    NOTA: Riep e l'unica vista rimasta in MRP@163. Non e una tabella UJET11.
 
 --- REGOLA DECISIONALE PER SCEGLIERE IL POOL (CRITICA) ---
 
@@ -163,16 +165,16 @@ Server:
     → usa getPoolProd()
     Sempre su 163, non cambia con l'ambiente.
 
-  QUERY MISTA (dati BCube + dati app nella stessa vista)
-    NON fare JOIN cross-database. Fare DUE QUERY SEPARATE:
+  QUERY MISTA (dati BCube + dati app)
+    NON fare JOIN cross-server. Fare DUE QUERY SEPARATE:
     - Query 1: dati BCube via getPoolERP(userId)
     - Query 2: dati app via getPoolProd()
     - Merge in Node.js per chiave (codice fornitore, codice articolo, ecc.)
 
   ERRORI DA EVITARE:
-    ✗ getPoolProd() per tabelle BCube → passa da viste legacy, lento, non funziona in prova
-    ✗ getPoolMRP() per tabelle BCube in produzione → stesso problema
-    ✗ JOIN tra tabelle BCube e tabelle GB2 in una sola query → impossibile cross-server
+    ✗ getPoolProd() per tabelle BCube → su 163 quelle tabelle NON ESISTONO
+    ✗ getPoolMRP() per tabelle BCube in produzione → stesso problema (punta a 163)
+    ✗ JOIN tra tabelle BCube e tabelle app in una sola query → server diversi
 
 --- SCRITTURA SU TABELLE BCUBE ---
 
@@ -180,18 +182,8 @@ Server:
   - In prova: getPoolERP(userId) → diretto, funziona
   - In produzione: poolBcube o connessione diretta temporanea a BCUBE2/UJET11
 
-  Se serve ALTER TABLE in produzione + la tabella ha una vista legacy su 163:
-    await poolProd.request().batch("EXEC sp_refreshview 'dbo.anagra'");
-
   Le SP BCube (bussp_bsorgsor9_fcancella, bussp_bsorgsor9_faggiorn2) si chiamano
   tramite getPoolERP perche vivono su UJET11 dello stesso server.
-
---- VISTE LEGACY SU MRP@163 (DEPRECATED — NON USARE) ---
-
-  Esistono 21 viste in MRP@163 che fanno SELECT * FROM [BCUBE2].[UJET11].[dbo].[...].
-  Queste sono un RESIDUO dell'architettura precedente. NON usarle nel nuovo codice.
-  Il codice vecchio che ancora le usa va migrato a getPoolERP + query separate.
-  Le viste restano per compatibilita con eventuali altri sistemi ma GB2 non le usa piu.
 
 --- STRUTTURA FILE ROUTE (SCOMPOSIZIONE gb2Routes.js) ---
 
@@ -278,8 +270,9 @@ Server:
                                Produzione: poolBcube (BCUBE2 diretto)
                                Prova: getPoolMRP(uid) (server prova diretto)
     getPoolProd()            — pool TABELLE APP: MRP@163, GB2@163 (SEMPRE lo stesso)
-    getPoolMRP(userId)       — pool utente (produzione=poolProd, prova=server prova)
-                               NON usare per tabelle BCube — usare getPoolERP
+    getPoolMRP(userId)       — pool utente (produzione=poolProd su 163, prova=server prova diretto)
+                               NON usare per tabelle BCube. In produzione punta a 163
+                               dove le tabelle BCube non esistono. Per BCube: getPoolERP.
     getPoolRiep(userId)      — pool per Riep con fallback a produzione se manca in prova
     getActiveProfile(userId) — profilo attivo per l'utente
     isProduction(userId)     — true se l'utente e in produzione
@@ -384,7 +377,7 @@ FILE IN .GITIGNORE:
 
   Per i dettagli delle colonne, consultare conoscenze.txt nella root.
 
---- DATABASE MRP (su 192.168.0.163 — tabelle custom dell'app) ---
+--- DATABASE MRP (su 192.168.0.163 — tabelle e dati dell'app) ---
 
   ordini_emessi         Registro emissioni ordini dal MRP web
     id                  PK identity
@@ -1049,9 +1042,10 @@ FALLBACK QUERY:
    ordini_emessi vive SEMPRE su MRP@163 (poolProd) — scritto da Node.js, non dalla SP.
    Deploy automatico al boot con versioning (DEPLOY_VERSION in helpers.js).
 
-5. PROVA = ACCESSO DIRETTO A UJET11:
-   Il pool di prova si connette a UJET11 sul server di prova.
-   Le viste MRP NON sono coinvolte. "dbo.artico" e la tabella reale.
+5. CONNESSIONE SEMPRE DIRETTA A UJET11:
+   Sia in produzione che in prova, il pool si connette direttamente al server
+   dove vive UJET11. In produzione: poolBcube → BCUBE2. In prova: pool diretto
+   al server prova. Le tabelle si chiamano sempre dbo.artico, dbo.testord, ecc.
 
 6. CRITTOGRAFIA PASSWORD:
    Password profili di prova e SMTP crittate AES-256-GCM (config/crypto.js).
@@ -1139,8 +1133,8 @@ ambiente:     Colonna che distingue ordini di 'produzione' da ordini di 'prova'
 
 Gabriele:     Sviluppatore principale, committente del progetto GB2/MRP Web
               Daltonico — necessita preset colori personalizzabili
-Fabrizio:     DBA / Esperto database, gestisce il server SQL 192.168.0.163
-              Ha creato le 21 viste in MRP e la tabella Riep in Analisi_scorte
+Fabrizio:     DBA / Esperto database, gestisce i server SQL (163 e BCUBE2)
+              Ha creato la tabella Riep in Analisi_scorte su BCUBE2
 Pietro Tardioli: Responsabile acquisti U.Jet (firma sugli ordini PDF)
 
 

@@ -44,14 +44,16 @@ const MrpDbConfig = (() => {
         const banner = document.getElementById('ambienteBanner');
         if (!banner) return;
 
-        const ambiente = profile.ambiente || 'produzione';
+        // Il profilo non ha piu 'ambiente'. Se ha email_prova o _testDbId, e un profilo prova.
+        const isProva = !!(profile._testDbId || profile._dbId);
 
         window.MrpAmbiente = {
-            ambiente: ambiente,
+            isProva: isProva,
+            server: profile.server || '',
             email_prova: profile.email_prova || ''
         };
 
-        if (ambiente === 'prova') {
+        if (isProva) {
             const email = profile.email_prova || '';
             banner.style.display = 'block';
             banner.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';

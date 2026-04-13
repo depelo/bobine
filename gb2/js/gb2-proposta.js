@@ -2577,6 +2577,57 @@ const MrpProposta = (() => {
         await caricaStorico(filtri);
     }
 
+    function _renderOrdineRow(o) {
+        const dataStr = o.data_emissione ? new Date(o.data_emissione).toLocaleDateString('it-IT', {
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }) : '';
+        const totale = Number(o.totale_documento || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const emailIcon = o.email_inviata
+            ? '<span class="storico-email-ok" title="Email inviata">\u2714</span>'
+            : '<span class="storico-email-no" title="Email non inviata">\u2716</span>';
+        const origBadge = o.origine === 'bcube' ? '<span style="font-size:0.65rem;background:#dbeafe;color:#7c3aed;padding:1px 5px;border-radius:4px;margin-left:4px;">BCube</span>' : '';
+
+        return `<tr>
+            <td>${dataStr}</td>
+            <td><strong>${o.ord_numord}/${o.ord_serie}</strong>${origBadge}</td>
+            <td>${esc(o.fornitore_nome || '')} <small>(${o.fornitore_codice})</small></td>
+            <td class="num">${o.num_righe}</td>
+            <td class="num">\u20ac ${totale}</td>
+            <td class="center">${emailIcon}</td>
+            <td>
+                <button class="btn-storico-visualizza" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Visualizza ordine">\uD83D\uDD0D</button>
+                <button class="btn-storico-pdf" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Scarica PDF">\u2B07</button>
+            </td>
+        </tr>`;
+    }
+
+    function _renderElabHeader(e) {
+        const fpDate = e.Fingerprint ? new Date(e.Fingerprint).toLocaleDateString('it-IT', {
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }) : '?';
+        const gestite = e.TotaleGestite || 0;
+        const ignorate = (e.TotaleProposte || 0) - gestite;
+        const ordini = e.num_ordini || 0;
+        const modif = e.num_modificate || 0;
+
+        let stats = `${e.TotaleProposte} proposte`;
+        stats += ` \u00B7 <strong>${ordini}</strong> ordini emessi`;
+        stats += ` \u00B7 ${gestite} gestite`;
+        stats += ` \u00B7 ${ignorate} ignorate`;
+        if (modif > 0) stats += ` \u00B7 <span style="color:var(--warning);">${modif} modificate</span>`;
+
+        return `<tr class="storico-elab-header">
+            <td colspan="7" style="background:var(--bg);padding:10px 8px;border-bottom:2px solid var(--primary);">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span style="font-size:1rem;">\uD83D\uDCCB</span>
+                    <strong style="font-size:0.9rem;">Elaborazione del ${fpDate}</strong>
+                    <span style="font-size:0.78rem;color:var(--text-muted);">${stats}</span>
+                    <button class="btn-storico-dettaglio-elab" data-elab-id="${e.ID}" style="margin-left:auto;font-size:0.73rem;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Dettaglio elaborazione">\uD83D\uDCC4 Dettaglio</button>
+                </div>
+            </td>
+        </tr>`;
+    }
+
     async function caricaStorico(filtri = {}) {
         const body = document.getElementById('storicoBody');
         const loading = document.getElementById('storicoLoading');
@@ -2596,33 +2647,55 @@ const MrpProposta = (() => {
             const data = await res.json();
             if (loading) loading.style.display = 'none';
 
-            if (!data.ordini || data.ordini.length === 0) {
+            const ordini = data.ordini || [];
+            const elaborazioni = data.elaborazioni || [];
+
+            if (ordini.length === 0 && elaborazioni.length === 0) {
                 body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">Nessun ordine emesso</td></tr>';
                 return;
             }
 
-            body.innerHTML = data.ordini.map(o => {
-                const dataStr = o.data_emissione ? new Date(o.data_emissione).toLocaleDateString('it-IT', {
-                    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
-                }) : '';
-                const totale = Number(o.totale_documento || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                const emailIcon = o.email_inviata
-                    ? '<span class="storico-email-ok" title="Email inviata">\u2714</span>'
-                    : '<span class="storico-email-no" title="Email non inviata">\u2716</span>';
+            // Se filtrato per elaborazione singola, mostra lista piatta
+            if (filtri.elaborazione_id) {
+                body.innerHTML = ordini.map(o => _renderOrdineRow(o)).join('');
+                return;
+            }
 
-                return `<tr>
-                    <td>${dataStr}</td>
-                    <td><strong>${o.ord_numord}/${o.ord_serie}</strong></td>
-                    <td>${esc(o.fornitore_nome || '')} <small>(${o.fornitore_codice})</small></td>
-                    <td class="num">${o.num_righe}</td>
-                    <td class="num">\u20ac ${totale}</td>
-                    <td class="center">${emailIcon}</td>
-                    <td>
-                        <button class="btn-storico-visualizza" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Visualizza ordine">\uD83D\uDD0D</button>
-                        <button class="btn-storico-pdf" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Scarica PDF">\u2B07</button>
-                    </td>
-                </tr>`;
-            }).join('');
+            // Raggruppamento per elaborazione
+            // Mappa ordini per elaborazione_id
+            const ordiniPerElab = {};
+            const ordiniSenzaElab = [];
+            ordini.forEach(o => {
+                const eid = o.elaborazione_id;
+                if (eid && eid !== '' && eid !== '0') {
+                    if (!ordiniPerElab[eid]) ordiniPerElab[eid] = [];
+                    ordiniPerElab[eid].push(o);
+                } else {
+                    ordiniSenzaElab.push(o);
+                }
+            });
+
+            let html = '';
+
+            // Render per elaborazione (ordine cronologico decrescente)
+            for (const e of elaborazioni) {
+                const eid = String(e.ID);
+                const ordiniElab = ordiniPerElab[eid] || [];
+                if (ordiniElab.length === 0 && !filtri.mostra_vuote) continue;
+
+                html += _renderElabHeader(e);
+                html += ordiniElab.map(o => _renderOrdineRow(o)).join('');
+            }
+
+            // Ordini senza elaborazione
+            if (ordiniSenzaElab.length > 0) {
+                html += `<tr class="storico-elab-header"><td colspan="7" style="background:var(--bg);padding:10px 8px;border-bottom:2px solid var(--text-muted);">
+                    <strong style="font-size:0.9rem;color:var(--text-muted);">Ordini senza elaborazione</strong>
+                </td></tr>`;
+                html += ordiniSenzaElab.map(o => _renderOrdineRow(o)).join('');
+            }
+
+            body.innerHTML = html;
         } catch (err) {
             if (loading) loading.style.display = 'none';
             body.innerHTML = `<tr><td colspan="7" style="color:var(--danger); padding:12px;">Errore: ${esc(err.message)}</td></tr>`;
@@ -2668,10 +2741,130 @@ const MrpProposta = (() => {
             const btnPdf = e.target.closest('.btn-storico-pdf');
             if (btnPdf) {
                 e.stopPropagation();
-                // Scarica PDF via endpoint diretto
                 window.open(`${MrpApp.API_BASE}/ordine-pdf/${btnPdf.dataset.anno}/${btnPdf.dataset.serie}/${btnPdf.dataset.numord}`, '_blank');
+                return;
+            }
+            const btnDetElab = e.target.closest('.btn-storico-dettaglio-elab');
+            if (btnDetElab) {
+                e.stopPropagation();
+                await apriDettaglioElaborazione(parseInt(btnDetElab.dataset.elabId, 10));
             }
         });
+    }
+
+    // ============================================================
+    // DETTAGLIO ELABORAZIONE (modale con proposte raggruppate per fornitore)
+    // ============================================================
+    async function apriDettaglioElaborazione(elabId) {
+        const overlay = document.getElementById('modalGenericOverlay');
+        const elTitolo = document.getElementById('modalGenericTitolo');
+        const elIcona = document.getElementById('modalGenericIcona');
+        const elMsg = document.getElementById('modalGenericMessaggio');
+        const elAzioni = document.getElementById('modalGenericAzioni');
+        if (!overlay) return;
+
+        elTitolo.textContent = 'Dettaglio Elaborazione';
+        elIcona.textContent = '\uD83D\uDCCB';
+        elMsg.innerHTML = '<div style="text-align:center;padding:24px;"><span style="animation:unifiedPulse 1.2s infinite;">Caricamento...</span></div>';
+        elAzioni.innerHTML = '';
+        overlay.classList.add('open');
+
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/elaborazione-dettaglio/${elabId}`, { credentials: 'include' });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            const e = data.elaborazione;
+            const fornitori = data.fornitori || [];
+            const fpDate = e.fingerprint ? new Date(e.fingerprint).toLocaleDateString('it-IT', {
+                day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : '';
+
+            // Testata
+            let html = '<div style="text-align:left;">';
+            html += '<div style="margin-bottom:12px;padding:8px 12px;background:var(--bg);border-radius:6px;border:1px solid var(--border);">';
+            html += '<strong>Elaborazione MRP del ' + esc(fpDate) + '</strong><br>';
+            html += '<span style="font-size:0.82rem;color:var(--text-muted);">';
+            html += e.totaleProposte + ' proposte \u00B7 <strong>' + e.numOrdini + '</strong> ordini emessi \u00B7 ';
+            html += e.totaleGestite + ' gestite \u00B7 ' + e.numIgnorate + ' ignorate';
+            if (e.numModificate > 0) html += ' \u00B7 <span style="color:var(--warning);">' + e.numModificate + ' modificate</span>';
+            html += '</span></div>';
+
+            // Lista fornitori con proposte
+            html += '<div style="max-height:450px;overflow-y:auto;">';
+            for (const f of fornitori) {
+                const gestiteF = f.proposte.filter(p => p.Gestita);
+                const ignorateF = f.proposte.filter(p => !p.Gestita);
+                const badge = gestiteF.length > 0
+                    ? '<span style="font-size:0.7rem;background:#dcfce7;color:#16a34a;padding:1px 6px;border-radius:4px;">' + gestiteF.length + ' ordinate</span>'
+                    : '<span style="font-size:0.7rem;background:#fee2e2;color:var(--danger);padding:1px 6px;border-radius:4px;">ignorate</span>';
+
+                html += '<div style="margin-bottom:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;">';
+                html += '<div style="padding:6px 10px;background:var(--bg);font-weight:600;font-size:0.85rem;display:flex;align-items:center;gap:6px;">';
+                html += esc(f.nome) + ' <small style="color:var(--text-muted);">(' + f.codice + ')</small> ' + badge;
+                html += '</div>';
+
+                // Righe proposte
+                html += '<table style="width:100%;font-size:0.78rem;border-collapse:collapse;">';
+                for (const p of f.proposte) {
+                    let statusIcon, rowBg;
+                    if (p.Gestita && p.quantita_ordinata && p.ol_quant !== p.quantita_ordinata) {
+                        statusIcon = '\u26A0\uFE0F'; // modificata
+                        rowBg = '#fffbeb';
+                    } else if (p.Gestita) {
+                        statusIcon = '\u2705';
+                        rowBg = '#f0fdf4';
+                    } else {
+                        statusIcon = '\u274C';
+                        rowBg = '#fef2f2';
+                    }
+
+                    const dataCons = p.ol_datcons ? new Date(p.ol_datcons).toLocaleDateString('it-IT') : '';
+                    const qta = Number(p.ol_quant || 0).toLocaleString('it-IT', { minimumFractionDigits: 0 });
+
+                    html += '<tr style="background:' + rowBg + ';border-top:1px solid #f0f0f0;">';
+                    html += '<td style="padding:4px 8px;width:24px;">' + statusIcon + '</td>';
+                    html += '<td style="padding:4px 4px;font-family:monospace;">' + esc(p.ol_codart) + '</td>';
+                    html += '<td style="padding:4px 4px;">' + esc(p.articolo_descr || '') + '</td>';
+                    html += '<td style="padding:4px 4px;text-align:right;white-space:nowrap;">' + qta + ' ' + esc(p.ol_unmis || '') + '</td>';
+                    html += '<td style="padding:4px 4px;text-align:center;">' + dataCons + '</td>';
+
+                    if (p.Gestita && p.ord_numord) {
+                        let ordInfo = '\u2192 <strong>' + p.ord_numord + '/' + esc(p.ord_serie || '') + '</strong>';
+                        if (p.quantita_ordinata && p.ol_quant !== p.quantita_ordinata) {
+                            const qtaOrd = Number(p.quantita_ordinata).toLocaleString('it-IT', { minimumFractionDigits: 0 });
+                            ordInfo += ' <span style="color:var(--warning);font-size:0.72rem;">(ordinato: ' + qtaOrd + ')</span>';
+                        }
+                        const origBadge = p.origine === 'bcube' ? ' <span style="font-size:0.6rem;background:#dbeafe;color:#7c3aed;padding:0 4px;border-radius:3px;">BCube</span>' : '';
+                        html += '<td style="padding:4px 8px;font-size:0.75rem;">' + ordInfo + origBadge + '</td>';
+                    } else {
+                        html += '<td style="padding:4px 8px;color:var(--text-muted);font-size:0.72rem;">non ordinata</td>';
+                    }
+                    html += '</tr>';
+                }
+                html += '</table></div>';
+            }
+            html += '</div></div>';
+
+            elMsg.innerHTML = html;
+
+            // Bottone chiudi
+            const btnChiudi = document.createElement('button');
+            btnChiudi.textContent = 'Chiudi';
+            btnChiudi.className = 'mrp-btn mrp-btn-primary';
+            btnChiudi.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+            btnChiudi.addEventListener('click', () => overlay.classList.remove('open'));
+            elAzioni.appendChild(btnChiudi);
+
+        } catch (err) {
+            elMsg.innerHTML = '<div style="color:var(--danger);padding:12px;">Errore: ' + esc(err.message) + '</div>';
+            const btnChiudi = document.createElement('button');
+            btnChiudi.textContent = 'Chiudi';
+            btnChiudi.className = 'mrp-btn mrp-btn-primary';
+            btnChiudi.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+            btnChiudi.addEventListener('click', () => overlay.classList.remove('open'));
+            elAzioni.appendChild(btnChiudi);
+        }
     }
 
     // ============================================================
