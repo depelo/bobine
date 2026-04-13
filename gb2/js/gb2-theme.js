@@ -437,6 +437,8 @@ const MrpTheme = (() => {
     function applyColors(colors) {
         const root = document.documentElement;
         Object.keys(colors).forEach(key => {
+            // Salta chiavi interne (es. _columnPrefs) — non sono variabili CSS
+            if (key.startsWith('_')) return;
             if (colors[key]) {
                 root.style.setProperty(key, colors[key]);
             } else {
@@ -1199,13 +1201,23 @@ const MrpTheme = (() => {
     // PUBLIC API
     // --------------------------------------------------------
 
+    function getCustomColors() { return customColors; }
+
+    // Salva dati custom (es. _columnPrefs) senza trattarli come variabili CSS
+    function setCustomData(key, value) {
+        customColors[key] = value;
+        dirty = true;
+    }
+
     return {
         init,
         openPanel,
         closePanel,
         save,
         reset,
-        setColor   // esposto per uso esterno (es. leggenda fornitori in dbconfig)
+        setColor,
+        getCustomColors,
+        setCustomData
     };
 
 })();

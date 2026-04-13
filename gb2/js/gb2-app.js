@@ -96,4 +96,34 @@ const MrpApp = (() => {
     return { init, switchView, state, API_BASE, confermaOrdine, rimuoviOrdine, getOrdiniConfermati, isArticoloConfermato, getKeyOrdine };
 })();
 
-document.addEventListener('DOMContentLoaded', MrpApp.init);
+document.addEventListener('DOMContentLoaded', () => {
+    MrpApp.init();
+
+    // Inizializza color picker nelle legende e gestisce cambi colore
+    function initLegendaColorPickers() {
+        document.querySelectorAll('.legenda-color-picker').forEach(picker => {
+            const cssVar = picker.dataset.var;
+            if (cssVar) {
+                const current = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
+                if (current) picker.value = current;
+            }
+        });
+    }
+    initLegendaColorPickers();
+
+    // Delegazione globale per i color picker nelle legende
+    document.addEventListener('input', (e) => {
+        if (e.target.classList.contains('legenda-color-picker')) {
+            const cssVar = e.target.dataset.var;
+            if (cssVar && typeof MrpTheme !== 'undefined' && MrpTheme.setColor) {
+                MrpTheme.setColor(cssVar, e.target.value);
+            }
+        }
+    });
+
+    // Re-inizializza picker quando un modale si apre (i valori potrebbero essere cambiati)
+    const observer = new MutationObserver(() => initLegendaColorPickers());
+    document.querySelectorAll('.mrp-modal-overlay').forEach(overlay => {
+        observer.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+    });
+});

@@ -286,9 +286,9 @@
                             </div>
                             <div id="splitOrdiniContent">
                                 <div class="split-ordini-legenda">
-                                    <span class="legenda-item legenda-ordforn">Ord.Forn</span>
-                                    <span class="legenda-item legenda-ordprod">Ord.Prod</span>
-                                    <span class="legenda-item legenda-impprod">Imp.Prod</span>
+                                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--bg-content" title="Colore Ord. Fornitore"> Ord.Forn</label>
+                                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--row-totale" title="Colore Ord. Produzione"> Ord.Prod</label>
+                                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--row-esaurito" title="Colore Imp. Produzione"> Imp.Prod</label>
                                 </div>
                                 <table class="matrioska-table" id="tblSplitOrdini" style="min-width: 750px;">
                                     <thead>
@@ -373,6 +373,8 @@
                     <input type="checkbox" id="modalFiltroMagToggle" style="accent-color:var(--primary);">
                     <span id="modalFiltroMagText">Solo questo magazzino</span>
                 </label>
+                <button type="button" class="btn-hidden-cols" id="btnHiddenColsOrdini" style="display:none;" title="Colonne nascoste">👁</button>
+                <button type="button" class="btn-theme-open" onclick="if(typeof MrpTheme!=='undefined')MrpTheme.openPanel();" title="Personalizzazione Tema">🎨</button>
                 <button type="button" id="modalOrdiniClose" class="mrp-modal-close">✕</button>
             </div>
             <div class="modal-ordini-toolbar">
@@ -381,9 +383,9 @@
                     <button type="button" id="modalTabRmp" class="modal-tab">MRP (Generati/Confermati)</button>
                 </div>
                 <div class="modal-ordini-legenda">
-                    <span class="legenda-item legenda-ordforn">Ord. Fornitore</span>
-                    <span class="legenda-item legenda-ordprod">Ord. Produzione</span>
-                    <span class="legenda-item legenda-impprod">Imp. Produzione</span>
+                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--bg-content" title="Colore Ord. Fornitore"> Ord. Fornitore</label>
+                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--row-totale" title="Colore Ord. Produzione"> Ord. Produzione</label>
+                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--row-esaurito" title="Colore Imp. Produzione"> Imp. Produzione</label>
                 </div>
             </div>
             <div class="mrp-modal-body">
@@ -731,6 +733,7 @@
         <div class="mrp-modal mrp-modal-generic">
             <div class="mrp-modal-header">
                 <h3 id="modalGenericTitolo">Messaggio</h3>
+                <button type="button" class="btn-theme-open" onclick="if(typeof MrpTheme!=='undefined')MrpTheme.openPanel();" title="Personalizzazione Tema">🎨</button>
                 <button type="button" id="modalGenericClose" class="mrp-modal-close">&times;</button>
             </div>
             <div class="mrp-modal-body" style="padding: 20px;">
@@ -780,6 +783,7 @@
         <div class="mrp-modal" style="max-width:550px;">
             <div class="mrp-modal-header" style="background:var(--primary); color:white;">
                 <h3 id="modalRisultatoTitolo" style="margin:0; color:white;">Ordine Emesso</h3>
+                <button type="button" class="btn-theme-open" onclick="if(typeof MrpTheme!=='undefined')MrpTheme.openPanel();" title="Personalizzazione Tema" style="color:white;">🎨</button>
                 <button type="button" id="modalRisultatoClose" class="mrp-modal-close" style="color:white;">&times;</button>
             </div>
             <div class="mrp-modal-body" style="padding:20px;">
@@ -816,6 +820,7 @@
         <div class="mrp-modal" style="max-width:960px; max-height:85vh;">
             <div class="mrp-modal-header">
                 <h3 style="margin:0;">Storico Ordini Emessi</h3>
+                <button type="button" class="btn-theme-open" onclick="if(typeof MrpTheme!=='undefined')MrpTheme.openPanel();" title="Personalizzazione Tema">🎨</button>
                 <button type="button" id="modalStoricoClose" class="mrp-modal-close">&times;</button>
             </div>
             <div class="mrp-modal-body" style="padding:16px; overflow-y:auto;">
@@ -850,6 +855,7 @@
     <script src="gb2/js/gb2-theme.js"></script>
     <script src="gb2/js/gb2-app.js"></script>
     <script src="gb2/js/gb2-parametri.js"></script>
+    <script src="gb2/js/gb2-column-manager.js"></script>
     <script src="gb2/js/gb2-progressivi.js"></script>
     <script src="gb2/js/gb2-proposta.js"></script>
     <script src="gb2/js/gb2-bootstrap.js"></script>

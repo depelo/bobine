@@ -49,6 +49,33 @@ const MrpProgressivi = (() => {
     }
 
     function init() {
+        // Inizializza ColumnManager per la personalizzazione colonne
+        if (typeof ColumnManager !== 'undefined') {
+            ColumnManager.init();
+            ColumnManager.setSortCallback((tableId, col, asc) => {
+                _ordiniModaleSortCol = col;
+                _ordiniModaleSortAsc = asc;
+                if (_ordiniModaleData.length > 0 && _currentRenderFn) {
+                    const sorted = _sortData(_ordiniModaleData, col, asc);
+                    _currentRenderFn(sorted);
+                    // Rigenera header per aggiornare freccia
+                    const thead = document.querySelector('#tblModalOrdini thead tr');
+                    if (thead && _currentTableId) ColumnManager.buildHeader(_currentTableId, thead);
+                    if (_currentTableId) ColumnManager.applyToBody(_currentTableId, document.getElementById('modalOrdiniBody'));
+                }
+            });
+            ColumnManager.setRefreshCallback((tableId) => {
+                // Rigenera header + body con le preferenze aggiornate
+                const thead = document.querySelector('#tblModalOrdini thead tr');
+                if (thead) ColumnManager.buildHeader(tableId, thead);
+                if (_ordiniModaleData.length > 0 && _currentRenderFn) {
+                    _currentRenderFn(_ordiniModaleData);
+                    ColumnManager.applyToBody(tableId, document.getElementById('modalOrdiniBody'));
+                }
+                _updateHiddenColsBtn(tableId);
+            });
+        }
+
         document.getElementById('btnBackToParams').addEventListener('click', () => {
             MrpApp.state.propostaCorrente = null;
             MrpApp.switchView('parametri');
@@ -1568,10 +1595,53 @@ const MrpProgressivi = (() => {
         await caricaOrdiniModale(codart, '', '');
     }
 
-    // ── Ordinamento tabella Ordini/Impegni ──
+    // ── Ordinamento e personalizzazione tabelle nel ciclo esplorativo ──
     let _ordiniModaleData = [];
     let _ordiniModaleSortCol = null;
     let _ordiniModaleSortAsc = true;
+    let _currentRenderFn = null;
+    let _currentTableId = null; // ID tabella attiva per ColumnManager
+
+    function _sortData(data, col, asc) {
+        return [...data].sort((a, b) => {
+            let va = a[col], vb = b[col];
+            if (va === null || va === undefined) va = '';
+            if (vb === null || vb === undefined) vb = '';
+            if (typeof va === 'number' && typeof vb === 'number') return asc ? va - vb : vb - va;
+            if (col.includes('dat')) { const da = new Date(va || 0), db = new Date(vb || 0); return asc ? da - db : db - da; }
+            const sa = String(va).toLowerCase(), sb = String(vb).toLowerCase();
+            return asc ? sa.localeCompare(sb) : sb.localeCompare(sa);
+        });
+    }
+
+    function _updateHiddenColsBtn(tableId) {
+        const btn = document.getElementById('btnHiddenColsOrdini');
+        if (!btn || typeof ColumnManager === 'undefined') return;
+        const hidden = ColumnManager.getHiddenColumns(tableId);
+        if (hidden.length > 0) {
+            btn.style.display = '';
+            btn.innerHTML = '\uD83D\uDC41<span class="hidden-count">' + hidden.length + '</span>';
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                // Toggle dropdown
+                let dd = btn.querySelector('.hidden-cols-dropdown');
+                if (dd) { dd.remove(); return; }
+                dd = document.createElement('div');
+                dd.className = 'hidden-cols-dropdown';
+                hidden.forEach(h => {
+                    const item = document.createElement('div');
+                    item.className = 'hidden-cols-item';
+                    item.innerHTML = '\uD83D\uDC41 ' + (h.label || h.id);
+                    item.addEventListener('click', () => { ColumnManager.unhideColumn(tableId, h.id); });
+                    dd.appendChild(item);
+                });
+                btn.appendChild(dd);
+                setTimeout(() => document.addEventListener('click', () => { if (dd.parentNode) dd.remove(); }, { once: true }), 10);
+            };
+        } else {
+            btn.style.display = 'none';
+        }
+    }
 
     function _renderOrdiniModaleRows(data) {
         const tbody = document.getElementById('modalOrdiniBody');
@@ -1606,6 +1676,83 @@ const MrpProgressivi = (() => {
         });
     }
 
+    function _renderRmpRows(data) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(o => {
+            const tr = document.createElement('tr');
+            if (o.ol_tipork === 'Y') {
+                tr.className = 'modal-row-impprod rmp-drill-row';
+                tr.dataset.codart = o.ol_codart || '';
+                tr.dataset.magaz = String(o.ol_magaz || '');
+                tr.dataset.fase = String(o.ol_fase || '');
+                tr.title = 'Clicca per vedere gli ordini produzione padre';
+            } else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') {
+                tr.className = 'modal-row-ordprod';
+            } else {
+                tr.className = 'modal-row-ordforn';
+            }
+            const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
+            const badge = '<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;' + badgeColor + '">' + esc(o.conf_gen || '') + '</span>';
+            tr.innerHTML = '<td style="text-align:center">' + esc(o.ol_magaz) + '</td>'
+                + '<td style="text-align:center">' + esc(o.ol_fase) + '</td>'
+                + '<td>' + fmtDate(o.ol_datcons) + '</td>'
+                + '<td>' + esc(o.desc_tipo || o.ol_tipork) + '</td>'
+                + '<td style="text-align:right"><strong>' + fmt(o.quantita) + '</strong></td>'
+                + '<td style="text-align:center">' + badge + '</td>'
+                + '<td>' + esc(o.fornitore || '') + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    function _renderDrillPadreRows(data) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(o => {
+            const tr = document.createElement('tr');
+            tr.className = 'modal-row-ordprod';
+            tr.innerHTML = '<td></td>'
+                + '<td>' + esc(o.padre_desc_tipo || o.padre_tipork) + '</td>'
+                + '<td>' + esc(o.padre_anno) + '</td>'
+                + '<td>' + esc(o.padre_serie) + '</td>'
+                + '<td>' + esc(o.padre_numord) + '</td>'
+                + '<td>' + esc(o.padre_riga) + '</td>'
+                + '<td><strong>' + esc(o.padre_codart) + '</strong></td>'
+                + '<td>' + esc(o.padre_descr) + '</td>'
+                + '<td style="text-align:center">' + esc(o.padre_magaz) + '</td>'
+                + '<td style="text-align:center">' + esc(o.padre_fase) + '</td>'
+                + '<td>' + fmtDate(o.padre_datcons) + '</td>'
+                + '<td style="text-align:right">' + fmt(o.padre_quant) + '</td>'
+                + '<td>' + esc(o.padre_fornitore || '') + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    function _renderDrillPadreRmpRows(data) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(o => {
+            const tr = document.createElement('tr');
+            tr.className = 'modal-row-ordprod rmp-row-clickable';
+            tr.dataset.codart = o.padre_codart;
+            const badgeColor = o.padre_conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
+            const badge = '<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;' + badgeColor + '">' + esc(o.padre_conf_gen || '') + '</span>';
+            tr.innerHTML = '<td><strong>' + esc(o.padre_codart) + '</strong></td>'
+                + '<td style="text-align:center">' + esc(o.padre_magaz) + '</td>'
+                + '<td style="text-align:center">' + esc(o.padre_fase) + '</td>'
+                + '<td>' + esc(o.padre_descr) + '</td>'
+                + '<td>' + fmtDate(o.datcons) + '</td>'
+                + '<td>' + esc(o.padre_desc_tipo || o.padre_tipork) + '</td>'
+                + '<td style="text-align:right"><strong>' + fmt(o.quantita) + '</strong></td>'
+                + '<td style="text-align:center">' + badge + '</td>'
+                + '<td>' + esc(o.padre_fornitore || '') + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
     function _sortOrdiniModale(col) {
         if (_ordiniModaleSortCol === col) {
             _ordiniModaleSortAsc = !_ordiniModaleSortAsc;
@@ -1628,7 +1775,7 @@ const MrpProgressivi = (() => {
             const sa = String(va).toLowerCase(), sb = String(vb).toLowerCase();
             return _ordiniModaleSortAsc ? sa.localeCompare(sb) : sb.localeCompare(sa);
         });
-        _renderOrdiniModaleRows(sorted);
+        (_currentRenderFn || _renderOrdiniModaleRows)(sorted);
 
         // Aggiorna indicatori nelle intestazioni
         document.querySelectorAll('#tblModalOrdini thead th[data-sort]').forEach(th => {
@@ -1707,7 +1854,17 @@ const MrpProgressivi = (() => {
             _ordiniModaleData = data;
             _ordiniModaleSortCol = null;
             _ordiniModaleSortAsc = true;
+            _currentRenderFn = _renderOrdiniModaleRows;
+            _currentTableId = 'ordini_impegni';
+            // Header via ColumnManager (se disponibile)
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.buildHeader('ordini_impegni', document.querySelector('#tblModalOrdini thead tr'));
+            }
             _renderOrdiniModaleRows(data);
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.applyToBody('ordini_impegni', document.getElementById('modalOrdiniBody'));
+                _updateHiddenColsBtn('ordini_impegni');
+            }
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
@@ -1726,13 +1883,13 @@ const MrpProgressivi = (() => {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (thead) {
             thead.innerHTML = `
-                <th>Mag</th>
-                <th>Fase</th>
-                <th>Data Cons.</th>
-                <th>Operazione</th>
-                <th>Q.tà Ordinata</th>
-                <th>Stato</th>
-                <th>Fornitore</th>
+                <th data-sort="ol_magaz" style="cursor:pointer;">Mag \u21C5</th>
+                <th data-sort="ol_fase" style="cursor:pointer;">Fase \u21C5</th>
+                <th data-sort="ol_datcons" style="cursor:pointer;">Data Cons. \u21C5</th>
+                <th data-sort="desc_tipo" style="cursor:pointer;">Operazione \u21C5</th>
+                <th data-sort="quantita" style="cursor:pointer;">Q.t\u00e0 Ordinata \u21C5</th>
+                <th data-sort="conf_gen" style="cursor:pointer;">Stato \u21C5</th>
+                <th data-sort="fornitore" style="cursor:pointer;">Fornitore \u21C5</th>
             `;
         }
 
@@ -1764,35 +1921,19 @@ const MrpProgressivi = (() => {
                 return;
             }
 
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-
-                if (o.ol_tipork === 'Y') {
-                    tr.className = 'modal-row-impprod rmp-drill-row';
-                    tr.dataset.codart = o.ol_codart || codart;
-                    tr.dataset.magaz = String(o.ol_magaz || '');
-                    tr.dataset.fase = String(o.ol_fase || '');
-                    tr.title = 'Clicca per vedere gli ordini produzione padre';
-                } else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') {
-                    tr.className = 'modal-row-ordprod';
-                } else {
-                    tr.className = 'modal-row-ordforn';
-                }
-
-                const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
-                const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.conf_gen || '')}</span>`;
-
-                tr.innerHTML = `
-                    <td style="text-align:center">${esc(o.ol_magaz)}</td>
-                    <td style="text-align:center">${esc(o.ol_fase)}</td>
-                    <td>${fmtDate(o.ol_datcons)}</td>
-                    <td>${esc(o.desc_tipo || o.ol_tipork)}</td>
-                    <td style="text-align:right"><strong>${fmt(o.quantita)}</strong></td>
-                    <td style="text-align:center">${badge}</td>
-                    <td>${esc(o.fornitore || '')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            _ordiniModaleData = data;
+            _ordiniModaleSortCol = null;
+            _ordiniModaleSortAsc = true;
+            _currentRenderFn = _renderRmpRows;
+            _currentTableId = 'rmp';
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.buildHeader('rmp', document.querySelector('#tblModalOrdini thead tr'));
+            }
+            _renderRmpRows(data);
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.applyToBody('rmp', document.getElementById('modalOrdiniBody'));
+                _updateHiddenColsBtn('rmp');
+            }
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>';
@@ -1814,18 +1955,18 @@ const MrpProgressivi = (() => {
         if (thead) {
             thead.innerHTML = `
             <th style="width:30px;"></th>
-            <th>Operazione</th>
-            <th>Anno</th>
-            <th>Ser</th>
-            <th>Num.Doc</th>
-            <th>Riga</th>
-            <th>Cod. Art. Padre</th>
-            <th>Descrizione Articolo</th>
-            <th>Mag</th>
-            <th>Fase</th>
-            <th>Data Cons.</th>
-            <th>Q.tà</th>
-            <th>Fornitore</th>
+            <th data-sort="padre_desc_tipo" style="cursor:pointer;">Operazione \u21C5</th>
+            <th data-sort="padre_anno" style="cursor:pointer;">Anno \u21C5</th>
+            <th data-sort="padre_serie" style="cursor:pointer;">Ser \u21C5</th>
+            <th data-sort="padre_numord" style="cursor:pointer;">Num.Doc \u21C5</th>
+            <th data-sort="padre_riga" style="cursor:pointer;">Riga \u21C5</th>
+            <th data-sort="padre_codart" style="cursor:pointer;">Cod. Art. Padre \u21C5</th>
+            <th data-sort="padre_descr" style="cursor:pointer;">Descrizione Articolo \u21C5</th>
+            <th data-sort="padre_magaz" style="cursor:pointer;">Mag \u21C5</th>
+            <th data-sort="padre_fase" style="cursor:pointer;">Fase \u21C5</th>
+            <th data-sort="padre_datcons" style="cursor:pointer;">Data Cons. \u21C5</th>
+            <th data-sort="padre_quant" style="cursor:pointer;">Q.t\u00e0 \u21C5</th>
+            <th data-sort="padre_fornitore" style="cursor:pointer;">Fornitore \u21C5</th>
         `;
         }
 
@@ -1850,27 +1991,19 @@ const MrpProgressivi = (() => {
                 return;
             }
 
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-                tr.className = 'modal-row-ordprod'; // I padri sono sempre Ord.Prod
-
-                tr.innerHTML = `
-                    <td></td>
-                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
-                    <td>${esc(o.padre_anno)}</td>
-                    <td>${esc(o.padre_serie)}</td>
-                    <td>${esc(o.padre_numord)}</td>
-                    <td>${esc(o.padre_riga)}</td>
-                    <td><strong>${esc(o.padre_codart)}</strong></td>
-                    <td>${esc(o.padre_descr)}</td>
-                    <td style="text-align:center">${esc(o.padre_magaz)}</td>
-                    <td style="text-align:center">${esc(o.padre_fase)}</td>
-                    <td>${fmtDate(o.padre_datcons)}</td>
-                    <td style="text-align:right">${fmt(o.padre_quant)}</td>
-                    <td>${esc(o.padre_fornitore || '')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            _ordiniModaleData = data;
+            _ordiniModaleSortCol = null;
+            _ordiniModaleSortAsc = true;
+            _currentRenderFn = _renderDrillPadreRows;
+            _currentTableId = 'drill_padre';
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.buildHeader('drill_padre', document.querySelector('#tblModalOrdini thead tr'));
+            }
+            _renderDrillPadreRows(data);
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.applyToBody('drill_padre', document.getElementById('modalOrdiniBody'));
+                _updateHiddenColsBtn('drill_padre');
+            }
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
@@ -1891,15 +2024,15 @@ const MrpProgressivi = (() => {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (thead) {
             thead.innerHTML = `
-            <th>Cod. Art.</th>
-            <th>Mag</th>
-            <th>Fase</th>
-            <th>Descrizione Articolo</th>
-            <th>Data Cons.</th>
-            <th>Operazione</th>
-            <th>Q.tà Ordinata</th>
-            <th>Stato</th>
-            <th>Fornitore</th>
+            <th data-sort="padre_codart" style="cursor:pointer;">Cod. Art. \u21C5</th>
+            <th data-sort="padre_magaz" style="cursor:pointer;">Mag \u21C5</th>
+            <th data-sort="padre_fase" style="cursor:pointer;">Fase \u21C5</th>
+            <th data-sort="padre_descr" style="cursor:pointer;">Descrizione Articolo \u21C5</th>
+            <th data-sort="datcons" style="cursor:pointer;">Data Cons. \u21C5</th>
+            <th data-sort="padre_desc_tipo" style="cursor:pointer;">Operazione \u21C5</th>
+            <th data-sort="quantita" style="cursor:pointer;">Q.t\u00e0 Ordinata \u21C5</th>
+            <th data-sort="padre_conf_gen" style="cursor:pointer;">Stato \u21C5</th>
+            <th data-sort="padre_fornitore" style="cursor:pointer;">Fornitore \u21C5</th>
         `;
         }
 
@@ -1924,28 +2057,19 @@ const MrpProgressivi = (() => {
                 return;
             }
 
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-                tr.className = 'modal-row-ordprod';
-                tr.classList.add('rmp-row-clickable');
-                tr.dataset.codart = o.padre_codart;
-
-                const badgeColor = o.padre_conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
-                const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.padre_conf_gen || '')}</span>`;
-
-                tr.innerHTML = `
-                    <td><strong>${esc(o.padre_codart)}</strong></td>
-                    <td style="text-align:center">${esc(o.padre_magaz)}</td>
-                    <td style="text-align:center">${esc(o.padre_fase)}</td>
-                    <td>${esc(o.padre_descr)}</td>
-                    <td>${fmtDate(o.datcons)}</td>
-                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
-                    <td style="text-align:right"><strong>${fmt(o.quantita)}</strong></td>
-                    <td style="text-align:center">${badge}</td>
-                    <td>${esc(o.padre_fornitore || '')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            _ordiniModaleData = data;
+            _ordiniModaleSortCol = null;
+            _ordiniModaleSortAsc = true;
+            _currentRenderFn = _renderDrillPadreRmpRows;
+            _currentTableId = 'drill_padre_rmp';
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.buildHeader('drill_padre_rmp', document.querySelector('#tblModalOrdini thead tr'));
+            }
+            _renderDrillPadreRmpRows(data);
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.applyToBody('drill_padre_rmp', document.getElementById('modalOrdiniBody'));
+                _updateHiddenColsBtn('drill_padre_rmp');
+            }
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
@@ -1955,21 +2079,26 @@ const MrpProgressivi = (() => {
     function ripristinaHeaderModale() {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (!thead) return;
-        thead.innerHTML = `
-            <th style="width:30px;"></th>
-            <th data-sort="desc_tipo" style="cursor:pointer;">Operazione \u21C5</th>
-            <th data-sort="mo_anno" style="cursor:pointer;">Anno \u21C5</th>
-            <th data-sort="mo_serie" style="cursor:pointer;">Ser \u21C5</th>
-            <th data-sort="mo_numord" style="cursor:pointer;">Num.Doc \u21C5</th>
-            <th data-sort="mo_riga" style="cursor:pointer;">Riga \u21C5</th>
-            <th data-sort="mo_magaz" style="cursor:pointer;">Mag \u21C5</th>
-            <th data-sort="mo_fase" style="cursor:pointer;">Fase \u21C5</th>
-            <th data-sort="mo_datcons" style="cursor:pointer;">Data Cons. \u21C5</th>
-            <th data-sort="mo_quant" style="cursor:pointer;">Q.t\u00e0 Ordinata \u21C5</th>
-            <th data-sort="mo_quaeva" style="cursor:pointer;">Q.t\u00e0 Evasa \u21C5</th>
-            <th data-sort="mo_flevas" style="cursor:pointer;">Stato \u21C5</th>
-            <th data-sort="fornitore" style="cursor:pointer;">Fornitore \u21C5</th>
-        `;
+        _currentTableId = 'ordini_impegni';
+        if (typeof ColumnManager !== 'undefined') {
+            ColumnManager.buildHeader('ordini_impegni', thead);
+        } else {
+            thead.innerHTML = `
+                <th style="width:30px;"></th>
+                <th style="cursor:pointer;">Operazione</th>
+                <th style="cursor:pointer;">Anno</th>
+                <th style="cursor:pointer;">Ser</th>
+                <th style="cursor:pointer;">Num.Doc</th>
+                <th style="cursor:pointer;">Riga</th>
+                <th style="cursor:pointer;">Mag</th>
+                <th style="cursor:pointer;">Fase</th>
+                <th style="cursor:pointer;">Data Cons.</th>
+                <th style="cursor:pointer;">Q.t\u00e0 Ordinata</th>
+                <th style="cursor:pointer;">Q.t\u00e0 Evasa</th>
+                <th style="cursor:pointer;">Stato</th>
+                <th style="cursor:pointer;">Fornitore</th>
+            `;
+        }
     }
 
     function chiudiModale() {
