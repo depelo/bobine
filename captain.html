@@ -614,7 +614,7 @@
             pwdReqSpec: reqSpecEl ? reqSpecEl.checked : false,
             // Traccia i ruoli spuntati per intercettare i cambi di permessi
             roles: Array.from(document.querySelectorAll('.edit-role-checkbox:checked'))
-                .map(cb => cb.dataset.targetTable + '-' + cb.dataset.roleKey)
+                .map(cb => cb.dataset.targetDb + '-' + cb.dataset.targetTable + '-' + cb.dataset.roleKey)
                 .sort()
                 .join(',')
         };
@@ -1271,6 +1271,7 @@
             cb.type = 'checkbox';
             cb.className = 'edit-role-checkbox';
             cb.dataset.targetTable = mod.targetTable;
+            cb.dataset.targetDb = mod.targetDb;
             cb.dataset.roleKey = roleKey;
 
             // Pre-check se l'utente ha già questo ruolo in questo modulo
@@ -1413,7 +1414,7 @@
         let selectedModules = new Map();
 
         document.querySelectorAll('.role-checkbox:checked').forEach(cb => {
-            const mod = globalModules.find(m => m.targetTable === cb.dataset.targetTable);
+            const mod = globalModules.find(m => m.targetDb === cb.dataset.targetDb && m.targetTable === cb.dataset.targetTable);
             if (mod) {
                 selectedModules.set(mod.id, mod.name);
                 if (mod.roles) {
@@ -1474,6 +1475,7 @@
           cb.type = 'checkbox';
           cb.className = 'role-checkbox';
           cb.dataset.targetTable = mod.targetTable;
+          cb.dataset.targetDb = mod.targetDb;
           cb.dataset.roleKey = roleKey;
           cb.addEventListener('change', updateNewUserDynamicFields);
 
@@ -1520,6 +1522,7 @@
 
       const selectedRoles = Array.from(document.querySelectorAll('.role-checkbox:checked')).map(cb => ({
         targetTable: cb.dataset.targetTable,
+        targetDb: cb.dataset.targetDb,
         roleKey: cb.dataset.roleKey
       }));
 
@@ -1786,6 +1789,7 @@
 
             const selectedRoles = Array.from(document.querySelectorAll('.edit-role-checkbox:checked')).map(cb => ({
                 targetTable: cb.dataset.targetTable,
+                targetDb: cb.dataset.targetDb,
                 roleKey: cb.dataset.roleKey
             }));
 

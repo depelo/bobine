@@ -42,12 +42,13 @@ module.exports = function createAdminRoutes({ io, activeUserSockets }) {
             }));
 
             const allAccessRes = await pool.request().query(`
-            SELECT 
+            SELECT
                 V.IDUser, M.IDModule as moduleId, M.ModuleName as moduleName,
                 GR.RoleCode as roleKey, GR.DefaultLabel as roleLabel
             FROM [GA].[dbo].[vw_UserAccess] V
             INNER JOIN [GA].[dbo].[Modules] M ON V.IDModule = M.IDModule
             INNER JOIN [GA].[dbo].[GlobalRoles] GR ON V.IDGlobalRole = GR.IDGlobalRole
+            WHERE V.IsActive = 1
         `);
 
             for (let u of users) {
@@ -170,7 +171,8 @@ module.exports = function createAdminRoutes({ io, activeUserSockets }) {
                 const dbName = mod.TargetDb;
                 if (!dbName || !table) continue;
 
-                const assignedRole = submittedRoles.find(r => r.targetTable === table);
+                // Match per targetDb (univoco) — non per targetTable che è condiviso tra BOB/PE/GB2
+                const assignedRole = submittedRoles.find(r => r.targetDb === dbName);
                 const fullTable = `[${dbName}].[dbo].[${table}]`;
 
                 let roleCol = table === 'Captains' ? 'Role' : 'Admin';
