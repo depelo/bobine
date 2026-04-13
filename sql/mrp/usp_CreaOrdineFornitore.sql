@@ -86,6 +86,7 @@ BEGIN
         quantita    DECIMAL(18,9),
         data_consegna DATE,
         prezzo      DECIMAL(18,6),
+        perqta      DECIMAL(18,6),   -- Prezzo per quantita (es. 250 = prezzo per 250 PZ)
         unmis       VARCHAR(3),
         ol_progr    INT,            -- Progressivo ordlist (per registro ordini_emessi)
         -- Campi arricchiti da artico
@@ -99,8 +100,8 @@ BEGIN
         valore      MONEY
     );
 
-    INSERT INTO #articoli (codart, fase, magaz, quantita, data_consegna, prezzo, unmis, ol_progr)
-    SELECT codart, fase, magaz, quantita, data_consegna, prezzo, unmis, ISNULL(ol_progr, 0)
+    INSERT INTO #articoli (codart, fase, magaz, quantita, data_consegna, prezzo, perqta, unmis, ol_progr)
+    SELECT codart, fase, magaz, quantita, data_consegna, prezzo, ISNULL(perqta, 1), unmis, ISNULL(ol_progr, 0)
     FROM OPENJSON(@json_articoli)
     WITH (
         codart          VARCHAR(50)     '$.codart',
@@ -109,6 +110,7 @@ BEGIN
         quantita        DECIMAL(18,9)   '$.quantita',
         data_consegna   DATE            '$.data_consegna',
         prezzo          DECIMAL(18,6)   '$.prezzo',
+        perqta          DECIMAL(18,6)   '$.perqta',
         unmis           VARCHAR(3)      '$.unmis',
         ol_progr        INT             '$.ol_progr'
     );
@@ -127,7 +129,7 @@ BEGIN
         a.ar_desint  = COALESCE(ar.ar_desint, ''),
         a.ar_codiva  = COALESCE(ar.ar_codiva, 0),
         a.ar_controa = COALESCE(ar.ar_controa, 0),
-        a.valore     = a.quantita * a.prezzo
+        a.valore     = a.quantita * a.prezzo / ISNULL(NULLIF(a.perqta, 0), 1)
     FROM #articoli a
     LEFT JOIN [UJET11].[dbo].[artico] ar ON a.codart = ar.ar_codart;
 
@@ -362,7 +364,7 @@ BEGIN
         101,
         'S', 'C', 'C',
         'N', 'N', 'N', 'N',
-        1.0, a.data_consegna, a.unmis,
+        ISNULL(a.perqta, 1), a.data_consegna, a.unmis,
         a.fase,
         @primo_mese, @primo_mese,
         @oggi

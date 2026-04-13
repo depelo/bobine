@@ -548,7 +548,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
             .input('codart', sql.NVarChar, codart)
             .query(`
                 SELECT ar_codart, ar_codalt, ar_descr, ar_tipo, ar_desint,
-                       ar_polriord, ar_gesfasi, ar_ultfase, ar_scomin, ar_ggrior, ar_minord,
+                       ar_polriord, ar_gesfasi, ar_ultfase, ar_scomin, ar_ggrior, ar_minord, ar_rrfence,
                        ar_gruppo, ar_sostit, ar_sostituito, ar_inesaur, ar_unmis
                 FROM dbo.artico
                 WHERE ar_codart = @codart
@@ -569,7 +569,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
                 .input('codart', sql.NVarChar, codSostCand)
                 .query(`
                     SELECT ar_codart, ar_codalt, ar_descr, ar_tipo, ar_desint,
-                           ar_polriord, ar_gesfasi, ar_ultfase, ar_scomin, ar_ggrior, ar_minord,
+                           ar_polriord, ar_gesfasi, ar_ultfase, ar_scomin, ar_ggrior, ar_minord, ar_rrfence,
                            ar_gruppo, ar_sostit, ar_sostituito, ar_inesaur, ar_unmis
                     FROM dbo.artico
                     WHERE ar_codart = @codart
@@ -604,7 +604,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
                         d.md_quant, d.md_unmis, d.md_quantump, d.md_ump,
                         a.ar_codalt AS figlio_codalt, a.ar_descr AS figlio_descr,
                         a.ar_polriord AS figlio_polriord, a.ar_gesfasi AS figlio_gesfasi,
-                        a.ar_scomin AS figlio_scomin, a.ar_ggrior AS figlio_ggrior, a.ar_minord AS figlio_minord, a.ar_minord AS figlio_minord,
+                        a.ar_scomin AS figlio_scomin, a.ar_ggrior AS figlio_ggrior, a.ar_minord AS figlio_minord, a.ar_rrfence AS figlio_rrfence,
                         a.ar_desint AS figlio_desint, a.ar_inesaur AS figlio_inesaur,
                         a.ar_unmis AS figlio_unmis,
                         CASE WHEN EXISTS (
@@ -684,7 +684,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
                     a.ar_polriord AS figlio_polriord,
                     a.ar_gesfasi AS figlio_gesfasi,
                     a.ar_scomin AS figlio_scomin,
-                    a.ar_ggrior AS figlio_ggrior, a.ar_minord AS figlio_minord,
+                    a.ar_ggrior AS figlio_ggrior, a.ar_minord AS figlio_minord, a.ar_rrfence AS figlio_rrfence,
                     a.ar_desint AS figlio_desint,
                     a.ar_inesaur AS figlio_inesaur,
                     a.ar_unmis AS figlio_unmis,
@@ -713,7 +713,7 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
                 polriord: getPoliticaRiordino({
                     ar_polriord: f.figlio_polriord,
                     ar_scomin: f.figlio_scomin,
-                    ar_ggrior: f.figlio_ggrior, ar_minord: f.figlio_minord,
+                    ar_ggrior: f.figlio_ggrior, ar_minord: f.figlio_minord, ar_rrfence: f.figlio_rrfence,
                     ar_desint: f.figlio_desint
                 }),
                 um: f.figlio_unmis || 'PZ',
@@ -783,7 +783,7 @@ router.get('/progressivi/expand', authMiddleware, async (req, res) => {
                     a.ar_descr AS figlio_descr,
                     a.ar_polriord AS figlio_polriord,
                     a.ar_scomin AS figlio_scomin,
-                    a.ar_ggrior AS figlio_ggrior, a.ar_minord AS figlio_minord,
+                    a.ar_ggrior AS figlio_ggrior, a.ar_minord AS figlio_minord, a.ar_rrfence AS figlio_rrfence,
                     a.ar_desint AS figlio_desint,
                     a.ar_inesaur AS figlio_inesaur,
                     a.ar_unmis AS figlio_unmis,
@@ -811,7 +811,7 @@ router.get('/progressivi/expand', authMiddleware, async (req, res) => {
                 polriord: getPoliticaRiordino({
                     ar_polriord: f.figlio_polriord,
                     ar_scomin: f.figlio_scomin,
-                    ar_ggrior: f.figlio_ggrior, ar_minord: f.figlio_minord,
+                    ar_ggrior: f.figlio_ggrior, ar_minord: f.figlio_minord, ar_rrfence: f.figlio_rrfence,
                     ar_desint: f.figlio_desint
                 }),
                 um: f.figlio_unmis || 'PZ',

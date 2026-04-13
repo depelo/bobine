@@ -40,7 +40,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
     }
 
     // Versione deploy — incrementare quando si modificano le SP o le tabelle
-    const DEPLOY_VERSION = '2.2';
+    const DEPLOY_VERSION = '2.3';
 
     /**
      * Deploy SP e tabelle nel DB [GB2_SP] del server di destinazione.
@@ -230,7 +230,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         const map = { 'M': 'a punto di riordino', 'F': 'fabbisogno puro', 'L': 'a lotto fisso', 'N': 'nessuna politica' };
         let descr = map[pol] || pol;
         if (pol === 'M' && art.ar_scomin) {
-            descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_minord || 0}, lead time ${art.ar_ggrior || 0} gg)`;
+            descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_minord || 0}, lead time ${art.ar_rrfence || 0} gg)`;
         }
         if (pol === 'F') {
             const desint = (art.ar_desint || '').trim();

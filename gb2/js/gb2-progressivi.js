@@ -777,7 +777,8 @@ const MrpProgressivi = (() => {
         const qta = Number(document.getElementById('decisioneQta').value) || 0;
         const proposta = MrpApp.state.propostaCorrente;
         const prezzo = proposta ? Number(proposta.ol_prezzo) || 0 : 0;
-        const valore = qta * prezzo;
+        const perqta = proposta ? Number(proposta.ol_perqta) || 1 : 1;
+        const valore = qta * prezzo / perqta;
         document.getElementById('decisioneValore').textContent =
             valore > 0
                 ? '\u20ac ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -810,6 +811,7 @@ const MrpProgressivi = (() => {
             data_consegna: data,
             quantita_proposta: Number(proposta.ol_quant) || 0,
             prezzo: Number(proposta.ol_prezzo) || 0,
+            perqta: Number(proposta.ol_perqta) || 1,
             timestamp_conferma: new Date().toISOString()
         });
 
@@ -841,6 +843,7 @@ const MrpProgressivi = (() => {
             data_consegna: '',
             quantita_proposta: Number(proposta.ol_quant) || 0,
             prezzo: Number(proposta.ol_prezzo) || 0,
+            perqta: Number(proposta.ol_perqta) || 1,
             escluso: true,
             timestamp_conferma: new Date().toISOString()
         });

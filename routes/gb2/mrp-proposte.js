@@ -257,6 +257,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                     COALESCE(ol.ol_stato, '')               AS ol_stato,
                     ISNULL(ol.ol_magaz, 0)                 AS ol_magaz,
                     ISNULL(ol.ol_prezzo, 0)                AS ol_prezzo,
+                    ISNULL(ol.ol_perqta, 1)                AS ol_perqta,
                     ol.ol_datord                           AS dt_min_ord
                 FROM dbo.ordlist ol
                 LEFT JOIN dbo.anagra an ON ol.ol_conto = an.an_conto
@@ -570,7 +571,7 @@ function getPoliticaRiordino(art) {
 
     // Aggiungi dettagli scorta minima e lotto se presenti
     if (pol === 'M' && art.ar_scomin) {
-        descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_minord || 0}, lead time ${art.ar_ggrior || 0} gg)`;
+        descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_minord || 0}, lead time ${art.ar_rrfence || 0} gg)`;
     }
     if (pol === 'F') {
         const desint = (art.ar_desint || '').trim();

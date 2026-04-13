@@ -62,6 +62,7 @@ const MrpProposta = (() => {
                 ol_progr: ordine.ol_progr || 0,
                 ol_quant: ordine.quantita_proposta,
                 ol_prezzo: ordine.prezzo,
+                ol_perqta: ordine.perqta || '1',
                 ol_datcons: ordine.data_consegna,
                 ol_colli: '0',
                 ol_ump: '',
@@ -133,6 +134,7 @@ const MrpProposta = (() => {
             ol_progr: codartEl.dataset.olprogr || '0',
             ol_quant: codartEl.dataset.quant || '0',
             ol_prezzo: codartEl.dataset.prezzo || '0',
+            ol_perqta: codartEl.dataset.perqta || '1',
             ol_datcons: codartEl.dataset.datcons || '',
             ol_colli: codartEl.dataset.colli || '0',
             ol_ump: codartEl.dataset.ump || '',
@@ -262,7 +264,7 @@ const MrpProposta = (() => {
             totArticoli += f.articoli.size;
             f.articoli.forEach(rows => {
                 rows.forEach(r => {
-                    totaleValore += (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0);
+                    totaleValore += (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
                 });
             });
         });
@@ -323,7 +325,7 @@ const MrpProposta = (() => {
                 for (const r of rows) {
                     totColli += Number(r.ol_colli) || 0;
                     totQuant += Number(r.ol_quant) || 0;
-                    valoreFornitore += (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0);
+                    valoreFornitore += (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
 
                     let stato, statoClass;
                     if (r.emesso) {
@@ -365,6 +367,7 @@ const MrpProposta = (() => {
                     data-olprogr="${escAttr(String(first.ol_progr ?? '0'))}"
                     data-quant="${escAttr(String(first.ol_quant ?? '0'))}"
                     data-prezzo="${escAttr(String(first.ol_prezzo ?? '0'))}"
+                    data-perqta="${escAttr(String(first.ol_perqta ?? '1'))}"
                     data-datcons="${escAttr(first.ol_datcons || '')}"
                     data-colli="${escAttr(String(first.ol_colli ?? '0'))}"
                     data-ump="${escAttr(first.ol_ump || '')}"
@@ -500,7 +503,7 @@ const MrpProposta = (() => {
                     badge.classList.add('proposta-badge-confermato');
                     const dataFmt = ordine.data_consegna
                         ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
-                    const valore = ordine.quantita_confermata * ordine.prezzo;
+                    const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
                     badge.innerHTML =
                         '<span class="conferma-icon">&#x2713;</span> '
                         + '<strong>' + Number(ordine.quantita_confermata).toLocaleString('it-IT') + ' ' + esc(ordine.ol_unmis || 'PZ') + '</strong>'
@@ -546,7 +549,7 @@ const MrpProposta = (() => {
                     conteggioEsclusi++;
                 } else {
                     conteggioConfermati++;
-                    totaleValore += ordine.quantita_confermata * ordine.prezzo;
+                    totaleValore += ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
                 }
             });
 
@@ -1101,7 +1104,7 @@ const MrpProposta = (() => {
             }
         }
 
-        const totale = articoliFornitore.reduce((s, a) => s + a.quantita_confermata * a.prezzo, 0);
+        const totale = articoliFornitore.reduce((s, a) => s + a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1), 0);
 
         const riepilogoEl = document.getElementById('emettiRiepilogo');
         riepilogoEl.innerHTML = `
@@ -1115,7 +1118,7 @@ const MrpProposta = (() => {
                     <td class="num">${Number(a.quantita_confermata).toLocaleString('it-IT')}</td>
                     <td>${esc(a.ol_unmis || 'PZ')}</td>
                     <td class="num">${Number(a.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 4 })}</td>
-                    <td class="num">\u20ac ${(a.quantita_confermata * a.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="num">\u20ac ${(a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td>${a.data_consegna ? new Date(a.data_consegna).toLocaleDateString('it-IT') : ''}</td>
                 </tr>`).join('')}
                 </tbody>
@@ -1151,6 +1154,7 @@ const MrpProposta = (() => {
                 quantita: a.quantita_confermata,
                 data_consegna: a.data_consegna,
                 prezzo: a.prezzo,
+                perqta: Number(a.perqta) || 1,
                 unmis: a.ol_unmis || 'PZ',
                 ol_progr: parseInt(a.ol_progr, 10) || 0
             }))
@@ -2270,6 +2274,7 @@ const MrpProposta = (() => {
                     quantita: a.quantita_confermata,
                     data_consegna: a.data_consegna,
                     prezzo: a.prezzo,
+                    perqta: Number(a.perqta) || 1,
                     unmis: a.ol_unmis || 'PZ',
                     ol_progr: parseInt(a.ol_progr, 10) || 0
                 }))
