@@ -401,7 +401,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
 
                 // 4) Riconciliazione: marca le proposte già emesse in questa elaborazione
                 try {
-                    const emessiRes = await pool.request()
+                    const emessiRes = await poolGB2.request()
                         .input('eid', sql.VarChar(50), String(elabId))
                         .query(`SELECT id, ol_progr FROM dbo.ordini_emessi WHERE elaborazione_id = @eid`);
 

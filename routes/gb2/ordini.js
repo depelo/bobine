@@ -628,41 +628,46 @@ router.get('/storico-ordini', authMiddleware, async (req, res) => {
 
         // Query 2: nomi fornitori + totali ordine (su BCube/UJET11 — connessione diretta)
         if (ordini.length > 0) {
-            const poolErp = await getPoolDest(uid);
-            // Raccogli chiavi uniche
-            const conti = [...new Set(ordini.map(o => o.fornitore_codice))];
-            const ordKeys = [...new Set(ordini.map(o => o.ord_anno + '-' + o.ord_serie + '-' + o.ord_numord))];
+            try {
+                const poolErp = await getPoolDest(uid);
+                const conti = [...new Set(ordini.map(o => o.fornitore_codice))];
+                const ordKeys = [...new Set(ordini.map(o => o.ord_anno + '-' + o.ord_serie + '-' + o.ord_numord))];
 
-            // Nomi fornitori
-            const anagMap = {};
-            if (conti.length > 0) {
-                const anagRes = await poolErp.request()
-                    .input('conti', sql.NVarChar(sql.MAX), JSON.stringify(conti))
-                    .query(`SELECT an_conto, an_descr1 FROM dbo.anagra WHERE an_conto IN (SELECT CAST(value AS INT) FROM OPENJSON(@conti))`);
-                anagRes.recordset.forEach(r => { anagMap[r.an_conto] = r.an_descr1; });
+                // Nomi fornitori — query semplice con IN (no OPENJSON per compatibilità)
+                const anagMap = {};
+                if (conti.length > 0) {
+                    const placeholders = conti.map((_, i) => '@c' + i).join(',');
+                    const rqAnag = poolErp.request();
+                    conti.forEach((c, i) => rqAnag.input('c' + i, sql.Int, c));
+                    const anagRes = await rqAnag.query('SELECT an_conto, an_descr1 FROM dbo.anagra WHERE an_conto IN (' + placeholders + ')');
+                    anagRes.recordset.forEach(r => { anagMap[r.an_conto] = r.an_descr1; });
+                }
+
+                // Totali documenti — query semplice con IN
+                const totMap = {};
+                if (ordKeys.length > 0 && ordKeys.length <= 200) {
+                    const rqTot = poolErp.request();
+                    const conditions = [];
+                    ordKeys.forEach((k, i) => {
+                        const p = k.split('-');
+                        rqTot.input('a' + i, sql.SmallInt, parseInt(p[0]));
+                        rqTot.input('s' + i, sql.VarChar(3), p[1]);
+                        rqTot.input('n' + i, sql.Int, parseInt(p[2]));
+                        conditions.push('(t.td_anno=@a' + i + ' AND t.td_serie=@s' + i + ' AND t.td_numord=@n' + i + ')');
+                    });
+                    const totRes = await rqTot.query(
+                        'SELECT t.td_anno, t.td_serie, t.td_numord, t.td_totdoc FROM dbo.testord t WHERE t.codditt=\'UJET11\' AND t.td_tipork=\'O\' AND (' + conditions.join(' OR ') + ')'
+                    );
+                    totRes.recordset.forEach(r => { totMap[r.td_anno + '-' + r.td_serie + '-' + r.td_numord] = r.td_totdoc; });
+                }
+
+                ordini.forEach(o => {
+                    o.fornitore_nome = anagMap[o.fornitore_codice] || '';
+                    o.totale_documento = totMap[o.ord_anno + '-' + o.ord_serie + '-' + o.ord_numord] || 0;
+                });
+            } catch (erpErr) {
+                console.warn('[Storico] Enrichment ERP fallito (continuo senza nomi/totali):', erpErr.message);
             }
-
-            // Totali documenti
-            const totMap = {};
-            if (ordKeys.length > 0) {
-                const jsonKeys = JSON.stringify(ordKeys.map(k => { const p = k.split('-'); return { a: parseInt(p[0]), s: p[1], n: parseInt(p[2]) }; }));
-                const totRes = await poolErp.request()
-                    .input('keys', sql.NVarChar(sql.MAX), jsonKeys)
-                    .query(`
-                        SELECT t.td_anno, t.td_serie, t.td_numord, t.td_totdoc
-                        FROM dbo.testord t
-                        INNER JOIN OPENJSON(@keys) WITH (a INT, s VARCHAR(3), n INT) k
-                            ON t.td_anno = k.a AND t.td_serie = k.s AND t.td_numord = k.n
-                        WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
-                    `);
-                totRes.recordset.forEach(r => { totMap[r.td_anno + '-' + r.td_serie + '-' + r.td_numord] = r.td_totdoc; });
-            }
-
-            // Merge in Node.js
-            ordini.forEach(o => {
-                o.fornitore_nome = anagMap[o.fornitore_codice] || '';
-                o.totale_documento = totMap[o.ord_anno + '-' + o.ord_serie + '-' + o.ord_numord] || 0;
-            });
         }
 
         // Query 3: elaborazioni con conteggi (su 163 — tabelle app)
@@ -739,17 +744,21 @@ router.get('/elaborazione-dettaglio/:id', authMiddleware, async (req, res) => {
         const codarts = [...new Set(dettaglioApp.recordset.map(r => r.ol_codart))];
 
         const anagMap = {}, artMap = {};
-        if (conti.length > 0) {
-            const anagRes = await poolErp.request()
-                .input('conti', sql.NVarChar(sql.MAX), JSON.stringify(conti))
-                .query('SELECT an_conto, an_descr1 FROM dbo.anagra WHERE an_conto IN (SELECT CAST(value AS INT) FROM OPENJSON(@conti))');
-            anagRes.recordset.forEach(r => { anagMap[r.an_conto] = r.an_descr1; });
-        }
-        if (codarts.length > 0) {
-            const artRes = await poolErp.request()
-                .input('codarts', sql.NVarChar(sql.MAX), JSON.stringify(codarts))
-                .query("SELECT ar_codart, ar_descr FROM dbo.artico WHERE ar_codart IN (SELECT value FROM OPENJSON(@codarts))");
-            artRes.recordset.forEach(r => { artMap[r.ar_codart] = r.ar_descr; });
+        try {
+            if (conti.length > 0) {
+                const rqA = poolErp.request();
+                conti.forEach((c, i) => rqA.input('c' + i, sql.Int, c));
+                const anagRes = await rqA.query('SELECT an_conto, an_descr1 FROM dbo.anagra WHERE an_conto IN (' + conti.map((_, i) => '@c' + i).join(',') + ')');
+                anagRes.recordset.forEach(r => { anagMap[r.an_conto] = r.an_descr1; });
+            }
+            if (codarts.length > 0) {
+                const rqAr = poolErp.request();
+                codarts.forEach((c, i) => rqAr.input('a' + i, sql.NVarChar, c));
+                const artRes = await rqAr.query('SELECT ar_codart, ar_descr FROM dbo.artico WHERE ar_codart IN (' + codarts.map((_, i) => '@a' + i).join(',') + ')');
+                artRes.recordset.forEach(r => { artMap[r.ar_codart] = r.ar_descr; });
+            }
+        } catch (erpErr) {
+            console.warn('[Elab Dettaglio] Enrichment ERP fallito:', erpErr.message);
         }
 
         // Merge in Node.js
@@ -808,7 +817,7 @@ router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req,
         // ordini_emessi → sempre su 163
         const poolApp = await getPool163();
 
-        // Testata ordine + fornitore (su BCube diretto)
+        // Testata ordine + fornitore + pagamento + porto (su BCube diretto, arricchita per PDF)
         const testata = await poolErp.request()
             .input('anno', sql.SmallInt, parseInt(anno, 10))
             .input('serie', sql.VarChar(3), serie)
@@ -816,15 +825,29 @@ router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req,
             .query(`
                 SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
                        t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
-                       t.td_datcons, t.td_codpaga, t.td_porto AS porto,
+                       t.td_datcons, t.td_codpaga, t.td_porto,
+                       t.td_banc1 AS banca_appoggio_1, t.td_banc2 AS banca_appoggio_2,
+                       t.td_riferim AS riferimento, t.td_valuta AS valuta_codice,
+                       CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
                        t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                       t.td_totdoc - t.td_totmerce AS totale_imposta,
                        a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
                        a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
                        a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
                        a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
-                       t.td_totdoc - t.td_totmerce AS totale_imposta
+                       a.an_categ AS fornitore_categ,
+                       a.an_banc1 AS fornitore_banca_1, a.an_banc2 AS fornitore_banca_2,
+                       CAST(a.an_note AS VARCHAR(500)) AS fornitore_note,
+                       CAST(a.an_note2 AS VARCHAR(500)) AS fornitore_note2,
+                       ISNULL(p.tb_despaga, '') AS pagamento_descr,
+                       ISNULL(pt.tb_desport, '') AS porto_descr,
+                       ISNULL(v.tb_desvalu, 'EUR') AS valuta_sigla,
+                       ISNULL(v.tb_nomvalu, 'Euro') AS valuta_nome
                 FROM dbo.testord t
                 LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                LEFT JOIN dbo.tabpaga p ON t.td_codpaga = p.tb_codpaga
+                LEFT JOIN dbo.tabport pt ON t.td_porto = pt.tb_codport
+                LEFT JOIN dbo.tabvalu v ON t.td_valuta = v.tb_codvalu
                 WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
                   AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
             `);
@@ -833,29 +856,32 @@ router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req,
             return res.status(404).json({ error: 'Ordine non trovato' });
         }
 
-        // Descrizione pagamento (su BCube diretto)
-        let pag_descr = '';
-        try {
-            const pag = await poolErp.request()
-                .input('codpaga', sql.SmallInt, testata.recordset[0].td_codpaga)
-                .query("SELECT tb_despaga AS cp_descr FROM dbo.tabpaga WHERE tb_codpaga = @codpaga");
-            if (pag.recordset.length) pag_descr = pag.recordset[0].cp_descr || '';
-        } catch (_) {}
+        const ordine = testata.recordset[0];
 
-        const ordine = { ...testata.recordset[0], pagamento_descr: pag_descr };
-
-        // Righe ordine (su BCube diretto)
+        // Righe ordine arricchite (su BCube diretto — con CODARFO e artico per PDF)
         const righeRes = await poolErp.request()
             .input('anno', sql.SmallInt, parseInt(anno, 10))
             .input('serie', sql.VarChar(3), serie)
             .input('numord', sql.Int, parseInt(numord, 10))
+            .input('fornitore', sql.Int, ordine.fornitore_codice)
             .query(`
-                SELECT mo_riga, mo_codart, mo_descr, mo_desint, mo_unmis,
-                       mo_quant, mo_prezzo, mo_valore, mo_datcons, mo_fase, mo_magaz
-                FROM dbo.movord
-                WHERE codditt = 'UJET11' AND mo_tipork = 'O'
-                  AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord
-                ORDER BY mo_riga
+                SELECT m.mo_riga, m.mo_codart, m.mo_descr, m.mo_desint,
+                       m.mo_unmis, m.mo_ump, m.mo_quant, m.mo_colli,
+                       m.mo_prezzo, m.mo_valore, m.mo_datcons,
+                       m.mo_fase, m.mo_magaz, m.mo_lotto,
+                       m.mo_scont1, m.mo_scont2, m.mo_scont3,
+                       CAST(m.mo_note AS VARCHAR(MAX)) AS mo_note,
+                       c.caf_codarfo AS rif_fornitore,
+                       c.caf_desnote AS rif_note,
+                       CAST(ar.ar_note AS VARCHAR(500)) AS ar_note,
+                       ar.ar_conver, ar.ar_codalt
+                FROM dbo.movord m
+                LEFT JOIN dbo.codarfo c ON c.codditt = 'UJET11'
+                    AND c.caf_conto = @fornitore AND c.caf_codart = m.mo_codart
+                LEFT JOIN dbo.artico ar ON ar.codditt = 'UJET11' AND ar.ar_codart = m.mo_codart
+                WHERE m.codditt = 'UJET11' AND m.mo_tipork = 'O'
+                  AND m.mo_anno = @anno AND m.mo_serie = @serie AND m.mo_numord = @numord
+                ORDER BY m.mo_riga
             `);
 
         // Stato email da ordini_emessi (su 163)

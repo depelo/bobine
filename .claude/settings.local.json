@@ -98,7 +98,8 @@
       "Bash(wc -l /c/Users/depel/Documents/progetto/ujet/bobine/routes/gb2/*.js)",
       "Bash(node -c routes/gb2/email.js)",
       "Bash(node -c routes/gb2/fornitori.js)",
-      "Bash(node -c routes/gb2/db-profiles.js)"
+      "Bash(node -c routes/gb2/db-profiles.js)",
+      "Bash(node _audit_pdf.js)"
     ]
   }
 }

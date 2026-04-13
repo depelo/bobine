@@ -10,6 +10,7 @@ module.exports = function(router, deps) {
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const compilaTemplate = helpers.compilaTemplate;
+    const getSpName = helpers.getSpName;
 
 router.get('/smtp/config', authMiddleware, async (req, res) => {
     try {
@@ -460,19 +461,17 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
             }]
         });
 
-        // Aggiorna stato invio nel DB (SP su MRP@163)
+        // Aggiorna stato invio nel DB (SP su GB2_SP del server destinazione)
         try {
-            const poolSP = await getPool163();
-            const spNameAggiorna = getSpName('usp_AggiornaStatoInvioOrdine', getActiveProfile(getUserId(req)));
-            const spExists = await checkSpExists(poolSP, spNameAggiorna);
-            if (spExists) {
-                await poolSP.request()
-                    .input('anno', sql.SmallInt, parseInt(anno, 10))
-                    .input('serie', sql.VarChar(3), serie)
-                    .input('numord', sql.Int, parseInt(numord, 10))
-                    .input('stato', sql.VarChar(1), 'S')
-                    .execute('dbo.' + spNameAggiorna);
-            }
+            const poolSP = await getPoolDest(getUserId(req));
+            const profile = getActiveProfile(getUserId(req));
+            const spNameAggiorna = '[GB2_SP].[dbo].' + getSpName('usp_AggiornaStatoInvioOrdine', profile);
+            await poolSP.request()
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .input('stato', sql.VarChar(1), 'S')
+                .execute(spNameAggiorna);
         } catch (errAggiorna) {
             console.warn('[Email] Ordine inviato ma errore aggiornamento stato:', errAggiorna.message);
         }
