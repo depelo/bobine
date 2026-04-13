@@ -50,9 +50,9 @@ router.get('/check-sp', authMiddleware, async (req, res) => {
         const profile = getActiveProfile(uid);
         const spName = getSpName('usp_CreaOrdineFornitore', profile);
         const spExists = await checkSpExists(poolSP, spName);
-        // Verifica anche che la tabella ordini_emessi esista (nel pool attivo)
-        const poolData = await getPoolDest(uid);
-        const tblResult = await poolData.request().query(
+        // ordini_emessi sta su 163/MRP — non sul server destinazione
+        const pool163 = await getPool163();
+        const tblResult = await pool163.request().query(
             "SELECT OBJECT_ID('dbo.ordini_emessi', 'U') AS id"
         );
         const tblExists = tblResult.recordset[0].id !== null;
@@ -345,7 +345,9 @@ router.post('/annulla-ordine', authMiddleware, async (req, res) => {
             const oggi = new Date();
             const profile = getActiveProfile(uid);
             const operatore = (profile && profile.user) || 'mrpweb';
-            await poolERP.request()
+            const reqCanc = poolERP.request();
+            reqCanc.timeout = 60000; // 60 secondi — la SP BCube di cancellazione è pesante
+            await reqCanc
                 .input('tipodoc', sql.VarChar(1), 'O')
                 .input('anno', sql.SmallInt, annoInt)
                 .input('serie', sql.VarChar(3), serie)

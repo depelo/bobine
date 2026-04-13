@@ -977,8 +977,8 @@ const MrpProposta = (() => {
         }
 
         const ok = await modale('warning', 'Configurazione Database',
-            'La stored procedure necessaria non è ancora presente nel database MRP.<br><br>' +
-            'Verrà installata automaticamente (operazione da eseguire una sola volta).',
+            'La stored procedure necessaria non \u00E8 ancora presente nel server di destinazione.<br><br>' +
+            'Verr\u00E0 installata automaticamente (operazione da eseguire una sola volta).',
             [
                 { label: 'Installa e Continua', value: true, style: 'success' },
                 { label: 'Annulla', value: false, style: 'secondary' }

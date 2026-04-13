@@ -40,7 +40,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
     }
 
     // Versione deploy — incrementare quando si modificano le SP o le tabelle
-    const DEPLOY_VERSION = '2.3';
+    const DEPLOY_VERSION = '2.5';
 
     /**
      * Deploy SP e tabelle nel DB [GB2_SP] del server di destinazione.

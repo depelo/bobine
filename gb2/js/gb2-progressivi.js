@@ -4,8 +4,10 @@
 const MrpProgressivi = (() => {
 
     const expandFetched = {};
-    /** Dati 3-blocchi MRP per Split View (nodo root + articolo in esaurimento con sostitutivo). */
     let splitSostData = null;
+
+    // ── Breadcrumb navigazione articoli ──
+    let _navStack = []; // [{ codart, descr }]
 
     const MRP_COL_COUNT = 14;
 
@@ -101,6 +103,7 @@ const MrpProgressivi = (() => {
                     const data = await res.json();
                     if (res.ok) {
                         MrpApp.state.ultimoRisultato = data;
+                        _resetBreadcrumb(); // Nuova ricerca — reset navigazione
                         render(data);
                     }
                 } catch (err) { console.error('[Progressivi] Errore refresh:', err); }
@@ -663,6 +666,17 @@ const MrpProgressivi = (() => {
         const { articolo, righe } = data;
         document.getElementById('progressiviTitle').textContent =
             `${articolo.ar_descr} (${articolo.ar_codart})`;
+
+        // Breadcrumb: aggiorna descrizione dell'ultimo elemento (poteva essere stato pushato con solo codart)
+        if (_navStack.length === 0) {
+            _pushBreadcrumb(articolo.ar_codart, articolo.ar_descr);
+        } else {
+            const last = _navStack[_navStack.length - 1];
+            if (last && last.codart === articolo.ar_codart) {
+                last.descr = articolo.ar_descr;
+                _renderBreadcrumb();
+            }
+        }
 
         const rootCodart = articolo.ar_codart;
 
@@ -1593,6 +1607,60 @@ const MrpProgressivi = (() => {
         overlay.classList.add('open');
 
         await caricaOrdiniModale(codart, '', '');
+    }
+
+    // ── Breadcrumb funzioni ──
+    function _pushBreadcrumb(codart, descr) {
+        // Non aggiungere duplicato se siamo già su questo articolo
+        if (_navStack.length > 0 && _navStack[_navStack.length - 1].codart === codart) return;
+        _navStack.push({ codart, descr: descr || codart });
+        _renderBreadcrumb();
+    }
+
+    function _resetBreadcrumb() {
+        _navStack = [];
+        _renderBreadcrumb();
+    }
+
+    function _renderBreadcrumb() {
+        const el = document.getElementById('progressiviBreadcrumb');
+        if (!el) return;
+        if (_navStack.length <= 1) {
+            el.style.display = 'none';
+            return;
+        }
+        el.style.display = 'flex';
+        el.innerHTML = '';
+
+        _navStack.forEach((item, idx) => {
+            if (idx > 0) {
+                const sep = document.createElement('span');
+                sep.className = 'breadcrumb-separator';
+                sep.textContent = '\u25B6';
+                el.appendChild(sep);
+            }
+
+            const span = document.createElement('span');
+            const isLast = idx === _navStack.length - 1;
+            span.className = 'breadcrumb-item' + (isLast ? ' current' : '');
+
+            // Mostra codice + descrizione troncata
+            const label = item.codart + (item.descr && item.descr !== item.codart ? ' \u2014 ' + item.descr.substring(0, 30) : '');
+            span.textContent = (idx === 0 ? '\u21A9 ' : '') + label;
+            span.title = item.descr || item.codart;
+
+            if (!isLast) {
+                span.addEventListener('click', () => {
+                    // Torna a questo livello — tronca lo stack
+                    _navStack = _navStack.slice(0, idx + 1);
+                    _renderBreadcrumb();
+                    // Naviga a quell'articolo
+                    navigaProgressiviDaRmp(item.codart);
+                });
+            }
+
+            el.appendChild(span);
+        });
     }
 
     // ── Ordinamento e personalizzazione tabelle nel ciclo esplorativo ──
@@ -2705,6 +2773,8 @@ const MrpProgressivi = (() => {
 
     async function navigaProgressiviDaRmp(codartTarget) {
         chiudiModale();
+        // Push nella breadcrumb (la descrizione verrà aggiornata dopo il fetch)
+        _pushBreadcrumb(codartTarget, codartTarget);
         const inputCodart = document.getElementById('inputCodart');
         if (inputCodart) inputCodart.value = codartTarget;
         try {

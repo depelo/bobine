@@ -57,6 +57,24 @@ const ColumnManager = (() => {
             { id: 'padre_quant', label: 'Q.t\u00e0', sortable: true },
             { id: 'padre_fornitore', label: 'Fornitore', sortable: true }
         ],
+        progressivi: [
+            { id: '_row', label: '#', sortable: false, fixed: true },
+            { id: 'parte', label: 'Parte', sortable: false },
+            { id: 'magaz', label: 'Mag', sortable: false },
+            { id: 'fase', label: 'Fase', sortable: false },
+            { id: 'politica', label: 'Politica Riordino', sortable: false },
+            { id: 'um', label: 'UM', sortable: false },
+            { id: 'esistenza', label: 'Utilizzo Esistenza', sortable: false },
+            { id: 'ordinato', label: 'Ordin.', sortable: false },
+            { id: 'impegnato', label: 'Impegn.', sortable: false },
+            { id: 'disponibilita', label: 'Dispon.', sortable: false },
+            { id: 'dataCons', label: 'Data Cons', sortable: false },
+            { id: 'opc', label: 'Or.P/F.Co', sortable: false },
+            { id: 'op', label: 'Or.P/F.Ge', sortable: false },
+            { id: 'ipc', label: 'Ip.Pr.Co', sortable: false },
+            { id: 'ip', label: 'Ip.Pr.Ge', sortable: false },
+            { id: 'dispNetta', label: 'Disp.Netta', sortable: false }
+        ],
         drill_padre_rmp: [
             { id: 'padre_codart', label: 'Cod. Art.', sortable: true },
             { id: 'padre_magaz', label: 'Mag', sortable: true },
@@ -88,7 +106,7 @@ const ColumnManager = (() => {
     }
 
     function _getPrefs(tableId) {
-        if (!_prefs[tableId]) _prefs[tableId] = { order: [], hidden: [], colors: {}, sort: {} };
+        if (!_prefs[tableId]) _prefs[tableId] = { order: [], hidden: [], colors: {}, textColors: {}, sort: {} };
         return _prefs[tableId];
     }
 
@@ -119,6 +137,11 @@ const ColumnManager = (() => {
         return (prefs.colors && prefs.colors[colId]) || '';
     }
 
+    function getTextColor(tableId, colId) {
+        const prefs = _getPrefs(tableId);
+        return (prefs.textColors && prefs.textColors[colId]) || '';
+    }
+
     // ── Build header ──
     function buildHeader(tableId, theadTr) {
         if (!theadTr) return;
@@ -141,8 +164,7 @@ const ColumnManager = (() => {
                 th.textContent = col.label;
                 if (col.id === '_drill' || col.id === '_empty') th.style.width = '30px';
             }
-            const colColor = getColor(tableId, col.id);
-            if (colColor && colColor !== 'transparent') th.style.backgroundColor = colColor;
+            // Non colorare l'intestazione — solo il body
 
             // Click sinistro = ordina (se sortable)
             if (col.sortable) {
@@ -165,7 +187,6 @@ const ColumnManager = (() => {
     function applyToBody(tableId, tbody) {
         if (!tbody) return;
         const cols = getOrderedColumns(tableId);
-        // Apply colors to td cells
         tbody.querySelectorAll('tr').forEach(tr => {
             const tds = tr.querySelectorAll('td');
             let visIdx = 0;
@@ -173,9 +194,13 @@ const ColumnManager = (() => {
                 if (isHidden(tableId, col.id)) return;
                 const td = tds[visIdx];
                 if (td) {
-                    const c = getColor(tableId, col.id);
-                    if (c && c !== 'transparent') {
-                        td.style.backgroundColor = c;
+                    const bgColor = getColor(tableId, col.id);
+                    if (bgColor && bgColor !== 'transparent') {
+                        td.style.backgroundColor = bgColor;
+                    }
+                    const txtColor = getTextColor(tableId, col.id);
+                    if (txtColor) {
+                        td.style.color = txtColor;
                     }
                 }
                 visIdx++;
@@ -265,6 +290,45 @@ const ColumnManager = (() => {
         });
         menu.appendChild(palette);
 
+        // Colore testo
+        const TEXT_PALETTE = [
+            { color: '#000000', label: 'Nero' },
+            { color: '#1e293b', label: 'Grigio scuro' },
+            { color: '#ffffff', label: 'Bianco' },
+            { color: '#1d4ed8', label: 'Blu' },
+            { color: '#15803d', label: 'Verde' },
+            { color: '#b91c1c', label: 'Rosso' },
+            { color: '#92400e', label: 'Marrone' },
+            { color: '', label: 'Default' }
+        ];
+        const textLabel = document.createElement('div');
+        textLabel.className = 'col-context-item';
+        textLabel.style.pointerEvents = 'none';
+        textLabel.style.fontSize = '0.75rem';
+        textLabel.style.color = 'var(--text-muted)';
+        textLabel.innerHTML = 'Colore testo';
+        menu.appendChild(textLabel);
+
+        const textPalette = document.createElement('div');
+        textPalette.className = 'col-context-palette';
+        const currentTextColor = getTextColor(tableId, colId);
+        TEXT_PALETTE.forEach(p => {
+            const sw = document.createElement('div');
+            sw.className = 'col-context-swatch' + ((currentTextColor === p.color || (!currentTextColor && !p.color)) ? ' active' : '');
+            sw.style.background = p.color || 'repeating-conic-gradient(#ddd 0% 25%, white 0% 50%) 50% / 8px 8px';
+            sw.title = p.label;
+            sw.addEventListener('click', () => {
+                const prefs = _getPrefs(tableId);
+                if (!prefs.textColors) prefs.textColors = {};
+                if (!p.color) { delete prefs.textColors[colId]; } else { prefs.textColors[colId] = p.color; }
+                save();
+                _refreshTable(tableId);
+                _closeMenu();
+            });
+            textPalette.appendChild(sw);
+        });
+        menu.appendChild(textPalette);
+
         menu.appendChild(_sep());
 
         // Nascondi
@@ -280,24 +344,6 @@ const ColumnManager = (() => {
             _closeMenu();
         });
         menu.appendChild(hideItem);
-
-        menu.appendChild(_sep());
-
-        // Sposta
-        const ordered = getOrderedColumns(tableId).filter(c => !isHidden(tableId, c.id));
-        const idx = ordered.findIndex(c => c.id === colId);
-
-        const moveLeft = document.createElement('div');
-        moveLeft.className = 'col-context-item' + (idx <= 0 ? ' disabled' : '');
-        moveLeft.innerHTML = '\u25C0 Sposta a sinistra';
-        moveLeft.addEventListener('click', () => { _moveColumn(tableId, colId, -1); _closeMenu(); });
-        menu.appendChild(moveLeft);
-
-        const moveRight = document.createElement('div');
-        moveRight.className = 'col-context-item' + (idx >= ordered.length - 1 ? ' disabled' : '');
-        moveRight.innerHTML = '\u25B6 Sposta a destra';
-        moveRight.addEventListener('click', () => { _moveColumn(tableId, colId, 1); _closeMenu(); });
-        menu.appendChild(moveRight);
 
         // Posizionamento
         document.body.appendChild(menu);

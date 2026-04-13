@@ -28,7 +28,11 @@ INDICE
 19. GLOSSARIO
 20. PERSONE DI RIFERIMENTO
 21. SVILUPPO LOCALE E DEPLOY
-22. BUG FIX LOG
+22. STORICO ORDINI EMESSI
+23. PERSONALIZZAZIONE COLONNE (ColumnManager)
+24. BREADCRUMB NAVIGAZIONE ARTICOLI
+25. PREZZO PER QUANTITA (perqta)
+26. BUG FIX LOG
 
 
 ================================================================================
@@ -327,7 +331,8 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
       gb2-bootstrap.js        # Layer 2: sidebar, menu dinamico app
       gb2-theme.js            # Sistema temi: 30 variabili CSS, preset, editing contestuale
       gb2-parametri.js        # Logica form parametri: combo articoli, fasi, magazzini
-      gb2-progressivi.js      # Logica griglia progressivi e chart
+      gb2-column-manager.js   # Personalizzazione colonne (menu contestuale, colori, nascondi)
+      gb2-progressivi.js      # Logica griglia progressivi, chart, breadcrumb navigazione
       gb2-proposta.js         # Logica proposte ordine: rendering, conferma, emissione
       gb2-dbconfig.js         # Logica configurazione profili DB e SMTP personale
 
@@ -1170,7 +1175,150 @@ COMANDI SVILUPPO (vedi GUIDA-SVILUPPO-LOCALE.txt):
 
 
 ================================================================================
-22. BUG FIX LOG
+22. STORICO ORDINI EMESSI
+================================================================================
+
+Il modale "Storico Ordini Emessi" mostra gli ordini raggruppati per elaborazione MRP.
+
+STRUTTURA:
+  - KPI bar in alto (ordini, valore, fornitori) — dinamici in base ai filtri
+  - Dropdown elaborazioni (con stellina sull'elaborazione corrente)
+  - Chip filtro per categoria (accettata, modificata, misto, indipendente)
+  - Tabella ordini con testate elaborazione collassabili
+  - Bottone "Dettaglio" per ogni elaborazione (mostra proposte per fornitore)
+
+CLASSIFICAZIONE ORDINI (confronto ordini vs SnapshotProposte):
+  - P.O.F. Accettata: fornitore nelle proposte + quantita identica
+  - P.O.F. Modificata: fornitore nelle proposte + quantita diversa
+  - Misto: ordine con sia articoli da proposta che aggiunti manualmente
+  - Indipendente: fornitore NON nelle proposte MRP
+  La classificazione avviene nel backend per ogni ordine (non per elaborazione).
+
+COLORI CATEGORIA (variabili CSS, personalizzabili nel tema):
+  --storico-accettata, --storico-modificata, --storico-misto, --storico-indipendente
+  Ogni chip ha un color picker inline che chiama MrpTheme.setColor().
+  I colori appaiono come border-left sulle righe e come badge dopo il numero ordine.
+
+FILTRI (tutti client-side, zero richieste server):
+  - Dropdown elaborazione: filtra per elaborazione specifica
+  - Chip categoria: toggle per mostrare/nascondere categorie
+  - Testate collassabili: click per espandere/chiudere ordini di un'elaborazione
+
+FILE: gb2/js/gb2-proposta.js (funzioni _renderElabHeader, _renderOrdineRow,
+  caricaStorico, _applicaFiltriStorico, apriDettaglioElaborazione)
+BACKEND: routes/gb2/ordini.js (GET /storico-ordini, GET /elaborazione-dettaglio/:id)
+
+CAMPO AMBIENTE nelle tabelle ordini_emessi e ElaborazioniMRP:
+  Contiene l'hostname/IP del server destinazione (es. 'BCUBE2', '192.168.0.163').
+  Ogni operatore vede solo gli ordini del server su cui sta lavorando.
+  NON e piu 'produzione'/'prova' — e il server reale.
+
+
+================================================================================
+23. PERSONALIZZAZIONE COLONNE (ColumnManager)
+================================================================================
+
+File: gb2/js/gb2-column-manager.js (modulo autonomo, caricato prima di gb2-progressivi.js)
+
+FUNZIONALITA:
+  - Menu contestuale colonna (click destro su intestazione)
+  - Colore sfondo colonna (8 colori tenui con opacita 8%, si blendano con colori riga)
+  - Colore testo colonna (8 colori + default)
+  - Nascondi colonna (con bottone occhio per ripristino)
+  - Ordinamento colonna (click sinistro su intestazione, freccia solo sulla colonna attiva)
+
+TABELLE SUPPORTATE:
+  - ordini_impegni (Ordini/Impegni nel modale)
+  - rmp (MRP Generati/Confermati nel modale)
+  - drill_padre (Ordini Padre nel modale)
+  - drill_padre_rmp (Ordini Padre RMP nel modale)
+
+PERSISTENZA:
+  Salvato in customColors._columnPrefs (stesso campo JSON del tema).
+  Struttura: { tableId: { hidden:[], colors:{}, textColors:{}, sort:{} } }
+  Usa MrpTheme.setCustomData('_columnPrefs', prefs) + MrpTheme.save().
+  Le chiavi che iniziano con _ vengono ignorate da applyColors (non sono variabili CSS).
+
+COLUMN REGISTRY:
+  Ogni tabella ha la sua definizione colonne in ColumnManager.REGISTRY.
+  Ogni colonna ha: id, label, sortable, fixed (non nascondibile).
+
+MENU CONTESTUALE:
+  Appare al click destro su una intestazione di colonna.
+  Contiene: ordinamento (crescente/decrescente), palette colore sfondo (8 + nessuno),
+  palette colore testo (8 + default), nascondi colonna.
+  Si chiude al click fuori.
+
+BOTTONE OCCHIO (colonne nascoste):
+  Appare nell'header del modale quando almeno una colonna e nascosta.
+  Click mostra dropdown con le colonne nascoste — click per ripristinare.
+
+INTEGRAZIONE CON gb2-theme.js:
+  - getCustomColors() esposto per leggere _columnPrefs
+  - setCustomData(key, value) esposto per scrivere _columnPrefs
+  - applyColors() salta chiavi che iniziano con _ (non sono variabili CSS)
+
+
+================================================================================
+24. BREADCRUMB NAVIGAZIONE ARTICOLI
+================================================================================
+
+File: gb2/js/gb2-progressivi.js (funzioni _pushBreadcrumb, _resetBreadcrumb, _renderBreadcrumb)
+
+Quando l'operatore naviga da un articolo ad un articolo padre (drill-through),
+la breadcrumb mostra il percorso di navigazione sotto il titolo dei progressivi.
+
+STACK DI NAVIGAZIONE: _navStack = [{ codart, descr }]
+  - Primo elemento: articolo originale (dalla proposta ordini o dalla ricerca)
+  - Elementi successivi: articoli padre raggiunti tramite drill-through
+  - Ogni elemento e cliccabile per tornare a quel livello
+
+FLUSSO:
+  1. Operatore cerca articolo (parametri) → _resetBreadcrumb + push primo articolo
+  2. Naviga ad articolo padre (navigaProgressiviDaRmp) → push nuovo articolo
+  3. Breadcrumb appare (visibile solo se 2+ livelli):
+     ↩ 0066513 — BUSTA BARFLEX ▶ 0010324 — CARTA CRESPATA (attuale)
+  4. Click su un elemento → tronca lo stack e naviga a quell'articolo
+  5. Nuova ricerca dai parametri → reset completo
+
+SCOPO: l'operatore dell'ufficio acquisti deve poter tornare velocemente
+all'articolo originale per prendere la decisione (conferma/escludi ordine).
+
+CSS: gb2/css/gb2-progressivi.css (.progressivi-breadcrumb, .breadcrumb-item, .breadcrumb-separator)
+HTML: gb2.html (div#progressiviBreadcrumb)
+
+
+================================================================================
+25. PREZZO PER QUANTITA (perqta)
+================================================================================
+
+In BCube il prezzo di un articolo puo essere espresso "per gruppo" anziche "per pezzo".
+Esempio: prezzo 31 EUR per 250 PZ → prezzo unitario = 31/250 = 0.124 EUR/PZ.
+
+CAMPO DB: ar_perqta (artico), ol_perqta (ordlist), mo_perqta (movord)
+  - Sempre compilato (mai NULL, mai 0). Valore minimo = 1 (prezzo per pezzo).
+  - 197 articoli su ~15.000 hanno perqta > 1 (es. 100, 125, 250, 500, 1000).
+  - Distribuzione ordini 2025-2026: ~8% delle righe hanno perqta > 1.
+
+FORMULA VALORE: quantita * prezzo / perqta
+  - Frontend: tutti i calcoli valore dividono per (perqta || 1)
+  - SP usp_CreaOrdineFornitore: valore = quantita * prezzo / ISNULL(NULLIF(perqta, 0), 1)
+  - SP scrive mo_perqta corretto in movord (non piu hardcodato 1.0)
+  - JSON articoli inviato al backend include il campo perqta
+
+PDF: il prezzo nel PDF e il prezzo "per gruppo" (come in BCube).
+  Il totale ordine e corretto (calcolato con /perqta dalla SP).
+
+ALTRI CAMPI ARTICOLO CORRELATI:
+  - ar_minord: "Qta Lotto std pr/ac." (lotto standard di acquisto)
+  - ar_rrfence: "RR Fence" (lead time in giorni)
+  - ar_ggrior: "Giorni raggruppamento" (NON e il lead time)
+  - ar_scomin: scorta minima
+  Politica riordino mostra: (scorta min. X, lotto Y, lead time Z gg)
+
+
+================================================================================
+26. BUG FIX LOG
 ================================================================================
 
 2026-04-08: caricaMRP — getUserId(req) dove req non esiste

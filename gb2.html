@@ -213,6 +213,8 @@
 
                     <span id="progressiviTitle" class="mrp-progressivi-title"></span>
                     <button type="button" id="btnRefresh" class="mrp-btn-secondary">⟳ Refresh</button>
+                </div>
+                <div id="progressiviBreadcrumb" class="progressivi-breadcrumb" style="display:none;">
                     <button id="btn-copy-tree" class="btn" style="margin-left: 15px; background-color: var(--primary); color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
                         📋 Copia Albero (Debug)
                     </button>
@@ -224,22 +226,22 @@
                         <table class="mrp-table" id="tblProgressivi">
                             <thead>
                                 <tr>
-                                    <th class="col-row">#</th>
-                                    <th class="col-parte">Parte</th>
-                                    <th class="col-mag">Mag</th>
-                                    <th class="col-fase">Fase</th>
-                                    <th class="col-pol">Politica Riordino</th>
-                                    <th class="col-um">UM</th>
-                                    <th class="col-num">Utilizzo<br>Esistenza</th>
-                                    <th class="col-num">Ordin.</th>
-                                    <th class="col-num">Impegn.</th>
-                                    <th class="col-num">Dispon.</th>
-                                    <th class="col-date">Data Cons</th>
-                                    <th class="col-num">Or.P/F.Co</th>
-                                    <th class="col-num">Or.P/F.Ge</th>
-                                    <th class="col-num">Ip.Pr.Co</th>
-                                    <th class="col-num">Ip.Pr.Ge</th>
-                                    <th class="col-num">Disp.Netta</th>
+                                    <th class="col-row" data-col="_row" data-table="progressivi">#</th>
+                                    <th class="col-parte" data-col="parte" data-table="progressivi">Parte</th>
+                                    <th class="col-mag" data-col="magaz" data-table="progressivi">Mag</th>
+                                    <th class="col-fase" data-col="fase" data-table="progressivi">Fase</th>
+                                    <th class="col-pol" data-col="politica" data-table="progressivi">Politica Riordino</th>
+                                    <th class="col-um" data-col="um" data-table="progressivi">UM</th>
+                                    <th class="col-num" data-col="esistenza" data-table="progressivi">Utilizzo<br>Esistenza</th>
+                                    <th class="col-num" data-col="ordinato" data-table="progressivi">Ordin.</th>
+                                    <th class="col-num" data-col="impegnato" data-table="progressivi">Impegn.</th>
+                                    <th class="col-num" data-col="disponibilita" data-table="progressivi">Dispon.</th>
+                                    <th class="col-date" data-col="dataCons" data-table="progressivi">Data Cons</th>
+                                    <th class="col-num" data-col="opc" data-table="progressivi">Or.P/F.Co</th>
+                                    <th class="col-num" data-col="op" data-table="progressivi">Or.P/F.Ge</th>
+                                    <th class="col-num" data-col="ipc" data-table="progressivi">Ip.Pr.Co</th>
+                                    <th class="col-num" data-col="ip" data-table="progressivi">Ip.Pr.Ge</th>
+                                    <th class="col-num" data-col="dispNetta" data-table="progressivi">Disp.Netta</th>
                                 </tr>
                             </thead>
                             <tbody id="tblProgressiviBody">

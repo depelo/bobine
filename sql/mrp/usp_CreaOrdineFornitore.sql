@@ -28,7 +28,7 @@ BEGIN
 
     DECLARE @anno       SMALLINT = YEAR(GETDATE());
     DECLARE @numord     INT;
-    DECLARE @oggi       DATETIME = GETDATE();
+    DECLARE @oggi       DATETIME = CAST(GETDATE() AS DATE); -- Solo data, senza orario (BCube si aspetta mezzanotte)
     DECLARE @primo_mese DATETIME = DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1);
     DECLARE @ora_creaz  DECIMAL(18,6) = DATEPART(HOUR, GETDATE()) + (DATEPART(MINUTE, GETDATE()) / 100.0);
     DECLARE @lock_name  VARCHAR(50) = 'OrdFornitore_' + CAST(@anno AS VARCHAR) + '_' + @serie;
@@ -51,6 +51,7 @@ BEGIN
     DECLARE @forn_codbanc   SMALLINT;
     DECLARE @forn_email     VARCHAR(255);
     DECLARE @forn_fax       VARCHAR(50);
+    DECLARE @forn_listino   SMALLINT;
     DECLARE @pag_descr      VARCHAR(100);
 
     -- Variabili totali
@@ -164,7 +165,8 @@ BEGIN
         @forn_banc2   = an_banc2,
         @forn_codbanc = COALESCE(an_codbanc, 0),
         @forn_email   = COALESCE(an_email, ''),
-        @forn_fax     = COALESCE(an_faxtlx, '')
+        @forn_fax     = COALESCE(an_faxtlx, ''),
+        @forn_listino = COALESCE(an_listino, 0)
     FROM [UJET11].[dbo].[anagra]
     WHERE an_conto = @fornitore_codice;
 
@@ -310,7 +312,8 @@ BEGIN
         td_codiva_2, td_imponib_2, td_imposta_2,
         td_codiva_3, td_imponib_3, td_imposta_3,
         td_codivaspeinc,
-        td_przstp
+        td_przstp,
+        td_listino
     )
     VALUES (
         @codditt, 'O', @anno, @serie, @numord,
@@ -335,7 +338,8 @@ BEGIN
         COALESCE((SELECT imponibile FROM #iva_riepilogo WHERE pos = 3), 0),
         COALESCE((SELECT imposta    FROM #iva_riepilogo WHERE pos = 3), 0),
         COALESCE((SELECT codiva     FROM #iva_riepilogo WHERE pos = 1), 0),
-        3  -- td_przstp default
+        3,  -- td_przstp default
+        @forn_listino  -- td_listino da anagra.an_listino
     );
 
     -- ============================================================
