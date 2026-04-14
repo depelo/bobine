@@ -341,6 +341,14 @@ const MrpProgressivi = (() => {
             return;
         }
 
+        const btnQlik = e.target.closest('.btn-qlikview');
+        if (btnQlik) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof QlikView !== 'undefined') QlikView.open(btnQlik.dataset.codart);
+            return;
+        }
+
         const magRow = e.target.closest('.mrp-nested-mag-click');
         if (magRow) {
             e.preventDefault();
@@ -989,14 +997,23 @@ const MrpProgressivi = (() => {
             // Popola Dettaglio con pulsante Consumi
             const titleEl = document.getElementById('splitDetailTitle');
             if (titleEl) {
-                const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:10px;vertical-align:middle;" title="Vedi Consumi Storici">📊</button>`;
-                titleEl.innerHTML = `${esc(articolo.descr)} <span class="code-dim">(${esc(articolo.codart)})</span> ${btnConsumi}`;
+                const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:10px;vertical-align:middle;" title="Vedi Consumi Storici">\uD83D\uDCCA</button>`;
+                const btnQlik = `<button type="button" class="btn-qlikview" data-codart="${esc(articolo.codart)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:2px;vertical-align:middle;" title="Analisi Articolo (QlikView)">\uD83D\uDCC8</button>`;
+                titleEl.innerHTML = `${esc(articolo.descr)} <span class="code-dim">(${esc(articolo.codart)})</span> ${btnConsumi}${btnQlik}`;
                 const bc = titleEl.querySelector('.btn-consumi');
                 if (bc) {
                     bc.addEventListener('click', (ev) => {
                         ev.preventDefault();
                         ev.stopPropagation();
                         apriModaleConsumi(bc.dataset.codart, bc.dataset.descr);
+                    });
+                }
+                const bq = titleEl.querySelector('.btn-qlikview');
+                if (bq) {
+                    bq.addEventListener('click', (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        if (typeof QlikView !== 'undefined') QlikView.open(bq.dataset.codart);
                     });
                 }
             }
@@ -1224,13 +1241,14 @@ const MrpProgressivi = (() => {
         const descrStrong = (articolo.tipo === 'padre' || articolo.tipo === 'sostitutivo-header' || isRoot)
             ? `<strong>${esc(articolo.descr)}</strong>`
             : esc(articolo.descr);
-        const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:4px;" title="Vedi Consumi Storici">📊</button>`;
+        const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:4px;" title="Vedi Consumi Storici">\uD83D\uDCCA</button>`;
+        const btnQlikview = `<button type="button" class="btn-qlikview" data-codart="${esc(articolo.codart)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:1px;" title="Analisi Articolo (QlikView)">\uD83D\uDCC8</button>`;
 
         const marginL = (isRoot || soloFlatMrp) ? '0' : '8px';
         const sostPref = articolo.tipo === 'sostitutivo-header'
             ? '<span class="mrp-sostitutivo-prefix">Sostitutivo:</span> '
             : '';
-        const parteInner = `${btnEspandi} <span class="mrp-desc-articolo" style="margin-left:${marginL}">${sostPref}${descrStrong} <span class="code-dim">${esc(articolo.codart)}</span> ${btnConsumi}</span> ${scadutoBadge}`;
+        const parteInner = `${btnEspandi} <span class="mrp-desc-articolo" style="margin-left:${marginL}">${sostPref}${descrStrong} <span class="code-dim">${esc(articolo.codart)}</span> ${btnConsumi}${btnQlikview}</span> ${scadutoBadge}`;
 
         // Totali mostrati solo nella riga TOTALE in fondo, non nella riga padre
         tr.innerHTML = rigaArticoloHTML(rowNum, parteInner, articolo, null);

@@ -164,14 +164,9 @@ async function caricaMRP(pool, codart, filtroMagaz, filtroFase) {
         emessiPerMagFase.set(`${row.ol_magaz}_${row.ol_fase}`, row.qta_emessa || 0);
     }
 
-    // Arricchisci ap_ordin con le quantita emesse dalla nostra app
-    for (const ap of artproRes.recordset) {
-        const chiave = `${ap.ap_magaz}_${ap.ap_fase}`;
-        const qtaEmessa = emessiPerMagFase.get(chiave) || 0;
-        if (qtaEmessa > 0) {
-            ap.ap_ordin = (ap.ap_ordin || 0) + qtaEmessa;
-        }
-    }
+    // NOTA: NON arricchire ap_ordin con ordini_emessi.
+    // La SP bussp_bsorgsor9_faggiorn2 aggiorna gia artpro.ap_ordin quando
+    // l'ordine viene creato. Sommare ordini_emessi causerebbe doppio conteggio.
 
     const totaliFase = {};
 

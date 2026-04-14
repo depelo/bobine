@@ -581,5 +581,79 @@ function getPoliticaRiordino(art) {
 }
 
 // ============================================================
-// API 5: HEALTH CHECK -- verifica connessione DB
+// API: ANALISI ARTICOLO (replica QlikView)
+// Ritorna tutti i movimenti di un articolo da Riep per cross-filtering frontend
+// ============================================================
+router.get('/analisi-articolo', authMiddleware, async (req, res) => {
+    try {
+        const codart = (req.query.codart || '').trim();
+        if (!codart) return res.status(400).json({ error: 'codart obbligatorio' });
+
+        const pool = await getPoolRiep(getUserId(req));
+
+        // Tutti i movimenti per questo articolo — il frontend filtra client-side
+        const result = await pool.request()
+            .input('codart', sql.NVarChar, codart)
+            .query(`
+                SELECT [Date], Tipork, Anno, Serie, Numdoc, Riga, Codart,
+                       Descrizione, ID_Famiglia, [Qtà], Famiglia, Sostitutivo, Sostituito,
+                       In_esaurimento, UM, Politica, Gr_Politica, ID_Politica,
+                       Scorta, RRFence, LeadTime, A_Fasi, Fase, Magazzino,
+                       Tipo_mov, Tipobf, Causale, Conto, Tipo_C_F, RagSoc,
+                       SM_A_fasi, Min_ord, Forn1, Forn2
+                FROM dbo.Riep
+                WHERE Codart = @codart
+                ORDER BY [Date]
+            `);
+
+        if (!result.recordset.length) {
+            return res.json({ articolo: null, movimenti: [] });
+        }
+
+        // Info articolo dal primo record (campi fissi per codart)
+        const first = result.recordset[0];
+        const articolo = {
+            codart: first.Codart,
+            descrizione: (first.Descrizione || '').trim(),
+            famiglia: (first.Famiglia || '').trim(),
+            id_famiglia: first.ID_Famiglia,
+            sostitutivo: first.Sostitutivo ? first.Sostitutivo.trim() : null,
+            sostituito: first.Sostituito ? first.Sostituito.trim() : null,
+            in_esaurimento: first.In_esaurimento,
+            um: (first.UM || '').trim(),
+            politica: (first.Politica || '').trim(),
+            gr_politica: (first.Gr_Politica || '').trim(),
+            scorta: first.Scorta,
+            rrfence: first.RRFence,
+            lead_time: first.LeadTime,
+            a_fasi: first.A_Fasi,
+            sm_a_fasi: first.SM_A_fasi,
+            min_ord: first.Min_ord,
+            forn1: first.Forn1 ? first.Forn1.trim() : null,
+            forn2: first.Forn2 ? first.Forn2.trim() : null
+        };
+
+        // Movimenti — tutti i campi necessari per il cross-filtering
+        const movimenti = result.recordset.map(r => ({
+            date: r.Date,
+            anno: r.Anno,
+            tipo_mov: r.Tipo_mov,
+            qta: r['Qtà'],
+            serie: (r.Serie || '').trim(),
+            fase: r.Fase,
+            magazzino: r.Magazzino,
+            conto: r.Conto,
+            tipo_cf: r.Tipo_C_F,
+            ragsoc: (r.RagSoc || '').trim(),
+            causale: (r.Causale || '').trim(),
+            tipobf: (r.Tipobf || '').trim()
+        }));
+
+        res.json({ articolo, movimenti });
+    } catch (err) {
+        console.error('[Analisi Articolo] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 };
