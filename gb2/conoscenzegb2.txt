@@ -705,11 +705,17 @@ PDF — PDFMAKE (layout dichiarativo a tabelle):
     - Codice alternativo (ar_codalt) sotto il codice principale
     - Descrizione integrativa (mo_desint)
     - LOT (mo_lotto se > 0)
-    - Note articolo (ar_note), N.B. note riga (mo_note)
+    - Note articolo (ar_note) — MAX 5 RIGHE (come Crystal Reports: Can Grow + max lines=5)
+    - N.B. note riga (mo_note) — integrali, scritte dall'operatore per quel singolo ordine
+    - ar_note e mo_note sono campi SEPARATI e INDIPENDENTI:
+      ar_note = note fisse dell'articolo (specifiche tecniche, istruzioni permanenti)
+      mo_note = note operatore per quel singolo ordine (urgenze, istruzioni specifiche)
+      BCube NON copia ar_note in mo_note (verificato su DB: contenuti completamente diversi)
     - Riferimenti fornitore (tabella CODARFO: caf_codarfo + caf_desnote)
     - Conversione UM (1 MQ = 100 PZ se unmis !== ump)
     - Luogo destinazione diversa (DESTDIV: dd_nomdest, dd_inddest, dd_locdest)
-    - Note ordine (an_note + an_note2 + td_note)
+    - Note footer: SOLO td_note (note ordine). an_note e an_note2 NON stampate
+      (contengono contatti interni fornitore, non vanno inviate al fornitore)
     - Banca: Italia=banca appoggio da testord, Estero=banca fornitore da anagra
     - Firma autografa (PNG con sfondo trasparente)
     - "( XX )" = an_categ (categoria fornitore, NON codice pagamento)
@@ -1308,6 +1314,21 @@ FORMULA VALORE: quantita * prezzo / perqta
 
 PDF: il prezzo nel PDF e il prezzo "per gruppo" (come in BCube).
   Il totale ordine e corretto (calcolato con /perqta dalla SP).
+  Crystal Reports ha una riga "Dettagli g" che mostra:
+  "Attention: Unit Price is referred to [ar_un] [o_perqta]"
+  quando perqta > 1. Da implementare nel nostro PDF.
+
+NOTE NEL PDF (verificato su Crystal Reports Designer Ujetorfv.rpt):
+  Crystal organizza il corpo articolo in 7 sezioni Dettagli:
+    b: @CodArt | mo_descr | @UM | mo_quant | mo_prezzo | sconti | @Data
+    c: mo_desint (descrizione integrativa)
+    d: LOT mo_lotto
+    e: ar_note (Can Grow=true, MAX 5 RIGHE — tronca il resto)
+    f: N.B. mo_note
+    g: Attention: Unit Price is referred to ar_un o_perqta
+  Footer (Pie di pagina b):
+    note/remarks: an_note + an_note2 + td_note (Crystal li stampa tutti)
+    Nella nostra app: SOLO td_note. an_note/an_note2 rimossi (contatti interni).
 
 ALTRI CAMPI ARTICOLO CORRELATI:
   - ar_minord: "Qta Lotto std pr/ac." (lotto standard di acquisto)

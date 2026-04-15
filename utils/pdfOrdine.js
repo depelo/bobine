@@ -312,9 +312,10 @@ function buildDescrizioneRiga(r, isEstero) {
         parts.push({ text: 'LOT ' + r.mo_lotto, fontSize: 6.5, color: '#555' });
     }
 
-    // Note articolo (ar_note)
+    // Note articolo (ar_note) — max 5 righe come Crystal Reports (Can Grow, max lines = 5)
     if (ss(r.ar_note)) {
-        parts.push({ text: ss(r.ar_note), fontSize: 6, color: '#555' });
+        const arNoteLines = ss(r.ar_note).split(/\r?\n/).slice(0, 5).join('\n').trim();
+        if (arNoteLines) parts.push({ text: arNoteLines, fontSize: 6, color: '#555' });
     }
 
     // N.B. note riga (mo_note)
@@ -423,9 +424,9 @@ function buildTabellaArticoli(righe, isEstero) {
 function buildFooter(ordine, isEstero) {
     const valSigla = ss(ordine.valuta_sigla) || 'EUR';
 
-    // Note ordine (an_note + an_note2 + td_note)
-    const noteList = [ss(ordine.fornitore_note), ss(ordine.fornitore_note2), ss(ordine.note_ordine)].filter(Boolean);
-    const noteText = noteList.join('\n');
+    // Note ordine — solo td_note (note ordine inserite dall'operatore).
+    // an_note e an_note2 sono contatti interni del fornitore e NON vanno stampati.
+    const noteText = ss(ordine.note_ordine);
 
     const content = [];
 

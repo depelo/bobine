@@ -100,7 +100,8 @@
       "Bash(node -c routes/gb2/fornitori.js)",
       "Bash(node -c routes/gb2/db-profiles.js)",
       "Bash(node _audit_pdf.js)",
-      "Bash(grep -r \"vw_UserAccess\\\\|Modules\\\\|Captains\\\\|Admins\\\\|Operators\\\\|TargetDb\\\\|TargetTable\" /c/Users/depel/Documents/progetto/ujet/bobine/routes/*.js)"
+      "Bash(grep -r \"vw_UserAccess\\\\|Modules\\\\|Captains\\\\|Admins\\\\|Operators\\\\|TargetDb\\\\|TargetTable\" /c/Users/depel/Documents/progetto/ujet/bobine/routes/*.js)",
+      "Bash(node _check_notes.js)"
     ]
   }
 }

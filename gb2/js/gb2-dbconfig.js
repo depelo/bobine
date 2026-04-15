@@ -1840,6 +1840,94 @@ const MrpDbConfig = (() => {
         // Carica dati del pannello al primo accesso
         if (tabId === 'tabTemplates') loadTemplates();
         if (tabId === 'tabAssegnazioni') loadAssegnazioni();
+        if (tabId === 'tabStampaPdf') loadUltimiOrdiniPdf();
+    }
+
+    // ============================================================
+    // TAB STAMPA PDF (test)
+    // ============================================================
+    async function loadUltimiOrdiniPdf() {
+        const sel = document.getElementById('pdfTestSelectOrdine');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— caricamento… —</option>';
+        try {
+            const r = await fetch('/api/mrp/ultimi-ordini-pdf?limit=50', { credentials: 'include' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            const ordini = data.ordini || [];
+            if (!ordini.length) {
+                sel.innerHTML = '<option value="">(nessun ordine registrato)</option>';
+                return;
+            }
+            sel.innerHTML = '<option value="">— seleziona un ordine —</option>' +
+                ordini.map(o => {
+                    const d = o.data_emissione ? new Date(o.data_emissione).toLocaleDateString('it-IT') : '';
+                    const nome = (o.fornitore_nome || '').substring(0, 40);
+                    const label = `${o.ord_numord} — ${o.ord_anno}/${o.ord_serie} — ${nome} (${d})`;
+                    const val = `${o.ord_anno}|${o.ord_serie}|${o.ord_numord}`;
+                    return `<option value="${val}">${label.replace(/[<>&]/g, '')}</option>`;
+                }).join('');
+        } catch (err) {
+            sel.innerHTML = '<option value="">Errore: ' + err.message + '</option>';
+        }
+    }
+
+    async function creaPdfTest() {
+        const status = document.getElementById('pdfTestStatus');
+        const manualInput = document.getElementById('pdfTestInputNumord').value.trim();
+        const selVal = document.getElementById('pdfTestSelectOrdine').value;
+        status.textContent = '';
+        status.style.color = '';
+
+        let anno, serie, numord;
+
+        if (manualInput) {
+            // Lookup manuale: cerca su BCube
+            status.textContent = 'Ricerca ordine ' + manualInput + '…';
+            status.style.color = 'var(--text-muted)';
+            try {
+                const r = await fetch('/api/mrp/cerca-ordine-pdf/' + encodeURIComponent(manualInput), { credentials: 'include' });
+                if (r.status === 404) {
+                    status.textContent = '❌ Ordine ' + manualInput + ' non trovato';
+                    status.style.color = 'var(--danger, #c0392b)';
+                    return;
+                }
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const data = await r.json();
+                const o = data.ordini[0];
+                anno = o.anno; serie = o.serie; numord = o.numord;
+            } catch (err) {
+                status.textContent = '❌ ' + err.message;
+                status.style.color = 'var(--danger, #c0392b)';
+                return;
+            }
+        } else if (selVal) {
+            const p = selVal.split('|');
+            anno = p[0]; serie = p[1]; numord = p[2];
+        } else {
+            status.textContent = '⚠ Seleziona un ordine o inserisci un numero';
+            status.style.color = 'var(--warning, #d68910)';
+            return;
+        }
+
+        status.textContent = '📄 Generazione PDF ' + anno + '/' + serie + '/' + numord + '…';
+        status.style.color = 'var(--text-muted)';
+        const url = `/api/mrp/ordine-pdf/${anno}/${encodeURIComponent(serie)}/${numord}`;
+        try {
+            const r = await fetch(url, { credentials: 'include' });
+            if (!r.ok) {
+                const errData = await r.json().catch(() => ({}));
+                throw new Error(errData.error || ('HTTP ' + r.status));
+            }
+            const blob = await r.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, '_blank');
+            status.textContent = '✅ PDF generato';
+            status.style.color = 'var(--success, #27ae60)';
+        } catch (err) {
+            status.textContent = '❌ ' + err.message;
+            status.style.color = 'var(--danger, #c0392b)';
+        }
     }
 
     function bindEvents() {
@@ -1885,6 +1973,16 @@ const MrpDbConfig = (() => {
         // Radio mode
         document.querySelectorAll('input[name="templateMode"]').forEach(radio => {
             radio.addEventListener('change', () => salvaTemplateMode(radio.value));
+        });
+
+        // Stampa PDF (tool di test)
+        const btnPdfCrea = document.getElementById('pdfTestBtnCrea');
+        if (btnPdfCrea) btnPdfCrea.addEventListener('click', creaPdfTest);
+        const btnPdfReload = document.getElementById('pdfTestBtnReload');
+        if (btnPdfReload) btnPdfReload.addEventListener('click', loadUltimiOrdiniPdf);
+        const inputPdfNumord = document.getElementById('pdfTestInputNumord');
+        if (inputPdfNumord) inputPdfNumord.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); creaPdfTest(); }
         });
     }
 

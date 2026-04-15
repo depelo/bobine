@@ -503,6 +503,7 @@
                 <button type="button" class="cfg-tab" data-tab="tabSmtp">Email SMTP</button>
                 <button type="button" class="cfg-tab" data-tab="tabTemplates">Template Email</button>
                 <button type="button" class="cfg-tab" data-tab="tabAssegnazioni">Fornitori</button>
+                <button type="button" class="cfg-tab" data-tab="tabStampaPdf">Stampa PDF</button>
             </div>
 
             <div class="mrp-modal-body" style="padding: 20px;">
@@ -725,6 +726,50 @@
                     <div id="assegnFornitoriList" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;"></div>
 
                     <div id="assegnStatus" style="margin-top: 6px; font-size: 0.78rem;"></div>
+                </div>
+
+                <!-- ===================== TAB 5: STAMPA PDF (test) ===================== -->
+                <div id="tabStampaPdf" class="cfg-tab-panel">
+                    <div style="padding: 8px 4px;">
+                        <h3 style="margin: 0 0 10px; font-size: 0.95rem; color: var(--text);">Stampa PDF ordine (test)</h3>
+                        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 14px;">
+                            Strumento di verifica PDF: seleziona un ordine dalla lista degli ultimi 50 emessi,
+                            oppure inserisci manualmente un numero ordine. Il sistema genera il PDF e lo apre in una nuova scheda.
+                        </p>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px;">
+                            <!-- Colonna sinistra: dropdown ultimi 50 -->
+                            <div>
+                                <label style="display:block; font-size:0.78rem; font-weight:600; color:var(--text); margin-bottom:4px;">
+                                    Ultimi 50 ordini emessi
+                                </label>
+                                <select id="pdfTestSelectOrdine" class="mrp-control" style="width:100%; font-size:0.8rem;">
+                                    <option value="">— caricamento… —</option>
+                                </select>
+                                <button type="button" id="pdfTestBtnReload" class="mrp-btn-secondary" style="margin-top:6px; font-size:0.75rem;">
+                                    Ricarica lista
+                                </button>
+                            </div>
+
+                            <!-- Colonna destra: input manuale -->
+                            <div>
+                                <label style="display:block; font-size:0.78rem; font-weight:600; color:var(--text); margin-bottom:4px;">
+                                    Numero ordine fornitore (manuale)
+                                </label>
+                                <input type="number" id="pdfTestInputNumord" class="mrp-control" placeholder="es. 299" style="width:100%; font-size:0.85rem;" />
+                                <div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">
+                                    Se presente, ha priorità sul menu a tendina.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <button type="button" id="pdfTestBtnCrea" class="mrp-btn-conferma" style="padding:8px 22px; font-size:0.88rem;">
+                                📄 Crea PDF
+                            </button>
+                            <div id="pdfTestStatus" style="font-size:0.8rem;"></div>
+                        </div>
+                    </div>
                 </div>
 
             </div>

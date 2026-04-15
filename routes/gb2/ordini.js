@@ -578,6 +578,60 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
     }
 });
 
+// Ultimi N ordini fornitore per tool di test PDF — letti direttamente da testord (BCube),
+// NON da ordini_emessi (che conterrebbe solo quelli emessi da GB2).
+router.get('/ultimi-ordini-pdf', authMiddleware, async (req, res) => {
+    try {
+        const uid = getUserId(req);
+        const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+        const pool = await getPoolDest(uid);
+        const result = await pool.request()
+            .input('lim', sql.Int, limit)
+            .query(`
+                SELECT TOP (@lim)
+                       t.td_anno AS ord_anno, t.td_serie AS ord_serie, t.td_numord AS ord_numord,
+                       t.td_conto AS fornitore_codice, t.td_datord AS data_emissione,
+                       a.an_descr1 AS fornitore_nome
+                FROM dbo.testord t
+                LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+                ORDER BY t.td_datord DESC, t.td_numord DESC
+            `);
+        res.json({ ordini: result.recordset });
+    } catch (err) {
+        console.error('[ultimi-ordini-pdf]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Lookup ordine per numord (tool test PDF): cerca l'ordine più recente con quel numord
+router.get('/cerca-ordine-pdf/:numord', authMiddleware, async (req, res) => {
+    try {
+        const numord = parseInt(req.params.numord, 10);
+        if (!numord) return res.status(400).json({ error: 'Numero ordine non valido' });
+        const uid = getUserId(req);
+        const pool = await getPoolDest(uid);
+        const result = await pool.request()
+            .input('numord', sql.Int, numord)
+            .query(`
+                SELECT TOP 5 t.td_anno AS anno, t.td_serie AS serie, t.td_numord AS numord,
+                       t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
+                       a.an_descr1 AS fornitore_nome
+                FROM dbo.testord t
+                LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O' AND t.td_numord = @numord
+                ORDER BY t.td_anno DESC, t.td_serie DESC
+            `);
+        if (!result.recordset.length) {
+            return res.status(404).json({ error: 'Ordine non trovato' });
+        }
+        res.json({ ordini: result.recordset });
+    } catch (err) {
+        console.error('[cerca-ordine-pdf]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ============================================================
 // API: CONFIGURAZIONE SMTP PER OPERATORE
 // Ogni operatore ha la propria config SMTP in [GB2].[dbo].[UserPreferences]
