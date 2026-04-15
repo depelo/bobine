@@ -29,7 +29,7 @@
       <div class="d-flex align-items-center gap-2 ms-auto">
         <a class="btn btn-sm btn-light" href="prg.html">Progetti</a>
         <a class="btn btn-sm btn-outline-light" href="persone.html">Persone</a>
-        <a class="btn btn-sm btn-outline-light" href="reparti.html">Reparti</a>
+        <a class="btn btn-sm btn-outline-light" href="aree.html">Aree</a>
       </div>
     </div>
   </nav>
@@ -53,7 +53,52 @@
             </div>
           </div>
           <div class="card-body">
-            <div class="accordion" id="accordionReparti"></div>
+            <section class="mb-4">
+              <h6 class="mb-3">Filtri Globali</h6>
+              <div class="d-flex flex-wrap gap-3">
+                <div class="flex-grow-1" style="min-width: 220px;">
+                  <label for="filtroArea" class="form-label">Area</label>
+                  <select id="filtroArea" class="form-select">
+                    <option value="">Tutte le Aree</option>
+                  </select>
+                </div>
+                <div class="flex-grow-1" style="min-width: 220px;">
+                  <label for="filtroPriorita" class="form-label">Priorita</label>
+                  <select id="filtroPriorita" class="form-select">
+                    <option value="">Tutte le Priorita</option>
+                    <option value="Bassa">Bassa</option>
+                    <option value="Media">Media</option>
+                    <option value="Alta">Alta</option>
+                    <option value="Critica">Critica</option>
+                  </select>
+                </div>
+                <div class="flex-grow-1" style="min-width: 220px;">
+                  <label for="filtroStato" class="form-label">Stato</label>
+                  <select id="filtroStato" class="form-select">
+                    <option value="">Tutti gli Stati</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">Nome</th>
+                    <th scope="col">Area</th>
+                    <th scope="col">Data Inizio</th>
+                    <th scope="col">Priorita</th>
+                    <th scope="col">Stato</th>
+                    <th scope="col" class="text-end" style="width: 1%; white-space: nowrap;">Apri</th>
+                  </tr>
+                </thead>
+                <tbody id="tabellaProgettiBody">
+                  <tr>
+                    <td colspan="6" class="text-muted">Nessun progetto disponibile.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
