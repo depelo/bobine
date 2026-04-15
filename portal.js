@@ -27,6 +27,14 @@ function routeUserAfterLogin(user) {
         window.location.href = '/gb2.html';
         return;
     }
+    if (user.defaultModuleId === 5) {
+        window.location.href = '/ITT/classificazione.html';
+        return;
+    }
+    if (user.defaultModuleId === 6) {
+        window.location.href = '/PRG/prg.html';
+        return;
+    }
 
     // Fallback se il modulo non ha un routing specifico
     if (user.isSuperuser) {

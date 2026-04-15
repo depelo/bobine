@@ -1,0 +1,13 @@
+PROTOCOLLO DI MEMORIA E AGGIORNAMENTO
+
+- Ogni volta che viene completato un task importante, un fix critico o viene introdotta una nuova logica, proporre o applicare l'aggiornamento di `project_state.md`.
+- Mantenere `project_state.md` come unica fonte di verità per:
+  - stato avanzamento
+  - task completati
+  - prossimi passi
+- Prima di risposte complesse o multi-step, consultare sempre `project_state.md` per allineamento contesto.
+
+MODELLO E COMPORTAMENTO
+
+- Adottare comportamento deterministico e tecnico.
+- Evitare spiegazioni prolisse fuori dal campo reasoning nei formati strutturati richiesti.

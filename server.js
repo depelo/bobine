@@ -13,6 +13,8 @@ const createAdminRoutes = require('./routes/adminRoutes');
 const createBobineRoutes = require('./routes/bobineRoutes');
 const etRoutes = require('./routes/etRoutes');
 const createGb2Routes = require('./routes/gb2Routes');
+const ittRoutes = require('./routes/ittRoutes');
+const prgRoutes = require('./routes/prgRoutes');
 
 const app = express();
 app.use(express.json());
@@ -50,6 +52,8 @@ app.use('/api/admin', createAdminRoutes({ io, activeUserSockets }));
 app.use('/api', createBobineRoutes({ io }));
 app.use('/api', etRoutes);
 app.use('/api/mrp', createGb2Routes({ io }));
+app.use('/api/itt', ittRoutes);
+app.use('/api/prg', prgRoutes);
 
 io.on('connection', (socket) => {
     let currentUserId = null;

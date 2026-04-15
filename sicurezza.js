@@ -73,6 +73,28 @@ async function initSecurity() {
               return false;
             }
           }
+
+          if (currentPath.includes('/itt/')) {
+            const hasIttAccess =
+              Array.isArray(user.authorizedApps) &&
+              user.authorizedApps.some((app) => Number(app.id) === 5);
+            if (!hasIttAccess) {
+              alert('Non sei autorizzato ad accedere al modulo Classificazione ITT.');
+              window.location.href = '/';
+              return false;
+            }
+          }
+
+          if (currentPath.includes('/prg/')) {
+            const hasPrgAccess =
+              Array.isArray(user.authorizedApps) &&
+              user.authorizedApps.some((app) => Number(app.id) === 6);
+            if (!hasPrgAccess) {
+              alert('Non sei autorizzato ad accedere al modulo Ujet Progetti.');
+              window.location.href = '/';
+              return false;
+            }
+          }
         }
       }
 

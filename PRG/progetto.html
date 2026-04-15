@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PortalUjet - Workspace Progetto</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/sicurezza.js"></script>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+    crossorigin="anonymous"
+  >
+  <style>
+    .text-bg-orange { background-color: #fd7e14 !important; color: #fff !important; }
+  </style>
+</head>
+<body class="bg-light">
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-semibold d-flex align-items-center" href="prg.html">
+        <span class="me-2">☰</span>
+        <img src="/assets/logo-ujet.jpeg" alt="Logo" style="height: 30px; margin-right: 10px; object-fit: contain;">
+        <span>Ujet Progetti</span>
+      </a>
+      <div class="d-flex align-items-center gap-2 ms-auto">
+        <a class="btn btn-sm btn-light" href="prg.html">Progetti</a>
+        <a class="btn btn-sm btn-outline-light" href="persone.html">Persone</a>
+        <a class="btn btn-sm btn-outline-light" href="reparti.html">Reparti</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container-fluid py-4">
+    <div id="appAlert" class="alert alert-danger d-none" role="alert"></div>
+
+    <div class="row g-4">
+      <section class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-header bg-white">
+            <div class="mb-3">
+              <a href="prg.html" class="text-decoration-none text-secondary">
+                &larr; Torna ai Progetti
+              </a>
+            </div>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+              <h3 class="m-0">Dettagli Progetto</h3>
+              <div>
+                <button type="button" id="btnModificaProgetto" class="btn btn-outline-primary me-2 btn-sm" data-bs-toggle="modal" data-bs-target="#modalModificaProgetto">
+                  Modifica Progetto
+                </button>
+                <button type="button" id="btnEliminaProgetto" class="btn btn-danger btn-sm">
+                  Elimina Progetto
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-12 col-md-4">
+                <label class="form-label text-muted mb-1">Nome</label>
+                <div id="dettaglioNome" class="fw-semibold">-</div>
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label text-muted mb-1">Data</label>
+                <div id="dettaglioData" class="fw-semibold">--/--/----</div>
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label text-muted mb-1">Stato</label>
+                <div id="dettaglioStato"><span class="badge text-bg-secondary">Non definito</span></div>
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label text-muted mb-1">Priorita</label>
+                <div id="dettaglioPriorita"><span class="badge text-bg-secondary">Non impostata</span></div>
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label text-muted mb-1">Budget</label>
+                <div id="dettaglioBudget" class="fw-semibold">-</div>
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label text-muted mb-1">Data Fine</label>
+                <div id="dettaglioDataFine" class="fw-semibold">--/--/----</div>
+              </div>
+              <div class="col-12">
+                <label class="form-label text-muted mb-1">Descrizione</label>
+                <div id="dettaglioDescrizione">Nessuna descrizione disponibile.</div>
+              </div>
+              <div class="col-12">
+                <label class="form-label text-muted mb-1">Obbiettivi</label>
+                <div id="dettaglioObbiettivi">Nessun obbiettivo specificato.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Team</h5>
+            <button
+              type="button"
+              id="btnApriAssegnaPersona"
+              class="btn btn-sm btn-primary"
+              data-bs-toggle="modal"
+              data-bs-target="#modalAssegnaPersona"
+            >
+              Assegna Persona
+            </button>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">Nome</th>
+                    <th scope="col">Cognome</th>
+                    <th scope="col">Ruolo</th>
+                    <th scope="col" class="text-end">Azioni</th>
+                  </tr>
+                </thead>
+                <tbody id="teamProgetto">
+                  <tr>
+                    <td colspan="4" class="text-muted">Nessuna persona assegnata</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="modal fade" id="modalAssegnaPersona" tabindex="-1" aria-labelledby="modalAssegnaPersonaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalAssegnaPersonaLabel">Assegna Persona al Progetto</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formAssegnaPersona">
+            <div class="mb-3">
+              <label for="selectPersona" class="form-label">Persona</label>
+              <select class="form-select" id="selectPersona" required>
+                <option value="">Seleziona una persona</option>
+              </select>
+            </div>
+            <div class="mb-0">
+              <label for="ruoloNelProgetto" class="form-label">Ruolo nel progetto</label>
+              <input type="text" class="form-control" id="ruoloNelProgetto" placeholder="Es. Sviluppatore, PM, QA" required>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+          <button type="submit" class="btn btn-primary" form="formAssegnaPersona">Assegna</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalGestisciMembro" tabindex="-1" aria-labelledby="modalGestisciMembroLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalGestisciMembroLabel">Gestisci Membro Team</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formGestisciMembro">
+            <div class="mb-3">
+              <label for="gestisciMembroPersona" class="form-label">Persona</label>
+              <input type="text" class="form-control" id="gestisciMembroPersona" disabled>
+            </div>
+            <div class="mb-0">
+              <label for="gestisciMembroRuolo" class="form-label">Ruolo</label>
+              <input type="text" class="form-control" id="gestisciMembroRuolo" placeholder="Inserisci ruolo nel progetto">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <button type="button" class="btn btn-danger" id="btnRimuoviMembroProgetto">Rimuovi dal Progetto</button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            <button type="submit" class="btn btn-primary" form="formGestisciMembro">Salva Ruolo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalModificaProgetto" tabindex="-1" aria-labelledby="modalModificaProgettoLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalModificaProgettoLabel">Modifica Progetto</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formModificaProgetto">
+            <div class="row g-3">
+              <div class="col-12 col-md-6">
+                <label for="editNomeProgetto" class="form-label">Nome</label>
+                <input type="text" class="form-control" id="editNomeProgetto" required>
+              </div>
+              <div class="col-12 col-md-6">
+                <label for="statoProgetto" class="form-label">Stato</label>
+                <select id="statoProgetto" class="form-select">
+                  <option value="Bozza">Bozza</option>
+                  <option value="Attivo">Attivo</option>
+                  <option value="In Pausa">In Pausa</option>
+                  <option value="Completato">Completato</option>
+                </select>
+              </div>
+              <div class="col-12">
+                <label for="editDescrizioneProgetto" class="form-label">Descrizione</label>
+                <textarea class="form-control" id="editDescrizioneProgetto" rows="3"></textarea>
+              </div>
+              <div class="col-12">
+                <label for="editObbiettiviProgetto" class="form-label">Obbiettivi</label>
+                <textarea class="form-control" id="editObbiettiviProgetto" rows="3"></textarea>
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="editDataInizioProgetto" class="form-label">Data Inizio</label>
+                <input type="date" class="form-control" id="editDataInizioProgetto">
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="editDataFineProgetto" class="form-label">Data Fine</label>
+                <input type="date" class="form-control" id="editDataFineProgetto">
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="prioritaProgetto" class="form-label">Priorita</label>
+                <select class="form-select" id="prioritaProgetto">
+                  <option value="">Seleziona priorità...</option>
+                  <option value="Bassa">Bassa</option>
+                  <option value="Media">Media</option>
+                  <option value="Alta">Alta</option>
+                  <option value="Critica">Critica</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="editBudgetProgetto" class="form-label">Budget</label>
+                <input type="number" class="form-control" id="editBudgetProgetto" step="0.01" min="0">
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="id_reparto" class="form-label">Reparto</label>
+                <select class="form-select" id="id_reparto">
+                  <option value="">Senza Reparto</option>
+                </select>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+          <button type="submit" class="btn btn-primary" form="formModificaProgetto">Salva Modifiche</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+    crossorigin="anonymous"
+  ></script>
+  <script src="progetto.js"></script>
+</body>
+</html>

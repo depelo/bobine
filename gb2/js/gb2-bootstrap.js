@@ -28,8 +28,8 @@
         if (!container) return;
         container.innerHTML = '';
 
-        const urlMap = { 1: '/bobine.html', 3: '/ET.html' };
-        const iconMap = { 1: '🏭', 3: '🏷️' };
+        const urlMap = { 1: '/bobine.html', 3: '/ET.html', 5: '/ITT/classificazione.html', 6: '/PRG/prg.html' };
+        const iconMap = { 1: '🏭', 3: '🏷️', 5: '🔬', 6: '📋' };
 
         apps.forEach((app) => {
             const aid = Number(app.id);
