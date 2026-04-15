@@ -232,8 +232,8 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
         const poolGB2 = await getPool163();
         const pool = await getPoolDest(userId);
 
-        // ─── 3 query in PARALLELO (indipendenti tra loro) ───
-        const [result, fpRes, emissioniRes, ordiniBcubeRes] = await Promise.all([
+        // ─── 5 query in PARALLELO (indipendenti tra loro) ───
+        const [result, fpRes, emissioniRes, ordiniBcubeRes, pendingRes] = await Promise.all([
             // 1) Query principale: ordlist + JOIN (diretto BCUBE2 in prod: ~200ms vs ~1s via viste)
             pool.request().query(`
                 SELECT
@@ -311,6 +311,25 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                         WHERE t.codditt='UJET11' AND t.td_tipork='O' AND mo.mo_stasino<>'N'
                           AND t.td_datord >= DATEADD(MONTH, -3, GETDATE())
                     `);
+                } catch (_) { return { recordset: [] }; }
+            })(),
+            // 5) Ordini confermati pending (safety-net) — in parallelo.
+            //    Filtro "elaborazione corrente" inline via subquery MAX(ID) per Ambiente,
+            //    cosi non dipende dalla rilevazione sequenziale di elaborazione piu avanti.
+            (async () => {
+                try {
+                    return await poolGB2.request()
+                        .input('uid', sql.Int, userId)
+                        .input('amb', sql.VarChar(20), serverDest)
+                        .query(`
+                            SELECT fornitore_codice, codart, fase, magaz,
+                                   quantita_confermata, prezzo_override, updated_at
+                            FROM [GB2].[dbo].[ordini_confermati_pending]
+                            WHERE user_id = @uid
+                              AND elaborazione_id = (
+                                  SELECT MAX(ID) FROM [GB2].[dbo].[ElaborazioniMRP] WHERE Ambiente = @amb
+                              )
+                        `);
                 } catch (_) { return { recordset: [] }; }
             })()
         ]);
@@ -400,34 +419,40 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                     };
                 }
 
-                // 4) Riconciliazione: marca le proposte già emesse in questa elaborazione
+                // 4) Riconciliazione: marca le proposte gia emesse in questa elaborazione.
+                //    PRIMA: loop con N+3 roundtrip sequenziali (SELECT + N UPDATE + COUNT + UPDATE contatore).
+                //    Con 50-80 emissioni e latenza ~200ms/query → 15-25s di stallo al load.
+                //    ORA: un'unica batch SQL con JOIN-UPDATE + COUNT + UPDATE contatore → 1 roundtrip.
                 try {
-                    const emessiRes = await poolGB2.request()
-                        .input('eid', sql.VarChar(50), String(elabId))
-                        .query(`SELECT id, ol_progr FROM dbo.ordini_emessi WHERE elaborazione_id = @eid`);
+                    const ricRes = await poolGB2.request()
+                        .input('eid', sql.Int, elabId)
+                        .input('eidStr', sql.VarChar(50), String(elabId))
+                        .query(`
+                            UPDATE sp
+                            SET Gestita = 1,
+                                OrdineEmessoID = oe.id,
+                                UpdatedAt = GETDATE()
+                            FROM [GB2].[dbo].[SnapshotProposte] sp
+                            INNER JOIN dbo.ordini_emessi oe
+                                ON oe.ol_progr = sp.ol_progr
+                            WHERE sp.ElaborazioneID = @eid
+                              AND oe.elaborazione_id = @eidStr
+                              AND sp.Gestita = 0;
 
-                    if (emessiRes.recordset.length > 0) {
-                        for (const em of emessiRes.recordset) {
-                            await poolGB2.request()
-                                .input('eid', sql.Int, elabId)
-                                .input('progr', sql.Int, em.ol_progr)
-                                .input('oeId', sql.Int, em.id)
-                                .query(`
-                                    UPDATE [GB2].[dbo].[SnapshotProposte]
-                                    SET Gestita = 1, OrdineEmessoID = @oeId, UpdatedAt = GETDATE()
-                                    WHERE ElaborazioneID = @eid AND ol_progr = @progr AND Gestita = 0
-                                `);
-                        }
-                        // Aggiorna contatore
-                        const cntRes = await poolGB2.request()
-                            .input('eid', sql.Int, elabId)
-                            .query(`SELECT COUNT(*) AS cnt FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID=@eid AND Gestita=1`);
-                        const gestite = cntRes.recordset[0].cnt;
-                        await poolGB2.request()
-                            .input('eid', sql.Int, elabId)
-                            .input('gestite', sql.Int, gestite)
-                            .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
-                        elaborazione.totaleGestite = gestite;
+                            DECLARE @gestite INT = (
+                                SELECT COUNT(*) FROM [GB2].[dbo].[SnapshotProposte]
+                                WHERE ElaborazioneID = @eid AND Gestita = 1
+                            );
+
+                            UPDATE [GB2].[dbo].[ElaborazioniMRP]
+                            SET TotaleGestite = @gestite, UpdatedAt = GETDATE()
+                            WHERE ID = @eid;
+
+                            SELECT @gestite AS gestite;
+                        `);
+                    const gestiteRow = ricRes.recordset && ricRes.recordset[0];
+                    if (gestiteRow && typeof gestiteRow.gestite === 'number') {
+                        elaborazione.totaleGestite = gestiteRow.gestite;
                     }
                 } catch (ricErr) {
                     console.warn('[API] Riconciliazione snapshot fallita (continuo):', ricErr.message);
@@ -551,26 +576,9 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
             return r;
         });
 
-        // ─── Ordini confermati pending (safety-net dello stato "Conferma per ordine") ───
-        // Solo per l'elaborazione corrente E per l'utente corrente. Le entry legate
-        // a elaborazioni precedenti non vengono restituite (saranno ripulite al prossimo boot).
-        let ordini_confermati_pending = [];
-        if (elaborazione && elaborazione.id) {
-            try {
-                const ocpRes = await poolGB2.request()
-                    .input('eid', sql.Int, elaborazione.id)
-                    .input('uid', sql.Int, userId)
-                    .query(`
-                        SELECT fornitore_codice, codart, fase, magaz,
-                               quantita_confermata, prezzo_override, updated_at
-                        FROM [GB2].[dbo].[ordini_confermati_pending]
-                        WHERE elaborazione_id = @eid AND user_id = @uid
-                    `);
-                ordini_confermati_pending = ocpRes.recordset || [];
-            } catch (ocpErr) {
-                console.warn('[API] Fetch ordini_confermati_pending fallito (continuo):', ocpErr.message);
-            }
-        }
+        // Le entry pending sono gia state caricate in parallelo sopra (pendingRes).
+        // Filtro "elaborazione corrente" gia applicato via subquery MAX(ID) per Ambiente.
+        const ordini_confermati_pending = (pendingRes && pendingRes.recordset) || [];
 
         res.json({ elaborazione, righe, ordini_confermati_pending });
     } catch (err) {
