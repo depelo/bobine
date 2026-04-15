@@ -1,68 +1,99 @@
 # Project State - PortalUjet PRG
 
-## Visione e Obiettivi
-- Modulo web PRG (Project Resource Governance) su stack Node.js + pagine statiche per:
-  - gestione anagrafica progetti (`progetti`)
-  - gestione anagrafica persone (`persone`)
-  - assegnazioni persona-progetto (`assegnazioni_progetti`)
-- Obiettivo operativo: dashboard separata per dominio (`Progetti`, `Persone`) + workspace dettaglio (`progetto`, `persona`) con CRUD/soft-delete e vista relazioni.
+## Riferimento Ufficiale
+- Fonte architetturale primaria: `C:/Users/andry/Desktop/bobine/conoscenze.txt`.
+- Questo file mantiene lo stato operativo del modulo PRG, ma deve restare sempre coerente con quel riferimento.
 
-## Stack Tecnologico e Vincoli
-- Backend: `Node.js`, `Express`, `mssql`, `dotenv`, `cors`, `cookie-parser`, `socket.io`.
-- Frontend: HTML statico + Bootstrap 5 CDN + Vanilla JS (`fetch`, `async/await`).
-- Sicurezza PortalUjet:
-  - obbligo `sicurezza.js` in `<head>`
-  - inizializzazione JS solo su `document.addEventListener('securityReady', initApp)`.
-- DB SQL Server:
-  - database `PRG`, pool isolato `getPoolPRG()` (no `sql.connect` globale).
-- Convenzioni chiave:
-  - PK/FK con nomi DB: `id_progetto`, `id_persona`
-  - colonna `obbiettivi` (doppia `b`)
-- soft-delete con `is_active = 0`.
+## Vincoli Architetturali da Rispettare (Allineati a conoscenze)
+- Paradigma piattaforma: `1 App = 1 Database = 1 Visto` (silos per dominio).
+- Gateway unico: `server.js` (HTTPS, REST API, statici, WebSocket).
+- Sicurezza centralizzata e zero-trust:
+  - nessun login locale nelle pagine Layer 2;
+  - uso obbligatorio di `sicurezza.js`;
+  - inizializzazione UI solo dopo evento `securityReady`.
+- Connessioni SQL:
+  - vietato `sql.connect(config)` globale;
+  - obbligo di pool isolati da `config/db.js` (per PRG: `getPoolPRG()`).
+- Pattern router:
+  - logica di dominio nei router dedicati (`routes/prgRoutes.js`);
+  - evitare aggiunta di business logic diretta in `server.js`.
+- Regole DB:
+  - soft-delete dove previsto (`is_active = 0`);
+  - PK in identity gestite dal DB (mai `MAX(id)+1`);
+  - no insert manuale delle PK.
 
-## Logiche Fondamentali
-- API read devono filtrare record attivi (`is_active = 1`) dove previsto.
-- Soft-delete:
-  - `DELETE /progetti/:id` -> `UPDATE is_active = 0`
-  - `DELETE /persone/:id` -> `UPDATE is_active = 0`.
+## Scope Funzionale PRG
+- Gestione anagrafica progetti (`progetti`).
+- Gestione anagrafica persone (`persone`).
+- Assegnazioni persona-progetto (`assegnazioni_progetti`).
+- Workspace di dettaglio (`progetto`, `persona`) con CRUD, relazioni e tasking operativo.
+
+## Convenzioni PRG
+- Naming chiavi: `id_progetto`, `id_persona`.
+- Campo legacy da preservare: `obbiettivi` (doppia `b`).
+- API read: filtro record attivi (`is_active = 1`) dove applicabile.
+- Frontend fetch con `credentials: 'include'`.
+- Error handling backend standard: `console.error('[ERRORE API]:', error)` nei `catch`.
 - Badge deterministici:
   - Stato: `Attivo=green`, `Bozza=secondary`, `Completato=primary`, `In Pausa=warning`.
-  - Priorita (case-insensitive): `Bassa=green`, `Media=warning`, `Alta=orange(custom)`, `Critica=danger`.
-- Priorita con classe custom:
-  - `.text-bg-orange { background-color: #fd7e14; color: #fff; }`.
-- Fetch frontend con `credentials: 'include'` (middleware sicurezza).
-- Error handling backend:
-  - `console.error('[ERRORE API]:', error)` in tutti i `catch`.
+  - Priorita (case-insensitive): `Bassa=green`, `Media=warning`, `Alta=orange`, `Critica=danger`.
+  - classe custom: `.text-bg-orange { background-color: #fd7e14; color: #fff; }`.
 
-## Stato dell'Implementazione
-- Backend PRG attivo in `routes/prgRoutes.js`:
-  - Progetti: `GET` (con join `reparti`), `POST`/`PUT` con `id_reparto`, `DELETE(soft)`.
-  - Persone: `GET`, `POST`, `PUT`, `DELETE(soft)`.
-  - Reparti: `GET`, `POST`, `PUT`, `DELETE(soft con is_active=0)`.
-  - Assegnazioni: `POST /assegna`, `GET /progetti/:id/team` (con `id_persona`), `PUT /progetti/:id_progetto/team/:id_persona`, `DELETE /progetti/:id_progetto/team/:id_persona`, `GET /persone/:id/progetti`.
-- Frontend completato:
-  - `prg.html` + `prg.js`: dashboard progetti raggruppata per reparto con accordion (`Senza Reparto` per `id_reparto` nullo), badge dinamici, tasto `Gestisci`.
-  - UX tabella progetti aggiornata: riga interamente cliccabile (anche tastiera), hover dedicato `.progetto-row`, colonna azioni con icona freccia compatta.
-  - `progetto.html` + `progetto.js`: dettaglio progetto, team, assegna persona, modifica/elimina progetto + select reparto in modal modifica + gestione membro team (modifica ruolo / rimozione assegnazione).
-  - `persone.html` + `persone.js`: dashboard anagrafica persone + creazione + `Gestisci`.
-  - `reparti.html` + `reparti.js`: dashboard reparti con tabella, modal crea/modifica, eliminazione soft-delete.
-  - Navbar condivisa rifattorizzata: branding con placeholder menu, logo `/asset/logo.png`, titolo `Ujet Progetti`, link globali separati dalle CTA di pagina.
-  - Uniformazione bottoni tabelle: azioni `Modifica/Gestisci/Elimina` con stile `outline` coerente per ridurre rumore visivo.
-  - Scheda `persona.html` allineata al pattern UX: back-link contestuale in alto a sinistra e azioni dati separate.
-- Static assets backend: esposta cartella `/assets` via `express.static` in `server.js`, logo navbar su `/assets/logo-ujet.jpeg`.
-  - `persona.html` + `persona.js`: dettaglio persona, progetti associati, modifica/elimina persona.
-- Navigazione globale aggiunta: link `Progetti` / `Persone` nelle navbar.
+## Stato Implementazione Corrente
+- Refactor dominio completato: `reparti` -> `aree`.
+  - endpoint migrati su `/aree`;
+  - query progetti con join su `aree`;
+  - frontend rinominato `aree.html` + `aree.js`.
+- Dashboard progetti (`prg.html`, `prg.js`):
+  - tabella piatta con colonna `Area`;
+  - filtri globali area/priorita/stato;
+  - filtro priorita robusto (trim + case-insensitive);
+  - righe cliccabili con chevron.
+- Dettaglio progetto (`progetto.html`, `progetto.js`):
+  - titolo pagina dinamico (`titoloPaginaProgetto`);
+  - campo nome ridondante rimosso da Team & Info;
+  - modale modifica con select `id_area`;
+  - pulsante elimina spostato nel footer modale.
+- Kanban task (tab `Piano Operativo`):
+  - colonne `Da Fare`, `In Corso`, `Revisione`, `Completato`;
+  - drag&drop HTML5;
+  - blocco dipendenze su avanzamento parent;
+  - modale task unificato create/edit/delete.
+- Elenco task WBS (tab `Elenco Task`):
+  - albero task/sub-task;
+  - edit inline titolo e descrizione;
+  - toggle completato;
+  - toggle criticita sub-task con icona fiamma;
+  - creazione sotto-attivita e delete riga.
+- Sidebar PortalUjet condivisa:
+  - `assets/components/sidebar.html`;
+  - `assets/js/portal-sidebar.js`;
+  - integrazione PRG con `#menuBtn` e attivazione voce su percorsi `/PRG/`.
 
-## Task Pendenti e Roadmap
-- Verifica DB schema reale allineato:
-  - `is_active` su `persone`
-  - `ruolo_nel_progetto`, `data_assegnazione` su `assegnazioni_progetti`
-  - tipi (`budget` decimal, date fields).
-- E2E test manuale (happy path + edge):
-  - creazione/aggiornamento/eliminazione progetto
-  - creazione/aggiornamento/eliminazione persona
-  - assegnazione persona-progetto e riflesso su entrambe le schede.
-- Hardening consigliato:
-  - validazioni backend (400 su payload incompleto)
-  - vincoli univoci assegnazioni duplicate
-  - messaggistica errore frontend più granulare.
+## Backend PRG - Endpoint Principali
+- `GET /progetti/:id/tasks`
+- `POST /tasks`
+- `PUT /tasks/:id/stato`
+- `PUT /tasks/:id` (update parziale via `COALESCE`, incluso mapping `is_completato -> stato`)
+- `DELETE /tasks/:id` (attualmente delete fisico)
+- `GET /progetti/:id/struttura-tasks`
+- `POST/PUT/DELETE /subtasks...`
+- hardening schema `sub_tasks` con rilevazione dinamica colonne da `INFORMATION_SCHEMA`.
+
+## Roadmap / Pendenti
+- E2E regressione tasking:
+  - create/edit/delete task e sub-task;
+  - toggle completato/critico;
+  - drag&drop kanban con dipendenze;
+  - verifica refresh incrociato tra viste.
+- Stabilizzazione schema DB `sub_tasks`:
+  - convergere su naming canonico;
+  - valutare migrazione SQL unica e rimozione fallback dinamico.
+- Hardening API:
+  - validazioni `400` su payload minimi;
+  - messaggi business chiari su errori FK/constraint;
+  - valutare soft-delete task al posto di delete fisico.
+- UX futura:
+  - ordinamento manuale sub-task (drag&drop WBS);
+  - persistenza expand/collapse descrizioni;
+  - ricerca full-text nell'elenco task.
