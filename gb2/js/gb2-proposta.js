@@ -1121,8 +1121,8 @@ const MrpProposta = (() => {
             'Hai confermato <strong>' + articoliNuovi.length + '</strong> nuov' +
             (articoliNuovi.length === 1 ? 'o articolo' : 'i articoli') + '. Cosa vuoi fare?<br><br>' +
             '<div style="text-align:left; font-size:0.82rem; color:var(--text-muted);">' +
-            '\u2022 <strong>Unisci</strong>: annulla l\'ordine ' + esc(ordLabel) + ' e riemette un unico ordine con ' +
-            'tutti gli articoli (vecchi + nuovi). Il numero ordine viene riutilizzato.<br>' +
+            '\u2022 <strong>Unisci</strong>: aggiunge i nuovi articoli all\'ordine ' + esc(ordLabel) + ' esistente. ' +
+            'L\'ordine viene modificato in-place: stesso numero, totali ricalcolati, PDF aggiornato.<br>' +
             '\u2022 <strong>Separato</strong>: crea un secondo ordine solo con i nuovi articoli. ' +
             'L\'ordine esistente rimane invariato.<br>' +
             '</div>';
@@ -1240,84 +1240,43 @@ const MrpProposta = (() => {
     // ============================================================
     async function eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts) {
         opts = opts || {};
-        let articoliFinali = articoliFornitore.slice();
+        const articoliFinali = articoliFornitore.slice();
 
-        // Modalità merge: prima annulla l'ordine esistente (questo riapre la proposta
-        // con le vecchie righe come disponibili), poi combina vecchi + nuovi e riemetti.
+        // Mappa articoli → payload SP (formato comune a /emetti-ordine e /modifica-ordine)
+        const mapArticoloToApi = (a) => ({
+            codart: a.ol_codart,
+            fase: parseInt(a.ol_fase, 10) || 0,
+            magaz: parseInt(a.ol_magaz, 10) || 1,
+            quantita: a.quantita_confermata,
+            data_consegna: a.data_consegna,
+            prezzo: a.prezzo,
+            perqta: Number(a.perqta) || 1,
+            unmis: a.ol_unmis || 'PZ',
+            ol_progr: parseInt(a.ol_progr, 10) || 0
+        });
+
+        // Modalità merge: chiama /modifica-ordine che AGGIUNGE righe all'ordine
+        // esistente in-place (preserva numord, ricalcola totali, NON annulla).
+        // Passiamo SOLO gli articoli nuovi — la SP conosce già le righe esistenti.
+        let resp;
         if (opts.mergeWith) {
-            // Raccogli le righe del vecchio ordine dall'array raw della proposta
-            const righeRaw = data;
-            const vecchie = [];
-            for (const r of righeRaw) {
-                if (!r.emesso) continue;
-                if (String(r.fornitore_codice) !== String(fornitore_codice)) continue;
-                if (String(r.ord_anno) !== String(opts.mergeWith.anno)) continue;
-                if (String(r.ord_serie) !== String(opts.mergeWith.serie)) continue;
-                if (String(r.ord_numord) !== String(opts.mergeWith.numord)) continue;
-                vecchie.push({
-                    ol_codart: r.ol_codart,
-                    ol_fase: r.ol_fase,
-                    ol_magaz: r.ol_magaz,
-                    quantita_confermata: r.ol_quant,
-                    data_consegna: r.ol_datcons,
-                    prezzo: r.ol_prezzo,
-                    perqta: r.ol_perqta,
-                    ol_unmis: r.ol_unmis,
-                    ol_progr: r.ol_progr
-                });
-            }
-
-            // De-duplica vs nuovi (stesso codart/fase/magaz) — i nuovi hanno priorità
-            const chiaviNuove = new Set(articoliFornitore.map(a =>
-                `${a.ol_codart}|${parseInt(a.ol_fase, 10) || 0}|${parseInt(a.ol_magaz, 10) || 1}`));
-            const vecchieFiltrate = vecchie.filter(v =>
-                !chiaviNuove.has(`${v.ol_codart}|${parseInt(v.ol_fase, 10) || 0}|${parseInt(v.ol_magaz, 10) || 1}`));
-
-            articoliFinali = vecchieFiltrate.concat(articoliFornitore);
-
-            // Annulla l'ordine esistente (silent — già confermato dal dialog merge)
-            try {
-                const annRes = await fetch(`${MrpApp.API_BASE}/annulla-ordine`, {
-                    method: 'POST', credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        anno: opts.mergeWith.anno,
-                        serie: opts.mergeWith.serie,
-                        numord: opts.mergeWith.numord
-                    })
-                });
-                const annData = await annRes.json();
-                if (!annData.success) {
-                    await modale('error', 'Merge fallito',
-                        'Impossibile annullare l\'ordine <strong>' + esc(opts.mergeWith.numord + '/' + opts.mergeWith.serie) +
-                        '</strong> per eseguire il merge:<br><br><code>' + esc(annData.error || annData.message || 'errore sconosciuto') + '</code>');
-                    return;
-                }
-                ordiniEmessi.delete(String(fornitore_codice));
-            } catch (err) {
-                await modale('error', 'Merge fallito',
-                    'Errore di rete durante l\'annullamento: <code>' + esc(err.message) + '</code>');
-                return;
-            }
+            const bodyMod = {
+                anno: opts.mergeWith.anno,
+                serie: opts.mergeWith.serie,
+                numord: opts.mergeWith.numord,
+                fornitore_codice: parseInt(fornitore_codice, 10),
+                elaborazione_id: MrpApp.state.elaborazioneId || '',
+                articoli: articoliFinali.map(mapArticoloToApi)
+            };
+            resp = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/modifica-ordine`, bodyMod);
+        } else {
+            const body = {
+                fornitore_codice: parseInt(fornitore_codice, 10),
+                elaborazione_id: MrpApp.state.elaborazioneId || '',
+                articoli: articoliFinali.map(mapArticoloToApi)
+            };
+            resp = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
         }
-
-        const body = {
-            fornitore_codice: parseInt(fornitore_codice, 10),
-            elaborazione_id: MrpApp.state.elaborazioneId || '',
-            articoli: articoliFinali.map(a => ({
-                codart: a.ol_codart,
-                fase: parseInt(a.ol_fase, 10) || 0,
-                magaz: parseInt(a.ol_magaz, 10) || 1,
-                quantita: a.quantita_confermata,
-                data_consegna: a.data_consegna,
-                prezzo: a.prezzo,
-                perqta: Number(a.perqta) || 1,
-                unmis: a.ol_unmis || 'PZ',
-                ol_progr: parseInt(a.ol_progr, 10) || 0
-            }))
-        };
-
-        const resp = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
 
         if (resp.success) {
             // Salva PDF in memoria per download immediato (non disponibile dal server dopo)

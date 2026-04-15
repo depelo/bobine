@@ -108,7 +108,13 @@
       "Bash(ls C:/Users/depel/Documents/progetto/ujet/bobine/gb2/conoscenze*)",
       "Bash(cp /tmp/query_forn.js C:/Users/depel/Documents/progetto/ujet/bobine/_query_forn.js)",
       "Bash(node _query_forn.js)",
-      "Bash(rm _query_forn.js)"
+      "Bash(rm _query_forn.js)",
+      "Bash(node _query_88f.js)",
+      "Bash(node --check gb2/js/gb2-proposta.js)",
+      "Bash(node _query_sp.js)",
+      "Bash(node _deploy_sp_manual.js)",
+      "Bash(node _sp_source2.js)",
+      "Bash(node _redeploy_sp.js)"
     ]
   }
 }

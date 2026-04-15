@@ -40,7 +40,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
     }
 
     // Versione deploy — incrementare quando si modificano le SP o le tabelle
-    const DEPLOY_VERSION = '2.5';
+    const DEPLOY_VERSION = '2.7';
 
     /**
      * Deploy SP e tabelle nel DB [GB2_SP] del server di destinazione.
@@ -101,12 +101,13 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         }
 
         try {
-            for (const file of ['usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql']) {
+            for (const file of ['usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql', 'usp_AggiungiRigheOrdineFornitore.sql']) {
                 const filePath = path.join(sqlDir, file);
                 if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
                 try {
                     let sqlText = fs.readFileSync(filePath, 'utf-8');
                     if (suffix) {
+                        sqlText = sqlText.replace(/usp_AggiungiRigheOrdineFornitore/g, 'usp_AggiungiRigheOrdineFornitore' + suffix);
                         sqlText = sqlText.replace(/usp_CreaOrdineFornitore/g, 'usp_CreaOrdineFornitore' + suffix);
                         sqlText = sqlText.replace(/usp_AggiornaStatoInvioOrdine/g, 'usp_AggiornaStatoInvioOrdine' + suffix);
                     }
@@ -121,12 +122,20 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
             try { await poolSPTarget.close(); } catch (_) {}
         }
 
-        // 5. Aggiorna versione
-        try {
-            await poolTarget.request()
-                .input('ver', sql.VarChar(10), versionKey)
-                .query("UPDATE [GB2_SP].[dbo].[DeployVersion] SET Versione=@ver, DeployedAt=GETDATE()");
-        } catch (_) {}
+        // 5. Aggiorna versione SOLO se tutti i file sono OK (niente errori).
+        //    Altrimenti un errore transitorio (es. SP che non compila) resta congelato
+        //    con version=OK finche qualcuno non bumpa manualmente DEPLOY_VERSION.
+        const hasErrors = results.some(r => r.status === 'error');
+        if (!hasErrors) {
+            try {
+                await poolTarget.request()
+                    .input('ver', sql.VarChar(10), versionKey)
+                    .query("UPDATE [GB2_SP].[dbo].[DeployVersion] SET Versione=@ver, DeployedAt=GETDATE()");
+            } catch (_) {}
+        } else {
+            console.warn('[Deploy] Errori nel deploy SP — DeployVersion NON aggiornata:',
+                results.filter(r => r.status === 'error').map(r => r.file + ': ' + r.error).join('; '));
+        }
 
         return { skipped: false, version: versionKey, results };
     }
@@ -197,7 +206,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
 
     async function dropTestSPs(poolTarget, testDbId) {
         const suffix = '_T' + testDbId;
-        const spNames = ['usp_CreaOrdineFornitore' + suffix, 'usp_AggiornaStatoInvioOrdine' + suffix];
+        const spNames = ['usp_CreaOrdineFornitore' + suffix, 'usp_AggiornaStatoInvioOrdine' + suffix, 'usp_AggiungiRigheOrdineFornitore' + suffix];
         for (const sp of spNames) {
             try {
                 await poolTarget.request().batch(

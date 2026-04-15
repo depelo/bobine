@@ -283,6 +283,207 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
     }
 });
 
+// ============================================================
+// Modifica un ordine fornitore ESISTENTE aggiungendo N righe nuove
+// (merge "Unisci" — preserva numord, ricalcola totali, rinfresca BCube)
+// ============================================================
+router.post('/modifica-ordine', authMiddleware, async (req, res) => {
+    try {
+        const { anno, serie, numord, fornitore_codice, articoli, elaborazione_id } = req.body;
+
+        if (!anno || !serie || !numord) return res.status(400).json({ error: 'anno/serie/numord obbligatori' });
+        if (!fornitore_codice) return res.status(400).json({ error: 'fornitore_codice obbligatorio' });
+        if (!Array.isArray(articoli) || articoli.length === 0) return res.status(400).json({ error: 'articoli vuoto' });
+
+        const uid = getUserId(req);
+        const annoInt = parseInt(anno, 10);
+        const numordInt = parseInt(numord, 10);
+        const fornCodeInt = parseInt(fornitore_codice, 10);
+
+        const poolSP = await getPoolDest(uid);
+        const profile = getActiveProfile(uid);
+        const spName = '[GB2_SP].[dbo].' + getSpName('usp_AggiungiRigheOrdineFornitore', profile);
+
+        // Check SP esiste (auto-deploy lato client via 409)
+        const spExists = await checkSpExists(poolSP, spName);
+        if (!spExists) {
+            return res.status(409).json({
+                error: 'SP_NOT_FOUND',
+                sp: spName,
+                message: `La stored procedure ${spName} non esiste. Deployare prima con POST /api/mrp/deploy-sp`
+            });
+        }
+
+        // Pre-check su ordine (stato + fornitore coerente) — errori chiari prima di chiamare la SP
+        const preCheck = await poolSP.request()
+            .input('anno', sql.SmallInt, annoInt)
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, numordInt)
+            .query(`SELECT td_conto, td_flevas FROM dbo.testord
+                    WHERE codditt='UJET11' AND td_tipork='O'
+                      AND td_anno=@anno AND td_serie=@serie AND td_numord=@numord`);
+        if (!preCheck.recordset.length) {
+            return res.status(404).json({ error: 'Ordine non trovato' });
+        }
+        if (preCheck.recordset[0].td_conto !== fornCodeInt) {
+            return res.status(409).json({
+                error: 'FORNITORE_MISMATCH',
+                message: 'Il fornitore dell\'ordine esistente non corrisponde a quello degli articoli da aggiungere'
+            });
+        }
+        if (preCheck.recordset[0].td_flevas !== 'N') {
+            return res.status(409).json({
+                error: 'ORDINE_IN_EVASIONE',
+                message: 'Ordine in evasione: non modificabile'
+            });
+        }
+
+        const evasCheck = await poolSP.request()
+            .input('anno', sql.SmallInt, annoInt)
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, numordInt)
+            .query(`SELECT COUNT(*) AS cnt FROM dbo.movord
+                    WHERE codditt='UJET11' AND mo_tipork='O'
+                      AND mo_anno=@anno AND mo_serie=@serie AND mo_numord=@numord
+                      AND (mo_quaeva > 0 OR mo_quapre > 0)`);
+        if (evasCheck.recordset[0].cnt > 0) {
+            return res.status(409).json({
+                error: 'MERCE_EVASA',
+                message: 'Ordine con righe evase o prenotate: non modificabile'
+            });
+        }
+
+        // Verifica email_inviata su ordini_emessi@163 — safety net per il merge
+        const poolOE = await getPool163();
+        const emailCheck = await poolOE.request()
+            .input('anno', sql.SmallInt, annoInt)
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, numordInt)
+            .query(`SELECT TOP 1 ISNULL(email_inviata, 0) AS email_inviata
+                    FROM dbo.ordini_emessi
+                    WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord
+                    ORDER BY email_inviata DESC`);
+        if (emailCheck.recordset.length && emailCheck.recordset[0].email_inviata) {
+            return res.status(409).json({
+                error: 'EMAIL_GIA_INVIATA',
+                message: 'Email gia inviata per questo ordine: non modificabile. Crea un ordine separato.'
+            });
+        }
+
+        // Chiama la SP
+        const operatoreCode = uid ? 'GB2' + uid : 'GB2IDerror';
+        const spReq = poolSP.request();
+        spReq.timeout = 60000;
+        const result = await spReq
+            .input('json_articoli', sql.NVarChar(sql.MAX), JSON.stringify(articoli))
+            .input('anno', sql.SmallInt, annoInt)
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, numordInt)
+            .input('operatore', sql.VarChar(20), operatoreCode)
+            .input('elaborazione_id', sql.VarChar(50), elaborazione_id || '')
+            .execute(spName);
+
+        if (!result.recordsets || !result.recordsets[0] || !result.recordsets[0][0]) {
+            return res.status(500).json({ error: 'La stored procedure non ha restituito dati' });
+        }
+
+        const ordine = result.recordsets[0][0];
+        const righeOrdine = result.recordsets[1] || [];
+        const righeNuove = righeOrdine.filter(r => r.is_new === 1 || r.is_new === true);
+
+        // PDF rigenerato con TUTTE le righe (vecchie + nuove)
+        const dbProfile = getActiveProfile(uid);
+        const serverDest = (dbProfile.server || 'BCUBE2').trim();
+        const isProva = !!(dbProfile._testDbId);
+        const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProva ? 'prova' : 'produzione' });
+
+        // ── Registrazione SOLO delle nuove righe in ordini_emessi@163 ──
+        const oeIds = [];
+        try {
+            for (const riga of righeNuove) {
+                if (!riga.ol_progr || riga.ol_progr <= 0) continue;
+                const insRes = await poolOE.request()
+                    .input('ol_progr', sql.Int, riga.ol_progr)
+                    .input('ol_codart', sql.NVarChar, riga.mo_codart)
+                    .input('ol_conto', sql.Int, fornCodeInt)
+                    .input('ol_quant', sql.Decimal(18, 9), riga.mo_quant)
+                    .input('ol_fase', sql.SmallInt, riga.mo_fase || 0)
+                    .input('ol_magaz', sql.SmallInt, riga.mo_magaz || 1)
+                    .input('ord_anno', sql.SmallInt, ordine.anno)
+                    .input('ord_serie', sql.VarChar(3), ordine.serie)
+                    .input('ord_numord', sql.Int, ordine.numord)
+                    .input('ord_riga', sql.Int, riga.mo_riga)
+                    .input('quantita_ordinata', sql.Decimal(18, 9), riga.mo_quant)
+                    .input('elaborazione_id', sql.VarChar(50), elaborazione_id || '')
+                    .input('operatore', sql.VarChar(20), operatoreCode)
+                    .input('ambiente', sql.VarChar(20), serverDest)
+                    .query(`INSERT INTO dbo.ordini_emessi
+                        (ol_progr, ol_tipork, ol_codart, ol_conto, ol_quant, ol_fase, ol_magaz,
+                         ord_anno, ord_serie, ord_numord, ord_riga,
+                         quantita_ordinata, elaborazione_id, data_emissione, operatore, ambiente)
+                        VALUES (@ol_progr, 'O', @ol_codart, @ol_conto, @ol_quant, @ol_fase, @ol_magaz,
+                                @ord_anno, @ord_serie, @ord_numord, @ord_riga,
+                                @quantita_ordinata, @elaborazione_id, GETDATE(), @operatore, @ambiente);
+                        SELECT SCOPE_IDENTITY() AS id`);
+                const newId = insRes.recordset[0]?.id;
+                if (newId) oeIds.push({ id: newId, ol_progr: riga.ol_progr });
+            }
+        } catch (oeErr) {
+            console.warn('[Modifica Ordine] INSERT ordini_emessi fallito (ordine BCube modificato):', oeErr.message);
+        }
+
+        // ── Aggiorna SnapshotProposte per le nuove righe ──
+        if (elaborazione_id && oeIds.length > 0) {
+            try {
+                for (const oe of oeIds) {
+                    await poolOE.request()
+                        .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                        .input('progr', sql.Int, oe.ol_progr)
+                        .input('oeId', sql.Int, oe.id)
+                        .query(`
+                            UPDATE [GB2].[dbo].[SnapshotProposte]
+                            SET Gestita = 1, OrdineEmessoID = @oeId, UpdatedAt = GETDATE()
+                            WHERE ElaborazioneID = @eid AND ol_progr = @progr
+                        `);
+                }
+                const cntRes = await poolOE.request()
+                    .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                    .query(`SELECT COUNT(*) AS cnt FROM [GB2].[dbo].[SnapshotProposte] WHERE ElaborazioneID=@eid AND Gestita=1`);
+                await poolOE.request()
+                    .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                    .input('gestite', sql.Int, cntRes.recordset[0].cnt)
+                    .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
+            } catch (snapErr) {
+                console.warn('[Modifica Ordine] Aggiornamento snapshot fallito (continuo):', snapErr.message);
+            }
+        }
+
+        res.json({
+            success: true,
+            ambiente: serverDest,
+            modificato: true,
+            righe_aggiunte: righeNuove.length,
+            ordine: {
+                anno: ordine.anno,
+                serie: ordine.serie,
+                numord: ordine.numord,
+                fornitore_codice: ordine.fornitore_codice,
+                fornitore_nome: ordine.fornitore_nome,
+                fornitore_email: ordine.fornitore_email,
+                totale_merce: ordine.totale_merce,
+                totale_documento: ordine.totale_documento,
+                data_ordine: ordine.data_ordine,
+                num_righe: righeOrdine.length
+            },
+            pdf_base64: pdfBuffer.toString('base64'),
+            pdf_filename: `OrdineForn${ordine.anno}${ordine.serie}${String(ordine.numord).padStart(6,'0')}.pdf`
+        });
+    } catch (err) {
+        console.error('[Modifica Ordine] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Annulla un ordine fornitore gia emesso
 // Chiama la SP BCube bussp_bsorgsor9_fcancella che fa DELETE fisico + storno saldi
 router.post('/annulla-ordine', authMiddleware, async (req, res) => {

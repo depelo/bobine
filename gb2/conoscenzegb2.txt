@@ -1724,5 +1724,77 @@ IMPATTO ORDINI GIA EMESSI:
 
 
 ================================================================================
+26. TRAPPOLA: "ANNULLA + RIEMETTI" NON PRESERVA IL NUMERO ORDINE
+================================================================================
+
+CONTESTO:
+  Per implementare il flusso "Unisci articoli a ordine pending" (merge) era stato
+  ipotizzato di chiamare /annulla-ordine seguito da /emetti-ordine con gli articoli
+  vecchi+nuovi, partendo dall'assunto che il numord venisse riutilizzato dal
+  restore di tabnuma. ASSUNTO FALSO.
+
+PERCHE NON FUNZIONA:
+  /annulla-ordine (routes/gb2/ordini.js:328-342) decrementa tb_numprog SOLO se
+  l'ordine cancellato e' letteralmente l'ultimo progressivo della serie/anno:
+
+    if (tabnuma.tb_numprog === numordInt) {
+        UPDATE tabnuma SET tb_numprog = tb_numprog - 1
+    }
+
+  In ambiente multi-operatore questo non e' mai garantito: fra il momento in cui
+  il nostro pending e' stato emesso e il momento del merge, un altro operatore
+  (o lo stesso su un altro fornitore) puo' aver bruciato il progressivo
+  successivo. In quel caso l'annullo lascia un BUCO permanente nella numerazione
+  e il "merge" genera un ordine con numord diverso da quello originale.
+
+  E' lo stesso vincolo di BCube: anche la DelNuma dell'ERP recupera il numero
+  solo se cancelli l'ultimo. Non e' un limite della nostra SP — e' la regola
+  del gestionale.
+
+COSA FARE INVECE:
+  Per modificare un ordine pending (email non ancora inviata) bisogna MODIFICARE
+  l'ordine esistente, non ricrearlo:
+
+    1. INSERT nuove righe in movord (mo_riga continua da MAX+1 per quell'ordine)
+    2. UPDATE testord ricalcolando:
+       - td_totmerce, td_totdoc (SUM movord)
+       - Castelletto IVA: td_codiva_1..3, td_imponib_*, td_imposta_*
+         (raggruppando per aliquota come fa usp_CreaOrdineFornitore riga 231-239)
+       - td_datcons = MIN(movord.mo_datcons)
+       - td_ultagg = GETDATE()
+    3. EXEC bussp_bsorgsor9_faggiorn2 per rinfrescare keyord/artpro delle righe nuove
+    4. INSERT nuove righe in ordini_emessi su MRP@163 (stesso ord_anno/serie/numord)
+    5. UPDATE [GB2].[dbo].[SnapshotProposte] Gestita=1 per le nuove proposte
+    6. Rigenerare il PDF (nuovo totale, nuove righe)
+
+  Serializzare con sp_getapplock per evitare modifiche concorrenti sullo stesso
+  ordine. L'applock esistente 'OrdFornitore_{anno}_{serie}' basta se si vuole
+  essere conservativi; in alternativa un applock per-ordine 'ModOrd_{anno}_{serie}_{numord}'.
+
+  La sede naturale di questa logica e' una nuova SP in [GB2_SP]:
+    usp_AggiungiRigheOrdineFornitore(
+        @json_articoli_nuovi, @anno, @serie, @numord, @operatore, @codditt
+    )
+  che puo' riusare il blocco di arricchimento artico/contocontr/IVA della
+  usp_CreaOrdineFornitore esistente.
+
+VERIFICA PRECONDIZIONI PRIMA DEL MERGE:
+  - L'ordine deve esistere e avere mo_quaeva=0 AND mo_quapre=0 su tutte le righe
+    (stessa verifica che fa /annulla-ordine).
+  - email_inviata deve essere 0 (gia' verificato dal dialog merge lato client).
+  - td_flevas deve essere 'N' (ordine non in evasione).
+
+QUANDO RESTA LECITO "ANNULLA + RIEMETTI":
+  Mai in automatico. Se l'operatore decide esplicitamente di annullare e ricreare
+  da zero (es. per cambiare completamente il set di articoli), va fatto come due
+  azioni separate, e il nuovo ordine avra' un numord nuovo — comportamento
+  accettato dall'utente in modo informato.
+
+STATUS: Plan "gestione-lista-ordini" (aprile 2026) inizialmente lo descriveva in
+modo errato. Corretto: il flusso merge deve usare la modifica in-place, mai
+annulla+riemetti.
+
+
+================================================================================
 FINE DOCUMENTO
 ================================================================================
