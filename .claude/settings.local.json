@@ -104,7 +104,8 @@
       "Bash(node _check_notes.js)",
       "Bash(node diag-itt.js)",
       "Bash(ls C:/Users/depel/Documents/progetto/ujet/bobine/*.js)",
-      "Bash(grep -l \"163\\\\|ConnectionProfiles\\\\|database_prova\\\\|_testDb\" C:/Users/depel/Documents/progetto/ujet/bobine/config/*.js)"
+      "Bash(grep -l \"163\\\\|ConnectionProfiles\\\\|database_prova\\\\|_testDb\" C:/Users/depel/Documents/progetto/ujet/bobine/config/*.js)",
+      "Bash(ls C:/Users/depel/Documents/progetto/ujet/bobine/gb2/conoscenze*)"
     ]
   }
 }
