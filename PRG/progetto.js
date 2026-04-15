@@ -542,43 +542,83 @@ function createTaskCard(task) {
   card.className = 'card task-card mb-2';
   card.draggable = true;
   card.dataset.idTask = String(task.id_task);
-  const bloccato = isTaskBlocked(task, currentTasks);
   const priorita = task.priorita || 'Media';
   const persona = task.nome_assegnato || 'Non assegnato';
+  const initials = getInitials(persona);
   const dipendenzaTitolo = task.titolo_dipendenza || '';
   const subTasks = getSubtasksForTask(task.id_task);
   const subTasksCompletate = subTasks.filter((item) => Boolean(item.is_completato)).length;
   const collapseId = `task-subtasks-${task.id_task}`;
+  const hasDescrizione = Boolean(task.descrizione && String(task.descrizione).trim());
+  const descrizioneId = `task-descrizione-${task.id_task}`;
+  const showPrioritaBadge = ['alta', 'critica'].includes(String(priorita || '').trim().toLowerCase());
+  const parentTask = task.dipende_da_id
+    ? currentTasks.find((item) => Number(item.id_task) === Number(task.dipende_da_id))
+    : null;
+  const parentTaskCompleted = parentTask
+    ? String(parentTask.stato || '').trim().toLowerCase() === 'completato'
+    : false;
+  const lockClass = parentTaskCompleted ? 'text-secondary' : 'text-danger';
+  const lockTitle = `Dipende da: ${escapeHtml(dipendenzaTitolo || parentTask?.titolo || 'Task padre')}`;
+  const lockIconHtml = task.dipende_da_id
+    ? `<i class="bi bi-lock-fill ${lockClass}" title="${lockTitle}" aria-label="Task con dipendenza"></i>`
+    : '';
+  const subtaskToggleHtml = subTasks.length
+    ? `
+      <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-primary" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false">
+        <span data-subtask-counter>${subTasksCompletate}/${subTasks.length} completati</span>
+      </button>
+    `
+    : '';
 
   card.innerHTML = `
     <div class="card-body p-2">
       <div class="d-flex justify-content-between align-items-start">
-        <div class="fw-semibold">${escapeHtml(task.titolo || `Task ${task.id_task}`)}</div>
+        <div class="fw-semibold d-flex align-items-center gap-1">
+          <span>${escapeHtml(task.titolo || `Task ${task.id_task}`)}</span>
+          ${hasDescrizione ? `
+            <button
+              type="button"
+              class="task-action-btn text-secondary"
+              data-action="toggle-task-descrizione"
+              data-target-id="${descrizioneId}"
+              title="Mostra/nascondi descrizione"
+              aria-expanded="false"
+            >
+              <i class="bi bi-text-left"></i>
+            </button>
+          ` : ''}
+        </div>
         <div class="d-flex align-items-center gap-2">
-          ${bloccato ? '<span title="Task bloccato da dipendenza">🔒</span>' : ''}
           <i class="bi bi-pencil edit-task-icon" onclick="apriModaleModificaTask(${task.id_task})" title="Modifica task"></i>
         </div>
       </div>
+      ${hasDescrizione ? `<div id="${descrizioneId}" class="collapse small text-muted mt-2">${escapeHtml(task.descrizione)}</div>` : ''}
       <div class="mt-2">
-        <span class="badge ${getPrioritaBadgeClass(priorita)}">${escapeHtml(priorita)}</span>
+        ${showPrioritaBadge ? `<span class="badge ${getPrioritaBadgeClass(priorita)}">${escapeHtml(priorita)}</span>` : ''}
       </div>
-      <div class="small text-muted mt-2">${escapeHtml(persona)}</div>
-      ${task.descrizione ? `<div class="small mt-1">${escapeHtml(task.descrizione)}</div>` : ''}
-      ${bloccato && dipendenzaTitolo ? `<div class="small text-danger mt-1">Dipende da: ${escapeHtml(dipendenzaTitolo)}</div>` : ''}
+      <div class="d-flex justify-content-between align-items-end mt-3 pt-2 border-top">
+        <div class="d-flex align-items-center gap-2">
+          ${lockIconHtml}
+          ${subtaskToggleHtml}
+        </div>
+        <div
+          class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
+          style="width:30px;height:30px;font-size:0.8rem;"
+          title="${escapeHtml(persona)}"
+        >
+          ${escapeHtml(initials)}
+        </div>
+      </div>
       ${subTasks.length ? `
-        <div class="mt-2">
-          <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false">
-            <span data-subtask-counter>${subTasksCompletate}/${subTasks.length} Sub-task completate</span>
-          </button>
-          <div class="collapse mt-2" id="${collapseId}">
-            <div class="small d-flex flex-column gap-1" data-subtask-list>
-              ${subTasks.map((subtask) => `
-                <label class="d-flex align-items-center gap-2">
-                  <input class="form-check-input" type="checkbox" data-subtask-id="${subtask.id_sub_task}" ${subtask.is_completato ? 'checked' : ''}>
-                  <span class="${subtask.is_completato ? 'task-barrato' : ''}">${escapeHtml(subtask.titolo || `Sub-task ${subtask.id_sub_task}`)}</span>
-                </label>
-              `).join('')}
-            </div>
+        <div class="collapse mt-2" id="${collapseId}">
+          <div class="small d-flex flex-column gap-1" data-subtask-list>
+            ${subTasks.map((subtask) => `
+              <label class="d-flex align-items-center gap-2">
+                <input class="form-check-input" type="checkbox" data-subtask-id="${subtask.id_sub_task}" ${subtask.is_completato ? 'checked' : ''}>
+                <span class="${subtask.is_completato ? 'task-barrato' : ''}">${escapeHtml(subtask.titolo || `Sub-task ${subtask.id_sub_task}`)}</span>
+              </label>
+            `).join('')}
           </div>
         </div>
       ` : ''}
@@ -587,6 +627,23 @@ function createTaskCard(task) {
 
   card.addEventListener('dragstart', onTaskDragStart);
   card.addEventListener('dragend', onTaskDragEnd);
+  card.querySelectorAll('[data-action="toggle-task-descrizione"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.targetId;
+      if (!targetId) return;
+      const descrizioneEl = card.querySelector(`#${targetId}`);
+      if (!descrizioneEl) return;
+      const collapse = bootstrap.Collapse.getOrCreateInstance(descrizioneEl, { toggle: false });
+      const isOpen = descrizioneEl.classList.contains('show');
+      if (isOpen) {
+        collapse.hide();
+        btn.setAttribute('aria-expanded', 'false');
+      } else {
+        collapse.show();
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
   card.querySelectorAll('[data-subtask-id]').forEach((checkbox) => {
     checkbox.addEventListener('change', async () => {
       const idSubTask = Number(checkbox.dataset.subtaskId);
@@ -657,6 +714,11 @@ async function onKanbanDrop(event) {
     return;
   }
 
+  if (isCompletedColumnName(nuovoStato) && hasIncompleteSubtasksForTask(task.id_task)) {
+    alert('Impossibile completare: devi prima spuntare tutte le sub-task di questa attività.');
+    return;
+  }
+
   try {
     hideError();
     await requestJson(`${API_BASE}/tasks/${idTask}/stato`, {
@@ -677,7 +739,7 @@ async function onOpenNuovoTaskModal() {
     await loadTasks(currentProjectId);
   }
   populateTaskAssigneeSelect();
-  populateTaskDependenciesSelect();
+  populateTaskDependenciesSelect(null);
   resetTaskModalForCreate();
 }
 
@@ -692,10 +754,14 @@ function populateTaskAssigneeSelect() {
   });
 }
 
-function populateTaskDependenciesSelect() {
+function populateTaskDependenciesSelect(excludedTaskId = null) {
   const select = document.getElementById('taskDipendenza');
   select.innerHTML = '<option value="">Nessuna dipendenza</option>';
+  const excludedIdString = excludedTaskId !== null && excludedTaskId !== undefined ? String(excludedTaskId) : null;
   currentTasks.forEach((task) => {
+    if (excludedIdString !== null && String(task.id_task) === excludedIdString) {
+      return;
+    }
     const option = document.createElement('option');
     option.value = String(task.id_task);
     option.textContent = task.titolo || `Task ${task.id_task}`;
@@ -727,6 +793,21 @@ async function onSubmitGestioneTask(event) {
 
   if (!payload.titolo) {
     showError('Il titolo del task e obbligatorio.');
+    return;
+  }
+  if (currentTaskId && payload.dipende_da_id && Number(payload.dipende_da_id) === Number(currentTaskId)) {
+    alert('Dipendenza non valida: un task non puo dipendere da se stesso.');
+    return;
+  }
+
+  const taskCorrente = currentTaskId
+    ? currentTasks.find((item) => Number(item.id_task) === Number(currentTaskId))
+    : null;
+  const selectColonna = document.getElementById('taskColonna');
+  const selectedIdColonna = selectColonna && selectColonna.value ? Number(selectColonna.value) : null;
+  const idColonnaFinale = selectedIdColonna ?? Number(taskCorrente?.id_colonna || 0);
+  if (idColonnaFinale && isCompletedColumnId(idColonnaFinale) && hasIncompleteSubtasksForTask(currentTaskId)) {
+    alert('Impossibile completare: devi prima spuntare tutte le sub-task di questa attività.');
     return;
   }
 
@@ -769,7 +850,7 @@ function apriModaleModificaTask(idTask) {
   }
 
   populateTaskAssigneeSelect();
-  populateTaskDependenciesSelect();
+  populateTaskDependenciesSelect(idTask);
 
   document.getElementById('modalGestioneTaskLabel').textContent = 'Modifica Task';
   document.getElementById('btnSalvaTask').textContent = 'Salva Modifiche';
@@ -834,6 +915,22 @@ function isTaskBlocked(task, tasks) {
   return check.blocked;
 }
 
+function hasIncompleteSubtasksForTask(idTask) {
+  const subTasks = getSubtasksForTask(idTask);
+  if (!subTasks.length) return false;
+  return subTasks.some((item) => !Boolean(item.is_completato));
+}
+
+function isCompletedColumnName(nomeColonna) {
+  return String(nomeColonna || '').trim().toLowerCase() === 'completato';
+}
+
+function isCompletedColumnId(idColonna) {
+  const colonna = currentKanbanColumns.find((item) => Number(item.id_colonna) === Number(idColonna));
+  if (!colonna) return false;
+  return isCompletedColumnName(colonna.nome);
+}
+
 function getSubtasksForTask(idTask) {
   const taskNode = currentTaskStructure.find((item) => Number(item.id_task) === Number(idTask));
   return Array.isArray(taskNode?.sub_tasks) ? taskNode.sub_tasks : [];
@@ -849,10 +946,11 @@ function patchSubtaskCompletionInMemory(idTask, idSubTask, isCompletato) {
 
 function updateCardSubtaskCounter(card, idTask) {
   const counter = card.querySelector('[data-subtask-counter]');
-  if (!counter) return;
   const subtasks = getSubtasksForTask(idTask);
   const completate = subtasks.filter((item) => Boolean(item.is_completato)).length;
-  counter.textContent = `${completate}/${subtasks.length} Sub-task completate`;
+  if (counter) {
+    counter.textContent = `${completate}/${subtasks.length} completati`;
+  }
 }
 
 function onAggiungiColonnaKanban() {
@@ -1300,4 +1398,14 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function getInitials(nomeCompleto) {
+  const testo = (nomeCompleto || '').toString().trim();
+  if (!testo || testo.toLowerCase() === 'non assegnato') return '--';
+  const parts = testo.split(/\s+/).filter(Boolean);
+  if (!parts.length) return '--';
+  const first = parts[0][0] || '';
+  const second = parts.length > 1 ? (parts[parts.length - 1][0] || '') : '';
+  return `${first}${second}`.toUpperCase();
 }

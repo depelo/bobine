@@ -51,14 +51,33 @@
   - righe cliccabili con chevron.
 - Dettaglio progetto (`progetto.html`, `progetto.js`):
   - titolo pagina dinamico (`titoloPaginaProgetto`);
-  - campo nome ridondante rimosso da Team & Info;
+  - tab refactor in 4 viste: `Info`, `Piano Operativo`, `Elenco Task`, `Team`;
+  - action bar contestuale in header tab:
+    - `Modifica Progetto` visibile su `Info`
+    - `Nuovo Task` visibile su `Piano Operativo` e `Elenco Task`
+    - `Assegna Persona` visibile su `Team`
   - modale modifica con select `id_area`;
   - pulsante elimina spostato nel footer modale.
 - Kanban task (tab `Piano Operativo`):
-  - colonne `Da Fare`, `In Corso`, `Revisione`, `Completato`;
-  - drag&drop HTML5;
-  - blocco dipendenze su avanzamento parent;
+  - board dinamica da tabella `colonne_kanban` (non piu statica hardcoded);
+  - creazione colonne default su creazione progetto (`Da Fare`, `In Corso`, `Revisione`, `Completato`);
+  - CRUD colonne con:
+    - rename + colore (`colore`), add colonna, delete colonna;
+    - protezione colonne base non eliminabili;
+    - blocco delete se presenti task associati;
+  - drag&drop task su `id_colonna` (payload dedicato e isolamento eventi task/colonna);
+  - drag&drop colonne con handle dedicato `☰` e persistenza ordine;
+  - layout orizzontale con scroll (`kanban-board-scroll`) e card colonna a larghezza fissa;
+  - blocco dipendenze su avanzamento parent + blocco completamento se sub-task incomplete;
   - modale task unificato create/edit/delete.
+- Card Kanban (UX):
+  - descrizione non piu stampata full inline;
+  - toggle descrizione su icona testo;
+  - badge priorita solo per eccezioni (`Alta`, `Critica`);
+  - footer compatto con lock dipendenza + stato sub-task + avatar iniziali assegnatario;
+  - lock dipendenza dinamico:
+    - rosso se task padre non completato
+    - grigio se task padre completato (dipendenza storica non bloccante).
 - Elenco task WBS (tab `Elenco Task`):
   - albero task/sub-task;
   - edit inline titolo e descrizione;
@@ -72,19 +91,26 @@
 
 ## Backend PRG - Endpoint Principali
 - `GET /progetti/:id/tasks`
+- `GET /progetti/:id/colonne`
+- `POST /progetti/:id/colonne`
+- `PUT /colonne/:id`
+- `DELETE /colonne/:id`
+- `PUT /progetti/:id/ordine-colonne`
 - `POST /tasks`
-- `PUT /tasks/:id/stato`
+- `PUT /tasks/:id/stato` (update su `id_colonna`, con fallback mapping da nome colonna)
 - `PUT /tasks/:id` (update parziale via `COALESCE`, incluso mapping `is_completato -> stato`)
 - `DELETE /tasks/:id` (attualmente delete fisico)
 - `GET /progetti/:id/struttura-tasks`
 - `POST/PUT/DELETE /subtasks...`
 - hardening schema `sub_tasks` con rilevazione dinamica colonne da `INFORMATION_SCHEMA`.
+- nota DB `colonne_kanban`: campo nome colonna corretto = `nome` (non `nome_colonna`).
 
 ## Roadmap / Pendenti
 - E2E regressione tasking:
   - create/edit/delete task e sub-task;
   - toggle completato/critico;
-  - drag&drop kanban con dipendenze;
+  - drag&drop kanban task + colonne con persistenza ordine;
+  - validazioni blocco completamento (dipendenze + sub-task incomplete);
   - verifica refresh incrociato tra viste.
 - Stabilizzazione schema DB `sub_tasks`:
   - convergere su naming canonico;
@@ -93,6 +119,9 @@
   - validazioni `400` su payload minimi;
   - messaggi business chiari su errori FK/constraint;
   - valutare soft-delete task al posto di delete fisico.
+- Hardening logica task:
+  - impedire dipendenze circolari multi-livello (attualmente bloccato self-dependency in UI);
+  - aggiungere validazione server-side su self-dependency e dipendenze invalide.
 - UX futura:
   - ordinamento manuale sub-task (drag&drop WBS);
   - persistenza expand/collapse descrizioni;
