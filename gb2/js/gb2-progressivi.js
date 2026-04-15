@@ -85,12 +85,10 @@ const MrpProgressivi = (() => {
 
         // Pannello decisionale ordine
         const btnConferma = document.getElementById('btnConfermaOrdine');
-        const btnEscludi = document.getElementById('btnEscludiOrdine');
         const btnSkip = document.getElementById('btnSkipOrdine');
         const inputQtaDec = document.getElementById('decisioneQta');
 
         if (btnConferma) btnConferma.addEventListener('click', confermaOrdineHandler);
-        if (btnEscludi) btnEscludi.addEventListener('click', escludiOrdineHandler);
         if (btnSkip) btnSkip.addEventListener('click', skipOrdineHandler);
         if (inputQtaDec) inputQtaDec.addEventListener('input', aggiornaValoreDecisione);
 
@@ -861,39 +859,6 @@ const MrpProgressivi = (() => {
             quantita_proposta: Number(proposta.ol_quant) || 0,
             prezzo: Number(proposta.ol_prezzo) || 0,
             perqta: Number(proposta.ol_perqta) || 1,
-            timestamp_conferma: new Date().toISOString()
-        });
-
-        MrpApp.state.propostaCorrente = null;
-        MrpApp.switchView('parametri');
-
-        if (typeof MrpProposta !== 'undefined' && MrpProposta.aggiornaStatoVisivo) {
-            MrpProposta.aggiornaStatoVisivo();
-        }
-    }
-
-    function escludiOrdineHandler() {
-        const proposta = MrpApp.state.propostaCorrente;
-        if (!proposta) return;
-
-        const key = MrpApp.getKeyOrdine(proposta.fornitore_codice, proposta.ol_codart, proposta.ol_fase, proposta.ol_magaz);
-
-        MrpApp.confermaOrdine(key, {
-            fornitore_codice: proposta.fornitore_codice,
-            fornitore_nome: proposta.fornitore_nome,
-            ol_codart: proposta.ol_codart,
-            ar_codalt: proposta.ar_codalt,
-            ar_descr: proposta.ar_descr,
-            ol_fase: proposta.ol_fase,
-            ol_magaz: proposta.ol_magaz,
-            ol_unmis: proposta.ol_unmis,
-            ol_progr: proposta.ol_progr || 0,
-            quantita_confermata: 0,
-            data_consegna: '',
-            quantita_proposta: Number(proposta.ol_quant) || 0,
-            prezzo: Number(proposta.ol_prezzo) || 0,
-            perqta: Number(proposta.ol_perqta) || 1,
-            escluso: true,
             timestamp_conferma: new Date().toISOString()
         });
 

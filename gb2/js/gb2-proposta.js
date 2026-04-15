@@ -228,10 +228,12 @@ const MrpProposta = (() => {
                 MrpApp.state.elaborazione = null;
             }
 
-            // Popola ordiniEmessi dal server (righe già emesse persistite in ordini_emessi)
-            ripristinaOrdiniEmessiDaServer(data);
+            // Popola ordiniEmessi/ordiniCongelati dal server — le righe con email_inviata
+            // vengono filtrate via dalla vista per evitare che l'operatore le riusi per errore.
+            const righeVisibili = ripristinaOrdiniEmessiDaServer(data);
+            data = righeVisibili;
 
-            renderProposta(data, listEl, stats);
+            renderProposta(righeVisibili, listEl, stats);
         } catch (err) {
             if (loading) loading.style.display = 'none';
             listEl.innerHTML = `<div class="proposta-loading" style="color:var(--danger)">Errore di connessione: ${esc(err.message)}</div>`;
@@ -490,28 +492,21 @@ const MrpProposta = (() => {
             const oldBadge = artEl.querySelector('.proposta-conferma-badge');
             if (oldBadge) oldBadge.remove();
 
-            if (ordine) {
+            if (ordine && !ordine.escluso) {
                 const badge = document.createElement('div');
                 badge.className = 'proposta-conferma-badge';
-                if (ordine.escluso) {
-                    artEl.classList.add('proposta-art-escluso');
-                    badge.classList.add('proposta-badge-escluso');
-                    badge.innerHTML = '&#x2717; Escluso'
-                        + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi esclusione">&#128465;</button>';
-                } else {
-                    artEl.classList.add('proposta-art-confermato');
-                    badge.classList.add('proposta-badge-confermato');
-                    const dataFmt = ordine.data_consegna
-                        ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
-                    const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
-                    badge.innerHTML =
-                        '<span class="conferma-icon">&#x2713;</span> '
-                        + '<strong>' + Number(ordine.quantita_confermata).toLocaleString('it-IT') + ' ' + esc(ordine.ol_unmis || 'PZ') + '</strong>'
-                        + ' entro ' + esc(dataFmt)
-                        + (valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')
-                        + ' <button class="btn-modifica-conferma" data-key="' + escAttr(key) + '" title="Modifica">&#9998;</button>'
-                        + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi conferma">&#128465;</button>';
-                }
+                artEl.classList.add('proposta-art-confermato');
+                badge.classList.add('proposta-badge-confermato');
+                const dataFmt = ordine.data_consegna
+                    ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
+                const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
+                badge.innerHTML =
+                    '<span class="conferma-icon">&#x2713;</span> '
+                    + '<strong>' + Number(ordine.quantita_confermata).toLocaleString('it-IT') + ' ' + esc(ordine.ol_unmis || 'PZ') + '</strong>'
+                    + ' entro ' + esc(dataFmt)
+                    + (valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')
+                    + ' <button class="btn-modifica-conferma" data-key="' + escAttr(key) + '" title="Modifica">&#9998;</button>'
+                    + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi conferma">&#128465;</button>';
                 artEl.appendChild(badge);
             }
         });
@@ -528,14 +523,12 @@ const MrpProposta = (() => {
             if (!header || articoli.length === 0) return;
 
             const fornCode = header.dataset.forn;
-            let tuttiGestiti = true;
             let conteggioConfermati = 0;
-            let conteggioEsclusi = 0;
             let totaleValore = 0;
 
             articoli.forEach(artEl => {
                 const codartEl = artEl.querySelector('.proposta-art-codart');
-                if (!codartEl) { tuttiGestiti = false; return; }
+                if (!codartEl) return;
                 const key = MrpApp.getKeyOrdine(
                     codartEl.dataset.fornitore,
                     codartEl.dataset.codart,
@@ -543,11 +536,7 @@ const MrpProposta = (() => {
                     codartEl.dataset.magaz || '1'
                 );
                 const ordine = confermati.get(key);
-                if (!ordine) {
-                    tuttiGestiti = false;
-                } else if (ordine.escluso) {
-                    conteggioEsclusi++;
-                } else {
+                if (ordine && !ordine.escluso) {
                     conteggioConfermati++;
                     totaleValore += ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
                 }
@@ -562,17 +551,36 @@ const MrpProposta = (() => {
                 header.appendChild(statoBadge);
             }
 
-            // Rimuovi vecchi pulsanti emetti
+            // Rimuovi vecchi pulsanti/badge
             const oldBtn = header.querySelector('.btn-emetti-ordine');
             if (oldBtn) oldBtn.remove();
             const oldEmesso = header.querySelector('.fornitore-emesso-badge');
             if (oldEmesso) oldEmesso.remove();
+            const oldCongelato = header.querySelector('.fornitore-congelato-badge');
+            if (oldCongelato) oldCongelato.remove();
 
-            // Controlla se ordine gia emesso
+            // Badge informativo ordini già emessi + email inviata (congelati)
+            const congelati = ordiniCongelati.get(fornCode);
+            if (congelati && congelati.length > 0) {
+                const congBadge = document.createElement('span');
+                congBadge.className = 'fornitore-congelato-badge';
+                const labels = congelati.map(c => {
+                    const dt = c.email_inviata_il
+                        ? ' il ' + new Date(c.email_inviata_il).toLocaleDateString('it-IT')
+                        : '';
+                    return '\u2709 ' + c.numord + '/' + c.serie + dt;
+                }).join(' · ');
+                congBadge.innerHTML = '\u2713 Ordine emesso e inviato: ' + esc(labels);
+                congBadge.title = 'Articoli di questi ordini nascosti dalla vista (email già inviata)';
+                header.appendChild(congBadge);
+            }
+
+            // Ordine emesso con email pendente — badge + pulsanti email/annulla.
+            // NOTA: non usiamo più `return` — il fornitore può avere anche articoli
+            // proposti ancora da confermare/emettere sotto lo stesso badge.
             const emesso = ordiniEmessi.get(fornCode);
             if (emesso) {
                 header.classList.add('fornitore-emesso');
-                statoBadge.style.display = 'none';
                 const emessoBadge = document.createElement('span');
                 emessoBadge.className = 'fornitore-emesso-badge';
 
@@ -630,32 +638,32 @@ const MrpProposta = (() => {
                 emessoBadge.appendChild(btnAnnulla);
 
                 header.appendChild(emessoBadge);
-                return;
             }
 
-            const gestiti = conteggioConfermati + conteggioEsclusi;
-            if (tuttiGestiti && gestiti > 0) {
+            // Nuova regola: basta 1 articolo confermato per sbloccare l'emissione.
+            // Lo stato di emissione (nessuno/email_pending/email_sent) è esposto su dataset
+            // per facilitare il batch handler "Emetti Tutti".
+            let statoEmissione = 'nessuno';
+            if (emesso) statoEmissione = 'email_pending';
+            else if (congelati && congelati.length > 0) statoEmissione = 'email_sent';
+            header.dataset.statoEmissione = statoEmissione;
+            header.dataset.conteggioConfermati = String(conteggioConfermati);
+
+            if (conteggioConfermati > 0) {
                 header.classList.add('fornitore-completato');
                 statoBadge.textContent = '\u2713 ' + conteggioConfermati + ' art. \u2014 \u20ac '
                     + totaleValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 statoBadge.style.display = '';
 
-                // Aggiungi pulsante "Emetti Ordine"
-                if (conteggioConfermati > 0) {
-                    const btn = document.createElement('button');
-                    btn.className = 'btn-emetti-ordine';
-                    btn.textContent = 'Emetti Ordine \u2192';
-                    btn.dataset.forn = fornCode;
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        apriModaleEmettiOrdine(fornCode);
-                    });
-                    header.appendChild(btn);
-                }
-            } else if (gestiti > 0) {
-                header.classList.add('fornitore-parziale');
-                statoBadge.textContent = gestiti + '/' + articoli.length + ' gestiti';
-                statoBadge.style.display = '';
+                const btn = document.createElement('button');
+                btn.className = 'btn-emetti-ordine';
+                btn.textContent = 'Emetti (' + conteggioConfermati + ') \u2192';
+                btn.dataset.forn = fornCode;
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    apriModaleEmettiOrdine(fornCode);
+                });
+                header.appendChild(btn);
             } else {
                 statoBadge.style.display = 'none';
             }
@@ -668,49 +676,93 @@ const MrpProposta = (() => {
     // ORDINI GIA EMESSI (ripristinati dal server ad ogni caricamento)
     // ============================================================
     const ordiniEmessi = new Map(); // key = fornitore_codice, value = { anno, serie, numord, pdf_base64, pdf_filename, email, fornitore_nome }
+    // Ordini "congelati" — già emessi E con email inviata. Righe escluse dalla vista proposta.
+    const ordiniCongelati = new Map(); // key = fornitore_codice, value = [ { anno, serie, numord, email_inviata_il, fornitore_nome } ]
 
     // Cache PDF in memoria per la sessione (i PDF non sono nel DB, solo nel response dell'emissione)
     const pdfCache = new Map(); // key = fornitore_codice, value = { pdf_base64, pdf_filename }
 
     /**
-     * Ripristina ordiniEmessi dalla risposta del server (righe con emesso=true).
-     * Raggruppa per fornitore: se TUTTE le righe di un fornitore sono emesse,
-     * marca il fornitore come emesso nella Map.
-     * Questa è l'unica fonte di verità per lo stato "emesso".
+     * Ripristina ordiniEmessi + ordiniCongelati dalla risposta del server.
+     * - Righe con emesso=true + email_inviata=false → ordiniEmessi (email-pending, mutabile via merge)
+     * - Righe con emesso=true + email_inviata=true → ordiniCongelati (filtrate dalla vista)
+     * Ritorna l'array di righe da mostrare (escluse le congelate).
      */
     function ripristinaOrdiniEmessiDaServer(righe) {
-        // Svuota la Map — verrà ripopolata interamente dal server
         ordiniEmessi.clear();
+        ordiniCongelati.clear();
 
-        // Raggruppa righe per fornitore
-        const fornitori = new Map();
+        // Raggruppa righe emesse per fornitore e per (anno|serie|numord)
+        const pendingByForn = new Map(); // fk -> { ordKey -> entry }
+        const congelatiByForn = new Map(); // fk -> Map<ordKey, entry>
+        const righeFiltrate = [];
+
         for (const r of righe) {
-            const fk = String(r.fornitore_codice);
-            if (!fornitori.has(fk)) fornitori.set(fk, { righe: [], nome: r.fornitore_nome || '' });
-            fornitori.get(fk).righe.push(r);
-        }
+            if (r.emesso && r.email_inviata) {
+                const fk = String(r.fornitore_codice);
+                const ordKey = `${r.ord_anno}|${r.ord_serie}|${r.ord_numord}`;
+                if (!congelatiByForn.has(fk)) congelatiByForn.set(fk, new Map());
+                if (!congelatiByForn.get(fk).has(ordKey)) {
+                    congelatiByForn.get(fk).set(ordKey, {
+                        anno: r.ord_anno,
+                        serie: r.ord_serie,
+                        numord: r.ord_numord,
+                        email_inviata_il: r.email_inviata_il || null,
+                        fornitore_nome: r.fornitore_nome || '',
+                        fornitore_codice: fk,
+                        origine: r.origine || 'gb2'
+                    });
+                }
+                // Riga nascosta dalla vista
+                continue;
+            }
+            righeFiltrate.push(r);
 
-        for (const [fk, info] of fornitori) {
-            const tutteEmesse = info.righe.every(r => r.emesso === true);
-            if (tutteEmesse && info.righe.length > 0) {
-                const primo = info.righe[0];
-                const cached = pdfCache.get(fk) || {};
-                ordiniEmessi.set(fk, {
-                    anno: primo.ord_anno,
-                    serie: primo.ord_serie,
-                    numord: primo.ord_numord,
-                    pdf_base64: cached.pdf_base64 || null,
-                    pdf_filename: cached.pdf_filename || null,
-                    email: '',
-                    email_inviata: !!primo.email_inviata,
-                    email_inviata_il: primo.email_inviata_il || null,
-                    fornitore_nome: info.nome,
-                    fornitore_codice: fk,
-                    fornitore_email: info.righe[0].fornitore_email || '',
-                    origine: primo.origine || 'gb2'
-                });
+            if (r.emesso && !r.email_inviata) {
+                const fk = String(r.fornitore_codice);
+                const ordKey = `${r.ord_anno}|${r.ord_serie}|${r.ord_numord}`;
+                if (!pendingByForn.has(fk)) pendingByForn.set(fk, new Map());
+                if (!pendingByForn.get(fk).has(ordKey)) {
+                    pendingByForn.get(fk).set(ordKey, {
+                        anno: r.ord_anno,
+                        serie: r.ord_serie,
+                        numord: r.ord_numord,
+                        fornitore_nome: r.fornitore_nome || '',
+                        fornitore_codice: fk,
+                        fornitore_email: r.fornitore_email || '',
+                        origine: r.origine || 'gb2'
+                    });
+                }
             }
         }
+
+        // Popola ordiniEmessi con il primo (e tipicamente unico) ordine pending per fornitore
+        for (const [fk, ordMap] of pendingByForn) {
+            const entries = Array.from(ordMap.values());
+            const primo = entries[0];
+            const cached = pdfCache.get(fk) || {};
+            ordiniEmessi.set(fk, {
+                anno: primo.anno,
+                serie: primo.serie,
+                numord: primo.numord,
+                pdf_base64: cached.pdf_base64 || null,
+                pdf_filename: cached.pdf_filename || null,
+                email: '',
+                email_inviata: false,
+                email_inviata_il: null,
+                fornitore_nome: primo.fornitore_nome,
+                fornitore_codice: fk,
+                fornitore_email: primo.fornitore_email,
+                origine: primo.origine
+            });
+        }
+
+        // Popola ordiniCongelati
+        for (const [fk, ordMap] of congelatiByForn) {
+            ordiniCongelati.set(fk, Array.from(ordMap.values()));
+        }
+
+        return righeFiltrate;
     }
 
     // ============================================================
@@ -721,13 +773,14 @@ const MrpProposta = (() => {
         if (!listEl) return;
 
         let barraEl = document.getElementById('barraEmettiTutti');
+        // Fornitori con >=1 articolo confermato (tutti potenzialmente emettibili).
+        // Quelli email-pending faranno partire un dialog merge e vengono skippati dal batch,
+        // ma li contiamo comunque come "pronti" per il wording del bottone.
         const completati = document.querySelectorAll('.proposta-fornitore-header.fornitore-completato');
 
-        // Conta fornitori pronti (completati e non ancora emessi)
         let fornitoriPronti = 0;
         completati.forEach(h => {
-            const fc = h.dataset.forn;
-            if (!ordiniEmessi.has(fc)) fornitoriPronti++;
+            if (Number(h.dataset.conteggioConfermati || '0') > 0) fornitoriPronti++;
         });
 
         // Conta email pendenti (emessi ma email non ancora inviata)
@@ -1057,6 +1110,29 @@ const MrpProposta = (() => {
         }
     }
 
+    // ============================================================
+    // DIALOG DI DECISIONE MERGE (ordine email-pending + nuovi confermati)
+    // ============================================================
+    async function apriDialogMergeDecision(fornitore_codice, ordinePendente, articoliNuovi) {
+        const ordLabel = ordinePendente.numord + '/' + ordinePendente.serie;
+        const msg =
+            'Esiste già un ordine <strong>' + esc(ordLabel) + '</strong> per questo fornitore, ' +
+            'emesso ma con email non ancora inviata.<br><br>' +
+            'Hai confermato <strong>' + articoliNuovi.length + '</strong> nuov' +
+            (articoliNuovi.length === 1 ? 'o articolo' : 'i articoli') + '. Cosa vuoi fare?<br><br>' +
+            '<div style="text-align:left; font-size:0.82rem; color:var(--text-muted);">' +
+            '\u2022 <strong>Unisci</strong>: annulla l\'ordine ' + esc(ordLabel) + ' e riemette un unico ordine con ' +
+            'tutti gli articoli (vecchi + nuovi). Il numero ordine viene riutilizzato.<br>' +
+            '\u2022 <strong>Separato</strong>: crea un secondo ordine solo con i nuovi articoli. ' +
+            'L\'ordine esistente rimane invariato.<br>' +
+            '</div>';
+        return await modale('question', 'Ordine pendente per questo fornitore', msg, [
+            { label: '\uD83D\uDD04 Unisci all\'ordine ' + ordLabel, value: 'merge', style: 'primary' },
+            { label: '\u2795 Emetti ordine separato', value: 'separate', style: 'secondary' },
+            { label: 'Annulla', value: null, style: 'secondary' }
+        ]);
+    }
+
     async function apriModaleEmettiOrdine(fornitore_codice) {
         if (!await assicuraSPEsiste()) return;
         const confermati = MrpApp.state.ordiniConfermati;
@@ -1072,8 +1148,19 @@ const MrpProposta = (() => {
 
         if (articoliFornitore.length === 0) return;
 
-        // Check duplicati pre-emissione
-        if (MrpApp.state.elaborazioneId) {
+        // Branch merge: se esiste un ordine email-pending per questo fornitore,
+        // chiedi all'operatore se unire o emettere separato.
+        const ordinePendente = ordiniEmessi.get(String(fornitore_codice));
+        let mergeMode = null; // null | 'merge' | 'separate'
+        if (ordinePendente && !ordinePendente.email_inviata) {
+            const scelta = await apriDialogMergeDecision(fornitore_codice, ordinePendente, articoliFornitore);
+            if (scelta === null) return;
+            mergeMode = scelta;
+        }
+
+        // Check duplicati pre-emissione (skip in modalità merge — stiamo deliberatamente
+        // unendo con un ordine esistente)
+        if (MrpApp.state.elaborazioneId && mergeMode !== 'merge') {
             try {
                 const dupRes = await fetch(`${MrpApp.API_BASE}/controlla-duplicato`, {
                     credentials: 'include',
@@ -1136,18 +1223,88 @@ const MrpProposta = (() => {
 
         document.getElementById('btnEmettiConferma').onclick = () => {
             overlay.classList.remove('open');
-            eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome);
+            const opts = {};
+            if (mergeMode === 'merge' && ordinePendente) {
+                opts.mergeWith = {
+                    anno: ordinePendente.anno,
+                    serie: ordinePendente.serie,
+                    numord: ordinePendente.numord
+                };
+            }
+            eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts);
         };
     }
 
     // ============================================================
     // ESEGUI EMISSIONE (chiama API)
     // ============================================================
-    async function eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome) {
+    async function eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts) {
+        opts = opts || {};
+        let articoliFinali = articoliFornitore.slice();
+
+        // Modalità merge: prima annulla l'ordine esistente (questo riapre la proposta
+        // con le vecchie righe come disponibili), poi combina vecchi + nuovi e riemetti.
+        if (opts.mergeWith) {
+            // Raccogli le righe del vecchio ordine dall'array raw della proposta
+            const righeRaw = data;
+            const vecchie = [];
+            for (const r of righeRaw) {
+                if (!r.emesso) continue;
+                if (String(r.fornitore_codice) !== String(fornitore_codice)) continue;
+                if (String(r.ord_anno) !== String(opts.mergeWith.anno)) continue;
+                if (String(r.ord_serie) !== String(opts.mergeWith.serie)) continue;
+                if (String(r.ord_numord) !== String(opts.mergeWith.numord)) continue;
+                vecchie.push({
+                    ol_codart: r.ol_codart,
+                    ol_fase: r.ol_fase,
+                    ol_magaz: r.ol_magaz,
+                    quantita_confermata: r.ol_quant,
+                    data_consegna: r.ol_datcons,
+                    prezzo: r.ol_prezzo,
+                    perqta: r.ol_perqta,
+                    ol_unmis: r.ol_unmis,
+                    ol_progr: r.ol_progr
+                });
+            }
+
+            // De-duplica vs nuovi (stesso codart/fase/magaz) — i nuovi hanno priorità
+            const chiaviNuove = new Set(articoliFornitore.map(a =>
+                `${a.ol_codart}|${parseInt(a.ol_fase, 10) || 0}|${parseInt(a.ol_magaz, 10) || 1}`));
+            const vecchieFiltrate = vecchie.filter(v =>
+                !chiaviNuove.has(`${v.ol_codart}|${parseInt(v.ol_fase, 10) || 0}|${parseInt(v.ol_magaz, 10) || 1}`));
+
+            articoliFinali = vecchieFiltrate.concat(articoliFornitore);
+
+            // Annulla l'ordine esistente (silent — già confermato dal dialog merge)
+            try {
+                const annRes = await fetch(`${MrpApp.API_BASE}/annulla-ordine`, {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        anno: opts.mergeWith.anno,
+                        serie: opts.mergeWith.serie,
+                        numord: opts.mergeWith.numord
+                    })
+                });
+                const annData = await annRes.json();
+                if (!annData.success) {
+                    await modale('error', 'Merge fallito',
+                        'Impossibile annullare l\'ordine <strong>' + esc(opts.mergeWith.numord + '/' + opts.mergeWith.serie) +
+                        '</strong> per eseguire il merge:<br><br><code>' + esc(annData.error || annData.message || 'errore sconosciuto') + '</code>');
+                    return;
+                }
+                ordiniEmessi.delete(String(fornitore_codice));
+            } catch (err) {
+                await modale('error', 'Merge fallito',
+                    'Errore di rete durante l\'annullamento: <code>' + esc(err.message) + '</code>');
+                return;
+            }
+        }
+
         const body = {
             fornitore_codice: parseInt(fornitore_codice, 10),
             elaborazione_id: MrpApp.state.elaborazioneId || '',
-            articoli: articoliFornitore.map(a => ({
+            articoli: articoliFinali.map(a => ({
                 codart: a.ol_codart,
                 fase: parseInt(a.ol_fase, 10) || 0,
                 magaz: parseInt(a.ol_magaz, 10) || 1,
@@ -1160,21 +1317,33 @@ const MrpProposta = (() => {
             }))
         };
 
-        const data = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
+        const resp = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
 
-        if (data.success) {
+        if (resp.success) {
             // Salva PDF in memoria per download immediato (non disponibile dal server dopo)
             pdfCache.set(String(fornitore_codice), {
-                pdf_base64: data.pdf_base64,
-                pdf_filename: data.pdf_filename
+                pdf_base64: resp.pdf_base64,
+                pdf_filename: resp.pdf_filename
             });
+
+            // Rimuovi dalle conferme gli articoli appena emessi — così il loro badge
+            // "Confermato" non ricompare sulla riga ora marcata "Ordinato".
+            for (const a of articoliFinali) {
+                const k = MrpApp.getKeyOrdine(
+                    fornitore_codice,
+                    a.ol_codart,
+                    String(a.ol_fase != null ? a.ol_fase : '0'),
+                    String(a.ol_magaz != null ? a.ol_magaz : '1')
+                );
+                MrpApp.rimuoviOrdine(k);
+            }
 
             // Ricarica proposta dal DB — l'UI riflette lo stato reale
             await caricaProposta();
 
-            mostraRisultatoEmissione(data, fornitore_nome);
+            mostraRisultatoEmissione(resp, fornitore_nome);
         } else {
-            await modale('error', 'Errore Emissione', `Impossibile emettere l'ordine per <strong>${esc(fornitore_nome)}</strong>.<br><br><code>${esc(data.error || 'Errore sconosciuto')}</code>`);
+            await modale('error', 'Errore Emissione', `Impossibile emettere l'ordine per <strong>${esc(fornitore_nome)}</strong>.<br><br><code>${esc(resp.error || 'Errore sconosciuto')}</code>`);
         }
     }
 
@@ -2492,27 +2661,51 @@ const MrpProposta = (() => {
 
         const completati = document.querySelectorAll('.proposta-fornitore-header.fornitore-completato');
         const fornitori = [];
+        const skippedEmailPending = []; // richiedono merge dialog manuale
 
         completati.forEach(h => {
             const fc = h.dataset.forn;
-            if (ordiniEmessi.has(fc)) return;
-            const articoliFornitore = [];
             const confermati = MrpApp.state.ordiniConfermati;
+            const articoliFornitore = [];
             confermati.forEach((ordine, key) => {
                 if (String(ordine.fornitore_codice) === String(fc) && !ordine.escluso) {
                     articoliFornitore.push(ordine);
                 }
             });
-            if (articoliFornitore.length > 0) {
-                fornitori.push({ fornitore_codice: fc, articoli: articoliFornitore, nome: articoliFornitore[0].fornitore_nome || fc });
+            if (articoliFornitore.length === 0) return;
+
+            const nome = articoliFornitore[0].fornitore_nome || fc;
+
+            // Se esiste un ordine email-pending per questo fornitore, richiede una
+            // decisione manuale (merge vs separato) — lo escludiamo dal batch automatico.
+            if (ordiniEmessi.has(fc)) {
+                skippedEmailPending.push({ fornitore_codice: fc, nome });
+                return;
             }
+
+            fornitori.push({ fornitore_codice: fc, articoli: articoliFornitore, nome });
         });
 
-        if (fornitori.length === 0) return;
+        if (fornitori.length === 0 && skippedEmailPending.length === 0) return;
+
+        if (fornitori.length === 0 && skippedEmailPending.length > 0) {
+            await modale('warning', 'Nessun ordine processabile in batch',
+                'Tutti i fornitori con articoli confermati hanno già un ordine con email da inviare.<br>' +
+                'Usa il pulsante <strong>Emetti</strong> del singolo fornitore per decidere se unire o creare un ordine separato.<br><br>' +
+                skippedEmailPending.map(f => '\u2022 ' + esc(f.nome)).join('<br>'));
+            return;
+        }
+
+        let msgSkip = '';
+        if (skippedEmailPending.length > 0) {
+            msgSkip = '<br><br><strong style="color:var(--warning);">Esclusi dal batch (richiedono scelta manuale unisci/separato):</strong><br>'
+                + skippedEmailPending.map(f => '\u2022 ' + esc(f.nome)).join('<br>');
+        }
 
         const conferma = await modale('question', 'Conferma Emissione Batch',
             `Stai per emettere <strong>${fornitori.length} ordini</strong> per i seguenti fornitori:<br><br>`
             + fornitori.map(f => `\u2022 ${esc(f.nome)}`).join('<br>')
+            + msgSkip
             + '<br><br>Procedere?',
             [
                 { label: 'Emetti Tutti', value: true, style: 'success' },

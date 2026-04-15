@@ -256,7 +256,6 @@ body.theme-edit-mode .storico-tabella th,
 body.theme-edit-mode .mrp-decisione-panel,
 body.theme-edit-mode .decisione-header,
 body.theme-edit-mode .mrp-btn-conferma,
-body.theme-edit-mode .mrp-btn-escludi,
 body.theme-edit-mode .mrp-db-badge,
 body.theme-edit-mode .cfg-tab,
 body.theme-edit-mode .mrp-main {
@@ -283,7 +282,6 @@ body.theme-edit-mode .btn-emetti-ordine:hover,
 body.theme-edit-mode .mrp-decisione-panel:hover,
 body.theme-edit-mode .decisione-header:hover,
 body.theme-edit-mode .mrp-btn-conferma:hover,
-body.theme-edit-mode .mrp-btn-escludi:hover,
 body.theme-edit-mode .mrp-db-badge:hover,
 body.theme-edit-mode .cfg-tab:hover {
     outline: 2px dashed var(--primary);
