@@ -3,6 +3,12 @@ const { sql, getPoolPRG } = require('../config/db');
 const { authenticateToken } = require('../middlewares/auth');
 
 const router = express.Router();
+const DEFAULT_KANBAN_COLUMNS = [
+    { nome: 'Da Fare', ordine: 0, colore: '#f8f9fa' },
+    { nome: 'In Corso', ordine: 1, colore: '#e0f2fe' },
+    { nome: 'Revisione', ordine: 2, colore: '#fef08a' },
+    { nome: 'Completato', ordine: 3, colore: '#dcfce3' },
+];
 
 async function resolveSubTasksColumns(pool) {
     const columnsResult = await pool.request().query(`
@@ -59,10 +65,12 @@ router.get('/progetti', authenticateToken, async (req, res) => {
 });
 
 router.post('/progetti', authenticateToken, async (req, res) => {
+    let transaction;
     try {
         const { nome_progetto, descrizione, data_inizio, id_area } = req.body;
-        const pool = await getPoolPRG();
-        const result = await pool.request()
+        transaction = new sql.Transaction(await getPoolPRG());
+        await transaction.begin();
+        const result = await new sql.Request(transaction)
             .input('nome_progetto', sql.NVarChar(255), nome_progetto)
             .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
             .input('data_inizio', sql.Date, data_inizio)
@@ -72,10 +80,208 @@ router.post('/progetti', authenticateToken, async (req, res) => {
                 OUTPUT INSERTED.*
                 VALUES (@nome_progetto, @descrizione, @data_inizio, @id_area)
             `);
-        res.status(201).json({ ok: true, data: result.recordset[0] });
+        const nuovoProgetto = result.recordset[0];
+        const idNuovoProgetto = Number(nuovoProgetto.id_progetto);
+
+        for (const colonna of DEFAULT_KANBAN_COLUMNS) {
+            await new sql.Request(transaction)
+                .input('id_progetto', sql.Int, idNuovoProgetto)
+                .input('nome', sql.NVarChar(100), colonna.nome)
+                .input('ordine', sql.Int, colonna.ordine)
+                .input('colore', sql.NVarChar(20), colonna.colore)
+                .query(`
+                    INSERT INTO dbo.colonne_kanban (id_progetto, nome, ordine, colore)
+                    VALUES (@id_progetto, @nome, @ordine, @colore)
+                `);
+        }
+
+        await transaction.commit();
+        res.status(201).json({ ok: true, data: nuovoProgetto });
     } catch (err) {
+        if (transaction && transaction._aborted !== true) {
+            await transaction.rollback().catch(() => {});
+        }
         console.error('POST /api/prg/progetti:', err);
         res.status(500).json({ ok: false, message: 'Errore nella creazione progetto.', error: err.message });
+    }
+});
+
+router.get('/progetti/:id/colonne', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getPoolPRG();
+        const result = await pool.request()
+            .input('id_progetto', sql.Int, id)
+            .query(`
+                SELECT id_colonna, id_progetto, nome, ordine, colore
+                FROM dbo.colonne_kanban
+                WHERE id_progetto = @id_progetto
+                ORDER BY ordine ASC, id_colonna ASC
+            `);
+        res.json({ ok: true, data: result.recordset });
+    } catch (error) {
+        console.error('[ERRORE API]:', error);
+        res.status(500).json({ ok: false, message: 'Errore nel recupero colonne kanban.', error: error.message });
+    }
+});
+
+router.post('/progetti/:id/colonne', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const nome = req.body.nome ?? req.body.nome_colonna;
+        const colore = req.body.colore || '#f8f9fa';
+        if (!nome || !String(nome).trim()) {
+            return res.status(400).json({ ok: false, message: 'Nome colonna obbligatorio.' });
+        }
+
+        const pool = await getPoolPRG();
+        const ordineResult = await pool.request()
+            .input('id_progetto', sql.Int, id)
+            .query(`
+                SELECT ISNULL(MAX(ordine), -1) + 1 AS prossimo_ordine
+                FROM dbo.colonne_kanban
+                WHERE id_progetto = @id_progetto
+            `);
+
+        const prossimoOrdine = Number(ordineResult.recordset[0]?.prossimo_ordine ?? 0);
+        const insertResult = await pool.request()
+            .input('id_progetto', sql.Int, id)
+            .input('nome', sql.NVarChar(100), String(nome).trim())
+            .input('ordine', sql.Int, prossimoOrdine)
+            .input('colore', sql.NVarChar(20), colore)
+            .query(`
+                INSERT INTO dbo.colonne_kanban (id_progetto, nome, ordine, colore)
+                OUTPUT INSERTED.id_colonna, INSERTED.id_progetto, INSERTED.nome, INSERTED.ordine, INSERTED.colore
+                VALUES (@id_progetto, @nome, @ordine, @colore)
+            `);
+        res.status(201).json({ ok: true, data: insertResult.recordset[0] });
+    } catch (error) {
+        console.error('[ERRORE API]:', error);
+        res.status(500).json({ ok: false, message: 'Errore nella creazione colonna kanban.', error: error.message });
+    }
+});
+
+router.put('/colonne/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const nome = req.body.nome ?? req.body.nome_colonna;
+        const colore = req.body.colore ?? null;
+        const ordineParsed = req.body.ordine !== undefined && req.body.ordine !== null && req.body.ordine !== ''
+            ? Number(req.body.ordine)
+            : null;
+        const pool = await getPoolPRG();
+        const result = await pool.request()
+            .input('id_colonna', sql.Int, id)
+            .input('nome', sql.NVarChar(100), nome ?? null)
+            .input('ordine', sql.Int, Number.isInteger(ordineParsed) ? ordineParsed : null)
+            .input('colore', sql.NVarChar(20), colore)
+            .query(`
+                UPDATE dbo.colonne_kanban
+                SET nome = COALESCE(@nome, nome),
+                    ordine = COALESCE(@ordine, ordine),
+                    colore = COALESCE(@colore, colore)
+                WHERE id_colonna = @id_colonna
+            `);
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ ok: false, message: 'Colonna non trovata.' });
+        }
+        res.json({ ok: true });
+    } catch (error) {
+        console.error('[ERRORE API]:', error);
+        res.status(500).json({ ok: false, message: 'Errore nell aggiornamento colonna kanban.', error: error.message });
+    }
+});
+
+router.delete('/colonne/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getPoolPRG();
+        const colonnaResult = await pool.request()
+            .input('id_colonna', sql.Int, id)
+            .query(`
+                SELECT nome
+                FROM dbo.colonne_kanban
+                WHERE id_colonna = @id_colonna
+            `);
+
+        if (!colonnaResult.recordset.length) {
+            return res.status(404).json({ ok: false, error: 'Colonna non trovata.' });
+        }
+
+        const nomeColonna = String(colonnaResult.recordset[0].nome || '').trim();
+        const colonneBase = ['Da Fare', 'In Corso', 'Revisione', 'Completato'];
+        if (colonneBase.includes(nomeColonna)) {
+            return res.status(403).json({
+                ok: false,
+                error: 'Le colonne di base del sistema non possono essere eliminate.',
+            });
+        }
+
+        const countResult = await pool.request()
+            .input('id_colonna', sql.Int, id)
+            .query(`
+                SELECT COUNT(*) AS totale
+                FROM dbo.tasks
+                WHERE id_colonna = @id_colonna AND is_active = 1
+            `);
+
+        const totale = Number(countResult.recordset[0]?.totale ?? 0);
+        if (totale > 0) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Sposta i task prima di eliminare la colonna',
+            });
+        }
+
+        const deleteResult = await pool.request()
+            .input('id_colonna', sql.Int, id)
+            .query(`DELETE FROM dbo.colonne_kanban WHERE id_colonna = @id_colonna`);
+        if (deleteResult.rowsAffected[0] === 0) {
+            return res.status(404).json({ ok: false, error: 'Colonna non trovata.' });
+        }
+        res.json({ ok: true });
+    } catch (error) {
+        console.error('[ERRORE API]:', error);
+        res.status(500).json({ ok: false, message: 'Errore nella cancellazione colonna kanban.', error: error.message });
+    }
+});
+
+router.put('/progetti/:id/ordine-colonne', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { colonne } = req.body;
+        if (!Array.isArray(colonne) || !colonne.length) {
+            return res.status(400).json({ ok: false, message: 'Payload colonne non valido.' });
+        }
+
+        const transaction = new sql.Transaction(await getPoolPRG());
+        await transaction.begin();
+        try {
+            for (const colonna of colonne) {
+                if (!Number.isInteger(Number(colonna.id_colonna)) || !Number.isInteger(Number(colonna.ordine))) {
+                    throw new Error('Elemento ordine colonne non valido.');
+                }
+                await new sql.Request(transaction)
+                    .input('id_progetto', sql.Int, id)
+                    .input('id_colonna', sql.Int, Number(colonna.id_colonna))
+                    .input('ordine', sql.Int, Number(colonna.ordine))
+                    .query(`
+                        UPDATE dbo.colonne_kanban
+                        SET ordine = @ordine
+                        WHERE id_colonna = @id_colonna AND id_progetto = @id_progetto
+                    `);
+            }
+            await transaction.commit();
+            res.json({ ok: true });
+        } catch (innerError) {
+            if (transaction._aborted !== true) {
+                await transaction.rollback().catch(() => {});
+            }
+            throw innerError;
+        }
+    } catch (error) {
+        console.error('[ERRORE API]:', error);
+        res.status(500).json({ ok: false, message: 'Errore nel salvataggio ordine colonne.', error: error.message });
     }
 });
 
@@ -388,12 +594,14 @@ router.get('/progetti/:id/tasks', authenticateToken, async (req, res) => {
             .query(`
                 SELECT
                     t.id_task, t.id_progetto, t.titolo, t.id_persona,
-                    t.priorita, t.descrizione, t.scadenza, t.stato, t.dipende_da_id,
+                    t.priorita, t.descrizione, t.scadenza, t.id_colonna, t.stato, t.dipende_da_id,
+                    ck.nome,
                     p.nome AS nome_assegnato, p.cognome AS cognome_assegnato,
                     td.titolo AS titolo_dipendenza
                 FROM dbo.tasks t
                 LEFT JOIN persone p ON t.id_persona = p.id_persona
                 LEFT JOIN dbo.tasks td ON t.dipende_da_id = td.id_task
+                LEFT JOIN dbo.colonne_kanban ck ON t.id_colonna = ck.id_colonna
                 WHERE t.id_progetto = @id_progetto AND t.is_active = 1
                 ORDER BY t.id_task ASC
             `);
@@ -401,7 +609,7 @@ router.get('/progetti/:id/tasks', authenticateToken, async (req, res) => {
         const tasks = result.recordset.map((task) => ({
             ...task,
             nome_assegnato: [task.nome_assegnato, task.cognome_assegnato].filter(Boolean).join(' ').trim(),
-            stato: task.stato || 'Da Fare'
+            stato: task.nome || task.stato || 'Da Fare'
         }));
         res.json({ ok: true, data: tasks });
     } catch (error) {
@@ -421,8 +629,10 @@ router.get('/progetti/:id/struttura-tasks', authenticateToken, async (req, res) 
             .query(`
                 SELECT
                     t.id_task, t.id_progetto, t.titolo, t.descrizione,
-                    t.id_persona, t.priorita, t.stato, t.dipende_da_id
+                    t.id_persona, t.priorita, t.stato, t.id_colonna, t.dipende_da_id,
+                    ck.nome
                 FROM dbo.tasks t
+                LEFT JOIN dbo.colonne_kanban ck ON t.id_colonna = ck.id_colonna
                 WHERE t.id_progetto = @id_progetto AND t.is_active = 1
                 ORDER BY t.id_task ASC
             `);
@@ -475,14 +685,20 @@ router.post('/tasks', authenticateToken, async (req, res) => {
             .input('scadenza', sql.Date, scadenza || null)
             .input('dipende_da_id', sql.Int, dipende_da_id || null)
             .query(`
+                DECLARE @default_id_colonna INT;
+                SELECT TOP 1 @default_id_colonna = id_colonna
+                FROM dbo.colonne_kanban
+                WHERE id_progetto = @id_progetto
+                ORDER BY ordine ASC, id_colonna ASC;
+
                 INSERT INTO dbo.tasks (
                     id_progetto, titolo, id_persona, descrizione,
-                    priorita, scadenza, stato, dipende_da_id, is_active
+                    priorita, scadenza, stato, id_colonna, dipende_da_id, is_active
                 )
                 OUTPUT INSERTED.*
                 VALUES (
                     @id_progetto, @titolo, @id_persona, @descrizione,
-                    @priorita, @scadenza, 'Da Fare', @dipende_da_id, 1
+                    @priorita, @scadenza, 'Da Fare', @default_id_colonna, @dipende_da_id, 1
                 )
             `);
 
@@ -496,19 +712,51 @@ router.post('/tasks', authenticateToken, async (req, res) => {
 router.put('/tasks/:id/stato', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { stato } = req.body;
-        const statiValidi = ['Da Fare', 'In Corso', 'Revisione', 'Completato'];
-        if (!statiValidi.includes(stato)) {
-            return res.status(400).json({ ok: false, message: 'Stato task non valido.' });
+        const { id_colonna, stato } = req.body;
+        if (!id_colonna && !stato) {
+            return res.status(400).json({ ok: false, message: 'id_colonna obbligatorio.' });
         }
 
         const pool = await getPoolPRG();
+        let idColonnaFinale = id_colonna ? Number(id_colonna) : null;
+        let nomeColonnaFinale = null;
+
+        if (!idColonnaFinale && stato) {
+            const mapResult = await pool.request()
+                .input('id_task', sql.Int, id)
+                .input('nome', sql.NVarChar(100), stato)
+                .query(`
+                    SELECT TOP 1 ck.id_colonna, ck.nome
+                    FROM dbo.tasks t
+                    INNER JOIN dbo.colonne_kanban ck ON ck.id_progetto = t.id_progetto
+                    WHERE t.id_task = @id_task AND ck.nome = @nome
+                    ORDER BY ck.ordine ASC, ck.id_colonna ASC
+                `);
+            if (!mapResult.recordset.length) {
+                return res.status(400).json({ ok: false, message: 'Colonna target non valida per il task.' });
+            }
+            idColonnaFinale = Number(mapResult.recordset[0].id_colonna);
+            nomeColonnaFinale = mapResult.recordset[0].nome;
+        }
+
+        const colonnaResult = await pool.request()
+            .input('id_colonna', sql.Int, idColonnaFinale)
+            .query(`SELECT id_colonna, nome FROM dbo.colonne_kanban WHERE id_colonna = @id_colonna`);
+        if (!colonnaResult.recordset.length) {
+            return res.status(400).json({ ok: false, message: 'Colonna target non valida.' });
+        }
+        if (!nomeColonnaFinale) {
+            nomeColonnaFinale = colonnaResult.recordset[0].nome;
+        }
+
         const result = await pool.request()
             .input('id_task', sql.Int, id)
-            .input('stato', sql.NVarChar(50), stato)
+            .input('id_colonna', sql.Int, idColonnaFinale)
+            .input('stato', sql.NVarChar(50), nomeColonnaFinale)
             .query(`
                 UPDATE dbo.tasks
-                SET stato = @stato
+                SET id_colonna = @id_colonna,
+                    stato = @stato
                 WHERE id_task = @id_task AND is_active = 1
             `);
 
@@ -525,8 +773,20 @@ router.put('/tasks/:id/stato', authenticateToken, async (req, res) => {
 router.put('/tasks/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { titolo, id_persona, priorita, descrizione, dipende_da_id, stato, is_completato } = req.body;
+        const { titolo, id_persona, priorita, descrizione, dipende_da_id, stato, id_colonna, is_completato } = req.body;
         const pool = await getPoolPRG();
+        let statoFinale = stato ?? null;
+
+        if (id_colonna !== undefined && id_colonna !== null) {
+            const colonnaResult = await pool.request()
+                .input('id_colonna', sql.Int, id_colonna)
+                .query(`SELECT nome FROM dbo.colonne_kanban WHERE id_colonna = @id_colonna`);
+            if (!colonnaResult.recordset.length) {
+                return res.status(400).json({ ok: false, message: 'Colonna non valida.' });
+            }
+            statoFinale = colonnaResult.recordset[0].nome;
+        }
+
         const result = await pool.request()
             .input('id_task', sql.Int, id)
             .input('titolo', sql.NVarChar(255), titolo ?? null)
@@ -534,7 +794,8 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
             .input('priorita', sql.NVarChar(50), priorita ?? null)
             .input('descrizione', sql.NVarChar(sql.MAX), descrizione ?? null)
             .input('dipende_da_id', sql.Int, dipende_da_id ?? null)
-            .input('stato', sql.NVarChar(50), stato ?? null)
+            .input('id_colonna', sql.Int, id_colonna ?? null)
+            .input('stato', sql.NVarChar(50), statoFinale)
             .input('is_completato', sql.Bit, is_completato ?? null)
             .query(`
                 UPDATE dbo.tasks
@@ -543,6 +804,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
                     priorita = COALESCE(@priorita, priorita),
                     descrizione = COALESCE(@descrizione, descrizione),
                     dipende_da_id = COALESCE(@dipende_da_id, dipende_da_id),
+                    id_colonna = COALESCE(@id_colonna, id_colonna),
                     stato = COALESCE(
                         @stato,
                         CASE

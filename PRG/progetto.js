@@ -5,7 +5,9 @@ let currentTeamMember = null;
 let currentTeam = [];
 let currentTasks = [];
 let currentTaskStructure = [];
-const KANBAN_STATI = ['Da Fare', 'In Corso', 'Revisione', 'Completato'];
+let currentKanbanColumns = [];
+let currentEditingColumnId = null;
+let selectedColumnColor = '#f8f9fa';
 
 document.addEventListener('securityReady', initApp);
 
@@ -26,11 +28,16 @@ async function initApp() {
   const formGestisciMembro = document.getElementById('formGestisciMembro');
   const btnRimuoviMembroProgetto = document.getElementById('btnRimuoviMembroProgetto');
   const formGestioneTask = document.getElementById('formGestioneTask');
-  const btnNuovoTask = document.getElementById('btnNuovoTask');
   const btnEliminaTask = document.getElementById('btnEliminaTask');
+  const tabInfo = document.getElementById('tab-info');
   const tabPianoOperativo = document.getElementById('tab-piano-operativo');
   const tabElencoTask = document.getElementById('tab-elenco-task');
-  const btnAggiungiTaskDaElenco = document.getElementById('btnAggiungiTaskDaElenco');
+  const tabTeam = document.getElementById('tab-team');
+  const btnContextModifica = document.getElementById('btnContextModifica');
+  const btnContextNuovoTask = document.getElementById('btnContextNuovoTask');
+  const btnContextAssegna = document.getElementById('btnContextAssegna');
+  const formModificaColonna = document.getElementById('formModificaColonna');
+  const paletteButtons = document.querySelectorAll('#colonnaPalette [data-colore]');
 
   formAssegnaPersona.addEventListener('submit', onSubmitAssegnaPersona);
   modalAssegnaPersona.addEventListener('show.bs.modal', loadPersoneSelect);
@@ -40,15 +47,28 @@ async function initApp() {
   formGestisciMembro.addEventListener('submit', onSubmitModificaRuoloMembro);
   btnRimuoviMembroProgetto.addEventListener('click', onRimuoviMembroProgetto);
   formGestioneTask.addEventListener('submit', onSubmitGestioneTask);
-  btnNuovoTask.addEventListener('click', onOpenNuovoTaskModal);
   btnEliminaTask.addEventListener('click', onDeleteTaskCorrente);
   tabPianoOperativo.addEventListener('shown.bs.tab', onOpenPianoOperativoTab);
   tabElencoTask.addEventListener('shown.bs.tab', onOpenElencoTaskTab);
-  btnAggiungiTaskDaElenco.addEventListener('click', openModalNuovoTaskFromElenco);
+  tabInfo.addEventListener('shown.bs.tab', onAnyTabShown);
+  tabPianoOperativo.addEventListener('shown.bs.tab', onAnyTabShown);
+  tabElencoTask.addEventListener('shown.bs.tab', onAnyTabShown);
+  tabTeam.addEventListener('shown.bs.tab', onAnyTabShown);
+  btnContextModifica.addEventListener('click', () => {
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalModificaProgetto')).show();
+  });
+  btnContextNuovoTask.addEventListener('click', openModalNuovoTaskFromElenco);
+  btnContextAssegna.addEventListener('click', () => {
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalAssegnaPersona')).show();
+  });
+  formModificaColonna.addEventListener('submit', onSubmitModificaColonna);
+  paletteButtons.forEach((btn) => {
+    btn.addEventListener('click', () => setSelectedColumnColor(btn.dataset.colore || '#f8f9fa'));
+  });
 
   await loadDettaglioProgetto(currentProjectId);
   await loadTeam(currentProjectId);
-  initKanbanDnD();
+  updateContextualActionBar(tabInfo.id);
 }
 
 async function requestJson(url, options = {}) {
@@ -139,11 +159,52 @@ async function loadTeam(projectId) {
 }
 
 async function onOpenPianoOperativoTab() {
+  await loadKanbanColumns(currentProjectId);
+  await loadStrutturaTasks(currentProjectId, { skipRender: true });
   await loadTasks(currentProjectId);
 }
 
 async function onOpenElencoTaskTab() {
   await loadStrutturaTasks(currentProjectId);
+}
+
+function onAnyTabShown(event) {
+  const activeTabId = event?.target?.id || '';
+  updateContextualActionBar(activeTabId);
+}
+
+function updateContextualActionBar(activeTabId) {
+  const btnContextModifica = document.getElementById('btnContextModifica');
+  const btnContextNuovoTask = document.getElementById('btnContextNuovoTask');
+  const btnContextAssegna = document.getElementById('btnContextAssegna');
+  btnContextModifica.classList.add('d-none');
+  btnContextNuovoTask.classList.add('d-none');
+  btnContextAssegna.classList.add('d-none');
+
+  if (activeTabId === 'tab-info') {
+    btnContextModifica.classList.remove('d-none');
+    return;
+  }
+  if (activeTabId === 'tab-piano-operativo' || activeTabId === 'tab-elenco-task') {
+    btnContextNuovoTask.classList.remove('d-none');
+    return;
+  }
+  if (activeTabId === 'tab-team') {
+    btnContextAssegna.classList.remove('d-none');
+  }
+}
+
+async function loadKanbanColumns(projectId) {
+  try {
+    const payload = await requestJson(`${API_BASE}/progetti/${projectId}/colonne`);
+    currentKanbanColumns = Array.isArray(payload.data) ? payload.data : [];
+    if (!currentKanbanColumns.length) {
+      showError('Nessuna colonna Kanban disponibile per questo progetto.');
+    }
+  } catch (error) {
+    currentKanbanColumns = [];
+    showError(error.message || 'Errore durante il caricamento colonne Kanban.');
+  }
 }
 
 async function loadTasks(projectId) {
@@ -159,15 +220,20 @@ async function loadTasks(projectId) {
   }
 }
 
-async function loadStrutturaTasks(projectId) {
+async function loadStrutturaTasks(projectId, options = {}) {
+  const { skipRender = false } = options;
   try {
     hideError();
     const payload = await requestJson(`${API_BASE}/progetti/${projectId}/struttura-tasks`);
     currentTaskStructure = Array.isArray(payload.data) ? payload.data : [];
-    renderElencoTask(currentTaskStructure);
+    if (!skipRender) {
+      renderElencoTask(currentTaskStructure);
+    }
   } catch (error) {
     currentTaskStructure = [];
-    renderElencoTask([]);
+    if (!skipRender) {
+      renderElencoTask([]);
+    }
     showError(error.message || 'Errore durante il caricamento elenco task.');
   }
 }
@@ -390,25 +456,85 @@ async function onAggiungiSubtask(idTask) {
 }
 
 async function refreshTaskViews() {
-  await Promise.all([loadTasks(currentProjectId), loadStrutturaTasks(currentProjectId)]);
+  await Promise.all([
+    loadKanbanColumns(currentProjectId),
+    loadStrutturaTasks(currentProjectId),
+    loadTasks(currentProjectId),
+  ]);
 }
 
 function renderKanban(tasks) {
-  KANBAN_STATI.forEach((stato) => {
-    const container = document.querySelector(`.kanban-task-list[data-stato="${stato}"]`);
-    if (!container) return;
-    container.innerHTML = '';
+  const board = document.getElementById('kanbanBoard');
+  board.innerHTML = '';
 
-    const tasksColonna = tasks.filter((task) => normalizeTaskStato(task.stato) === stato);
+  const colonneOrdinate = [...currentKanbanColumns].sort((a, b) => Number(a.ordine) - Number(b.ordine));
+
+  colonneOrdinate.forEach((colonna) => {
+    const colWrapper = document.createElement('div');
+    colWrapper.className = 'kanban-column-item';
+    colWrapper.dataset.idColonna = String(colonna.id_colonna);
+    colWrapper.draggable = false;
+    colWrapper.addEventListener('dragstart', onColumnDragStart);
+    colWrapper.addEventListener('dragend', onColumnDragEnd);
+    colWrapper.addEventListener('dragover', onColumnDragOver);
+    colWrapper.addEventListener('drop', onColumnDrop);
+
+    const card = document.createElement('div');
+    card.className = 'card kanban-column h-100';
+    card.style.backgroundColor = colonna.colore || '#f8f9fa';
+
+    const cardHeader = document.createElement('div');
+    cardHeader.className = 'card-header bg-light d-flex justify-content-between align-items-center';
+
+    const title = document.createElement('strong');
+    title.textContent = colonna.nome || `Colonna ${colonna.id_colonna}`;
+
+    const actions = document.createElement('div');
+    actions.className = 'd-flex align-items-center gap-2';
+    actions.innerHTML = `
+      <span class="kanban-grip drag-handle" title="Trascina colonna">☰</span>
+      <button type="button" class="task-action-btn" title="Rinomina colonna" data-action="rinomina-colonna">✏️</button>
+      <button type="button" class="task-action-btn text-danger" title="Elimina colonna" data-action="elimina-colonna">🗑</button>
+    `;
+    bindColumnDragHandle(actions.querySelector('.drag-handle'), colWrapper);
+    actions.querySelector('[data-action="rinomina-colonna"]').addEventListener('click', () => onRinominaColonna(colonna));
+    actions.querySelector('[data-action="elimina-colonna"]').addEventListener('click', () => onEliminaColonna(colonna));
+
+    cardHeader.appendChild(title);
+    cardHeader.appendChild(actions);
+
+    const cardBody = document.createElement('div');
+    cardBody.className = 'card-body kanban-task-list';
+    cardBody.dataset.idColonna = String(colonna.id_colonna);
+    cardBody.dataset.nomeColonna = colonna.nome || '';
+    bindKanbanDnD(cardBody);
+
+    const tasksColonna = tasks.filter((task) => Number(task.id_colonna) === Number(colonna.id_colonna));
     if (!tasksColonna.length) {
-      container.innerHTML = '<div class="text-muted small">Nessun task</div>';
-      return;
+      cardBody.innerHTML = '<div class="text-muted small">Nessun task</div>';
+    } else {
+      tasksColonna.forEach((task) => {
+        cardBody.appendChild(createTaskCard(task));
+      });
     }
 
-    tasksColonna.forEach((task) => {
-      container.appendChild(createTaskCard(task));
-    });
+    card.appendChild(cardHeader);
+    card.appendChild(cardBody);
+    colWrapper.appendChild(card);
+    board.appendChild(colWrapper);
   });
+
+  const addColWrapper = document.createElement('div');
+  addColWrapper.className = 'kanban-column-item';
+  addColWrapper.innerHTML = `
+    <div class="card h-100 d-flex align-items-center justify-content-center border-dashed">
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <button type="button" class="btn btn-outline-primary btn-sm" id="btnAggiungiColonnaKanban">+ Aggiungi Colonna</button>
+      </div>
+    </div>
+  `;
+  addColWrapper.querySelector('#btnAggiungiColonnaKanban').addEventListener('click', onAggiungiColonnaKanban);
+  board.appendChild(addColWrapper);
 }
 
 function createTaskCard(task) {
@@ -416,45 +542,140 @@ function createTaskCard(task) {
   card.className = 'card task-card mb-2';
   card.draggable = true;
   card.dataset.idTask = String(task.id_task);
-  const bloccato = isTaskBlocked(task, currentTasks);
   const priorita = task.priorita || 'Media';
   const persona = task.nome_assegnato || 'Non assegnato';
+  const initials = getInitials(persona);
   const dipendenzaTitolo = task.titolo_dipendenza || '';
+  const subTasks = getSubtasksForTask(task.id_task);
+  const subTasksCompletate = subTasks.filter((item) => Boolean(item.is_completato)).length;
+  const collapseId = `task-subtasks-${task.id_task}`;
+  const hasDescrizione = Boolean(task.descrizione && String(task.descrizione).trim());
+  const descrizioneId = `task-descrizione-${task.id_task}`;
+  const showPrioritaBadge = ['alta', 'critica'].includes(String(priorita || '').trim().toLowerCase());
+  const parentTask = task.dipende_da_id
+    ? currentTasks.find((item) => Number(item.id_task) === Number(task.dipende_da_id))
+    : null;
+  const parentTaskCompleted = parentTask
+    ? String(parentTask.stato || '').trim().toLowerCase() === 'completato'
+    : false;
+  const lockClass = parentTaskCompleted ? 'text-secondary' : 'text-danger';
+  const lockTitle = `Dipende da: ${escapeHtml(dipendenzaTitolo || parentTask?.titolo || 'Task padre')}`;
+  const lockIconHtml = task.dipende_da_id
+    ? `<i class="bi bi-lock-fill ${lockClass}" title="${lockTitle}" aria-label="Task con dipendenza"></i>`
+    : '';
+  const subtaskToggleHtml = subTasks.length
+    ? `
+      <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-primary" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false">
+        <span data-subtask-counter>${subTasksCompletate}/${subTasks.length} completati</span>
+      </button>
+    `
+    : '';
 
   card.innerHTML = `
     <div class="card-body p-2">
       <div class="d-flex justify-content-between align-items-start">
-        <div class="fw-semibold">${escapeHtml(task.titolo || `Task ${task.id_task}`)}</div>
+        <div class="fw-semibold d-flex align-items-center gap-1">
+          <span>${escapeHtml(task.titolo || `Task ${task.id_task}`)}</span>
+          ${hasDescrizione ? `
+            <button
+              type="button"
+              class="task-action-btn text-secondary"
+              data-action="toggle-task-descrizione"
+              data-target-id="${descrizioneId}"
+              title="Mostra/nascondi descrizione"
+              aria-expanded="false"
+            >
+              <i class="bi bi-text-left"></i>
+            </button>
+          ` : ''}
+        </div>
         <div class="d-flex align-items-center gap-2">
-          ${bloccato ? '<span title="Task bloccato da dipendenza">🔒</span>' : ''}
           <i class="bi bi-pencil edit-task-icon" onclick="apriModaleModificaTask(${task.id_task})" title="Modifica task"></i>
         </div>
       </div>
+      ${hasDescrizione ? `<div id="${descrizioneId}" class="collapse small text-muted mt-2">${escapeHtml(task.descrizione)}</div>` : ''}
       <div class="mt-2">
-        <span class="badge ${getPrioritaBadgeClass(priorita)}">${escapeHtml(priorita)}</span>
+        ${showPrioritaBadge ? `<span class="badge ${getPrioritaBadgeClass(priorita)}">${escapeHtml(priorita)}</span>` : ''}
       </div>
-      <div class="small text-muted mt-2">${escapeHtml(persona)}</div>
-      ${task.descrizione ? `<div class="small mt-1">${escapeHtml(task.descrizione)}</div>` : ''}
-      ${bloccato && dipendenzaTitolo ? `<div class="small text-danger mt-1">Dipende da: ${escapeHtml(dipendenzaTitolo)}</div>` : ''}
+      <div class="d-flex justify-content-between align-items-end mt-3 pt-2 border-top">
+        <div class="d-flex align-items-center gap-2">
+          ${lockIconHtml}
+          ${subtaskToggleHtml}
+        </div>
+        <div
+          class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
+          style="width:30px;height:30px;font-size:0.8rem;"
+          title="${escapeHtml(persona)}"
+        >
+          ${escapeHtml(initials)}
+        </div>
+      </div>
+      ${subTasks.length ? `
+        <div class="collapse mt-2" id="${collapseId}">
+          <div class="small d-flex flex-column gap-1" data-subtask-list>
+            ${subTasks.map((subtask) => `
+              <label class="d-flex align-items-center gap-2">
+                <input class="form-check-input" type="checkbox" data-subtask-id="${subtask.id_sub_task}" ${subtask.is_completato ? 'checked' : ''}>
+                <span class="${subtask.is_completato ? 'task-barrato' : ''}">${escapeHtml(subtask.titolo || `Sub-task ${subtask.id_sub_task}`)}</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
     </div>
   `;
 
   card.addEventListener('dragstart', onTaskDragStart);
   card.addEventListener('dragend', onTaskDragEnd);
+  card.querySelectorAll('[data-action="toggle-task-descrizione"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.targetId;
+      if (!targetId) return;
+      const descrizioneEl = card.querySelector(`#${targetId}`);
+      if (!descrizioneEl) return;
+      const collapse = bootstrap.Collapse.getOrCreateInstance(descrizioneEl, { toggle: false });
+      const isOpen = descrizioneEl.classList.contains('show');
+      if (isOpen) {
+        collapse.hide();
+        btn.setAttribute('aria-expanded', 'false');
+      } else {
+        collapse.show();
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
+  card.querySelectorAll('[data-subtask-id]').forEach((checkbox) => {
+    checkbox.addEventListener('change', async () => {
+      const idSubTask = Number(checkbox.dataset.subtaskId);
+      const checked = checkbox.checked;
+      const labelText = checkbox.parentElement?.querySelector('span');
+      try {
+        hideError();
+        await updateSubtaskField(idSubTask, { is_completato: checked ? 1 : 0 });
+        if (labelText) {
+          labelText.classList.toggle('task-barrato', checked);
+        }
+        patchSubtaskCompletionInMemory(task.id_task, idSubTask, checked ? 1 : 0);
+        updateCardSubtaskCounter(card, task.id_task);
+      } catch (error) {
+        checkbox.checked = !checked;
+        showError(error.message || 'Errore durante aggiornamento sub-task.');
+      }
+    });
+  });
   return card;
 }
 
-function initKanbanDnD() {
-  document.querySelectorAll('.kanban-task-list').forEach((list) => {
-    list.addEventListener('dragover', onKanbanDragOver);
-    list.addEventListener('dragleave', onKanbanDragLeave);
-    list.addEventListener('drop', onKanbanDrop);
-  });
+function bindKanbanDnD(list) {
+  list.addEventListener('dragover', onKanbanDragOver);
+  list.addEventListener('dragleave', onKanbanDragLeave);
+  list.addEventListener('drop', onKanbanDrop);
 }
 
 function onTaskDragStart(event) {
+  event.stopPropagation();
   const idTask = event.currentTarget.dataset.idTask;
-  event.dataTransfer.setData('text/plain', idTask);
+  event.dataTransfer.setData('application/x-task-id', String(idTask));
   event.dataTransfer.effectAllowed = 'move';
 }
 
@@ -476,18 +697,25 @@ async function onKanbanDrop(event) {
   event.preventDefault();
   const container = event.currentTarget;
   container.classList.remove('kanban-drop-target');
-  const idTask = Number(event.dataTransfer.getData('text/plain'));
-  const nuovoStato = container.dataset.stato;
-  if (!idTask || !nuovoStato) return;
+  const idTask = Number(event.dataTransfer.getData('application/x-task-id'));
+  const idColonnaDragged = Number(event.dataTransfer.getData('application/x-col-id'));
+  if (idColonnaDragged) return;
+  const nuovoIdColonna = Number(container.dataset.idColonna);
+  const nuovoStato = container.dataset.nomeColonna || '';
+  if (!idTask || !nuovoIdColonna) return;
 
   const task = currentTasks.find((item) => Number(item.id_task) === idTask);
   if (!task) return;
-  const statoAttuale = normalizeTaskStato(task.stato);
-  if (statoAttuale === nuovoStato) return;
+  if (Number(task.id_colonna) === nuovoIdColonna) return;
 
   const dependencyBlock = checkTaskDependencyBlock(task, nuovoStato, currentTasks);
   if (dependencyBlock.blocked) {
     showError(`Impossibile procedere: questo task dipende da [${dependencyBlock.parentTitle}].`);
+    return;
+  }
+
+  if (isCompletedColumnName(nuovoStato) && hasIncompleteSubtasksForTask(task.id_task)) {
+    alert('Impossibile completare: devi prima spuntare tutte le sub-task di questa attività.');
     return;
   }
 
@@ -496,8 +724,9 @@ async function onKanbanDrop(event) {
     await requestJson(`${API_BASE}/tasks/${idTask}/stato`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stato: nuovoStato }),
+      body: JSON.stringify({ id_colonna: nuovoIdColonna }),
     });
+    task.id_colonna = nuovoIdColonna;
     task.stato = nuovoStato;
     renderKanban(currentTasks);
   } catch (error) {
@@ -510,7 +739,7 @@ async function onOpenNuovoTaskModal() {
     await loadTasks(currentProjectId);
   }
   populateTaskAssigneeSelect();
-  populateTaskDependenciesSelect();
+  populateTaskDependenciesSelect(null);
   resetTaskModalForCreate();
 }
 
@@ -525,10 +754,14 @@ function populateTaskAssigneeSelect() {
   });
 }
 
-function populateTaskDependenciesSelect() {
+function populateTaskDependenciesSelect(excludedTaskId = null) {
   const select = document.getElementById('taskDipendenza');
   select.innerHTML = '<option value="">Nessuna dipendenza</option>';
+  const excludedIdString = excludedTaskId !== null && excludedTaskId !== undefined ? String(excludedTaskId) : null;
   currentTasks.forEach((task) => {
+    if (excludedIdString !== null && String(task.id_task) === excludedIdString) {
+      return;
+    }
     const option = document.createElement('option');
     option.value = String(task.id_task);
     option.textContent = task.titolo || `Task ${task.id_task}`;
@@ -560,6 +793,21 @@ async function onSubmitGestioneTask(event) {
 
   if (!payload.titolo) {
     showError('Il titolo del task e obbligatorio.');
+    return;
+  }
+  if (currentTaskId && payload.dipende_da_id && Number(payload.dipende_da_id) === Number(currentTaskId)) {
+    alert('Dipendenza non valida: un task non puo dipendere da se stesso.');
+    return;
+  }
+
+  const taskCorrente = currentTaskId
+    ? currentTasks.find((item) => Number(item.id_task) === Number(currentTaskId))
+    : null;
+  const selectColonna = document.getElementById('taskColonna');
+  const selectedIdColonna = selectColonna && selectColonna.value ? Number(selectColonna.value) : null;
+  const idColonnaFinale = selectedIdColonna ?? Number(taskCorrente?.id_colonna || 0);
+  if (idColonnaFinale && isCompletedColumnId(idColonnaFinale) && hasIncompleteSubtasksForTask(currentTaskId)) {
+    alert('Impossibile completare: devi prima spuntare tutte le sub-task di questa attività.');
     return;
   }
 
@@ -602,7 +850,7 @@ function apriModaleModificaTask(idTask) {
   }
 
   populateTaskAssigneeSelect();
-  populateTaskDependenciesSelect();
+  populateTaskDependenciesSelect(idTask);
 
   document.getElementById('modalGestioneTaskLabel').textContent = 'Modifica Task';
   document.getElementById('btnSalvaTask').textContent = 'Salva Modifiche';
@@ -642,8 +890,7 @@ async function openModalNuovoTaskFromElenco() {
 }
 
 function normalizeTaskStato(value) {
-  if (!value) return 'Da Fare';
-  return KANBAN_STATI.includes(value) ? value : 'Da Fare';
+  return (value || '').toString().trim();
 }
 
 function checkTaskDependencyBlock(task, nuovoStato, tasks) {
@@ -666,6 +913,197 @@ function checkTaskDependencyBlock(task, nuovoStato, tasks) {
 function isTaskBlocked(task, tasks) {
   const check = checkTaskDependencyBlock(task, 'In Corso', tasks);
   return check.blocked;
+}
+
+function hasIncompleteSubtasksForTask(idTask) {
+  const subTasks = getSubtasksForTask(idTask);
+  if (!subTasks.length) return false;
+  return subTasks.some((item) => !Boolean(item.is_completato));
+}
+
+function isCompletedColumnName(nomeColonna) {
+  return String(nomeColonna || '').trim().toLowerCase() === 'completato';
+}
+
+function isCompletedColumnId(idColonna) {
+  const colonna = currentKanbanColumns.find((item) => Number(item.id_colonna) === Number(idColonna));
+  if (!colonna) return false;
+  return isCompletedColumnName(colonna.nome);
+}
+
+function getSubtasksForTask(idTask) {
+  const taskNode = currentTaskStructure.find((item) => Number(item.id_task) === Number(idTask));
+  return Array.isArray(taskNode?.sub_tasks) ? taskNode.sub_tasks : [];
+}
+
+function patchSubtaskCompletionInMemory(idTask, idSubTask, isCompletato) {
+  const taskNode = currentTaskStructure.find((item) => Number(item.id_task) === Number(idTask));
+  if (!taskNode || !Array.isArray(taskNode.sub_tasks)) return;
+  const subtask = taskNode.sub_tasks.find((item) => Number(item.id_sub_task) === Number(idSubTask));
+  if (!subtask) return;
+  subtask.is_completato = isCompletato;
+}
+
+function updateCardSubtaskCounter(card, idTask) {
+  const counter = card.querySelector('[data-subtask-counter]');
+  const subtasks = getSubtasksForTask(idTask);
+  const completate = subtasks.filter((item) => Boolean(item.is_completato)).length;
+  if (counter) {
+    counter.textContent = `${completate}/${subtasks.length} completati`;
+  }
+}
+
+function onAggiungiColonnaKanban() {
+  openColumnModal();
+}
+
+function onRinominaColonna(colonna) {
+  openColumnModal(colonna);
+}
+
+async function onSubmitModificaColonna(event) {
+  event.preventDefault();
+  const nome = document.getElementById('colonnaNomeInput').value.trim();
+  if (!nome) {
+    showError('Il nome colonna e obbligatorio.');
+    return;
+  }
+  try {
+    hideError();
+    if (currentEditingColumnId) {
+      await requestJson(`${API_BASE}/colonne/${currentEditingColumnId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, colore: selectedColumnColor }),
+      });
+    } else {
+      await requestJson(`${API_BASE}/progetti/${currentProjectId}/colonne`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, colore: selectedColumnColor }),
+      });
+    }
+    closeModal('modalModificaColonna');
+    await refreshTaskViews();
+  } catch (error) {
+    showError(error.message || 'Errore durante salvataggio colonna.');
+  }
+}
+
+async function onEliminaColonna(colonna) {
+  const conferma = confirm(`Confermi eliminazione della colonna "${colonna.nome}"?`);
+  if (!conferma) return;
+  try {
+    hideError();
+    const payload = await requestJson(`${API_BASE}/colonne/${colonna.id_colonna}`, {
+      method: 'DELETE',
+    });
+    if (payload?.ok === true) {
+      await refreshTaskViews();
+    }
+  } catch (error) {
+    alert(error.message || 'Errore durante eliminazione colonna.');
+    showError(error.message || 'Errore durante eliminazione colonna.');
+  }
+}
+
+function openColumnModal(colonna = null) {
+  currentEditingColumnId = colonna ? Number(colonna.id_colonna) : null;
+  const modalTitle = document.getElementById('modalModificaColonnaLabel');
+  const inputNome = document.getElementById('colonnaNomeInput');
+  modalTitle.textContent = currentEditingColumnId ? 'Modifica Colonna' : 'Nuova Colonna';
+  inputNome.value = colonna?.nome || '';
+  setSelectedColumnColor(colonna?.colore || '#f8f9fa');
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalModificaColonna')).show();
+}
+
+function setSelectedColumnColor(colorHex) {
+  selectedColumnColor = colorHex || '#f8f9fa';
+  document.querySelectorAll('#colonnaPalette [data-colore]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.colore === selectedColumnColor);
+  });
+}
+
+function onColumnDragStart(event) {
+  if (event.currentTarget !== event.target.closest('.kanban-column-item')) {
+    event.preventDefault();
+    return;
+  }
+  if (event.currentTarget.dataset.columnDragArmed !== '1') {
+    event.preventDefault();
+    return;
+  }
+  const idColonna = event.currentTarget.dataset.idColonna;
+  event.dataTransfer.setData('application/x-col-id', String(idColonna));
+  event.dataTransfer.effectAllowed = 'move';
+  event.currentTarget.classList.add('dragging');
+}
+
+function onColumnDragEnd(event) {
+  event.currentTarget.draggable = false;
+  event.currentTarget.dataset.columnDragArmed = '0';
+  event.currentTarget.classList.remove('dragging');
+}
+
+function onColumnDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+}
+
+async function onColumnDrop(event) {
+  event.preventDefault();
+  const taskId = Number(event.dataTransfer.getData('application/x-task-id'));
+  if (taskId) return;
+  const sourceId = Number(event.dataTransfer.getData('application/x-col-id'));
+  const targetId = Number(event.currentTarget.dataset.idColonna);
+  if (!sourceId || !targetId || sourceId === targetId) return;
+
+  const ordered = [...currentKanbanColumns].sort((a, b) => Number(a.ordine) - Number(b.ordine));
+  const fromIndex = ordered.findIndex((col) => Number(col.id_colonna) === sourceId);
+  const toIndex = ordered.findIndex((col) => Number(col.id_colonna) === targetId);
+  if (fromIndex < 0 || toIndex < 0) return;
+
+  const [moved] = ordered.splice(fromIndex, 1);
+  ordered.splice(toIndex, 0, moved);
+  currentKanbanColumns = ordered.map((col, index) => ({ ...col, ordine: index }));
+  renderKanban(currentTasks);
+
+  try {
+    await requestJson(`${API_BASE}/progetti/${currentProjectId}/ordine-colonne`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        colonne: currentKanbanColumns.map((col) => ({
+          id_colonna: Number(col.id_colonna),
+          ordine: Number(col.ordine),
+        })),
+      }),
+    });
+  } catch (error) {
+    showError(error.message || 'Errore durante riordinamento colonne.');
+    await loadKanbanColumns(currentProjectId);
+    renderKanban(currentTasks);
+  }
+}
+
+function bindColumnDragHandle(handleEl, columnEl) {
+  if (!handleEl || !columnEl) return;
+
+  const armColumnDrag = () => {
+    columnEl.draggable = true;
+    columnEl.dataset.columnDragArmed = '1';
+  };
+  const disarmColumnDrag = () => {
+    columnEl.draggable = false;
+    columnEl.dataset.columnDragArmed = '0';
+  };
+
+  handleEl.addEventListener('mousedown', armColumnDrag);
+  handleEl.addEventListener('touchstart', armColumnDrag, { passive: true });
+  handleEl.addEventListener('mouseup', disarmColumnDrag);
+  handleEl.addEventListener('mouseleave', disarmColumnDrag);
+  handleEl.addEventListener('touchend', disarmColumnDrag);
+  handleEl.addEventListener('touchcancel', disarmColumnDrag);
 }
 
 async function onSubmitAssegnaPersona(event) {
@@ -960,4 +1398,14 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function getInitials(nomeCompleto) {
+  const testo = (nomeCompleto || '').toString().trim();
+  if (!testo || testo.toLowerCase() === 'non assegnato') return '--';
+  const parts = testo.split(/\s+/).filter(Boolean);
+  if (!parts.length) return '--';
+  const first = parts[0][0] || '';
+  const second = parts.length > 1 ? (parts[parts.length - 1][0] || '') : '';
+  return `${first}${second}`.toUpperCase();
 }

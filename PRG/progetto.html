@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <style>
     .text-bg-orange { background-color: #fd7e14 !important; color: #fff !important; }
-    .kanban-column { min-height: 420px; }
+    .kanban-column { min-height: 420px; min-width: 300px; max-width: 300px; }
     .kanban-task-list { min-height: 320px; }
     .task-card { cursor: grab; }
     .kanban-drop-target { background-color: rgba(13, 110, 253, 0.08); border-radius: 0.5rem; }
@@ -44,6 +44,26 @@
     .task-inline-input:focus { outline: 1px solid rgba(13, 110, 253, 0.35); border-radius: 4px; background: #fff; }
     .task-desc-area { resize: vertical; min-height: 90px; }
     .task-action-btn { cursor: pointer; border: none; background: transparent; padding: 0 0.25rem; }
+    .border-dashed { border: 2px dashed #ced4da !important; }
+    .kanban-board-scroll {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      padding-bottom: 1rem;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .kanban-column-item { flex: 0 0 auto; width: 300px; }
+    .kanban-column-item.dragging { opacity: 0.6; }
+    .kanban-grip { cursor: grab; color: #6c757d; }
+    .kanban-color-choice {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid #dee2e6;
+      cursor: pointer;
+    }
+    .kanban-color-choice.active { border-color: #0d6efd; box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2); }
   </style>
 </head>
 <body class="bg-light">
@@ -75,27 +95,32 @@
           </div>
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h3 class="m-0" id="titoloPaginaProgetto">Dettagli Progetto</h3>
-            <div>
-              <button type="button" id="btnModificaProgetto" class="btn btn-outline-primary me-2 btn-sm" data-bs-toggle="modal" data-bs-target="#modalModificaProgetto">
-                Modifica Progetto
-              </button>
+          </div>
+          <div class="d-flex justify-content-between align-items-end border-bottom mb-3">
+            <ul class="nav nav-tabs border-bottom-0 mb-0" id="progettoTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="tab-info" data-bs-toggle="tab" data-bs-target="#pane-info" type="button" role="tab" aria-controls="pane-info" aria-selected="true">Info</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-piano-operativo" data-bs-toggle="tab" data-bs-target="#pane-piano-operativo" type="button" role="tab" aria-controls="pane-piano-operativo" aria-selected="false">Piano Operativo</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-elenco-task" data-bs-toggle="tab" data-bs-target="#pane-elenco-task" type="button" role="tab" aria-controls="pane-elenco-task" aria-selected="false">Elenco Task</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-team" data-bs-toggle="tab" data-bs-target="#pane-team" type="button" role="tab" aria-controls="pane-team" aria-selected="false">Team</button>
+              </li>
+            </ul>
+            <div id="contextualActionBar" class="pb-2 d-flex gap-2">
+              <button id="btnContextModifica" class="btn btn-outline-primary btn-sm">Modifica Progetto</button>
+              <button id="btnContextNuovoTask" class="btn btn-primary btn-sm d-none">Nuovo Task</button>
+              <button id="btnContextAssegna" class="btn btn-primary btn-sm d-none">Assegna Persona</button>
             </div>
           </div>
-          <ul class="nav nav-tabs card-header-tabs" id="progettoTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="tab-team-info" data-bs-toggle="tab" data-bs-target="#pane-team-info" type="button" role="tab" aria-controls="pane-team-info" aria-selected="true">Team &amp; Info</button>
-            </li>
-            <li class="nav-item" role="presentation">
-              <button class="nav-link" id="tab-piano-operativo" data-bs-toggle="tab" data-bs-target="#pane-piano-operativo" type="button" role="tab" aria-controls="pane-piano-operativo" aria-selected="false">Piano Operativo</button>
-            </li>
-            <li class="nav-item" role="presentation">
-              <button class="nav-link" id="tab-elenco-task" data-bs-toggle="tab" data-bs-target="#pane-elenco-task" type="button" role="tab" aria-controls="pane-elenco-task" aria-selected="false">Elenco Task</button>
-            </li>
-          </ul>
         </div>
         <div class="card-body">
           <div class="tab-content">
-            <div class="tab-pane fade show active" id="pane-team-info" role="tabpanel" aria-labelledby="tab-team-info">
+            <div class="tab-pane fade show active" id="pane-info" role="tabpanel" aria-labelledby="tab-info">
               <div class="row g-3 mb-4">
                 <div class="col-12 col-md-4">
                   <label class="form-label text-muted mb-1">Data</label>
@@ -126,18 +151,21 @@
                   <div id="dettaglioObbiettivi">Nessun obbiettivo specificato.</div>
                 </div>
               </div>
+            </div>
+            <div class="tab-pane fade" id="pane-piano-operativo" role="tabpanel" aria-labelledby="tab-piano-operativo">
+              <div class="kanban-board-scroll" id="kanbanBoard">
+                <div class="kanban-column-item">
+                  <div class="text-muted small">Caricamento board...</div>
+                </div>
+              </div>
+            </div>
+            <div class="tab-pane fade" id="pane-elenco-task" role="tabpanel" aria-labelledby="tab-elenco-task">
+              <div id="contenitoreElencoTask" class="mb-3"></div>
+            </div>
+            <div class="tab-pane fade" id="pane-team" role="tabpanel" aria-labelledby="tab-team">
               <div class="card shadow-sm">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                   <h5 class="mb-0">Team</h5>
-                  <button
-                    type="button"
-                    id="btnApriAssegnaPersona"
-                    class="btn btn-sm btn-primary"
-                    data-bs-toggle="modal"
-                    data-bs-target="#modalAssegnaPersona"
-                  >
-                    Assegna Persona
-                  </button>
                 </div>
                 <div class="card-body p-0">
                   <div class="table-responsive">
@@ -159,44 +187,6 @@
                   </div>
                 </div>
               </div>
-            </div>
-            <div class="tab-pane fade" id="pane-piano-operativo" role="tabpanel" aria-labelledby="tab-piano-operativo">
-              <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="mb-0">Board Kanban</h5>
-                <button type="button" id="btnNuovoTask" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalGestioneTask">
-                  Nuovo Task
-                </button>
-              </div>
-              <div class="row g-3" id="kanbanBoard">
-                <div class="col-12 col-md-6 col-xl-3">
-                  <div class="card kanban-column h-100 col-kanban-todo">
-                    <div class="card-header bg-light"><strong>Da Fare</strong></div>
-                    <div class="card-body kanban-task-list" data-stato="Da Fare"></div>
-                  </div>
-                </div>
-                <div class="col-12 col-md-6 col-xl-3">
-                  <div class="card kanban-column h-100 col-kanban-progress">
-                    <div class="card-header bg-light"><strong>In Corso</strong></div>
-                    <div class="card-body kanban-task-list" data-stato="In Corso"></div>
-                  </div>
-                </div>
-                <div class="col-12 col-md-6 col-xl-3">
-                  <div class="card kanban-column h-100 col-kanban-review">
-                    <div class="card-header bg-light"><strong>Revisione</strong></div>
-                    <div class="card-body kanban-task-list" data-stato="Revisione"></div>
-                  </div>
-                </div>
-                <div class="col-12 col-md-6 col-xl-3">
-                  <div class="card kanban-column h-100 col-kanban-done">
-                    <div class="card-header bg-light"><strong>Completato</strong></div>
-                    <div class="card-body kanban-task-list" data-stato="Completato"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="tab-pane fade" id="pane-elenco-task" role="tabpanel" aria-labelledby="tab-elenco-task">
-              <div id="contenitoreElencoTask" class="mb-3"></div>
-              <button type="button" id="btnAggiungiTaskDaElenco" class="btn btn-outline-primary btn-sm">Aggiungi Nuovo Task</button>
             </div>
           </div>
         </div>
@@ -314,6 +304,40 @@
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
             <button type="submit" class="btn btn-primary" form="formGestisciMembro">Salva Ruolo</button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalModificaColonna" tabindex="-1" aria-labelledby="modalModificaColonnaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalModificaColonnaLabel">Modifica Colonna</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formModificaColonna">
+            <input type="hidden" id="colonnaIdCorrente">
+            <div class="mb-3">
+              <label for="colonnaNomeInput" class="form-label">Nome Colonna</label>
+              <input type="text" class="form-control" id="colonnaNomeInput" required>
+            </div>
+            <div class="mb-0">
+              <label class="form-label d-block">Sfondo Colonna</label>
+              <div class="d-flex gap-2" id="colonnaPalette">
+                <button type="button" class="kanban-color-choice" data-colore="#f8f9fa" style="background-color:#f8f9fa;" title="Grigio"></button>
+                <button type="button" class="kanban-color-choice" data-colore="#e0f2fe" style="background-color:#e0f2fe;" title="Azzurro"></button>
+                <button type="button" class="kanban-color-choice" data-colore="#fef08a" style="background-color:#fef08a;" title="Giallo"></button>
+                <button type="button" class="kanban-color-choice" data-colore="#dcfce3" style="background-color:#dcfce3;" title="Verde"></button>
+                <button type="button" class="kanban-color-choice" data-colore="#f3e8ff" style="background-color:#f3e8ff;" title="Viola"></button>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+          <button type="submit" class="btn btn-primary" form="formModificaColonna">Salva Colonna</button>
         </div>
       </div>
     </div>
