@@ -105,7 +105,10 @@
       "Bash(node diag-itt.js)",
       "Bash(ls C:/Users/depel/Documents/progetto/ujet/bobine/*.js)",
       "Bash(grep -l \"163\\\\|ConnectionProfiles\\\\|database_prova\\\\|_testDb\" C:/Users/depel/Documents/progetto/ujet/bobine/config/*.js)",
-      "Bash(ls C:/Users/depel/Documents/progetto/ujet/bobine/gb2/conoscenze*)"
+      "Bash(ls C:/Users/depel/Documents/progetto/ujet/bobine/gb2/conoscenze*)",
+      "Bash(cp /tmp/query_forn.js C:/Users/depel/Documents/progetto/ujet/bobine/_query_forn.js)",
+      "Bash(node _query_forn.js)",
+      "Bash(rm _query_forn.js)"
     ]
   }
 }
