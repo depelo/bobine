@@ -303,10 +303,6 @@ const MrpTheme = (() => {
             { varName: '--success', controlType: 'color', label: 'Sfondo' },
             { varName: '--font', controlType: 'font', label: 'Font' }
         ]},
-        { selector: '.mrp-btn-escludi', label: 'Pulsante escludi', vars: [
-            { varName: '--danger', controlType: 'color', label: 'Colore' },
-            { varName: '--font', controlType: 'font', label: 'Font' }
-        ]},
         { selector: '.decisione-header', label: 'Header decisione', vars: [
             { varName: '--success', controlType: 'color', label: 'Sfondo' }
         ]},

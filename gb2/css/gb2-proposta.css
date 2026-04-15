@@ -306,18 +306,6 @@
     border-left: 4px solid var(--success) !important;
 }
 
-.proposta-art-escluso {
-    background: #fef2f2 !important;
-    border-left: 4px solid var(--danger) !important;
-    opacity: 0.6;
-}
-
-.proposta-art-escluso .proposta-art-header,
-.proposta-art-escluso .proposta-righe-table {
-    text-decoration: line-through;
-    color: var(--text-muted);
-}
-
 /* Badge conferma nell'articolo */
 .proposta-conferma-badge {
     display: flex;
@@ -336,10 +324,19 @@
     border: 1px solid #86efac;
 }
 
-.proposta-badge-escluso {
-    background: #fef2f2;
-    color: var(--danger);
-    border: 1px solid #fecaca;
+/* Badge informativo "ordine già emesso e email inviata" sul header fornitore.
+   Gli articoli di questi ordini sono filtrati dalla vista — il badge serve solo
+   come memoria visiva dell'ordine congelato. */
+.fornitore-congelato-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 4px 10px;
+    background: #eef2ff;
+    color: #3730a3;
+    border: 1px solid #c7d2fe;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
 }
 
 .conferma-icon {
