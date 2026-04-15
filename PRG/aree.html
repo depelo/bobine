@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PortalUjet - Reparti</title>
+  <title>PortalUjet - Aree</title>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/sicurezza.js"></script>
   <link
@@ -24,7 +24,7 @@
       <div class="d-flex align-items-center gap-2 ms-auto">
         <a class="btn btn-sm btn-outline-light" href="prg.html">Progetti</a>
         <a class="btn btn-sm btn-outline-light" href="persone.html">Persone</a>
-        <a class="btn btn-sm btn-light" href="reparti.html">Reparti</a>
+        <a class="btn btn-sm btn-light" href="aree.html">Aree</a>
       </div>
     </div>
   </nav>
@@ -34,15 +34,15 @@
     <div class="card shadow-sm">
       <div class="card-header bg-white d-flex justify-content-between align-items-center">
         <div class="d-flex justify-content-between align-items-center w-100">
-          <h5 class="mb-0">Gestione Reparti</h5>
+          <h5 class="mb-0">Gestione Aree</h5>
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            id="btnNuovoReparto"
+            id="btnNuovaArea"
             data-bs-toggle="modal"
-            data-bs-target="#modalReparto"
+            data-bs-target="#modalArea"
           >
-            Nuovo Reparto
+            Nuova Area
           </button>
         </div>
       </div>
@@ -56,9 +56,9 @@
                 <th scope="col" class="text-end">Azioni</th>
               </tr>
             </thead>
-            <tbody id="listaReparti">
+            <tbody id="listaAree">
               <tr>
-                <td colspan="3" class="text-muted">Nessun reparto disponibile.</td>
+                <td colspan="3" class="text-muted">Nessuna area disponibile.</td>
               </tr>
             </tbody>
           </table>
@@ -67,29 +67,29 @@
     </div>
   </main>
 
-  <div class="modal fade" id="modalReparto" tabindex="-1" aria-labelledby="modalRepartoLabel" aria-hidden="true">
+  <div class="modal fade" id="modalArea" tabindex="-1" aria-labelledby="modalAreaLabel" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-content">
         <div class="modal-header">
-          <h1 class="modal-title fs-5" id="modalRepartoLabel">Nuovo Reparto</h1>
+          <h1 class="modal-title fs-5" id="modalAreaLabel">Nuova Area</h1>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
         </div>
         <div class="modal-body">
-          <form id="formReparto">
-            <input type="hidden" id="idReparto">
+          <form id="formArea">
+            <input type="hidden" id="idArea">
             <div class="mb-3">
-              <label for="nomeReparto" class="form-label">Nome Reparto</label>
-              <input type="text" class="form-control" id="nomeReparto" required>
+              <label for="nomeArea" class="form-label">Nome Area</label>
+              <input type="text" class="form-control" id="nomeArea" required>
             </div>
             <div class="mb-0">
-              <label for="descrizioneReparto" class="form-label">Descrizione</label>
-              <textarea class="form-control" id="descrizioneReparto" rows="3"></textarea>
+              <label for="descrizioneArea" class="form-label">Descrizione</label>
+              <textarea class="form-control" id="descrizioneArea" rows="3"></textarea>
             </div>
           </form>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
-          <button type="submit" class="btn btn-primary" form="formReparto">Salva</button>
+          <button type="submit" class="btn btn-primary" form="formArea">Salva</button>
         </div>
       </div>
     </div>
@@ -100,6 +100,6 @@
     integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
     crossorigin="anonymous"
   ></script>
-  <script src="reparti.js"></script>
+  <script src="aree.js"></script>
 </body>
 </html>

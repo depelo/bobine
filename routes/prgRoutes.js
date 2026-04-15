@@ -12,9 +12,9 @@ router.get('/progetti', authenticateToken, async (req, res) => {
                 p.id_progetto, p.nome_progetto, p.descrizione,
                 p.data_inizio, p.data_fine, p.stato,
                 p.obbiettivi, p.priorita, p.budget,
-                p.id_reparto, r.nome_reparto
+                p.id_area, a.nome_area
             FROM progetti p
-            LEFT JOIN reparti r ON p.id_reparto = r.id_reparto
+            LEFT JOIN aree a ON p.id_area = a.id_area
             WHERE p.is_active = 1
         `);
         const safeData = result.recordset.map(row => ({
@@ -31,17 +31,17 @@ router.get('/progetti', authenticateToken, async (req, res) => {
 
 router.post('/progetti', authenticateToken, async (req, res) => {
     try {
-        const { nome_progetto, descrizione, data_inizio, id_reparto } = req.body;
+        const { nome_progetto, descrizione, data_inizio, id_area } = req.body;
         const pool = await getPoolPRG();
         const result = await pool.request()
             .input('nome_progetto', sql.NVarChar(255), nome_progetto)
             .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
             .input('data_inizio', sql.Date, data_inizio)
-            .input('id_reparto', sql.Int, id_reparto || null)
+            .input('id_area', sql.Int, id_area || null)
             .query(`
-                INSERT INTO dbo.progetti (nome_progetto, descrizione, data_inizio, id_reparto)
+                INSERT INTO dbo.progetti (nome_progetto, descrizione, data_inizio, id_area)
                 OUTPUT INSERTED.*
-                VALUES (@nome_progetto, @descrizione, @data_inizio, @id_reparto)
+                VALUES (@nome_progetto, @descrizione, @data_inizio, @id_area)
             `);
         res.status(201).json({ ok: true, data: result.recordset[0] });
     } catch (err) {
@@ -53,7 +53,7 @@ router.post('/progetti', authenticateToken, async (req, res) => {
 router.put('/progetti/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { nome_progetto, descrizione, data_inizio, data_fine, obbiettivi, priorita, budget, stato, id_reparto } = req.body;
+        const { nome_progetto, descrizione, data_inizio, data_fine, obbiettivi, priorita, budget, stato, id_area } = req.body;
         const pool = await getPoolPRG();
         const result = await pool.request()
             .input('id_progetto', sql.Int, id)
@@ -65,13 +65,13 @@ router.put('/progetti/:id', authenticateToken, async (req, res) => {
             .input('priorita', sql.NVarChar(50), priorita || null)
             .input('budget', sql.Decimal(18, 2), budget ?? null)
             .input('stato', sql.NVarChar(50), stato || null)
-            .input('id_reparto', sql.Int, id_reparto || null)
+            .input('id_area', sql.Int, id_area || null)
             .query(`
                 UPDATE dbo.progetti
                 SET nome_progetto = @nome_progetto, descrizione = @descrizione,
                     data_inizio = @data_inizio, data_fine = @data_fine,
                     obbiettivi = @obbiettivi, priorita = @priorita,
-                    budget = @budget, stato = @stato, id_reparto = @id_reparto
+                    budget = @budget, stato = @stato, id_area = @id_area
                 WHERE id_progetto = @id_progetto AND is_active = 1
             `);
         if (result.rowsAffected[0] === 0) {
@@ -198,79 +198,79 @@ router.delete('/persone/:id', authenticateToken, async (req, res) => {
     }
 });
 
-router.get('/reparti', authenticateToken, async (req, res) => {
+router.get('/aree', authenticateToken, async (req, res) => {
     try {
         const pool = await getPoolPRG();
         const result = await pool.request().query(`
-            SELECT id_reparto, nome_reparto, descrizione
-            FROM dbo.reparti WHERE is_active = 1 ORDER BY nome_reparto ASC
+            SELECT id_area, nome_area, descrizione
+            FROM dbo.aree WHERE is_active = 1 ORDER BY nome_area ASC
         `);
         res.json({ ok: true, data: result.recordset });
     } catch (err) {
-        console.error('GET /api/prg/reparti:', err);
-        res.status(500).json({ ok: false, message: 'Errore nel recupero reparti.', error: err.message });
+        console.error('GET /api/prg/aree:', err);
+        res.status(500).json({ ok: false, message: 'Errore nel recupero aree.', error: err.message });
     }
 });
 
-router.post('/reparti', authenticateToken, async (req, res) => {
+router.post('/aree', authenticateToken, async (req, res) => {
     try {
-        const { nome_reparto, descrizione } = req.body;
+        const { nome_area, descrizione } = req.body;
         const pool = await getPoolPRG();
         const result = await pool.request()
-            .input('nome_reparto', sql.NVarChar(150), nome_reparto)
+            .input('nome_area', sql.NVarChar(150), nome_area)
             .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
             .query(`
-                INSERT INTO dbo.reparti (nome_reparto, descrizione, is_active)
+                INSERT INTO dbo.aree (nome_area, descrizione, is_active)
                 OUTPUT INSERTED.*
-                VALUES (@nome_reparto, @descrizione, 1)
+                VALUES (@nome_area, @descrizione, 1)
             `);
         res.status(201).json({ ok: true, data: result.recordset[0] });
     } catch (err) {
-        console.error('POST /api/prg/reparti:', err);
-        res.status(500).json({ ok: false, message: 'Errore nella creazione reparto.', error: err.message });
+        console.error('POST /api/prg/aree:', err);
+        res.status(500).json({ ok: false, message: 'Errore nella creazione area.', error: err.message });
     }
 });
 
-router.put('/reparti/:id', authenticateToken, async (req, res) => {
+router.put('/aree/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { nome_reparto, descrizione } = req.body;
+        const { nome_area, descrizione } = req.body;
         const pool = await getPoolPRG();
         const result = await pool.request()
-            .input('id_reparto', sql.Int, id)
-            .input('nome_reparto', sql.NVarChar(150), nome_reparto)
+            .input('id_area', sql.Int, id)
+            .input('nome_area', sql.NVarChar(150), nome_area)
             .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
             .query(`
-                UPDATE dbo.reparti SET nome_reparto = @nome_reparto, descrizione = @descrizione
-                WHERE id_reparto = @id_reparto AND is_active = 1
+                UPDATE dbo.aree SET nome_area = @nome_area, descrizione = @descrizione
+                WHERE id_area = @id_area AND is_active = 1
             `);
         if (result.rowsAffected[0] === 0) {
-            return res.status(404).json({ ok: false, message: 'Reparto non trovato o non attivo.' });
+            return res.status(404).json({ ok: false, message: 'Area non trovata o non attiva.' });
         }
         res.json({ ok: true });
     } catch (err) {
-        console.error('PUT /api/prg/reparti/:id:', err);
-        res.status(500).json({ ok: false, message: 'Errore nell aggiornamento reparto.', error: err.message });
+        console.error('PUT /api/prg/aree/:id:', err);
+        res.status(500).json({ ok: false, message: 'Errore nell aggiornamento area.', error: err.message });
     }
 });
 
-router.delete('/reparti/:id', authenticateToken, async (req, res) => {
+router.delete('/aree/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         const pool = await getPoolPRG();
         const result = await pool.request()
-            .input('id_reparto', sql.Int, id)
-            .query(`UPDATE dbo.reparti SET is_active = 0 WHERE id_reparto = @id_reparto AND is_active = 1`);
+            .input('id_area', sql.Int, id)
+            .query(`UPDATE dbo.aree SET is_active = 0 WHERE id_area = @id_area AND is_active = 1`);
         if (result.rowsAffected[0] === 0) {
-            return res.status(404).json({ ok: false, message: 'Reparto non trovato o gia disattivato.' });
+            return res.status(404).json({ ok: false, message: 'Area non trovata o gia disattivata.' });
         }
         res.json({ ok: true });
     } catch (err) {
-        console.error('DELETE /api/prg/reparti/:id:', err);
+        console.error('DELETE /api/prg/aree/:id:', err);
         if (err.number === 547) {
-            return res.status(409).json({ ok: false, message: 'Impossibile eliminare il reparto: sposta prima i progetti associati.' });
+            return res.status(409).json({ ok: false, message: 'Impossibile eliminare l area: sposta prima i progetti associati.' });
         }
-        res.status(500).json({ ok: false, message: 'Errore nel soft-delete reparto.', error: err.message });
+        res.status(500).json({ ok: false, message: 'Errore nel soft-delete area.', error: err.message });
     }
 });
 
@@ -347,6 +347,147 @@ router.delete('/progetti/:id_progetto/team/:id_persona', authenticateToken, asyn
     } catch (err) {
         console.error('DELETE /api/prg/progetti/:id/team/:id:', err);
         res.status(500).json({ ok: false, message: 'Errore nella rimozione membro dal progetto.', error: err.message });
+    }
+});
+
+router.get('/progetti/:id/tasks', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getPoolPRG();
+        const result = await pool.request()
+            .input('id_progetto', sql.Int, id)
+            .query(`
+                SELECT
+                    t.id_task, t.id_progetto, t.titolo, t.id_persona,
+                    t.priorita, t.descrizione, t.scadenza, t.stato, t.dipende_da_id,
+                    p.nome AS nome_assegnato, p.cognome AS cognome_assegnato,
+                    td.titolo AS titolo_dipendenza
+                FROM dbo.tasks t
+                LEFT JOIN persone p ON t.id_persona = p.id_persona
+                LEFT JOIN dbo.tasks td ON t.dipende_da_id = td.id_task
+                WHERE t.id_progetto = @id_progetto AND t.is_active = 1
+                ORDER BY t.id_task ASC
+            `);
+
+        const tasks = result.recordset.map((task) => ({
+            ...task,
+            nome_assegnato: [task.nome_assegnato, task.cognome_assegnato].filter(Boolean).join(' ').trim(),
+            stato: task.stato || 'Da Fare'
+        }));
+        res.json({ ok: true, data: tasks });
+    } catch (error) {
+        console.error('[ERRORE API TASKS]:', error);
+        res.status(500).json({ ok: false, message: 'Errore nel recupero task del progetto.', error: error.message });
+    }
+});
+
+router.post('/tasks', authenticateToken, async (req, res) => {
+    try {
+        const { id_progetto, titolo, id_persona, priorita, descrizione, scadenza, dipende_da_id } = req.body;
+        const pool = await getPoolPRG();
+        const result = await pool.request()
+            .input('id_progetto', sql.Int, id_progetto)
+            .input('titolo', sql.NVarChar(255), titolo)
+            .input('id_persona', sql.Int, id_persona)
+            .input('priorita', sql.NVarChar(50), priorita || 'Media')
+            .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
+            .input('scadenza', sql.Date, scadenza || null)
+            .input('dipende_da_id', sql.Int, dipende_da_id || null)
+            .query(`
+                INSERT INTO dbo.tasks (
+                    id_progetto, titolo, id_persona, descrizione,
+                    priorita, scadenza, stato, dipende_da_id, is_active
+                )
+                OUTPUT INSERTED.*
+                VALUES (
+                    @id_progetto, @titolo, @id_persona, @descrizione,
+                    @priorita, @scadenza, 'Da Fare', @dipende_da_id, 1
+                )
+            `);
+
+        res.status(201).json({ ok: true, data: result.recordset[0] });
+    } catch (err) {
+        console.error('POST /api/prg/tasks:', err);
+        res.status(500).json({ ok: false, message: 'Errore nella creazione task.', error: err.message });
+    }
+});
+
+router.put('/tasks/:id/stato', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { stato } = req.body;
+        const statiValidi = ['Da Fare', 'In Corso', 'Revisione', 'Completato'];
+        if (!statiValidi.includes(stato)) {
+            return res.status(400).json({ ok: false, message: 'Stato task non valido.' });
+        }
+
+        const pool = await getPoolPRG();
+        const result = await pool.request()
+            .input('id_task', sql.Int, id)
+            .input('stato', sql.NVarChar(50), stato)
+            .query(`
+                UPDATE dbo.tasks
+                SET stato = @stato
+                WHERE id_task = @id_task AND is_active = 1
+            `);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ ok: false, message: 'Task non trovato o non attivo.' });
+        }
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('PUT /api/prg/tasks/:id/stato:', err);
+        res.status(500).json({ ok: false, message: 'Errore nell aggiornamento stato task.', error: err.message });
+    }
+});
+
+router.put('/tasks/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { titolo, id_persona, priorita, descrizione, dipende_da_id } = req.body;
+        const pool = await getPoolPRG();
+        const result = await pool.request()
+            .input('id_task', sql.Int, id)
+            .input('titolo', sql.NVarChar(255), titolo)
+            .input('id_persona', sql.Int, id_persona)
+            .input('priorita', sql.NVarChar(50), priorita || 'Media')
+            .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
+            .input('dipende_da_id', sql.Int, dipende_da_id || null)
+            .query(`
+                UPDATE dbo.tasks
+                SET titolo = @titolo,
+                    id_persona = @id_persona,
+                    priorita = @priorita,
+                    descrizione = @descrizione,
+                    dipende_da_id = @dipende_da_id
+                WHERE id_task = @id_task AND is_active = 1
+            `);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ ok: false, message: 'Task non trovato o non attivo.' });
+        }
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('PUT /api/prg/tasks/:id:', err);
+        res.status(500).json({ ok: false, message: 'Errore nell aggiornamento task.', error: err.message });
+    }
+});
+
+router.delete('/tasks/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getPoolPRG();
+        const result = await pool.request()
+            .input('id_task', sql.Int, id)
+            .query(`DELETE FROM tasks WHERE id_task = @id_task`);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ ok: false, message: 'Task non trovato.' });
+        }
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('DELETE /api/prg/tasks/:id:', err);
+        res.status(500).json({ ok: false, message: 'Errore nella cancellazione task.', error: err.message });
     }
 });
 

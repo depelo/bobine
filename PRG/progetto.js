@@ -2,6 +2,9 @@ const API_BASE = '/api/prg';
 let currentProjectId = null;
 let currentProjectData = null;
 let currentTeamMember = null;
+let currentTeam = [];
+let currentTasks = [];
+const KANBAN_STATI = ['Da Fare', 'In Corso', 'Revisione', 'Completato'];
 
 document.addEventListener('securityReady', initApp);
 
@@ -21,6 +24,10 @@ async function initApp() {
   const btnEliminaProgetto = document.getElementById('btnEliminaProgetto');
   const formGestisciMembro = document.getElementById('formGestisciMembro');
   const btnRimuoviMembroProgetto = document.getElementById('btnRimuoviMembroProgetto');
+  const formGestioneTask = document.getElementById('formGestioneTask');
+  const btnNuovoTask = document.getElementById('btnNuovoTask');
+  const btnEliminaTask = document.getElementById('btnEliminaTask');
+  const tabPianoOperativo = document.getElementById('tab-piano-operativo');
 
   formAssegnaPersona.addEventListener('submit', onSubmitAssegnaPersona);
   modalAssegnaPersona.addEventListener('show.bs.modal', loadPersoneSelect);
@@ -29,9 +36,14 @@ async function initApp() {
   btnEliminaProgetto.addEventListener('click', eliminaProgetto);
   formGestisciMembro.addEventListener('submit', onSubmitModificaRuoloMembro);
   btnRimuoviMembroProgetto.addEventListener('click', onRimuoviMembroProgetto);
+  formGestioneTask.addEventListener('submit', onSubmitGestioneTask);
+  btnNuovoTask.addEventListener('click', onOpenNuovoTaskModal);
+  btnEliminaTask.addEventListener('click', onDeleteTaskCorrente);
+  tabPianoOperativo.addEventListener('shown.bs.tab', onOpenPianoOperativoTab);
 
   await loadDettaglioProgetto(currentProjectId);
   await loadTeam(currentProjectId);
+  initKanbanDnD();
 }
 
 async function requestJson(url, options = {}) {
@@ -64,7 +76,7 @@ async function loadDettaglioProgetto(projectId) {
     }
     currentProjectData = progetto;
 
-    document.getElementById('dettaglioNome').textContent = progetto.nome_progetto || `Progetto ${progetto.id_progetto}`;
+    document.getElementById('titoloPaginaProgetto').textContent = progetto.nome_progetto || `Progetto ${progetto.id_progetto}`;
     document.getElementById('dettaglioDescrizione').textContent = progetto.descrizione || 'Nessuna descrizione disponibile.';
     document.getElementById('dettaglioData').textContent = formatDate(progetto.data_inizio);
     document.getElementById('dettaglioDataFine').textContent = formatDate(progetto.data_fine);
@@ -104,18 +116,308 @@ async function loadTeam(projectId) {
   try {
     const payload = await requestJson(`${API_BASE}/progetti/${projectId}/team`);
     const team = Array.isArray(payload.data) ? payload.data : [];
+    currentTeam = team;
     renderTeam(team);
     hideError();
   } catch (error) {
     if (error.status === 404) {
+      currentTeam = [];
       renderTeam([]);
       hideError();
       return;
     }
+    currentTeam = [];
     renderTeam([]);
     console.error('[ERRORE UI]:', error);
     showError(error.message || 'Errore durante il caricamento del team.');
   }
+}
+
+async function onOpenPianoOperativoTab() {
+  await loadTasks(currentProjectId);
+}
+
+async function loadTasks(projectId) {
+  try {
+    hideError();
+    const payload = await requestJson(`${API_BASE}/progetti/${projectId}/tasks`);
+    currentTasks = Array.isArray(payload.data) ? payload.data : [];
+    renderKanban(currentTasks);
+  } catch (error) {
+    currentTasks = [];
+    renderKanban([]);
+    showError(error.message || 'Errore durante il caricamento task.');
+  }
+}
+
+function renderKanban(tasks) {
+  KANBAN_STATI.forEach((stato) => {
+    const container = document.querySelector(`.kanban-task-list[data-stato="${stato}"]`);
+    if (!container) return;
+    container.innerHTML = '';
+
+    const tasksColonna = tasks.filter((task) => normalizeTaskStato(task.stato) === stato);
+    if (!tasksColonna.length) {
+      container.innerHTML = '<div class="text-muted small">Nessun task</div>';
+      return;
+    }
+
+    tasksColonna.forEach((task) => {
+      container.appendChild(createTaskCard(task));
+    });
+  });
+}
+
+function createTaskCard(task) {
+  const card = document.createElement('div');
+  card.className = 'card task-card mb-2';
+  card.draggable = true;
+  card.dataset.idTask = String(task.id_task);
+  const bloccato = isTaskBlocked(task, currentTasks);
+  const priorita = task.priorita || 'Media';
+  const persona = task.nome_assegnato || 'Non assegnato';
+  const dipendenzaTitolo = task.titolo_dipendenza || '';
+
+  card.innerHTML = `
+    <div class="card-body p-2">
+      <div class="d-flex justify-content-between align-items-start">
+        <div class="fw-semibold">${escapeHtml(task.titolo || `Task ${task.id_task}`)}</div>
+        <div class="d-flex align-items-center gap-2">
+          ${bloccato ? '<span title="Task bloccato da dipendenza">🔒</span>' : ''}
+          <i class="bi bi-pencil edit-task-icon" onclick="apriModaleModificaTask(${task.id_task})" title="Modifica task"></i>
+        </div>
+      </div>
+      <div class="mt-2">
+        <span class="badge ${getPrioritaBadgeClass(priorita)}">${escapeHtml(priorita)}</span>
+      </div>
+      <div class="small text-muted mt-2">${escapeHtml(persona)}</div>
+      ${task.descrizione ? `<div class="small mt-1">${escapeHtml(task.descrizione)}</div>` : ''}
+      ${bloccato && dipendenzaTitolo ? `<div class="small text-danger mt-1">Dipende da: ${escapeHtml(dipendenzaTitolo)}</div>` : ''}
+    </div>
+  `;
+
+  card.addEventListener('dragstart', onTaskDragStart);
+  card.addEventListener('dragend', onTaskDragEnd);
+  return card;
+}
+
+function initKanbanDnD() {
+  document.querySelectorAll('.kanban-task-list').forEach((list) => {
+    list.addEventListener('dragover', onKanbanDragOver);
+    list.addEventListener('dragleave', onKanbanDragLeave);
+    list.addEventListener('drop', onKanbanDrop);
+  });
+}
+
+function onTaskDragStart(event) {
+  const idTask = event.currentTarget.dataset.idTask;
+  event.dataTransfer.setData('text/plain', idTask);
+  event.dataTransfer.effectAllowed = 'move';
+}
+
+function onTaskDragEnd(event) {
+  event.currentTarget.classList.remove('opacity-50');
+}
+
+function onKanbanDragOver(event) {
+  event.preventDefault();
+  event.currentTarget.classList.add('kanban-drop-target');
+  event.dataTransfer.dropEffect = 'move';
+}
+
+function onKanbanDragLeave(event) {
+  event.currentTarget.classList.remove('kanban-drop-target');
+}
+
+async function onKanbanDrop(event) {
+  event.preventDefault();
+  const container = event.currentTarget;
+  container.classList.remove('kanban-drop-target');
+  const idTask = Number(event.dataTransfer.getData('text/plain'));
+  const nuovoStato = container.dataset.stato;
+  if (!idTask || !nuovoStato) return;
+
+  const task = currentTasks.find((item) => Number(item.id_task) === idTask);
+  if (!task) return;
+  const statoAttuale = normalizeTaskStato(task.stato);
+  if (statoAttuale === nuovoStato) return;
+
+  const dependencyBlock = checkTaskDependencyBlock(task, nuovoStato, currentTasks);
+  if (dependencyBlock.blocked) {
+    showError(`Impossibile procedere: questo task dipende da [${dependencyBlock.parentTitle}].`);
+    return;
+  }
+
+  try {
+    hideError();
+    await requestJson(`${API_BASE}/tasks/${idTask}/stato`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stato: nuovoStato }),
+    });
+    task.stato = nuovoStato;
+    renderKanban(currentTasks);
+  } catch (error) {
+    showError(error.message || 'Errore durante lo spostamento del task.');
+  }
+}
+
+async function onOpenNuovoTaskModal() {
+  if (!currentTasks.length) {
+    await loadTasks(currentProjectId);
+  }
+  populateTaskAssigneeSelect();
+  populateTaskDependenciesSelect();
+  resetTaskModalForCreate();
+}
+
+function populateTaskAssigneeSelect() {
+  const select = document.getElementById('taskAssegnato');
+  select.innerHTML = '<option value="">Seleziona persona</option>';
+  currentTeam.forEach((persona) => {
+    const option = document.createElement('option');
+    option.value = String(persona.id_persona);
+    option.textContent = `${persona.nome || ''} ${persona.cognome || ''}`.trim();
+    select.appendChild(option);
+  });
+}
+
+function populateTaskDependenciesSelect() {
+  const select = document.getElementById('taskDipendenza');
+  select.innerHTML = '<option value="">Nessuna dipendenza</option>';
+  currentTasks.forEach((task) => {
+    const option = document.createElement('option');
+    option.value = String(task.id_task);
+    option.textContent = task.titolo || `Task ${task.id_task}`;
+    select.appendChild(option);
+  });
+}
+
+async function onSubmitGestioneTask(event) {
+  event.preventDefault();
+  const currentTaskId = Number(document.getElementById('taskIdCorrente').value);
+
+  const idPersona = Number(document.getElementById('taskAssegnato').value);
+  if (!idPersona) {
+    showError('Seleziona una persona assegnata al task.');
+    return;
+  }
+
+  const payload = {
+    id_progetto: currentProjectId,
+    titolo: document.getElementById('taskTitolo').value.trim(),
+    id_persona: idPersona,
+    priorita: document.getElementById('taskPriorita').value || 'Media',
+    scadenza: document.getElementById('taskScadenza').value || null,
+    descrizione: document.getElementById('taskDescrizione').value.trim(),
+    dipende_da_id: document.getElementById('taskDipendenza').value
+      ? Number(document.getElementById('taskDipendenza').value)
+      : null,
+  };
+
+  if (!payload.titolo) {
+    showError('Il titolo del task e obbligatorio.');
+    return;
+  }
+
+  try {
+    hideError();
+    if (currentTaskId) {
+      await requestJson(`${API_BASE}/tasks/${currentTaskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await requestJson(`${API_BASE}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    }
+    document.getElementById('formGestioneTask').reset();
+    closeModal('modalGestioneTask');
+    await loadTasks(currentProjectId);
+  } catch (error) {
+    showError(error.message || 'Errore durante il salvataggio del task.');
+  }
+}
+
+function resetTaskModalForCreate() {
+  document.getElementById('modalGestioneTaskLabel').textContent = 'Nuovo Task';
+  document.getElementById('btnSalvaTask').textContent = 'Salva Task';
+  document.getElementById('btnEliminaTask').classList.add('d-none');
+  document.getElementById('taskIdCorrente').value = '';
+  document.getElementById('formGestioneTask').reset();
+}
+
+function apriModaleModificaTask(idTask) {
+  const task = currentTasks.find((item) => Number(item.id_task) === Number(idTask));
+  if (!task) {
+    showError('Task non trovato.');
+    return;
+  }
+
+  populateTaskAssigneeSelect();
+  populateTaskDependenciesSelect();
+
+  document.getElementById('modalGestioneTaskLabel').textContent = 'Modifica Task';
+  document.getElementById('btnSalvaTask').textContent = 'Salva Modifiche';
+  document.getElementById('btnEliminaTask').classList.remove('d-none');
+  document.getElementById('taskIdCorrente').value = String(task.id_task);
+  document.getElementById('taskTitolo').value = task.titolo || '';
+  document.getElementById('taskAssegnato').value = task.id_persona ? String(task.id_persona) : '';
+  document.getElementById('taskPriorita').value = task.priorita || 'Media';
+  document.getElementById('taskScadenza').value = toDateInputValue(task.scadenza);
+  document.getElementById('taskDescrizione').value = task.descrizione || '';
+  document.getElementById('taskDipendenza').value = task.dipende_da_id ? String(task.dipende_da_id) : '';
+
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGestioneTask')).show();
+}
+
+async function onDeleteTaskCorrente() {
+  const idTask = Number(document.getElementById('taskIdCorrente').value);
+  if (!idTask) return;
+  const conferma = confirm('Confermi l eliminazione del task?');
+  if (!conferma) return;
+
+  try {
+    hideError();
+    await requestJson(`${API_BASE}/tasks/${idTask}`, { method: 'DELETE' });
+    closeModal('modalGestioneTask');
+    await loadTasks(currentProjectId);
+  } catch (error) {
+    showError(error.message || 'Errore durante eliminazione task.');
+  }
+}
+
+window.apriModaleModificaTask = apriModaleModificaTask;
+
+function normalizeTaskStato(value) {
+  if (!value) return 'Da Fare';
+  return KANBAN_STATI.includes(value) ? value : 'Da Fare';
+}
+
+function checkTaskDependencyBlock(task, nuovoStato, tasks) {
+  if (!['In Corso', 'Completato'].includes(nuovoStato)) {
+    return { blocked: false, parentTitle: '' };
+  }
+  if (!task.dipende_da_id) {
+    return { blocked: false, parentTitle: '' };
+  }
+  const parentTask = tasks.find((item) => Number(item.id_task) === Number(task.dipende_da_id));
+  if (!parentTask) {
+    return { blocked: true, parentTitle: 'task genitore non trovato' };
+  }
+  if (normalizeTaskStato(parentTask.stato) !== 'Completato') {
+    return { blocked: true, parentTitle: parentTask.titolo || `Task ${parentTask.id_task}` };
+  }
+  return { blocked: false, parentTitle: '' };
+}
+
+function isTaskBlocked(task, tasks) {
+  const check = checkTaskDependencyBlock(task, 'In Corso', tasks);
+  return check.blocked;
 }
 
 async function onSubmitAssegnaPersona(event) {
@@ -154,7 +456,7 @@ async function onOpenModificaProgettoModal() {
   if (!currentProjectData) return;
 
   try {
-    await loadRepartiSelect(currentProjectData.id_reparto);
+    await loadAreeSelect(currentProjectData.id_area);
   } catch (error) {
     showError(error.message);
   }
@@ -179,24 +481,24 @@ async function onOpenModificaProgettoModal() {
   document.getElementById('statoProgetto').value = currentProjectData.stato || 'Bozza';
 }
 
-async function loadRepartiSelect(selectedRepartoId) {
-  const selectReparto = document.getElementById('id_reparto');
-  selectReparto.innerHTML = '<option value="">Senza Reparto</option>';
+async function loadAreeSelect(selectedAreaId) {
+  const selectArea = document.getElementById('id_area');
+  selectArea.innerHTML = '<option value="">Senza Area</option>';
 
-  const payload = await requestJson(`${API_BASE}/reparti`);
-  const reparti = Array.isArray(payload.data) ? payload.data : [];
+  const payload = await requestJson(`${API_BASE}/aree`);
+  const aree = Array.isArray(payload.data) ? payload.data : [];
 
-  reparti.forEach((reparto) => {
+  aree.forEach((area) => {
     const option = document.createElement('option');
-    option.value = String(reparto.id_reparto);
-    option.textContent = reparto.nome_reparto || `Reparto ${reparto.id_reparto}`;
-    selectReparto.appendChild(option);
+    option.value = String(area.id_area);
+    option.textContent = area.nome_area || `Area ${area.id_area}`;
+    selectArea.appendChild(option);
   });
 
-  if (selectedRepartoId === null || selectedRepartoId === undefined || selectedRepartoId === '') {
-    selectReparto.value = '';
+  if (selectedAreaId === null || selectedAreaId === undefined || selectedAreaId === '') {
+    selectArea.value = '';
   } else {
-    selectReparto.value = String(selectedRepartoId);
+    selectArea.value = String(selectedAreaId);
   }
 }
 
@@ -220,8 +522,8 @@ async function onSubmitModificaProgetto(event) {
     priorita: document.getElementById('prioritaProgetto').value || null,
     budget: parsedBudget,
     stato: document.getElementById('statoProgetto').value || null,
-    id_reparto: document.getElementById('id_reparto').value
-      ? Number(document.getElementById('id_reparto').value)
+    id_area: document.getElementById('id_area').value
+      ? Number(document.getElementById('id_area').value)
       : null,
   };
 

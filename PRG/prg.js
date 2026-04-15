@@ -1,13 +1,26 @@
 const API_BASE = '/api/prg';
+let tuttiIProgetti = [];
+let tutteLeAree = [];
 
 document.addEventListener('securityReady', initApp);
 
-function initApp() {
+async function initApp() {
   const formCreaProgetto = document.getElementById('formCreaProgetto');
+  const filtroArea = document.getElementById('filtroArea');
+  const filtroPriorita = document.getElementById('filtroPriorita');
+  const filtroStato = document.getElementById('filtroStato');
 
   formCreaProgetto.addEventListener('submit', onSubmitNuovoProgetto);
+  filtroArea.addEventListener('change', applicaFiltri);
+  filtroPriorita.addEventListener('change', applicaFiltri);
+  filtroStato.addEventListener('change', applicaFiltri);
 
-  loadProgetti();
+  try {
+    hideError();
+    await Promise.all([loadAree(), loadProgetti()]);
+  } catch (error) {
+    showError(error.message);
+  }
 }
 
 async function requestJson(url, options = {}) {
@@ -24,115 +37,112 @@ async function requestJson(url, options = {}) {
 }
 
 async function loadProgetti() {
-  try {
-    hideError();
-    const payload = await requestJson(`${API_BASE}/progetti`);
-    const progetti = Array.isArray(payload.data) ? payload.data : [];
-    renderAccordionReparti(progetti);
-  } catch (error) {
-    showError(error.message);
+  const payload = await requestJson(`${API_BASE}/progetti`);
+  tuttiIProgetti = Array.isArray(payload.data) ? payload.data : [];
+  popolaFiltroStato(tuttiIProgetti);
+  applicaFiltri();
+}
+
+async function loadAree() {
+  const payload = await requestJson(`${API_BASE}/aree`);
+  tutteLeAree = Array.isArray(payload.data) ? payload.data : [];
+  popolaFiltroAree(tutteLeAree);
+}
+
+function popolaFiltroAree(aree) {
+  const select = document.getElementById('filtroArea');
+  const selected = select.value;
+  select.innerHTML = '<option value="">Tutte le Aree</option>';
+
+  aree.forEach((area) => {
+    const option = document.createElement('option');
+    option.value = String(area.id_area);
+    option.textContent = area.nome_area || `Area ${area.id_area}`;
+    select.appendChild(option);
+  });
+
+  if (selected && Array.from(select.options).some((opt) => opt.value === selected)) {
+    select.value = selected;
   }
 }
 
-function renderAccordionReparti(progetti) {
-  const accordion = document.getElementById('accordionReparti');
-  accordion.innerHTML = '';
+function popolaFiltroStato(progetti) {
+  const select = document.getElementById('filtroStato');
+  const selected = select.value;
+  const statiUnici = Array.from(
+    new Set(
+      progetti
+        .map((progetto) => (progetto.stato || '').trim())
+        .filter((stato) => stato)
+    )
+  ).sort((a, b) => a.localeCompare(b, 'it', { sensitivity: 'base' }));
+
+  select.innerHTML = '<option value="">Tutti gli Stati</option>';
+  statiUnici.forEach((stato) => {
+    const option = document.createElement('option');
+    option.value = stato;
+    option.textContent = stato;
+    select.appendChild(option);
+  });
+
+  if (selected && Array.from(select.options).some((opt) => opt.value === selected)) {
+    select.value = selected;
+  }
+}
+
+function applicaFiltri() {
+  const filtroArea = document.getElementById('filtroArea').value;
+  const filtroPriorita = document.getElementById('filtroPriorita').value;
+  const filtroStato = document.getElementById('filtroStato').value;
+
+  const progettiFiltrati = tuttiIProgetti.filter((progetto) => {
+    const matchArea = !filtroArea || String(progetto.id_area ?? '') === filtroArea;
+    const matchPriorita = !filtroPriorita || (progetto.priorita || '').toLowerCase() === filtroPriorita.toLowerCase();
+    const matchStato = !filtroStato || (progetto.stato || '') === filtroStato;
+    return matchArea && matchPriorita && matchStato;
+  });
+
+  renderTabellaProgetti(progettiFiltrati);
+}
+
+function renderTabellaProgetti(progetti) {
+  const tbody = document.getElementById('tabellaProgettiBody');
+  tbody.innerHTML = '';
 
   if (!progetti.length) {
-    accordion.innerHTML = '<div class="text-muted">Nessun progetto disponibile.</div>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Nessun progetto disponibile.</td></tr>';
     return;
   }
 
-  const grouped = groupProgettiByReparto(progetti);
-  grouped.forEach((group, index) => {
-    accordion.appendChild(buildAccordionItem(group, index));
-  });
-}
-
-function groupProgettiByReparto(progetti) {
-  const map = new Map();
-  const NULL_KEY = 'null-reparto';
-
   progetti.forEach((progetto) => {
-    const hasReparto = progetto.id_reparto !== null && progetto.id_reparto !== undefined;
-    const key = hasReparto ? String(progetto.id_reparto) : NULL_KEY;
+    const row = document.createElement('tr');
+    row.className = 'progetto-row';
+    row.setAttribute('data-id-progetto', String(progetto.id_progetto));
+    row.setAttribute('tabindex', '0');
+    row.setAttribute('role', 'link');
+    row.setAttribute('aria-label', `Apri progetto ${progetto.nome_progetto || `Progetto ${progetto.id_progetto}`}`);
 
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        id_reparto: hasReparto ? progetto.id_reparto : null,
-        nome_reparto: hasReparto
-          ? (progetto.nome_reparto || `Reparto ${progetto.id_reparto}`)
-          : 'Senza Reparto',
-        progetti: [],
-      });
-    }
+    const stato = progetto.stato || 'Bozza';
+    const priorita = progetto.priorita || '';
+    const nomeArea = progetto.nome_area || 'Senza Area';
 
-    map.get(key).progetti.push(progetto);
-  });
+    row.innerHTML = `
+      <td>${escapeHtml(progetto.nome_progetto || `Progetto ${progetto.id_progetto}`)}</td>
+      <td>${escapeHtml(nomeArea)}</td>
+      <td>${formatDate(progetto.data_inizio)}</td>
+      <td><span class="badge ${getPrioritaBadgeClass(priorita)}">${escapeHtml(priorita || 'N/D')}</span></td>
+      <td><span class="badge ${getStatoBadgeClass(stato)}">${escapeHtml(stato)}</span></td>
+      <td class="align-middle text-end">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="text-primary" viewBox="0 0 16 16">
+          <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+        </svg>
+      </td>
+    `;
 
-  const items = Array.from(map.values());
-  items.sort((a, b) => {
-    if (a.id_reparto === null) return 1;
-    if (b.id_reparto === null) return -1;
-    return a.nome_reparto.localeCompare(b.nome_reparto, 'it', { sensitivity: 'base' });
-  });
-  return items;
-}
-
-function buildAccordionItem(group, index) {
-  const item = document.createElement('div');
-  item.className = 'accordion-item';
-
-  const headingId = `heading-reparto-${index}`;
-  const collapseId = `collapse-reparto-${index}`;
-  const isFirst = index === 0;
-
-  item.innerHTML = `
-    <h2 class="accordion-header" id="${headingId}">
-      <button
-        class="accordion-button ${isFirst ? '' : 'collapsed'}"
-        type="button"
-        data-bs-toggle="collapse"
-        data-bs-target="#${collapseId}"
-        aria-expanded="${isFirst ? 'true' : 'false'}"
-        aria-controls="${collapseId}"
-      >
-        ${escapeHtml(group.nome_reparto)} <span class="ms-2 badge text-bg-secondary">${group.progetti.length}</span>
-      </button>
-    </h2>
-    <div
-      id="${collapseId}"
-      class="accordion-collapse collapse ${isFirst ? 'show' : ''}"
-      aria-labelledby="${headingId}"
-      data-bs-parent="#accordionReparti"
-    >
-      <div class="accordion-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0">
-            <thead class="table-light">
-              <tr>
-                <th scope="col">Nome</th>
-                <th scope="col">Data Inizio</th>
-                <th scope="col">Priorità</th>
-                <th scope="col">Stato</th>
-                <th scope="col" class="text-end" style="width: 1%; white-space: nowrap;">Azioni</th>
-              </tr>
-            </thead>
-            <tbody>${buildRowsProgetti(group.progetti)}</tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  `;
-
-  item.querySelectorAll('.progetto-row').forEach((row) => {
     const goToDettaglio = () => {
-      const idProgetto = row.getAttribute('data-id-progetto');
-      window.location.href = `progetto.html?id=${encodeURIComponent(idProgetto)}`;
+      window.location.href = `progetto.html?id=${encodeURIComponent(progetto.id_progetto)}`;
     };
     row.addEventListener('click', (event) => {
-      // If future interactive controls are added inside the row, use stopPropagation on them.
       if (event.target.closest('button, a, input, select, textarea, [data-stop-row-nav]')) return;
       goToDettaglio();
     });
@@ -142,31 +152,8 @@ function buildAccordionItem(group, index) {
         goToDettaglio();
       }
     });
+    tbody.appendChild(row);
   });
-
-  return item;
-}
-
-function buildRowsProgetti(progetti) {
-  return progetti
-    .map((progetto) => {
-      const stato = progetto.stato || 'Bozza';
-      const pVal = progetto.priorita || '';
-      return `
-        <tr class="progetto-row" data-id-progetto="${escapeHtml(progetto.id_progetto)}" tabindex="0" role="link" aria-label="Apri progetto ${escapeHtml(progetto.nome_progetto || `Progetto ${progetto.id_progetto}`)}">
-          <td>${escapeHtml(progetto.nome_progetto || `Progetto ${progetto.id_progetto}`)}</td>
-          <td>${formatDate(progetto.data_inizio)}</td>
-          <td><span class="badge ${getPrioritaBadgeClass(pVal)}">${escapeHtml(pVal || 'N/D')}</span></td>
-          <td><span class="badge ${getStatoBadgeClass(stato)}">${escapeHtml(stato)}</span></td>
-          <td class="align-middle text-end">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="text-primary" viewBox="0 0 16 16">
-              <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
-            </svg>
-          </td>
-        </tr>
-      `;
-    })
-    .join('');
 }
 
 async function onSubmitNuovoProgetto(event) {

@@ -1,12 +1,12 @@
 const API_BASE = '/api/prg';
-let editingRepartoId = null;
+let editingAreaId = null;
 
 document.addEventListener('securityReady', initApp);
 
 function initApp() {
-  document.getElementById('formReparto').addEventListener('submit', onSubmitReparto);
-  document.getElementById('btnNuovoReparto').addEventListener('click', openCreateModal);
-  loadReparti();
+  document.getElementById('formArea').addEventListener('submit', onSubmitArea);
+  document.getElementById('btnNuovaArea').addEventListener('click', openCreateModal);
+  loadAree();
 }
 
 async function requestJson(url, options = {}) {
@@ -20,24 +20,24 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
-async function loadReparti() {
+async function loadAree() {
   try {
     hideError();
-    const payload = await requestJson(`${API_BASE}/reparti`);
-    const reparti = Array.isArray(payload.data) ? payload.data : [];
-    const tbody = document.getElementById('listaReparti');
+    const payload = await requestJson(`${API_BASE}/aree`);
+    const aree = Array.isArray(payload.data) ? payload.data : [];
+    const tbody = document.getElementById('listaAree');
     tbody.innerHTML = '';
 
-    if (!reparti.length) {
-      tbody.innerHTML = '<tr><td colspan="3" class="text-muted">Nessun reparto disponibile.</td></tr>';
+    if (!aree.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="text-muted">Nessuna area disponibile.</td></tr>';
       return;
     }
 
-    reparti.forEach((reparto) => {
+    aree.forEach((area) => {
       const row = document.createElement('tr');
       row.innerHTML = `
-        <td>${escapeHtml(reparto.nome_reparto || `Reparto ${reparto.id_reparto}`)}</td>
-        <td>${escapeHtml(reparto.descrizione || '-')}</td>
+        <td>${escapeHtml(area.nome_area || `Area ${area.id_area}`)}</td>
+        <td>${escapeHtml(area.descrizione || '-')}</td>
         <td class="text-end">
           <button type="button" class="btn btn-outline-primary btn-sm me-2" data-action="edit">Modifica</button>
           <button type="button" class="btn btn-outline-danger btn-sm" data-action="delete">Elimina</button>
@@ -45,10 +45,10 @@ async function loadReparti() {
       `;
 
       row.querySelector('[data-action="edit"]').addEventListener('click', () => {
-        openEditModal(reparto);
+        openEditModal(area);
       });
       row.querySelector('[data-action="delete"]').addEventListener('click', () => {
-        onDeleteReparto(reparto.id_reparto);
+        onDeleteArea(area.id_area);
       });
       tbody.appendChild(row);
     });
@@ -58,66 +58,66 @@ async function loadReparti() {
 }
 
 function openCreateModal() {
-  editingRepartoId = null;
-  document.getElementById('modalRepartoLabel').textContent = 'Nuovo Reparto';
-  document.getElementById('idReparto').value = '';
-  document.getElementById('nomeReparto').value = '';
-  document.getElementById('descrizioneReparto').value = '';
+  editingAreaId = null;
+  document.getElementById('modalAreaLabel').textContent = 'Nuova Area';
+  document.getElementById('idArea').value = '';
+  document.getElementById('nomeArea').value = '';
+  document.getElementById('descrizioneArea').value = '';
 }
 
-function openEditModal(reparto) {
-  editingRepartoId = Number(reparto.id_reparto);
-  document.getElementById('modalRepartoLabel').textContent = 'Modifica Reparto';
-  document.getElementById('idReparto').value = String(reparto.id_reparto);
-  document.getElementById('nomeReparto').value = reparto.nome_reparto || '';
-  document.getElementById('descrizioneReparto').value = reparto.descrizione || '';
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalReparto')).show();
+function openEditModal(area) {
+  editingAreaId = Number(area.id_area);
+  document.getElementById('modalAreaLabel').textContent = 'Modifica Area';
+  document.getElementById('idArea').value = String(area.id_area);
+  document.getElementById('nomeArea').value = area.nome_area || '';
+  document.getElementById('descrizioneArea').value = area.descrizione || '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalArea')).show();
 }
 
-async function onSubmitReparto(event) {
+async function onSubmitArea(event) {
   event.preventDefault();
 
   const body = {
-    nome_reparto: document.getElementById('nomeReparto').value.trim(),
-    descrizione: document.getElementById('descrizioneReparto').value.trim(),
+    nome_area: document.getElementById('nomeArea').value.trim(),
+    descrizione: document.getElementById('descrizioneArea').value.trim(),
   };
 
-  if (!body.nome_reparto) {
-    showError('Il nome reparto e obbligatorio.');
+  if (!body.nome_area) {
+    showError('Il nome area e obbligatorio.');
     return;
   }
 
   try {
     hideError();
-    if (editingRepartoId) {
-      await requestJson(`${API_BASE}/reparti/${editingRepartoId}`, {
+    if (editingAreaId) {
+      await requestJson(`${API_BASE}/aree/${editingAreaId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
     } else {
-      await requestJson(`${API_BASE}/reparti`, {
+      await requestJson(`${API_BASE}/aree`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
     }
 
-    closeModal('modalReparto');
-    await loadReparti();
+    closeModal('modalArea');
+    await loadAree();
   } catch (error) {
     showError(error.message);
   }
 }
 
-async function onDeleteReparto(idReparto) {
-  const conferma = confirm('Confermi l eliminazione del reparto?');
+async function onDeleteArea(idArea) {
+  const conferma = confirm('Confermi l eliminazione dell area?');
   if (!conferma) return;
 
   try {
     hideError();
-    await requestJson(`${API_BASE}/reparti/${idReparto}`, { method: 'DELETE' });
-    await loadReparti();
+    await requestJson(`${API_BASE}/aree/${idArea}`, { method: 'DELETE' });
+    await loadAree();
   } catch (error) {
     showError(error.message);
   }
