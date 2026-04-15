@@ -75,10 +75,21 @@ const MrpApp = (() => {
 
     function confermaOrdine(key, datiOrdine) {
         state.ordiniConfermati.set(key, datiOrdine);
+        // Safety-net: persisti su DB via PendingSync (localStorage-first + debounce).
+        try {
+            if (window.PendingSync && datiOrdine) {
+                PendingSync.upsert(key, {
+                    quantita_confermata: datiOrdine.quantita_confermata,
+                    prezzo: datiOrdine.prezzo,
+                    prezzo_override: datiOrdine.prezzo_override
+                });
+            }
+        } catch (_) {}
     }
 
     function rimuoviOrdine(key) {
         state.ordiniConfermati.delete(key);
+        try { if (window.PendingSync) PendingSync.remove(key); } catch (_) {}
     }
 
     function getOrdiniConfermati() {
@@ -98,6 +109,38 @@ const MrpApp = (() => {
 
 document.addEventListener('DOMContentLoaded', () => {
     MrpApp.init();
+
+    // PendingSync indicator wiring
+    if (window.PendingSync) {
+        const el = document.getElementById('pendingSyncIndicator');
+        if (el) {
+            const labelEl = el.querySelector('.psi-label');
+            PendingSync.onStateChange(s => {
+                el.classList.remove('psi-ok', 'psi-pending', 'psi-error');
+                if (s.status === 'ok' && s.pending === 0) {
+                    el.style.display = 'none';
+                    return;
+                }
+                el.style.display = '';
+                if (s.status === 'error') {
+                    el.classList.add('psi-error');
+                    if (labelEl) labelEl.textContent = '⚠ ' + s.pending + ' non salv.';
+                    el.title = 'Errore di sincronizzazione con il DB!\n' +
+                               (s.lastError || '') + '\n\n' +
+                               '⚠ NON aggiornare la pagina: il lavoro in corso verrebbe perso.\n' +
+                               'Riprovo automaticamente in background.';
+                } else if (s.status === 'pending') {
+                    el.classList.add('psi-pending');
+                    if (labelEl) labelEl.textContent = '↻ ' + s.pending + ' in salvataggio';
+                    el.title = s.pending + ' modifica/e in corso di salvataggio sul DB...';
+                } else {
+                    el.classList.add('psi-ok');
+                    if (labelEl) labelEl.textContent = '✓ salvato';
+                    el.title = 'Tutte le modifiche sono state salvate sul DB.';
+                }
+            });
+        }
+    }
 
     // Inizializza color picker nelle legende e gestisce cambi colore
     function initLegendaColorPickers() {

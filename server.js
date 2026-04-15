@@ -121,6 +121,14 @@ server.listen(PORT, '0.0.0.0', async () => {
             const poolTarget = await getPoolDest(0); // server destinazione default
             const results = await createGb2Routes.deployProductionObjects(pool163, poolTarget);
             console.log('[GB2] Auto-deploy SQL completato:', results.map(r => `${r.file}: ${r.status}`).join(', '));
+
+            // Cleanup fire-and-forget delle entry pending legate a elaborazioni non piu correnti.
+            // Non-bloccante, priorita deadlock bassa, non interferisce col lavoro utente.
+            setImmediate(() => {
+                createGb2Routes.cleanupStaleConfermatiPending(pool163).catch(e => {
+                    console.warn('[GB2] Cleanup ordini_confermati_pending fallito:', e.message);
+                });
+            });
         } catch (err) {
             console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);
         }

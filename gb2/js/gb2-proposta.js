@@ -228,6 +228,56 @@ const MrpProposta = (() => {
                 MrpApp.state.elaborazione = null;
             }
 
+            // Inizializza PendingSync e idrata dai pending persistiti lato DB.
+            // Nota: hydrateFromDB popola MrpApp.state.ordiniConfermati con le entry
+            // non ancora emesse, così il refresh non perde il lavoro dell'operatore.
+            try {
+                if (window.PendingSync && elaborazione && elaborazione.id) {
+                    PendingSync.init({
+                        elaborazioneId: String(elaborazione.id),
+                        userId: (MrpApp.state && MrpApp.state.userId) || 0
+                    });
+                    const pendingRows = Array.isArray(payload.ordini_confermati_pending)
+                        ? payload.ordini_confermati_pending : [];
+                    // Popola Map RAM a partire da SnapshotProposte + pendingRows.
+                    // Per ogni row pending trovo la riga corrispondente nella proposta
+                    // e ricostruisco il dato dell'ordine confermato (descrizioni, date,
+                    // prezzo attuale se non override). Usiamo data (= payload.righe) come sorgente.
+                    const byKey = new Map();
+                    for (const r of data) {
+                        const k = MrpApp.getKeyOrdine(r.fornitore_codice, r.ol_codart, r.ol_fase || 0, r.ol_magaz || 1);
+                        // Solo la prima occorrenza (stessa chiave può avere più date di consegna)
+                        if (!byKey.has(k)) byKey.set(k, r);
+                    }
+                    for (const p of pendingRows) {
+                        const k = `${p.fornitore_codice}|${p.codart}|${p.fase || 0}|${p.magaz || 1}`;
+                        const riga = byKey.get(k);
+                        if (!riga) continue; // orfana → la cleanup al boot se ne occuperà
+                        const prezzo = (p.prezzo_override != null) ? Number(p.prezzo_override) : Number(riga.ol_prezzo || 0);
+                        MrpApp.state.ordiniConfermati.set(k, {
+                            fornitore_codice: riga.fornitore_codice,
+                            fornitore_nome: riga.fornitore_nome,
+                            fornitore_email: riga.fornitore_email,
+                            ol_codart: riga.ol_codart,
+                            ar_descr: riga.ar_descr,
+                            ol_fase: riga.ol_fase || 0,
+                            ol_magaz: riga.ol_magaz || 1,
+                            quantita_confermata: Number(p.quantita_confermata),
+                            data_consegna: riga.ol_datcons,
+                            prezzo: prezzo,
+                            perqta: Number(riga.ol_perqta || 1),
+                            ol_unmis: riga.ol_unmis,
+                            _fromPending: true
+                        });
+                    }
+                    // Sincronizza anche la cache LS col DB: DB wins per le entry
+                    // già syncate, LS wins per quelle ancora synced=false.
+                    PendingSync.hydrateFromDB(pendingRows, { mergeIntoMap: null });
+                }
+            } catch (psErr) {
+                console.warn('[Proposta] PendingSync init/hydrate fallito (continuo):', psErr.message);
+            }
+
             // Popola ordiniEmessi/ordiniCongelati dal server — le righe con email_inviata
             // vengono filtrate via dalla vista per evitare che l'operatore le riusi per errore.
             const righeVisibili = ripristinaOrdiniEmessiDaServer(data);
@@ -295,9 +345,47 @@ const MrpProposta = (() => {
             `;
         }
 
-        for (const [, forn] of fornitori) {
+        // ─── Sort 4-tier (applicato solo al refresh della pagina) ───
+        //   Tier 0: fornitori con ordini emessi ed email ancora da inviare (azione imminente)
+        //   Tier 1: fornitori con almeno un articolo confermato (lavoro in corso)
+        //   Tier 2: fornitori con ordini congelati (email già inviata, solo informazione)
+        //   Tier 3: fornitori senza attività
+        // Dentro ogni tier: ordine per codice fornitore (come prima).
+        function tierForForn(fk) {
+            if (ordiniEmessi.has(fk)) return 0;
+            const extras = ordiniEmessiExtra.get(fk);
+            if (extras && extras.length > 0) return 0;
+            // Confermati pending su questo fornitore?
+            const confermati = MrpApp.state.ordiniConfermati;
+            for (const [k, v] of confermati) {
+                if (String(v && v.fornitore_codice) === fk) return 1;
+            }
+            if (ordiniCongelati.has(fk)) return 2;
+            return 3;
+        }
+        const fornitoriSorted = Array.from(fornitori.entries()).sort((a, b) => {
+            const ta = tierForForn(a[0]);
+            const tb = tierForForn(b[0]);
+            if (ta !== tb) return ta - tb;
+            return a[0].localeCompare(b[0], 'it');
+        });
+
+        let lastTier = -1;
+        for (const [fkIter, forn] of fornitoriSorted) {
+            const curTier = tierForForn(fkIter);
+            if (lastTier !== -1 && curTier !== lastTier) {
+                // Separator tra i tier
+                const sep = document.createElement('div');
+                sep.className = 'proposta-tier-divider';
+                sep.dataset.fromTier = String(lastTier);
+                sep.dataset.toTier = String(curTier);
+                listEl.appendChild(sep);
+            }
+            lastTier = curTier;
+
             const div = document.createElement('div');
             div.className = 'proposta-fornitore';
+            div.dataset.tier = String(curTier);
 
             let valoreFornitore = 0;
             let htmlArticoli = '';
@@ -554,8 +642,7 @@ const MrpProposta = (() => {
             // Rimuovi vecchi pulsanti/badge
             const oldBtn = header.querySelector('.btn-emetti-ordine');
             if (oldBtn) oldBtn.remove();
-            const oldEmesso = header.querySelector('.fornitore-emesso-badge');
-            if (oldEmesso) oldEmesso.remove();
+            header.querySelectorAll('.fornitore-emesso-badge').forEach(el => el.remove());
             const oldCongelato = header.querySelector('.fornitore-congelato-badge');
             if (oldCongelato) oldCongelato.remove();
 
@@ -578,11 +665,13 @@ const MrpProposta = (() => {
             // Ordine emesso con email pendente — badge + pulsanti email/annulla.
             // NOTA: non usiamo più `return` — il fornitore può avere anche articoli
             // proposti ancora da confermare/emettere sotto lo stesso badge.
-            const emesso = ordiniEmessi.get(fornCode);
-            if (emesso) {
-                header.classList.add('fornitore-emesso');
+            // Builder condiviso fra ordine principale ed eventuali ordini extra
+            // (caso raro: operatore ha volontariamente creato più ordini separati
+            // per lo stesso fornitore — ognuno ha i propri controlli PDF/Email/Annulla).
+            const buildEmessoBadge = (emesso, { isExtra }) => {
                 const emessoBadge = document.createElement('span');
                 emessoBadge.className = 'fornitore-emesso-badge';
+                if (isExtra) emessoBadge.classList.add('fornitore-emesso-extra');
 
                 const emailIcon = emesso.email_inviata ? ' \u2709' : '';
                 const bcubeLabel = emesso.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
@@ -595,18 +684,21 @@ const MrpProposta = (() => {
                 btnPdf.addEventListener('click', (e) => { e.stopPropagation(); scaricaPdf(emesso); });
                 emessoBadge.appendChild(btnPdf);
 
-                // Dropdown template email
-                const tplSelectHtml = buildTemplateSelect(fornCode);
-                if (tplSelectHtml) {
-                    const tplWrapper = document.createElement('span');
-                    tplWrapper.innerHTML = tplSelectHtml;
-                    const selectEl = tplWrapper.firstElementChild;
-                    selectEl.addEventListener('click', (e) => e.stopPropagation());
-                    selectEl.addEventListener('change', (e) => {
-                        e.stopPropagation();
-                        onTemplateSelectChange(fornCode, parseInt(selectEl.value, 10));
-                    });
-                    emessoBadge.appendChild(selectEl);
+                // Dropdown template email — solo sul badge principale (il select è condiviso,
+                // non ha senso duplicarlo per ordini extra: riusano lo stesso template)
+                if (!isExtra) {
+                    const tplSelectHtml = buildTemplateSelect(fornCode);
+                    if (tplSelectHtml) {
+                        const tplWrapper = document.createElement('span');
+                        tplWrapper.innerHTML = tplSelectHtml;
+                        const selectEl = tplWrapper.firstElementChild;
+                        selectEl.addEventListener('click', (e) => e.stopPropagation());
+                        selectEl.addEventListener('change', (e) => {
+                            e.stopPropagation();
+                            onTemplateSelectChange(fornCode, parseInt(selectEl.value, 10));
+                        });
+                        emessoBadge.appendChild(selectEl);
+                    }
                 }
 
                 const btnEmail = document.createElement('button');
@@ -637,7 +729,22 @@ const MrpProposta = (() => {
                 });
                 emessoBadge.appendChild(btnAnnulla);
 
-                header.appendChild(emessoBadge);
+                return emessoBadge;
+            };
+
+            const emesso = ordiniEmessi.get(fornCode);
+            if (emesso) {
+                header.classList.add('fornitore-emesso');
+                header.appendChild(buildEmessoBadge(emesso, { isExtra: false }));
+            }
+
+            // Ordini extra (2° e successivi pending per lo stesso fornitore)
+            const extras = ordiniEmessiExtra.get(fornCode);
+            if (extras && extras.length > 0) {
+                header.classList.add('fornitore-emesso');
+                for (const ex of extras) {
+                    header.appendChild(buildEmessoBadge(ex, { isExtra: true }));
+                }
             }
 
             // Nuova regola: basta 1 articolo confermato per sbloccare l'emissione.
@@ -676,6 +783,10 @@ const MrpProposta = (() => {
     // ORDINI GIA EMESSI (ripristinati dal server ad ogni caricamento)
     // ============================================================
     const ordiniEmessi = new Map(); // key = fornitore_codice, value = { anno, serie, numord, pdf_base64, pdf_filename, email, fornitore_nome }
+    // 2° e successivi ordini pending per lo stesso fornitore (caso raro: operatore ha
+    // emesso volontariamente più ordini separati). ordiniEmessi contiene il primo,
+    // questa Map contiene gli extra. Ogni entry ha la stessa shape di ordiniEmessi.
+    const ordiniEmessiExtra = new Map(); // key = fornitore_codice, value = Array<ordine>
     // Ordini "congelati" — già emessi E con email inviata. Righe escluse dalla vista proposta.
     const ordiniCongelati = new Map(); // key = fornitore_codice, value = [ { anno, serie, numord, email_inviata_il, fornitore_nome } ]
 
@@ -690,6 +801,7 @@ const MrpProposta = (() => {
      */
     function ripristinaOrdiniEmessiDaServer(righe) {
         ordiniEmessi.clear();
+        ordiniEmessiExtra.clear();
         ordiniCongelati.clear();
 
         // Raggruppa righe emesse per fornitore e per (anno|serie|numord)
@@ -736,7 +848,8 @@ const MrpProposta = (() => {
             }
         }
 
-        // Popola ordiniEmessi con il primo (e tipicamente unico) ordine pending per fornitore
+        // Popola ordiniEmessi con il primo ordine pending per fornitore e ordiniEmessiExtra
+        // con eventuali successivi (caso raro: operatore ha creato più ordini separati).
         for (const [fk, ordMap] of pendingByForn) {
             const entries = Array.from(ordMap.values());
             const primo = entries[0];
@@ -755,6 +868,23 @@ const MrpProposta = (() => {
                 fornitore_email: primo.fornitore_email,
                 origine: primo.origine
             });
+            if (entries.length > 1) {
+                const extras = entries.slice(1).map(e => ({
+                    anno: e.anno,
+                    serie: e.serie,
+                    numord: e.numord,
+                    pdf_base64: null,
+                    pdf_filename: null,
+                    email: '',
+                    email_inviata: false,
+                    email_inviata_il: null,
+                    fornitore_nome: e.fornitore_nome,
+                    fornitore_codice: fk,
+                    fornitore_email: e.fornitore_email,
+                    origine: e.origine
+                }));
+                ordiniEmessiExtra.set(fk, extras);
+            }
         }
 
         // Popola ordiniCongelati
@@ -783,10 +913,13 @@ const MrpProposta = (() => {
             if (Number(h.dataset.conteggioConfermati || '0') > 0) fornitoriPronti++;
         });
 
-        // Conta email pendenti (emessi ma email non ancora inviata)
+        // Conta email pendenti (emessi ma email non ancora inviata) — include anche gli extras.
         let emailPendenti = 0;
         ordiniEmessi.forEach(emesso => {
             if (!emesso.email_inviata) emailPendenti++;
+        });
+        ordiniEmessiExtra.forEach(arr => {
+            for (const ex of arr) { if (!ex.email_inviata) emailPendenti++; }
         });
 
         if (fornitoriPronti === 0 && emailPendenti === 0) {
@@ -1097,9 +1230,22 @@ const MrpProposta = (() => {
                 return;
             }
 
-            // Successo: rimuovi da Map e ricarica proposte
+            // Successo: rimuovi da Map e ricarica proposte.
+            // Se l'ordine annullato era il primario, sgancia; altrimenti rimuovilo dagli extras.
+            // (caricaProposta() subito sotto ri-popola comunque tutto, ma evitiamo stato inconsistente
+            // nei ms prima che la refetch completi.)
             const fk = String(emesso.fornitore_codice);
-            ordiniEmessi.delete(fk);
+            const primario = ordiniEmessi.get(fk);
+            const matches = (e) => e && String(e.anno) === String(emesso.anno)
+                && String(e.serie) === String(emesso.serie)
+                && String(e.numord) === String(emesso.numord);
+            if (matches(primario)) {
+                ordiniEmessi.delete(fk);
+            } else if (ordiniEmessiExtra.has(fk)) {
+                const arr = ordiniEmessiExtra.get(fk).filter(e => !matches(e));
+                if (arr.length > 0) ordiniEmessiExtra.set(fk, arr);
+                else ordiniEmessiExtra.delete(fk);
+            }
             await modale('success', 'Ordine annullato',
                 'L\'ordine <strong>' + esc(ordLabel) + '</strong> è stato annullato con successo.');
 
@@ -1792,22 +1938,27 @@ const MrpProposta = (() => {
             }
 
             if (data.success) {
-                // Aggiorna stato email nella Map ordiniEmessi e nel DOM
+                // Aggiorna stato email nella Map giusta — può essere primario o extra.
                 const fk = String(emesso.fornitore_codice || emesso.ol_conto || '');
-                if (fk && ordiniEmessi.has(fk)) {
+                const matchOrd = (e) =>
+                    String(e.anno) === String(emesso.anno) &&
+                    String(e.serie) === String(emesso.serie) &&
+                    String(e.numord) === String(emesso.numord);
+                if (fk && ordiniEmessi.has(fk) && matchOrd(ordiniEmessi.get(fk))) {
                     const entry = ordiniEmessi.get(fk);
                     entry.email_inviata = true;
                     entry.email_inviata_il = new Date().toISOString();
-                }
-                // Aggiorna bottone email nel DOM (da "Invia" a "Re-invia")
-                document.querySelectorAll('.btn-invia-email-forn').forEach(btn => {
-                    const header = btn.closest('.proposta-fornitore-header');
-                    if (header && header.dataset.forn === fk) {
-                        btn.textContent = '\u2709 Re-invia Email';
-                        btn.classList.remove('email-non-inviata');
-                        btn.classList.add('email-gia-inviata');
+                } else if (fk && ordiniEmessiExtra.has(fk)) {
+                    const arr = ordiniEmessiExtra.get(fk);
+                    const entry = arr.find(matchOrd);
+                    if (entry) {
+                        entry.email_inviata = true;
+                        entry.email_inviata_il = new Date().toISOString();
                     }
-                });
+                }
+                // Ri-renderizza i badge del fornitore per riflettere lo stato aggiornato
+                // (l'intero set di bottoni dipende dal flag email_inviata)
+                aggiornaBarreFornitori();
                 // In modalità 'ultima_scelta', salva il template usato per questo fornitore
                 if (_templateMode === 'ultima_scelta' && body.template_id && fk) {
                     onTemplateSelectChange(fk, body.template_id);
@@ -1835,7 +1986,11 @@ const MrpProposta = (() => {
 
     async function inviaTutteEmailHandler() {
         const pendenti = [];
-        // Email gia pendenti (ordini emessi in precedenza, email non ancora inviata)
+        // Email gia pendenti (ordini emessi in precedenza, email non ancora inviata).
+        // NOTA: gli ordini extra (2°+ ordine pending per lo stesso fornitore) sono gestiti
+        // solo tramite i loro bottoni Invia Email individuali nella header. Il flusso batch
+        // usa fornitore_codice come id DOM/riga ed è incompatibile con più righe per fk
+        // senza un refactor più grosso del modaleBatchEmail. Caso raro, limitazione nota.
         ordiniEmessi.forEach((emesso, fk) => {
             if (!emesso.email_inviata) {
                 pendenti.push({ ...emesso, fornitore_codice: fk });

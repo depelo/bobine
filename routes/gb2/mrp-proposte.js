@@ -551,7 +551,28 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
             return r;
         });
 
-        res.json({ elaborazione, righe });
+        // ─── Ordini confermati pending (safety-net dello stato "Conferma per ordine") ───
+        // Solo per l'elaborazione corrente E per l'utente corrente. Le entry legate
+        // a elaborazioni precedenti non vengono restituite (saranno ripulite al prossimo boot).
+        let ordini_confermati_pending = [];
+        if (elaborazione && elaborazione.id) {
+            try {
+                const ocpRes = await poolGB2.request()
+                    .input('eid', sql.Int, elaborazione.id)
+                    .input('uid', sql.Int, userId)
+                    .query(`
+                        SELECT fornitore_codice, codart, fase, magaz,
+                               quantita_confermata, prezzo_override, updated_at
+                        FROM [GB2].[dbo].[ordini_confermati_pending]
+                        WHERE elaborazione_id = @eid AND user_id = @uid
+                    `);
+                ordini_confermati_pending = ocpRes.recordset || [];
+            } catch (ocpErr) {
+                console.warn('[API] Fetch ordini_confermati_pending fallito (continuo):', ocpErr.message);
+            }
+        }
+
+        res.json({ elaborazione, righe, ordini_confermati_pending });
     } catch (err) {
         console.error('[API] Errore proposta-ordini:', err);
         res.status(500).json({ error: err.message });

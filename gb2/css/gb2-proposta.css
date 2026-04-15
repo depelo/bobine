@@ -138,6 +138,14 @@
     overflow: hidden;
 }
 
+/* Divider tra i tier del sort al refresh (email-pending / confermati / congelati / niente) */
+.proposta-tier-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--border), transparent);
+    margin: 12px 0 20px 0;
+    opacity: 0.6;
+}
+
 .proposta-fornitore-header {
     background: var(--primary);
     color: white;
@@ -417,6 +425,13 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+}
+
+/* Badge per ordini extra (2° e successivi pending per stesso fornitore).
+   Stesso stile del primario ma con bordo lieve per distinguerli visivamente. */
+.fornitore-emesso-badge.fornitore-emesso-extra {
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px dashed rgba(255, 255, 255, 0.5);
 }
 
 .fornitore-email-pending {

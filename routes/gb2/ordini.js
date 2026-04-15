@@ -179,6 +179,31 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
             }
         }
 
+        // ── Cleanup ordini_confermati_pending per le chiavi appena emesse ──
+        // Le entry vivevano come "safety-net" finche l'operatore non cliccava Emetti.
+        // Ora sono diventate ordini reali: vanno rimosse per non resuscitare al refresh.
+        if (elaborazione_id) {
+            try {
+                const eid = parseInt(elaborazione_id, 10);
+                const fcode = String(fornitore_codice);
+                for (const riga of righeOrdine) {
+                    await poolOE.request()
+                        .input('eid', sql.Int, eid)
+                        .input('uid', sql.Int, uid)
+                        .input('forn', sql.VarChar(20), fcode)
+                        .input('codart', sql.VarChar(50), riga.mo_codart)
+                        .input('fase', sql.SmallInt, riga.mo_fase || 0)
+                        .input('magaz', sql.SmallInt, riga.mo_magaz || 1)
+                        .query(`DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
+                                WHERE elaborazione_id=@eid AND user_id=@uid
+                                  AND fornitore_codice=@forn AND codart=@codart
+                                  AND fase=@fase AND magaz=@magaz`);
+                }
+            } catch (cpErr) {
+                console.warn('[Emetti Ordine] Cleanup pending fallito (continuo):', cpErr.message);
+            }
+        }
+
         res.json({
             success: true,
             ambiente: serverDest,
@@ -455,6 +480,29 @@ router.post('/modifica-ordine', authMiddleware, async (req, res) => {
                     .query(`UPDATE [GB2].[dbo].[ElaborazioniMRP] SET TotaleGestite=@gestite, UpdatedAt=GETDATE() WHERE ID=@eid`);
             } catch (snapErr) {
                 console.warn('[Modifica Ordine] Aggiornamento snapshot fallito (continuo):', snapErr.message);
+            }
+        }
+
+        // ── Cleanup ordini_confermati_pending per le righe appena mergeate ──
+        if (elaborazione_id && righeNuove.length > 0) {
+            try {
+                const eid = parseInt(elaborazione_id, 10);
+                const fcode = String(fornitore_codice);
+                for (const riga of righeNuove) {
+                    await poolOE.request()
+                        .input('eid', sql.Int, eid)
+                        .input('uid', sql.Int, uid)
+                        .input('forn', sql.VarChar(20), fcode)
+                        .input('codart', sql.VarChar(50), riga.mo_codart)
+                        .input('fase', sql.SmallInt, riga.mo_fase || 0)
+                        .input('magaz', sql.SmallInt, riga.mo_magaz || 1)
+                        .query(`DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
+                                WHERE elaborazione_id=@eid AND user_id=@uid
+                                  AND fornitore_codice=@forn AND codart=@codart
+                                  AND fase=@fase AND magaz=@magaz`);
+                }
+            } catch (cpErr) {
+                console.warn('[Modifica Ordine] Cleanup pending fallito (continuo):', cpErr.message);
             }
         }
 

@@ -38,6 +38,7 @@ function createGb2Routes({ io, skipAuth } = {}) {
     require('./gb2/articoli')(router, deps);
     require('./gb2/mrp-proposte')(router, deps);
     require('./gb2/ordini')(router, deps);
+    require('./gb2/conferma-pending')(router, deps);
     require('./gb2/email')(router, deps);
     require('./gb2/fornitori')(router, deps);
 
@@ -49,5 +50,6 @@ const _bootHelpers = createHelpers({
     getTestHasRiep, PRODUCTION_PROFILE
 });
 createGb2Routes.deployProductionObjects = _bootHelpers.deployProductionObjects;
+createGb2Routes.cleanupStaleConfermatiPending = _bootHelpers.cleanupStaleConfermatiPending;
 
 module.exports = createGb2Routes;

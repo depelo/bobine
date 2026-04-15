@@ -40,7 +40,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
     }
 
     // Versione deploy — incrementare quando si modificano le SP o le tabelle
-    const DEPLOY_VERSION = '2.7';
+    const DEPLOY_VERSION = '2.8';
 
     /**
      * Deploy SP e tabelle nel DB [GB2_SP] del server di destinazione.
@@ -150,7 +150,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         const results = [];
 
         // Tabelle app su MRP@163
-        for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql', 'create_email_templates.sql', 'create_email_template_assegnazioni.sql']) {
+        for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql', 'create_email_templates.sql', 'create_email_template_assegnazioni.sql', 'create_ordini_confermati_pending.sql']) {
             const filePath = path.join(sqlDir, file);
             if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
             try {
@@ -204,6 +204,39 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         };
     }
 
+    /**
+     * Cleanup fire-and-forget al boot: rimuove le entry di
+     * ordini_confermati_pending legate a elaborazioni non piu correnti.
+     * "Corrente" = MAX(ID) per ciascun Ambiente in ElaborazioniMRP.
+     * Gira con DEADLOCK_PRIORITY LOW per non interferire col lavoro utente.
+     */
+    async function cleanupStaleConfermatiPending(pool163) {
+        if (!pool163) return { cleaned: 0, skipped: true };
+        try {
+            const r = await pool163.request().batch(`
+                SET DEADLOCK_PRIORITY LOW;
+                IF EXISTS (SELECT 1 FROM [GB2].sys.objects WHERE name='ordini_confermati_pending' AND type='U')
+                BEGIN
+                    DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
+                    WHERE elaborazione_id NOT IN (
+                        SELECT MAX(ID) FROM [GB2].[dbo].[ElaborazioniMRP] GROUP BY Ambiente
+                    );
+                    SELECT @@ROWCOUNT AS cleaned;
+                END
+                ELSE
+                    SELECT 0 AS cleaned;
+            `);
+            const cleaned = (r.recordset && r.recordset[0] && r.recordset[0].cleaned) || 0;
+            if (cleaned > 0) {
+                console.log('[Cleanup] ordini_confermati_pending: rimosse ' + cleaned + ' entry orfane');
+            }
+            return { cleaned, skipped: false };
+        } catch (err) {
+            console.warn('[Cleanup] ordini_confermati_pending fallito (non bloccante):', err.message);
+            return { cleaned: 0, error: err.message };
+        }
+    }
+
     async function dropTestSPs(poolTarget, testDbId) {
         const suffix = '_T' + testDbId;
         const spNames = ['usp_CreaOrdineFornitore' + suffix, 'usp_AggiornaStatoInvioOrdine' + suffix, 'usp_AggiungiRigheOrdineFornitore' + suffix];
@@ -251,7 +284,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
     return {
         getSpSuffix, getSpName,
         executeSqlFile, compilaTemplate,
-        deployProductionObjects, deployTestObjects, dropTestSPs,
+        deployProductionObjects, deployTestObjects, dropTestSPs, cleanupStaleConfermatiPending,
         checkSpExists, getUserId, getPoolRiep, getPoliticaRiordino,
         getServerDest
     };

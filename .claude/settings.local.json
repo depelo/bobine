@@ -114,7 +114,8 @@
       "Bash(node _query_sp.js)",
       "Bash(node _deploy_sp_manual.js)",
       "Bash(node _sp_source2.js)",
-      "Bash(node _redeploy_sp.js)"
+      "Bash(node _redeploy_sp.js)",
+      "Bash(node --check C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-proposta.js)"
     ]
   }
 }
