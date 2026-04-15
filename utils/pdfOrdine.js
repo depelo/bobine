@@ -53,12 +53,10 @@ const AZIENDA = {
     firma_nome: 'Pietro Tardioli'
 };
 
-// ============================================================
-// NOTE LEGALI — due versioni (come nel Crystal Reports)
-// ============================================================
-const NOTE_LEGALI_IT = 'SI AVVERTE CHE, QUALORA QUESTO ORDINE NON VENISSE CONFERMATO ENTRO 8 GIORNI DALLA DATA DI INVIO, SI CONSIDERANO ACCETTATE TUTTE LE CONDIZIONI IN ESSO CONTENUTE.\nIMPORTANTE:  Indicare sempre il numero d\'ordine sia in fattura che nelle bolle di consegna.\nP.O. Number must be indicated on invoice - delivery note.\n\nPer i dispositivi in ordine si chiede di inviare lotti preferibilmente univoci, tassativamente con il massimo di residuo di vita, quantomeno mai inferiore ai 2/3 della sua shelf-life.\n\nIl fornitore dichiara di conoscere il contenuto del Decreto Legislativo 8 giugno 2001 n. 231 e si impegna ad astenersi da comportamenti idonei a configurare le ipotesi di reato di cui al Decreto medesimo (a prescindere dalla effettiva consumazione del reato o dalla punibilita\' dello stesso). L\'inosservanza da parte del fornitore di tale impegno e\' considerato dalle Parti un inadempimento grave e motivo di risoluzione del contratto per inadempimento ai sensi dell\'art. 1453 c.c. e legittimera\' U.Jet Srl a risolvere lo stesso con effetto immediato. Il presente ordine si intende accettato integralmente per tutte le condizioni in esso riportate ed in tutte le sue clausole, ivi comprese espressamente quelle relative alle condizioni economiche, ai tempi di consegna ed ai termini di pagamento.';
-
-const NOTE_LEGALI_EX = 'SI AVVERTE CHE, QUALORA CODESTO ORDINE NON VENISSE CONFERMATO ENTRO 8 GIORNI DALLA DATA DI INVIO, TUTTE LE CONDIZIONI IN ESSO CONTENUTE SI CONSIDERANO ACCETTATE.\nIMPORTANTE:  Indicare sempre il numero d\'ordine sia in fattura che nelle bolle di consegna.\nP.O. Number must be indicated on invoice - delivery note.\nINVIARE FATTURA IN DUPLICE COPIA.';
+// Nota: i blocchi di testo legali sono inline in buildFooter() per permettere
+// formattazione granulare (IMPORTANTE con rientro colonnare, shelf-life bold, ecc.).
+// La discriminante IT/EX NON è an_nazion1/HH_TipoReport ma la VALUTA dell'ordine
+// (EUR → IT = Ujetorfo.rpt, altra valuta → EX = Ujetorfv.rpt).
 
 // ============================================================
 // FORMATTER HELPERS (identici al vecchio pdfOrdine)
@@ -534,75 +532,130 @@ function buildArticoliSection(righe, isEstero) {
 }
 
 // ============================================================
-// BUILDER: FOOTER (totale + note + firma + note legali)
+// BUILDER: FOOTER — replica fedele Ujetorfo.rpt (IT) / Ujetorfv.rpt (EX)
+//
+// Struttura BCube (verificata su screenshot ordini reali 289/F/2026 ALL FLEX IT
+// e 281/F/2026 NURTEKS TR, entrambi ricevono il footer IT perché in EUR):
+//
+// ┌───────────────────────────────────────────┬──────────────────────┐
+// │ note / remarks                             │     totale ordine    │
+// │                                            │        EUR 11.250,00 │
+// │ [solo IT] Per i dispositivi... shelf-life. │                      │
+// │                                            │ Distinti saluti/     │
+// │ SI AVVERTE CHE, QUALORA QUESTO ORDINE...   │ Regards              │
+// │                                            │ U.Jet s.r.l.         │
+// │ IMPORTANTE   Indicare sempre il numero...  │ Pietro Tardioli      │
+// │              P.O. Number must be...        │ [firma]              │
+// │ [solo EX] INVIARE FATTURA IN DUPLICE COPIA │                      │
+// └───────────────────────────────────────────┴──────────────────────┘
+//
+// [solo IT] Il fornitore dichiara di conoscere il contenuto del D.Lgs 231/2001
+//           ... (paragrafo lungo giustificato, FUORI dal box)
+//
+// Mod. 105/2
+//
+// Discriminante IT/EX: valuta ordine (EUR=IT, altro=EX), NON il paese del fornitore.
 // ============================================================
 function buildFooter(ordine, isEstero) {
     const valSigla = ss(ordine.valuta_sigla) || 'EUR';
-
-    // Note ordine — solo td_note (note ordine inserite dall'operatore).
-    // an_note e an_note2 sono contatti interni del fornitore e NON vanno stampati.
-    const noteText = ss(ordine.note_ordine);
-
+    const noteText = ss(ordine.note_ordine); // per ora non compilato, ma supportato
     const content = [];
 
-    // Totale ordine
-    content.push({
-        columns: [
-            { text: '', width: '*' },
-            { text: 'totale ordine', fontSize: 7, color: '#555', width: 'auto', margin: [0, 5, 12, 0] },
-            { text: valSigla + '  ' + fmtNum(ordine.totale_merce, 2), fontSize: 11, bold: true, width: 'auto', alignment: 'right' }
-        ],
-        margin: [0, 8, 0, 0]
-    });
-
-    // "Si autorizza l'emissione..."
-    content.push({
-        text: 'Si autorizza l\'emissione del presente ordine in deroga alla procedura 005 D.G.',
-        fontSize: 6.5, margin: [0, 10, 0, 0]
-    });
-
-    // Tabella note/remarks | saluti + firma
-    const firmaStack = [
-        { text: 'Distinti saluti / Regards', fontSize: 7, color: '#555', alignment: 'right' },
-        { text: AZIENDA.nome, fontSize: 8, bold: true, margin: [0, 3, 0, 0], alignment: 'right' },
-        { text: AZIENDA.firma_nome, fontSize: 8, margin: [0, 1, 0, 0], alignment: 'right' }
+    // ========== COLONNA SX DEL BOX: note/remarks + avvisi legali ==========
+    const noteLeftStack = [
+        { text: 'note / remarks', fontSize: 7, color: '#555' }
     ];
-    if (FIRMA_B64) {
-        firmaStack.push({ image: FIRMA_B64, fit: [90, 30], alignment: 'right', margin: [0, 4, 0, 0] });
+
+    if (noteText) {
+        noteLeftStack.push({ text: noteText, fontSize: 6.5, margin: [0, 3, 0, 0] });
     }
 
-    content.push({
-        table: {
-            widths: ['*', 180],
-            body: [[
-                {
-                    stack: [
-                        { text: 'note / remarks', fontSize: 7, color: '#555' },
-                        noteText ? { text: noteText, fontSize: 6.5, margin: [0, 4, 0, 0] } : {}
-                    ]
-                },
-                { stack: firmaStack }
-            ]]
-        },
-        layout: { ...thinBorders, paddingTop: () => 4, paddingBottom: () => 4 },
-        margin: [0, 8, 0, 0]
-    });
-
-    // Nota DM/shelf-life (bold, solo Italia)
+    // Shelf-life (solo IT) — bold, sopra SI AVVERTE
     if (!isEstero) {
-        content.push({
+        noteLeftStack.push({
             text: 'Per i dispositivi in ordine si chiede di inviare lotti preferibilmente univoci, tassativamente con il massimo di residuo di vita, quantomeno mai inferiore ai 2/3 della sua shelf-life.',
-            fontSize: 6, bold: true, margin: [0, 10, 0, 0]
+            fontSize: 7, bold: true, margin: [0, 10, 0, 0]
         });
     }
 
-    // Note legali
-    const noteLegali = isEstero ? NOTE_LEGALI_EX : NOTE_LEGALI_IT;
-    // Rimuovi la frase shelf-life dalle note legali IT per non duplicarla
-    const noteLegaliClean = isEstero ? noteLegali :
-        noteLegali.replace(/\n\nPer i dispositivi.*shelf-life\./s, '');
+    // SI AVVERTE CHE — versione IT o EX
+    const siAvverte = isEstero
+        ? 'SI AVVERTE CHE, QUALORA CODESTO ORDINE NON VENISSE CONFERMATO ENTRO 8 GIORNI DALLA DATA DI INVIO, TUTTE LE CONDIZIONI IN ESSO CONTENUTE SI CONSIDERANO ACCETTATE.'
+        : 'SI AVVERTE CHE, QUALORA QUESTO ORDINE NON VENISSE CONFERMATO ENTRO 8 GIORNI DALLA DATA DI INVIO, SI CONSIDERANO ACCETTATE TUTTE LE CONDIZIONI IN ESSO CONTENUTE.';
 
-    content.push({ text: noteLegaliClean, fontSize: 5.5, margin: [0, 6, 0, 0], lineHeight: 1.15 });
+    noteLeftStack.push({ text: siAvverte, fontSize: 6, margin: [0, 6, 0, 0] });
+
+    // IMPORTANTE con rientro — label "IMPORTANTE" + 2 righe rientrate a destra
+    noteLeftStack.push({
+        columns: [
+            { text: 'IMPORTANTE', width: 55, fontSize: 6, bold: true },
+            {
+                width: '*',
+                stack: [
+                    { text: 'Indicare sempre il numero d\'ordine sia in fattura che nelle bolle di consegna.', fontSize: 6 },
+                    { text: 'P.O. Number must be indicated on invoice - delivery note.', fontSize: 6 }
+                ]
+            }
+        ],
+        margin: [0, 2, 0, 0]
+    });
+
+    // INVIARE FATTURA IN DUPLICE COPIA (solo EX)
+    if (isEstero) {
+        noteLeftStack.push({
+            text: 'INVIARE FATTURA IN DUPLICE COPIA.',
+            fontSize: 6, bold: true, margin: [0, 4, 0, 0]
+        });
+    }
+
+    // ========== COLONNA DX DEL BOX: totale + firma ==========
+    const rightStack = [
+        { text: 'totale ordine', fontSize: 7, color: '#555', alignment: 'right' },
+        { text: valSigla + '  ' + fmtNum(ordine.totale_merce, 2), fontSize: 12, bold: true, alignment: 'right', margin: [0, 1, 0, 0] },
+        { text: 'Distinti saluti / Regards', fontSize: 7, color: '#555', alignment: 'right', margin: [0, 12, 0, 0] },
+        { text: AZIENDA.nome, fontSize: 8, bold: true, alignment: 'right', margin: [0, 2, 0, 0] },
+        { text: AZIENDA.firma_nome, fontSize: 8, alignment: 'right' }
+    ];
+    if (FIRMA_B64) {
+        rightStack.push({ image: FIRMA_B64, fit: [90, 30], alignment: 'right', margin: [0, 2, 0, 0] });
+    }
+
+    // ========== BOX TABELLARE (note/remarks SX | totale+firma DX) ==========
+    content.push({
+        table: {
+            widths: ['*', 160],
+            body: [[
+                { stack: noteLeftStack },
+                { stack: rightStack }
+            ]]
+        },
+        layout: {
+            hLineWidth: () => 0.4,
+            vLineWidth: () => 0.4,
+            hLineColor: () => '#000',
+            vLineColor: () => '#000',
+            paddingLeft: () => 5,
+            paddingRight: () => 5,
+            paddingTop: () => 4,
+            paddingBottom: () => 5
+        },
+        margin: [0, 8, 0, 0]
+    });
+
+    // ========== D.LGS 231 — FUORI dal box, solo IT ==========
+    if (!isEstero) {
+        content.push({
+            text: 'Il fornitore dichiara di conoscere il contenuto del Decreto Legislativo 8 giugno 2001 n. 231 e si impegna ad astenersi da comportamenti idonei a configurare le ipotesi di reato di cui al Decreto medesimo (a prescindere dalla effettiva consumazione del reato o dalla punibilita\' dello stesso). L\'inosservanza da parte del fornitore di tale impegno e\' considerato dalle Parti un inadempimento grave e motivo di risoluzione del contratto per inadempimento ai sensi dell\'art. 1453 c.c. e legittimera\' U.Jet Srl a risolvere lo stesso con effetto immediato. Il presente ordine si intende accettato integralmente per tutte le condizioni in esso riportate ed in tutte le sue clausole, ivi comprese espressamente quelle relative alle condizioni economiche, ai tempi di consegna ed ai termini di pagamento.',
+            fontSize: 6, alignment: 'justify', margin: [0, 4, 0, 0], lineHeight: 1.15
+        });
+    }
+
+    // ========== "Mod. 105/2" in basso a sinistra ==========
+    content.push({
+        text: 'Mod. 105/2',
+        fontSize: 6, color: '#555',
+        margin: [0, 8, 0, 0]
+    });
 
     return content;
 }
@@ -614,7 +667,12 @@ async function generaPdfOrdine(ordine, righe, options = {}) {
     return new Promise((resolve, reject) => {
         try {
             const isProva = options.ambiente === 'prova';
-            const isEstero = ss(ordine.fornitore_tipo) === 'EXTRA_UE';
+            // IMPORTANTE: la discriminante IT/EX NON è il tipo fornitore (HH_TipoReport),
+            // ma la VALUTA dell'ordine. Verificato su BCUBE2 produzione: fornitori
+            // extra-UE (es. NURTEKS TR) ricevono comunque il footer IT completo se
+            // l'ordine è in EUR (td_valuta=0). Solo gli ordini in valuta estera
+            // (USD, CNY, GBP...) usano il template Ujetorfv.rpt (EX).
+            const isEstero = Number(ordine.valuta_codice || 0) !== 0;
 
             const docDefinition = {
                 pageSize: 'A4',

@@ -755,6 +755,30 @@ PDF — PDFMAKE (layout dichiarativo a tabelle):
         (b) è a vantaggio del fornitore che riceve la riga 5 per intero,
         (c) non replica pixel-perfect il wrap Crystal ma è irrilevante ai fini informativi.
 
+    === DISCRIMINANTE TEMPLATE PDF: VALUTA, NON PAESE FORNITORE ===
+    Crystal ha due template ordini fornitore:
+      - Ujetorfo.rpt → versione IT completa (D.Lgs 231, shelf-life, firma)
+      - Ujetorfv.rpt → versione "valuta" semplificata (niente 231/shelf-life)
+
+    Il nome "Ujetorfv" = "Ordini Fornitore Valuta" è un indizio: la discriminante
+    per scegliere quale template usare NON è il paese del fornitore (an_nazion1)
+    né HH_TipoReport, MA la VALUTA dell'ordine (td_valuta):
+      - td_valuta = 0 (EUR)       → Ujetorfo.rpt (IT)
+      - td_valuta != 0 (estera)   → Ujetorfv.rpt (EX)
+
+    Prova del fuoco (verificata su BCUBE2 produzione):
+      Ordine 281/F/2026, fornitore NURTEKS TEKSTIL (Istanbul, TR)
+        an_nazion1 = 'TR'
+        HH_TipoReport = 'EXTRA_UE'
+        td_valuta = 0 (EUR)
+      → Crystal stampa il footer IT COMPLETO con shelf-life + D.Lgs 231 +
+        "QUESTO ORDINE" (non "CODESTO"). Il fornitore è extra-UE ma paga in EUR,
+        quindi riceve gli stessi obblighi legali italiani.
+
+    Nel pdfOrdine.js la flag è:
+      const isEstero = Number(ordine.valuta_codice || 0) !== 0;
+    NON usare fornitore_tipo/an_nazion1/HH_TipoReport — sono sbagliati.
+
     === BUG STORICO: NON fare .trim() PRIMA dello split su ar_note ===
     Il campo ar_note può avere righe iniziali VUOTE come convenzione editoriale
     per "spingere" le info interne fuori dalla finestra delle 5 righe pubbliche.

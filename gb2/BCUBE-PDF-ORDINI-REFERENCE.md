@@ -114,7 +114,18 @@ SE an_nazion1 e vuota:
 |----------------|---------------|--------|
 | IT | Ujetorfo.rpt | Intestazione completa, D.Lgs 231, shelf-life, firma, banca da testord |
 | UE | Ujetorfo.rpt | Come Italia (stessi obblighi fiscali UE) |
-| EXTRA_UE | Ujetorfv.rpt | Intestazione semplificata, banca da anagra, no D.Lgs 231, no shelf-life |
+| EXTRA_UE (EUR) | Ujetorfo.rpt | ⚠️ ANCHE extra-UE usa template IT se fattura in EUR |
+| EXTRA_UE (valuta estera) | Ujetorfv.rpt | Solo ordini in USD/CNY/GBP/ecc., banca da anagra |
+
+**⚠️ DISCRIMINANTE REALE** (verificata su BCUBE2 produzione, ordine 281/F/2026
+NURTEKS TEKSTIL Turchia): la scelta del template NON è `HH_TipoReport`/`an_nazion1`
+ma è la **valuta dell'ordine** (`td_valuta`):
+  - `td_valuta = 0` (EUR) → Ujetorfo.rpt (IT completo)
+  - `td_valuta != 0` (valuta estera) → Ujetorfv.rpt (EX semplificato)
+
+Il nome stesso del file Crystal conferma: `Ujetorfv` = "Ordini Fornitore Valuta".
+Un fornitore turco pagato in EUR riceve comunque il footer IT con shelf-life e
+D.Lgs 231 (come visto su NURTEKS).
 
 ### Colonna custom proposta (da Fabrizio)
 
