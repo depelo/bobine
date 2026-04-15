@@ -546,11 +546,12 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
                        m.mo_prezzo, m.mo_valore, m.mo_datcons,
                        m.mo_fase, m.mo_magaz, m.mo_lotto,
                        m.mo_scont1, m.mo_scont2, m.mo_scont3,
+                       m.mo_perqta,
                        CAST(m.mo_note AS VARCHAR(MAX)) AS mo_note,
                        c.caf_codarfo AS rif_fornitore,
                        c.caf_desnote AS rif_note,
-                       CAST(ar.ar_note AS VARCHAR(500)) AS ar_note,
-                       ar.ar_conver, ar.ar_codalt
+                       CAST(ar.ar_note AS VARCHAR(MAX)) AS ar_note,
+                       ar.ar_conver, ar.ar_codalt, ar.ar_unmis AS ar_un
                 FROM dbo.movord m
                 LEFT JOIN dbo.codarfo c ON c.codditt = 'UJET11'
                     AND c.caf_conto = @fornitore AND c.caf_codart = m.mo_codart
@@ -1031,11 +1032,12 @@ router.get('/ordine-dettaglio/:anno/:serie/:numord', authMiddleware, async (req,
                        m.mo_prezzo, m.mo_valore, m.mo_datcons,
                        m.mo_fase, m.mo_magaz, m.mo_lotto,
                        m.mo_scont1, m.mo_scont2, m.mo_scont3,
+                       m.mo_perqta,
                        CAST(m.mo_note AS VARCHAR(MAX)) AS mo_note,
                        c.caf_codarfo AS rif_fornitore,
                        c.caf_desnote AS rif_note,
-                       CAST(ar.ar_note AS VARCHAR(500)) AS ar_note,
-                       ar.ar_conver, ar.ar_codalt
+                       CAST(ar.ar_note AS VARCHAR(MAX)) AS ar_note,
+                       ar.ar_conver, ar.ar_codalt, ar.ar_unmis AS ar_un
                 FROM dbo.movord m
                 LEFT JOIN dbo.codarfo c ON c.codditt = 'UJET11'
                     AND c.caf_conto = @fornitore AND c.caf_codart = m.mo_codart

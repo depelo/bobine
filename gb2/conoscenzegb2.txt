@@ -702,15 +702,114 @@ PDF — PDFMAKE (layout dichiarativo a tabelle):
     - Formula @UM: Estero=unmis, Italia=ump se unmis===ump altrimenti unmis
     - Formula @QUANT: Estero=quant, Italia=quant se unmis===ump altrimenti colli
     - Prezzo 4 decimali, sconti (sc1+sc2+sc3)
-    - Codice alternativo (ar_codalt) sotto il codice principale
-    - Descrizione integrativa (mo_desint)
     - LOT (mo_lotto se > 0)
-    - Note articolo (ar_note) — MAX 5 RIGHE (come Crystal Reports: Can Grow + max lines=5)
-    - N.B. note riga (mo_note) — integrali, scritte dall'operatore per quel singolo ordine
-    - ar_note e mo_note sono campi SEPARATI e INDIPENDENTI:
-      ar_note = note fisse dell'articolo (specifiche tecniche, istruzioni permanenti)
-      mo_note = note operatore per quel singolo ordine (urgenze, istruzioni specifiche)
-      BCube NON copia ar_note in mo_note (verificato su DB: contenuti completamente diversi)
+
+    === LAYOUT COLONNA "COD.ARTICOLO" (sinistra) ===
+    Due righe, replica BCube:
+      Riga 1: movord.mo_codart             (es. "0010488")
+      Riga 2: ( artico.ar_codalt )         (es. "(FET001)") — SOLO se non null/empty/'D'
+    ar_codalt NON va nella colonna descrizione: è un codice identificativo alternativo/vecchio,
+    sta logicamente insieme al codice principale.
+
+    === LAYOUT COLONNA "DESCRIZIONE" (centrale) ===
+    Concatenazione verticale rigorosa di 4 campi indipendenti, in quest'ordine:
+      [1] movord.mo_descr     — titolo articolo principale (fontSize 8, copiato da ar_descr)
+      [2] movord.mo_desint    — specifica tecnica riga ordine (fontSize 6.5, se presente)
+                                Esempio: "da gr. 50/Mtq", "CON FILO RX. CNF 5 PZ..."
+      [3] artico.ar_note      — note anagrafica articolo, MAX 5 RIGHE LOGICHE (split \r\n)
+      [4] N.B. movord.mo_note — note riga ordine inserite dall'operatore, INTEGRALI
+
+    Nota: mo_desint, mo_note → tabella movord (per-riga-ordine, cambiano per ogni ordine)
+          ar_note, ar_codalt, ar_descr → tabella artico (anagrafica, uguali per ogni ordine
+          dello stesso articolo)
+
+    === REGOLA "MAX 5 RIGHE" DI ar_note (FONDAMENTALE) ===
+    ar_note è un VARCHAR(MAX) contenente righe logiche separate da CRLF (\r\n).
+    Si stampano SOLO le prime 5 righe logiche — le righe 6+ sono DELIBERATAMENTE OMESSE.
+
+    Motivazione (verificata su BCUBE2 produzione, 15.681 articoli, 13.873 con ar_note):
+      - L'operatore segue una convenzione editoriale: le prime 5 righe sono la
+        "scheda tecnica pubblica" destinata al fornitore:
+          Riga 1: ISTRUZIONI (cicli di lavorazione)
+          Riga 2: DIMENSIONI DEL PRODOTTO FINITO
+          Riga 3: CONTROLLI (procedure)
+          Riga 4: TOLLERANZE DIMENSIONALI
+          Riga 5: RIF. TECNICI (moduli aziendali, disegni, fustelle)
+      - Dalla 6a riga in poi ci sono info INTERNE di reparto (parametri macchina GFM,
+        settaggi, "CAMPO STERILE: NO", "ETICHETTA LATO OPERATORE: NO", ecc.)
+        che NON devono mai arrivare al fornitore.
+      - Circa il 45% degli articoli ha 6+ righe logiche, alcuni arrivano a 26.
+      - Le righe sono SEMPRE ben delimitate da \r\n nel DB: l'operatore non si affida
+        al wrap visivo di Crystal. La 5a riga finisce con punto/parola conclusa, mai
+        tronca a metà parola.
+
+    Implementazione (utils/pdfOrdine.js):
+      const arNoteLines = ar_note.split(/\r?\n/).slice(0, 5).join('\n');
+
+    Nota sull'edge case "wrap Crystal":
+      Crystal Reports usa "Maximum number of lines = 5" che opera su righe VISIVE (post wrap).
+      Se la 5a riga logica è molto lunga (>80 char), Crystal la wrappa visivamente in 2
+      righe e la taglia a metà frase. Noi la stampiamo per intero (wrappata da pdfmake
+      in 2 righe visive ma con testo completo). Questa differenza:
+        (a) non espone info interne (quelle sono in riga 6+, mai stampata),
+        (b) è a vantaggio del fornitore che riceve la riga 5 per intero,
+        (c) non replica pixel-perfect il wrap Crystal ma è irrilevante ai fini informativi.
+
+    === BUG STORICO: NON fare .trim() PRIMA dello split su ar_note ===
+    Il campo ar_note può avere righe iniziali VUOTE come convenzione editoriale
+    per "spingere" le info interne fuori dalla finestra delle 5 righe pubbliche.
+    Esempio reale (art. 0010966, ordine 289/F/2026):
+      ar_note = "\n\n\n\n\n\n\n\nPeso Anima Cartone: 610 gr"
+      (8 righe vuote + info interna su riga 9)
+
+    Se fai .trim() PRIMA dello split, le righe vuote iniziali vengono eliminate
+    e "Peso Anima Cartone" diventa riga 1 → bypassa la regola 5-righe → viene
+    stampato al fornitore. MALE.
+
+    Corretto: strip solo \r e \u00d0, NO trim sull'intero campo. Trim va fatto
+    SOLO sul risultato finale (dopo split + slice(0,5) + join) per ripulire
+    eventuali righe vuote che restano dopo il taglio.
+
+    Codice corretto in buildDescrizioneRiga (pdfOrdine.js):
+      const arNoteRaw = r.ar_note.toString().replace(/\r/g,'').replace(/\u00d0/g,'');
+      const arNoteLines = arNoteRaw.split('\n').slice(0, 5).join('\n').trim();
+
+    Il helper generico ss() NON va usato su ar_note perché fa .trim() — userebbe
+    una "scorciatoia" che rompe la semantica della regola 5-righe.
+
+    ar_note vs mo_note — campi SEPARATI e INDIPENDENTI:
+      ar_note  = note fisse dell'articolo (anagrafica, permanenti)
+      mo_note  = note operatore per quel singolo ordine (urgenze, "N.B.: Da tenere a
+                 scorta presso il Vs magazzino", "ATTENDO CONFERMA PREZZI", ecc.)
+      BCube NON copia ar_note in mo_note (verificato su DB: contenuti totalmente diversi).
+      mo_note NON ha il limite delle 5 righe: si stampa integralmente con prefisso "N.B.:".
+
+    === RIGHE FULL-WIDTH SOTTO LA RIGA ARTICOLO ===
+    Crystal usa le sezioni "Dettagli g" e "Dettagli i" per stampare righe che vanno
+    SOTTO la riga articolo spaziando tutte le colonne (full-width). Non stanno dentro
+    la cella Descrizione: sono righe di tabella a sé con colSpan su tutte le colonne.
+
+    (1) Riferimenti fornitore (Crystal "Dettagli g"):
+        Stampato solo se codarfo.caf_codarfo è valorizzato per la coppia (articolo, fornitore).
+        Formato: "Riferimenti fornitore: " + caf_codarfo + "    " + caf_desnote (opz.)
+        È il codice con cui il FORNITORE chiama l'articolo nel suo catalogo (es. "GAS4D511"
+        per DEALFA = nostro 0068720). Serve al fornitore per identificare l'articolo.
+        Query: LEFT JOIN dbo.codarfo c ON c.caf_conto=fornitore AND c.caf_codart=mo_codart
+
+    (2) Attention Unit Price (Crystal "Dettagli i"):
+        Stampato solo se mo_perqta > 1 (prezzo riferito a lotto, non al singolo pezzo).
+        Formato: "Attention: Unit Price is referred to " + mo_perqta + " " + ar_unmis
+        Esempio: mo_perqta=1000, prezzo=63,35€ → stampa "referred to 1000 PZ" per dire
+        al fornitore che 63,35€ è il prezzo per 1000 pezzi, non per pezzo singolo.
+        Il calcolo del totale è corretto grazie alla formula: valore = quant * prezzo / perqta
+        (vedi sql/mrp/usp_CreaOrdineFornitore.sql).
+
+    Implementazione pdfmake:
+      for (const r of righe) {
+          body.push([...8 colonne riga articolo...]);
+          if (r.rif_fornitore) body.push([{ text: ..., colSpan: 8 }, {},{},{},{},{},{},{}]);
+          if (r.mo_perqta > 1) body.push([{ text: ..., colSpan: 8 }, {},{},{},{},{},{},{}]);
+      }
     - Riferimenti fornitore (tabella CODARFO: caf_codarfo + caf_desnote)
     - Conversione UM (1 MQ = 100 PZ se unmis !== ump)
     - Luogo destinazione diversa (DESTDIV: dd_nomdest, dd_inddest, dd_locdest)
@@ -1318,17 +1417,42 @@ PDF: il prezzo nel PDF e il prezzo "per gruppo" (come in BCube).
   "Attention: Unit Price is referred to [ar_un] [o_perqta]"
   quando perqta > 1. Da implementare nel nostro PDF.
 
-NOTE NEL PDF (verificato su Crystal Reports Designer Ujetorfv.rpt):
+NOTE NEL PDF (verificato su Crystal Reports Designer Ujetorfv.rpt + analisi DB BCUBE2):
   Crystal organizza il corpo articolo in 7 sezioni Dettagli:
     b: @CodArt | mo_descr | @UM | mo_quant | mo_prezzo | sconti | @Data
-    c: mo_desint (descrizione integrativa)
+       NOTA: @CodArt è una formula Crystal che nella colonna Cod.articolo stampa
+       mo_codart in riga 1 e (ar_codalt) tra parentesi in riga 2 se ar_codalt non è null.
+    c: mo_desint (descrizione integrativa della riga ordine — movord)
     d: LOT mo_lotto
-    e: ar_note (Can Grow=true, MAX 5 RIGHE — tronca il resto)
+    e: ar_note (Can Grow=true, Maximum Number of Lines=5 — tronca il resto)
     f: N.B. mo_note
     g: Attention: Unit Price is referred to ar_un o_perqta
   Footer (Pie di pagina b):
     note/remarks: an_note + an_note2 + td_note (Crystal li stampa tutti)
     Nella nostra app: SOLO td_note. an_note/an_note2 rimossi (contatti interni).
+
+  REGOLA "MAX 5 RIGHE" SU ar_note — ANALISI DB PRODUZIONE (BCUBE2):
+  Verifica empirica su 15.681 articoli (13.873 con ar_note), campione 3.000:
+    Istogramma righe logiche (split \r\n):
+      1-4 righe:  1.298 articoli (43%)
+      5 righe:      316 articoli (10,5%)
+      6+ righe:   1.367 articoli (45,6%)   ← pattern deliberato
+      Max trovato: 26 righe logiche
+  Pattern editoriale dominante (usato da centinaia di articoli):
+    [1] ISTRUZIONI: CICLO 1 (Ixxx) - CICLO 2 ...
+    [2] DIMENSIONE DEL PRODOTTO FINITO: Lunghezza cm X - Larghezza cm Y
+    [3] CONTROLLI: CICLO 1 v/Procedura 205 - CICLO 2 v/Procedura 202
+    [4] TOLLERANZE DIMENSIONALI: più o meno 1 cm
+    [5] RIF. TECNICI: Mod.201(Modulo Aziendale) - Sch.POL(Schema di Taglio)
+    ───────── MAX 5 RIGHE PUBBLICHE → tutto ciò che segue è interno ─────────
+    [6+] "*** PARAMETRI IMPOSTAZIONE GFM ***" / "CAMPO STERILE: NO"
+         "ETICHETTA LATO OPERATORE: NO" / "LAVORO IN LINEA SINGOLA" / ecc.
+  Conclusione:
+    - Le righe sono SEMPRE ben delimitate da \r\n nel DB.
+    - L'operatore NON si affida al wrap visivo Crystal per tagliare.
+    - Implementazione corretta: split('\r?\n').slice(0,5).join('\n')
+    - Questo replica il contenuto informativo di Crystal al 100% e protegge le
+      info interne anche se pdfmake e Crystal wrappano diversamente.
 
 ALTRI CAMPI ARTICOLO CORRELATI:
   - ar_minord: "Qta Lotto std pr/ac." (lotto standard di acquisto)

@@ -234,16 +234,14 @@ function buildMetadati(ordine, isEstero) {
     const valutaLabel = isEstero ? ss(ordine.valuta_nome) : (ss(ordine.valuta_sigla) || 'EUR');
 
     return [
-        // Tabella titolo + rif
+        // Titolo ordine + Rif./Ref. — riga libera FUORI da qualunque tabella (replica BCube)
         {
-            table: {
-                widths: ['*', 90],
-                body: [[
-                    { text: titolo, fontSize: 9.5, bold: true },
-                    { text: 'Rif. / Ref.' + (ss(ordine.riferimento) ? '\n' + ss(ordine.riferimento) : ''), fontSize: 7, bold: true }
-                ]]
-            },
-            layout: thinBorders
+            columns: [
+                { text: titolo, fontSize: 10, bold: true },
+                { text: 'Rif. / Ref.' + (ss(ordine.riferimento) ? '  ' + ss(ordine.riferimento) : ''),
+                  fontSize: 8, bold: true, alignment: 'right', width: 120 }
+            ],
+            margin: [0, 4, 0, 3]
         },
         // Tabella conto | pagamento | banca
         {
@@ -255,8 +253,7 @@ function buildMetadati(ordine, isEstero) {
                     labelValue('banca d\'appoggio / bank', bancaStr)
                 ]]
             },
-            layout: thinBordersPadded,
-            margin: [0, -0.4, 0, 0]
+            layout: thinBordersPadded
         },
         // Tabella spedizione | vettore
         {
@@ -287,24 +284,42 @@ function buildMetadati(ordine, isEstero) {
 }
 
 // ============================================================
+// BUILDER: COLONNA COD.ARTICOLO (con ar_codalt su riga sotto)
+// Replica BCube: mo_codart su riga 1, (ar_codalt) tra parentesi su riga 2.
+// ============================================================
+function buildCodArticoloCol(r) {
+    const isDescRiga = ss(r.mo_codart) === 'D';
+    if (isDescRiga) return { text: '', fontSize: 8 };
+    const stack = [{ text: ss(r.mo_codart), fontSize: 8 }];
+    // ar_codalt solo se presente e diverso da 'D'
+    if (ss(r.ar_codalt) && ss(r.ar_codalt) !== 'D') {
+        stack.push({ text: '(' + ss(r.ar_codalt) + ')', fontSize: 6.5, color: '#555' });
+    }
+    return { stack };
+}
+
+// ============================================================
 // BUILDER: DESCRIZIONE RIGA (con tutte le sotto-righe Crystal)
+//
+// Struttura replicata da BCube (Ujetorfv.rpt) — i campi sono concatenati
+// verticalmente in quest'ordine rigoroso:
+//   1. movord.mo_descr       — titolo articolo (bold)
+//   2. movord.mo_desint      — specifica tecnica / descrizione integrativa
+//   3. artico.ar_note        — note anagrafica articolo, MAX 5 righe logiche
+//                              (split su \r\n, convenzione: righe 6+ = interne)
+//   4. 'N.B.: ' + mo_note    — note riga ordine inserite dall'operatore, integrali
+//
+// NOTA: ar_codalt è stato spostato nella colonna Cod.articolo (vedi buildCodArticoloCol).
 // ============================================================
 function buildDescrizioneRiga(r, isEstero) {
     const parts = [];
-    const isDescRiga = ss(r.mo_codart) === 'D';
 
-    // Descrizione principale
+    // [1] Descrizione principale (mo_descr)
     parts.push({ text: ss(r.mo_descr), fontSize: 8 });
 
-    // Descrizione integrativa
+    // [2] Descrizione integrativa (mo_desint) — senza ar_codalt, che ora sta in colonna sinistra
     if (ss(r.mo_desint)) {
-        const desintParts = [];
-        // Codice alternativo (solo Italia, nella stessa riga della desint)
-        if (!isEstero && ss(r.ar_codalt) && ss(r.ar_codalt) !== 'D') {
-            desintParts.push({ text: '(' + ss(r.ar_codalt) + ') ', fontSize: 6.5, color: '#555' });
-        }
-        desintParts.push({ text: ss(r.mo_desint), fontSize: 6.5, color: '#555' });
-        parts.push({ text: desintParts });
+        parts.push({ text: ss(r.mo_desint), fontSize: 6.5, color: '#555' });
     }
 
     // LOT (solo se lotto > 0)
@@ -312,23 +327,31 @@ function buildDescrizioneRiga(r, isEstero) {
         parts.push({ text: 'LOT ' + r.mo_lotto, fontSize: 6.5, color: '#555' });
     }
 
-    // Note articolo (ar_note) — max 5 righe come Crystal Reports (Can Grow, max lines = 5)
-    if (ss(r.ar_note)) {
-        const arNoteLines = ss(r.ar_note).split(/\r?\n/).slice(0, 5).join('\n').trim();
-        if (arNoteLines) parts.push({ text: arNoteLines, fontSize: 6, color: '#555' });
+    // [3] Note anagrafica articolo (ar_note) — MAX 5 RIGHE LOGICHE (split \r\n).
+    // Regola confermata dall'analisi del DB produzione BCUBE2 (15.681 articoli):
+    // l'operatore scrive deliberatamente 5 righe "pubbliche" (istruzioni, dimensioni,
+    // controlli, tolleranze, rif. tecnici) e dalla 6a riga in poi info interne
+    // (parametri GFM, settaggi, attenzioni di reparto) che NON devono andare al fornitore.
+    // Le righe sono sempre ben delimitate da \r\n nel DB — nessun affidamento al wrap visivo.
+    //
+    // IMPORTANTE: NON usare ss() qui! ss() fa .trim() e ucciderebbe le righe iniziali
+    // vuote: un ar_note che comincia con "\n\n\n\n\n\n\nPeso Anima: 610 gr" (info
+    // interna su riga 8) diventerebbe dopo trim "Peso Anima: 610 gr" come riga 1,
+    // bypassando la regola 5-righe. Va rimosso solo \r e \u00d0 SENZA trim.
+    if (r.ar_note) {
+        const arNoteRaw = r.ar_note.toString().replace(/\r/g, '').replace(/\u00d0/g, '');
+        const arNoteLines = arNoteRaw.split('\n').slice(0, 5).join('\n').trim();
+        if (arNoteLines) parts.push({ text: arNoteLines, fontSize: 6.5, color: '#555' });
     }
 
-    // N.B. note riga (mo_note)
+    // [4] N.B. note riga ordine (mo_note) — integrale, nessun troncamento
     if (ss(r.mo_note)) {
         parts.push({ text: [{ text: 'N.B.: ', bold: true, fontSize: 6.5, color: '#555' }, { text: ss(r.mo_note), fontSize: 6.5, color: '#555' }] });
     }
 
-    // Riferimenti fornitore (tabella CODARFO)
-    if (ss(r.rif_fornitore)) {
-        let rifStr = 'Riferimenti fornitore: ' + ss(r.rif_fornitore);
-        if (ss(r.rif_note)) rifStr += '    ' + ss(r.rif_note);
-        parts.push({ text: rifStr, fontSize: 6.5, color: '#555' });
-    }
+    // NOTA: "Riferimenti fornitore" NON va qui dentro — in BCube è una riga full-width
+    // separata sotto la riga articolo (Crystal sezione "Dettagli g"). Viene gestita in
+    // buildTabellaArticoli aggiungendo una riga extra con colSpan sul body.
 
     // Conversione UM (solo Italia, se UM diverse)
     if (!isEstero && ss(r.mo_unmis) !== ss(r.mo_ump) && r.ar_conver && Number(r.ar_conver) !== 0) {
@@ -340,10 +363,56 @@ function buildDescrizioneRiga(r, isEstero) {
 }
 
 // ============================================================
-// BUILDER: TABELLA ARTICOLI
+// BUILDER: TABELLA ARTICOLI — approccio "mini-tabella per articolo"
+//
+// APPROCCIO (replica fedele del modello a bande di Crystal Reports):
+// invece di una tabella unica con trucchi di layout, generiamo:
+//   (1) una tabella "header" con solo la riga intestazioni colonne
+//   (2) una mini-tabella per ciascun articolo, con le stesse widths dell'header,
+//       contenente 1–3 righe interne (riga dati + eventuale "Riferimenti fornitore"
+//       full-width + eventuale "Attention Unit Price" full-width).
+//
+// Vantaggi:
+//   - Il blocco articolo è un'entità reale (una tabella), non un'illusione.
+//   - pdfmake NON spezza una tabella marcata `dontBreakRows`+`keepWithHeaderRows`,
+//     quindi ogni blocco articolo resta integro su una pagina.
+//   - Il bordo esterno della mini-tabella crea naturalmente il nucleo solido.
+//
+// Bordi: per evitare doppie linee dove le mini-tabelle si toccano, l'header
+// rinuncia al bordo inferiore e ogni mini-tabella rinuncia al bordo superiore.
+// L'ultimo articolo restituisce il suo bordo inferiore (layout diverso) per
+// chiudere la tabella.
 // ============================================================
-function buildTabellaArticoli(righe, isEstero) {
-    // Header colonne (con label IT + EN)
+const ARTICOLI_WIDTHS = [52, '*', 20, 58, 45, 28, 65, 28];
+const ARTICOLI_COLS = ARTICOLI_WIDTHS.length; // 8
+
+// Layout mini-tabella articolo — niente bordo TOP (lo fornisce la tabella precedente,
+// che sia l'header o la mini-tabella dell'articolo precedente). Evita doppie linee.
+const miniArticoloLayout = {
+    hLineWidth: (i) => (i === 0 ? 0 : 0.4),
+    vLineWidth: () => 0.4,
+    hLineColor: () => '#000',
+    vLineColor: () => '#000',
+    paddingLeft: () => 3,
+    paddingRight: () => 3,
+    paddingTop: () => 2,
+    paddingBottom: () => 2
+};
+
+// Layout header articoli — ha TUTTI i bordi (incluso il bottom, che funge da
+// separatore verso la prima mini-tabella articolo).
+const headerArticoliLayout = {
+    hLineWidth: () => 0.4,
+    vLineWidth: () => 0.4,
+    hLineColor: () => '#000',
+    vLineColor: () => '#000',
+    paddingLeft: () => 3,
+    paddingRight: () => 3,
+    paddingTop: () => 2,
+    paddingBottom: () => 3
+};
+
+function buildHeaderArticoli(isEstero) {
     const mkHeader = (it, en, align) => ({
         text: [{ text: it + '\n', bold: true, fontSize: 7 }, { text: en, fontSize: 5.5, color: '#555' }],
         alignment: align || 'left'
@@ -371,51 +440,97 @@ function buildTabellaArticoli(righe, isEstero) {
             mkHeader('Note', 'Remarks')
         ];
 
-    const body = [headerRow];
+    return {
+        table: { widths: ARTICOLI_WIDTHS, body: [headerRow] },
+        layout: headerArticoliLayout,
+        margin: [0, 8, 0, 0]
+    };
+}
 
-    for (const r of righe) {
-        const isDescRiga = ss(r.mo_codart) === 'D';
+function buildMiniTabellaArticolo(r, isEstero) {
+    const isDescRiga = ss(r.mo_codart) === 'D';
 
-        // Formula @UM
-        let um = '';
-        if (!isDescRiga) {
-            if (isEstero) {
-                um = ss(r.mo_unmis);
-            } else {
-                um = (ss(r.mo_unmis) === ss(r.mo_ump)) ? ss(r.mo_ump) : ss(r.mo_unmis);
-            }
-        }
+    // Formula @UM
+    let um = '';
+    if (!isDescRiga) {
+        um = isEstero ? ss(r.mo_unmis)
+            : ((ss(r.mo_unmis) === ss(r.mo_ump)) ? ss(r.mo_ump) : ss(r.mo_unmis));
+    }
 
-        // Formula @QUANT
-        let quant = '';
-        if (!isDescRiga) {
-            if (isEstero) {
-                quant = fmtNum(r.mo_quant, 2);
-            } else {
-                quant = fmtNum((ss(r.mo_unmis) === ss(r.mo_ump)) ? r.mo_quant : r.mo_colli, 2);
-            }
-        }
+    // Formula @QUANT
+    let quant = '';
+    if (!isDescRiga) {
+        quant = isEstero ? fmtNum(r.mo_quant, 2)
+            : fmtNum((ss(r.mo_unmis) === ss(r.mo_ump)) ? r.mo_quant : r.mo_colli, 2);
+    }
 
-        body.push([
-            { text: isDescRiga ? '' : ss(r.mo_codart), fontSize: 8 },
-            buildDescrizioneRiga(r, isEstero),
-            { text: um, fontSize: 8, alignment: 'center' },
-            { text: quant, fontSize: 8, alignment: 'right' },
-            { text: isDescRiga ? '' : fmtPrezzo(r.mo_prezzo), fontSize: 8, alignment: 'right' },
-            { text: isDescRiga ? '' : fmtSconti(r.mo_scont1, r.mo_scont2, r.mo_scont3), fontSize: 6, alignment: 'right' },
-            { text: isDescRiga ? '' : fmtData(r.mo_datcons), fontSize: 7, alignment: 'center' },
-            { text: '', fontSize: 7 } // Note/Remarks (colonna per uso futuro)
-        ]);
+    const body = [];
+
+    // Riga principale articolo
+    body.push([
+        buildCodArticoloCol(r),
+        buildDescrizioneRiga(r, isEstero),
+        { text: um, fontSize: 8, alignment: 'center' },
+        { text: quant, fontSize: 8, alignment: 'right' },
+        { text: isDescRiga ? '' : fmtPrezzo(r.mo_prezzo), fontSize: 8, alignment: 'right' },
+        { text: isDescRiga ? '' : fmtSconti(r.mo_scont1, r.mo_scont2, r.mo_scont3), fontSize: 6, alignment: 'right' },
+        { text: isDescRiga ? '' : fmtData(r.mo_datcons), fontSize: 7, alignment: 'center' },
+        { text: '', fontSize: 7 }
+    ]);
+
+    // Riga full-width: Riferimenti fornitore (Crystal "Dettagli g")
+    // NOTA: con colSpan in pdfmake, i bordi vanno forzati esplicitamente via `border`
+    // sulla cella spanning — altrimenti le verticali interne "mangiate" dal colSpan
+    // possono causare un rendering senza bordi laterali.
+    if (ss(r.rif_fornitore)) {
+        let rifStr = 'Riferimenti fornitore: ' + ss(r.rif_fornitore);
+        if (ss(r.rif_note)) rifStr += '    ' + ss(r.rif_note);
+        const row = [{
+            text: rifStr, fontSize: 6.5, color: '#555',
+            colSpan: ARTICOLI_COLS,
+            border: [true, true, true, true]
+        }];
+        for (let i = 1; i < ARTICOLI_COLS; i++) row.push({});
+        body.push(row);
+    }
+
+    // Riga full-width: Attention Unit Price (Crystal "Dettagli i")
+    if (!isDescRiga && r.mo_perqta && Number(r.mo_perqta) > 1) {
+        const arUn = ss(r.ar_un) || ss(r.mo_unmis);
+        const attStr = 'Attention: Unit Price is referred to ' + Number(r.mo_perqta) + ' ' + arUn;
+        const row = [{
+            text: attStr, fontSize: 6.5, color: '#555', italics: true,
+            colSpan: ARTICOLI_COLS,
+            border: [true, true, true, true]
+        }];
+        for (let i = 1; i < ARTICOLI_COLS; i++) row.push({});
+        body.push(row);
+    }
+
+    // ====== RIGA SPAZIATRICE ======
+    // Riga vuota alla fine di ogni mini-tabella per creare spazio visivo tra
+    // blocchi articolo (suggerimento utente — sta nelle regole native di pdfmake).
+    // fontSize piccolo + cella vuota → altezza minima ma non zero → gap visibile.
+    {
+        const spacerRow = [{
+            text: ' ', fontSize: 5,
+            colSpan: ARTICOLI_COLS,
+            border: [true, true, true, true]
+        }];
+        for (let i = 1; i < ARTICOLI_COLS; i++) spacerRow.push({});
+        body.push(spacerRow);
     }
 
     return {
-        table: {
-            headerRows: 1, // pdfmake ripete l'header su ogni pagina automaticamente
-            widths: [52, '*', 20, 58, 45, 28, 65, 28],
-            body
-        },
-        layout: thinBorders
+        table: { widths: ARTICOLI_WIDTHS, body, dontBreakRows: true },
+        layout: miniArticoloLayout
     };
+}
+
+function buildArticoliSection(righe, isEstero) {
+    const content = [buildHeaderArticoli(isEstero)];
+    for (const r of righe) content.push(buildMiniTabellaArticolo(r, isEstero));
+    return content;
 }
 
 // ============================================================
@@ -513,7 +628,7 @@ async function generaPdfOrdine(ordine, righe, options = {}) {
                 content: [
                     buildHeader(ordine, isEstero, isProva),
                     ...buildMetadati(ordine, isEstero),
-                    buildTabellaArticoli(righe, isEstero),
+                    ...buildArticoliSection(righe, isEstero),
                     ...buildFooter(ordine, isEstero)
                 ]
             };
