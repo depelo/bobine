@@ -271,7 +271,6 @@ const operatorListEl = document.getElementById('operatorListView');
 const machineListEl = document.getElementById('machineListView');
 const machineSelect = document.getElementById('machineSelect');
 const currentOperatorDisplay = document.getElementById('currentOperatorDisplay');
-const logoutBtn = document.getElementById('logoutBtn');
 // Vecchi riferimenti al modale profilo non più utilizzati (gestione spostata su profile.html)
 
 function updateCurrentOperatorUI() {
@@ -1258,74 +1257,6 @@ navButtons.forEach((btn) => {
   });
 });
 
-/* --- Menu drawer (barra laterale) --- */
-let deferredInstallPrompt = null;
-
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-});
-
-function openMenuDrawer() {
-  document.getElementById('menuDrawer').classList.add('is-open');
-  document.getElementById('menuDrawer').setAttribute('aria-hidden', 'false');
-  document.getElementById('menuDrawerBackdrop').classList.add('is-open');
-  document.getElementById('menuDrawerBackdrop').setAttribute('aria-hidden', 'false');
-}
-
-function closeMenuDrawer() {
-  const drawer = document.getElementById('menuDrawer');
-  const backdrop = document.getElementById('menuDrawerBackdrop');
-  if (document.activeElement && drawer && drawer.contains(document.activeElement)) {
-    document.activeElement.blur();
-  }
-  if (drawer) {
-    drawer.classList.remove('is-open');
-    drawer.setAttribute('aria-hidden', 'true');
-  }
-  if (backdrop) {
-    backdrop.classList.remove('is-open');
-    backdrop.setAttribute('aria-hidden', 'true');
-  }
-}
-
-document.getElementById('menuBtn').addEventListener('click', openMenuDrawer);
-document.getElementById('menuDrawerClose').addEventListener('click', closeMenuDrawer);
-document.getElementById('menuDrawerBackdrop').addEventListener('click', closeMenuDrawer);
-
-document.getElementById('menuDrawer').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-menu-action]');
-  if (!btn) return;
-  const action = btn.dataset.menuAction;
-  if (action === 'placeholder1') return;
-  if (action === 'open-profile') {
-    closeMenuDrawer();
-    window.location.href = '/profile.html';
-    return;
-  }
-  if (action === 'open-captain') {
-    window.location.href = 'captain.html';
-    return;
-  }
-  if (action === 'add-to-home') {
-    if (deferredInstallPrompt) {
-      deferredInstallPrompt.prompt();
-      deferredInstallPrompt.userChoice.then(() => {
-        deferredInstallPrompt = null;
-      });
-      closeMenuDrawer();
-    } else {
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      if (isIOS) {
-        alert('Per aggiungere alla Home: tocca il pulsante Condividi (quadrato con freccia) in Safari, poi "Aggiungi a Home".');
-      } else {
-        alert('Usa il menu del browser (⋮) e scegli "Installa app" o "Aggiungi a Home".');
-      }
-      closeMenuDrawer();
-    }
-  }
-});
-
 topbarEl.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
@@ -1770,38 +1701,6 @@ document.getElementById('editSuccessBtnClose')?.addEventListener('click', () => 
   document.getElementById('editSuccessModal').classList.remove('is-open');
 });
 
-function buildDynamicMenu() {
-  const apps = window.SecurityData?.user?.authorizedApps;
-  if (!Array.isArray(apps)) return;
-
-  const container = document.getElementById('dynamicMenuApps');
-  if (!container) return;
-
-  container.innerHTML = '';
-
-  apps.forEach((app) => {
-    const aid = Number(app.id);
-    if (aid === 1 || aid === 2) return;
-
-    let url = '';
-    if (aid === 3) url = '/ET.html';
-    if (aid === 4) url = '/gb2.html';
-    if (aid === 5) url = '/ITT/classificazione.html';
-    if (aid === 6) url = '/PRG/prg.html';
-    if (!url) return;
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'menu-drawer-btn';
-    btn.textContent = app.name || 'App';
-    btn.addEventListener('click', () => {
-      closeMenuDrawer();
-      window.location.href = url;
-    });
-    container.appendChild(btn);
-  });
-}
-
 function bootstrapFromSecurity() {
   if (!window.SecurityData || !window.SecurityData.user) {
     return;
@@ -1830,7 +1729,6 @@ function bootstrapFromSecurity() {
   };
 
   updateCurrentOperatorUI();
-  buildDynamicMenu();
   applyPermissions();
   void loadInitialData().then(() => {
     setScreen('log-edit');

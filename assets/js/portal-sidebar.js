@@ -4,6 +4,7 @@
   const APP_CONFIG = {
     1: { url: '/bobine.html', icon: '🏭' },
     3: { url: '/ET.html', icon: '🏷️' },
+    4: { url: '/gb2.html', icon: '📦' },
     5: { url: '/ITT/classificazione.html', icon: '🔬' },
     6: { url: '/PRG/prg.html', icon: '📋' },
   };
@@ -60,7 +61,7 @@
 
     apps.forEach((app) => {
       const aid = Number(app.id);
-      if (aid === 4 || aid === 2) return;
+      if (aid === 2) return;
       const cfg = APP_CONFIG[aid];
       if (!cfg) return;
 
