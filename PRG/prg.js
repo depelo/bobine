@@ -92,14 +92,15 @@ function popolaFiltroStato(progetti) {
 
 function applicaFiltri() {
   const filtroArea = document.getElementById('filtroArea').value;
-  const filtroPriorita = document.getElementById('filtroPriorita').value;
+  const prioritaSelezionata = document.getElementById('filtroPriorita').value.trim().toLowerCase();
   const filtroStato = document.getElementById('filtroStato').value;
 
   const progettiFiltrati = tuttiIProgetti.filter((progetto) => {
+    const prioritaProgetto = (progetto.priorita || '').trim().toLowerCase();
     const matchArea = !filtroArea || String(progetto.id_area ?? '') === filtroArea;
-    const matchPriorita = !filtroPriorita || (progetto.priorita || '').toLowerCase() === filtroPriorita.toLowerCase();
+    const passaFiltroPriorita = prioritaSelezionata === '' || prioritaProgetto === prioritaSelezionata;
     const matchStato = !filtroStato || (progetto.stato || '') === filtroStato;
-    return matchArea && matchPriorita && matchStato;
+    return matchArea && passaFiltroPriorita && matchStato;
   });
 
   renderTabellaProgetti(progettiFiltrati);

@@ -12,6 +12,7 @@
     integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
     crossorigin="anonymous"
   >
+  <link rel="stylesheet" href="/gb2/css/gb2-shell.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <style>
     .text-bg-orange { background-color: #fd7e14 !important; color: #fff !important; }
@@ -25,13 +26,31 @@
     .col-kanban-done { background-color: #f0fdf4; border-radius: 8px; }
     .edit-task-icon { cursor: pointer; color: #6c757d; font-size: 0.9rem; float: right; transition: color 0.2s; }
     .edit-task-icon:hover { color: #0d6efd; }
+    .subtask-row { margin-left: 2rem; }
+    .task-barrato { text-decoration: line-through; color: #6c757d; }
+    .fiamma-icon {
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+      user-select: none;
+    }
+    .fiamma-spenta {
+      filter: grayscale(100%) opacity(30%);
+    }
+    .fiamma-accesa {
+      filter: grayscale(0%) opacity(100%);
+      transform: scale(1.1);
+    }
+    .task-inline-input { border: none; background: transparent; width: 100%; }
+    .task-inline-input:focus { outline: 1px solid rgba(13, 110, 253, 0.35); border-radius: 4px; background: #fff; }
+    .task-desc-area { resize: vertical; min-height: 90px; }
+    .task-action-btn { cursor: pointer; border: none; background: transparent; padding: 0 0.25rem; }
   </style>
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
     <div class="container-fluid">
+      <button type="button" class="gb2-menu-btn me-2" id="menuBtn" aria-label="Apri menu">&#9776;</button>
       <a class="navbar-brand fw-semibold d-flex align-items-center" href="prg.html">
-        <span class="me-2">☰</span>
         <img src="/assets/logo-ujet.jpeg" alt="Logo" style="height: 30px; margin-right: 10px; object-fit: contain;">
         <span>Ujet Progetti</span>
       </a>
@@ -60,9 +79,6 @@
               <button type="button" id="btnModificaProgetto" class="btn btn-outline-primary me-2 btn-sm" data-bs-toggle="modal" data-bs-target="#modalModificaProgetto">
                 Modifica Progetto
               </button>
-              <button type="button" id="btnEliminaProgetto" class="btn btn-danger btn-sm">
-                Elimina Progetto
-              </button>
             </div>
           </div>
           <ul class="nav nav-tabs card-header-tabs" id="progettoTabs" role="tablist">
@@ -71,6 +87,9 @@
             </li>
             <li class="nav-item" role="presentation">
               <button class="nav-link" id="tab-piano-operativo" data-bs-toggle="tab" data-bs-target="#pane-piano-operativo" type="button" role="tab" aria-controls="pane-piano-operativo" aria-selected="false">Piano Operativo</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="tab-elenco-task" data-bs-toggle="tab" data-bs-target="#pane-elenco-task" type="button" role="tab" aria-controls="pane-elenco-task" aria-selected="false">Elenco Task</button>
             </li>
           </ul>
         </div>
@@ -174,6 +193,10 @@
                   </div>
                 </div>
               </div>
+            </div>
+            <div class="tab-pane fade" id="pane-elenco-task" role="tabpanel" aria-labelledby="tab-elenco-task">
+              <div id="contenitoreElencoTask" class="mb-3"></div>
+              <button type="button" id="btnAggiungiTaskDaElenco" class="btn btn-outline-primary btn-sm">Aggiungi Nuovo Task</button>
             </div>
           </div>
         </div>
@@ -358,9 +381,12 @@
             </div>
           </form>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
-          <button type="submit" class="btn btn-primary" form="formModificaProgetto">Salva Modifiche</button>
+        <div class="modal-footer justify-content-between">
+          <button type="button" id="btnEliminaProgetto" class="btn btn-danger">Elimina Progetto</button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            <button type="submit" class="btn btn-primary" form="formModificaProgetto">Salva Modifiche</button>
+          </div>
         </div>
       </div>
     </div>
@@ -371,6 +397,7 @@
     integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
     crossorigin="anonymous"
   ></script>
+  <script src="/assets/js/portal-sidebar.js"></script>
   <script src="progetto.js"></script>
 </body>
 </html>

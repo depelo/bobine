@@ -4,6 +4,35 @@ const { authenticateToken } = require('../middlewares/auth');
 
 const router = express.Router();
 
+async function resolveSubTasksColumns(pool) {
+    const columnsResult = await pool.request().query(`
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'sub_tasks'
+    `);
+    const names = new Set(columnsResult.recordset.map((row) => String(row.COLUMN_NAME).toLowerCase()));
+
+    const idColumn = names.has('id_sub_task')
+        ? 'id_sub_task'
+        : names.has('id_subtask')
+            ? 'id_subtask'
+            : names.has('id_sub_tasks')
+                ? 'id_sub_tasks'
+                : null;
+
+    const parentColumn = names.has('id_task_padre')
+        ? 'id_task_padre'
+        : names.has('id_task')
+            ? 'id_task'
+            : null;
+
+    if (!idColumn || !parentColumn) {
+        throw new Error('Schema sub_tasks non riconosciuto: colonne id o parent mancanti.');
+    }
+
+    return { idColumn, parentColumn };
+}
+
 router.get('/progetti', authenticateToken, async (req, res) => {
     try {
         const pool = await getPoolPRG();
@@ -381,6 +410,58 @@ router.get('/progetti/:id/tasks', authenticateToken, async (req, res) => {
     }
 });
 
+router.get('/progetti/:id/struttura-tasks', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getPoolPRG();
+        const { idColumn, parentColumn } = await resolveSubTasksColumns(pool);
+
+        const tasksResult = await pool.request()
+            .input('id_progetto', sql.Int, id)
+            .query(`
+                SELECT
+                    t.id_task, t.id_progetto, t.titolo, t.descrizione,
+                    t.id_persona, t.priorita, t.stato, t.dipende_da_id
+                FROM dbo.tasks t
+                WHERE t.id_progetto = @id_progetto AND t.is_active = 1
+                ORDER BY t.id_task ASC
+            `);
+
+        const subtasksResult = await pool.request()
+            .input('id_progetto', sql.Int, id)
+            .query(`
+                SELECT
+                    st.${idColumn} AS id_sub_task,
+                    st.${parentColumn} AS id_task_padre,
+                    st.titolo, st.descrizione,
+                    st.is_completato, st.is_critico
+                FROM dbo.sub_tasks st
+                INNER JOIN dbo.tasks t ON st.${parentColumn} = t.id_task
+                WHERE t.id_progetto = @id_progetto
+                ORDER BY st.${idColumn} ASC
+            `);
+
+        const subtasksByTask = new Map();
+        subtasksResult.recordset.forEach((subtask) => {
+            const key = Number(subtask.id_task_padre);
+            if (!subtasksByTask.has(key)) subtasksByTask.set(key, []);
+            subtasksByTask.get(key).push(subtask);
+        });
+
+        const data = tasksResult.recordset.map((task) => ({
+            ...task,
+            is_completato: (task.stato || '').toString().trim().toLowerCase() === 'completato' ? 1 : 0,
+            is_critico: 0,
+            sub_tasks: subtasksByTask.get(Number(task.id_task)) || []
+        }));
+
+        res.json({ ok: true, data });
+    } catch (error) {
+        console.error('[ERRORE WBS]:', error.message);
+        res.status(500).json({ ok: false, message: 'Errore nel recupero struttura task.', error: error.message });
+    }
+});
+
 router.post('/tasks', authenticateToken, async (req, res) => {
     try {
         const { id_progetto, titolo, id_persona, priorita, descrizione, scadenza, dipende_da_id } = req.body;
@@ -444,22 +525,32 @@ router.put('/tasks/:id/stato', authenticateToken, async (req, res) => {
 router.put('/tasks/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { titolo, id_persona, priorita, descrizione, dipende_da_id } = req.body;
+        const { titolo, id_persona, priorita, descrizione, dipende_da_id, stato, is_completato } = req.body;
         const pool = await getPoolPRG();
         const result = await pool.request()
             .input('id_task', sql.Int, id)
-            .input('titolo', sql.NVarChar(255), titolo)
-            .input('id_persona', sql.Int, id_persona)
-            .input('priorita', sql.NVarChar(50), priorita || 'Media')
-            .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
-            .input('dipende_da_id', sql.Int, dipende_da_id || null)
+            .input('titolo', sql.NVarChar(255), titolo ?? null)
+            .input('id_persona', sql.Int, id_persona ?? null)
+            .input('priorita', sql.NVarChar(50), priorita ?? null)
+            .input('descrizione', sql.NVarChar(sql.MAX), descrizione ?? null)
+            .input('dipende_da_id', sql.Int, dipende_da_id ?? null)
+            .input('stato', sql.NVarChar(50), stato ?? null)
+            .input('is_completato', sql.Bit, is_completato ?? null)
             .query(`
                 UPDATE dbo.tasks
-                SET titolo = @titolo,
-                    id_persona = @id_persona,
-                    priorita = @priorita,
-                    descrizione = @descrizione,
-                    dipende_da_id = @dipende_da_id
+                SET titolo = COALESCE(@titolo, titolo),
+                    id_persona = COALESCE(@id_persona, id_persona),
+                    priorita = COALESCE(@priorita, priorita),
+                    descrizione = COALESCE(@descrizione, descrizione),
+                    dipende_da_id = COALESCE(@dipende_da_id, dipende_da_id),
+                    stato = COALESCE(
+                        @stato,
+                        CASE
+                            WHEN @is_completato IS NULL THEN stato
+                            WHEN @is_completato = 1 THEN 'Completato'
+                            ELSE 'Da Fare'
+                        END
+                    )
                 WHERE id_task = @id_task AND is_active = 1
             `);
 
@@ -470,6 +561,81 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error('PUT /api/prg/tasks/:id:', err);
         res.status(500).json({ ok: false, message: 'Errore nell aggiornamento task.', error: err.message });
+    }
+});
+
+router.post('/subtasks', authenticateToken, async (req, res) => {
+    try {
+        const { id_task, titolo, descrizione } = req.body;
+        const pool = await getPoolPRG();
+        const { idColumn, parentColumn } = await resolveSubTasksColumns(pool);
+        const result = await pool.request()
+            .input('id_task', sql.Int, id_task)
+            .input('titolo', sql.NVarChar(255), titolo || 'Nuova sotto-attivita')
+            .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
+            .query(`
+                INSERT INTO dbo.sub_tasks (${parentColumn}, titolo, descrizione, is_completato, is_critico)
+                OUTPUT INSERTED.*
+                VALUES (@id_task, @titolo, @descrizione, 0, 0)
+            `);
+        const inserted = result.recordset[0] || {};
+        const normalized = {
+            ...inserted,
+            id_sub_task: inserted[idColumn] ?? inserted.id_sub_task,
+            id_task_padre: inserted[parentColumn] ?? inserted.id_task_padre,
+        };
+        res.status(201).json({ ok: true, data: normalized });
+    } catch (err) {
+        console.error('POST /api/prg/subtasks:', err);
+        res.status(500).json({ ok: false, message: 'Errore nella creazione sotto-attivita.', error: err.message });
+    }
+});
+
+router.put('/subtasks/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { titolo, descrizione, is_completato, is_critico } = req.body;
+        const pool = await getPoolPRG();
+        const { idColumn } = await resolveSubTasksColumns(pool);
+        const result = await pool.request()
+            .input('id_sub_task', sql.Int, id)
+            .input('titolo', sql.NVarChar(255), titolo ?? null)
+            .input('descrizione', sql.NVarChar(sql.MAX), descrizione ?? null)
+            .input('is_completato', sql.Bit, is_completato ?? null)
+            .input('is_critico', sql.Bit, is_critico ?? null)
+            .query(`
+                UPDATE dbo.sub_tasks
+                SET titolo = COALESCE(@titolo, titolo),
+                    descrizione = COALESCE(@descrizione, descrizione),
+                    is_completato = COALESCE(@is_completato, is_completato),
+                    is_critico = COALESCE(@is_critico, is_critico)
+                WHERE ${idColumn} = @id_sub_task
+            `);
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ ok: false, message: 'Sotto-attivita non trovata.' });
+        }
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('PUT /api/prg/subtasks/:id:', err);
+        res.status(500).json({ ok: false, message: 'Errore nell aggiornamento sotto-attivita.', error: err.message });
+    }
+});
+
+router.delete('/subtasks/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getPoolPRG();
+        const { idColumn } = await resolveSubTasksColumns(pool);
+        const result = await pool.request()
+            .input('id_sub_task', sql.Int, id)
+            .query(`DELETE FROM dbo.sub_tasks WHERE ${idColumn} = @id_sub_task`);
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ ok: false, message: 'Sotto-attivita non trovata.' });
+        }
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('DELETE /api/prg/subtasks/:id:', err);
+        res.status(500).json({ ok: false, message: 'Errore nella cancellazione sotto-attivita.', error: err.message });
     }
 });
 

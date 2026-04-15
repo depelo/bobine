@@ -4,6 +4,7 @@ let currentProjectData = null;
 let currentTeamMember = null;
 let currentTeam = [];
 let currentTasks = [];
+let currentTaskStructure = [];
 const KANBAN_STATI = ['Da Fare', 'In Corso', 'Revisione', 'Completato'];
 
 document.addEventListener('securityReady', initApp);
@@ -28,6 +29,8 @@ async function initApp() {
   const btnNuovoTask = document.getElementById('btnNuovoTask');
   const btnEliminaTask = document.getElementById('btnEliminaTask');
   const tabPianoOperativo = document.getElementById('tab-piano-operativo');
+  const tabElencoTask = document.getElementById('tab-elenco-task');
+  const btnAggiungiTaskDaElenco = document.getElementById('btnAggiungiTaskDaElenco');
 
   formAssegnaPersona.addEventListener('submit', onSubmitAssegnaPersona);
   modalAssegnaPersona.addEventListener('show.bs.modal', loadPersoneSelect);
@@ -40,6 +43,8 @@ async function initApp() {
   btnNuovoTask.addEventListener('click', onOpenNuovoTaskModal);
   btnEliminaTask.addEventListener('click', onDeleteTaskCorrente);
   tabPianoOperativo.addEventListener('shown.bs.tab', onOpenPianoOperativoTab);
+  tabElencoTask.addEventListener('shown.bs.tab', onOpenElencoTaskTab);
+  btnAggiungiTaskDaElenco.addEventListener('click', openModalNuovoTaskFromElenco);
 
   await loadDettaglioProgetto(currentProjectId);
   await loadTeam(currentProjectId);
@@ -55,7 +60,7 @@ async function requestJson(url, options = {}) {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok || payload.ok === false) {
-    const error = new Error(payload.message || 'Errore durante la chiamata API.');
+    const error = new Error(payload.error || payload.message || 'Errore durante la chiamata API.');
     error.status = response.status;
     throw error;
   }
@@ -137,6 +142,10 @@ async function onOpenPianoOperativoTab() {
   await loadTasks(currentProjectId);
 }
 
+async function onOpenElencoTaskTab() {
+  await loadStrutturaTasks(currentProjectId);
+}
+
 async function loadTasks(projectId) {
   try {
     hideError();
@@ -148,6 +157,240 @@ async function loadTasks(projectId) {
     renderKanban([]);
     showError(error.message || 'Errore durante il caricamento task.');
   }
+}
+
+async function loadStrutturaTasks(projectId) {
+  try {
+    hideError();
+    const payload = await requestJson(`${API_BASE}/progetti/${projectId}/struttura-tasks`);
+    currentTaskStructure = Array.isArray(payload.data) ? payload.data : [];
+    renderElencoTask(currentTaskStructure);
+  } catch (error) {
+    currentTaskStructure = [];
+    renderElencoTask([]);
+    showError(error.message || 'Errore durante il caricamento elenco task.');
+  }
+}
+
+function renderElencoTask(struttura) {
+  const container = document.getElementById('contenitoreElencoTask');
+  container.innerHTML = '';
+
+  if (!struttura.length) {
+    container.innerHTML = '<div class="text-muted">Nessun task disponibile.</div>';
+    return;
+  }
+
+  struttura.forEach((task) => {
+    container.appendChild(buildTaskRow(task, false));
+    const subtasks = Array.isArray(task.sub_tasks) ? task.sub_tasks : [];
+    subtasks.forEach((subtask) => {
+      container.appendChild(buildTaskRow(subtask, true, task.id_task));
+    });
+
+    const btnAddSubtask = document.createElement('button');
+    btnAddSubtask.type = 'button';
+    btnAddSubtask.className = 'btn btn-link btn-sm text-decoration-none ms-4';
+    btnAddSubtask.textContent = '+ Aggiungi sotto-attivita';
+    btnAddSubtask.addEventListener('click', () => onAggiungiSubtask(task.id_task));
+    container.appendChild(btnAddSubtask);
+  });
+}
+
+function buildTaskRow(item, isSubtask, parentTaskId = null) {
+  const wrapper = document.createElement('div');
+  wrapper.className = `border rounded p-2 mb-2 ${isSubtask ? 'subtask-row' : ''}`;
+
+  const row = document.createElement('div');
+  row.className = 'd-flex align-items-center gap-2';
+
+  const descRowId = `${isSubtask ? 'sub' : 'task'}-desc-${isSubtask ? item.id_sub_task : item.id_task}`;
+  const chevron = document.createElement('button');
+  chevron.type = 'button';
+  chevron.className = 'task-action-btn';
+  chevron.textContent = '▸';
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'form-check-input rounded-circle';
+  checkbox.checked = Boolean(item.is_completato);
+
+  const titleInput = document.createElement('input');
+  titleInput.type = 'text';
+  titleInput.className = `task-inline-input fw-semibold ${item.is_completato ? 'task-barrato' : ''}`;
+  titleInput.value = item.titolo || '';
+
+  const prioritaBadge = document.createElement('span');
+  prioritaBadge.className = `badge ${getPrioritaBadgeClass(item.priorita || 'Media')}`;
+  prioritaBadge.textContent = item.priorita || 'Media';
+
+  const editTaskBtn = document.createElement('button');
+  editTaskBtn.type = 'button';
+  editTaskBtn.className = 'task-action-btn';
+  editTaskBtn.title = 'Modifica task';
+  editTaskBtn.textContent = '✏️';
+  editTaskBtn.addEventListener('click', () => apriModaleModificaTask(item.id_task));
+
+  const fiammaBtn = document.createElement('button');
+  fiammaBtn.type = 'button';
+  fiammaBtn.className = `task-action-btn fiamma-icon ${item.is_critico ? 'fiamma-accesa' : 'fiamma-spenta'}`;
+  fiammaBtn.textContent = '🔥';
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'task-action-btn text-danger';
+  deleteBtn.textContent = '🗑';
+
+  row.appendChild(chevron);
+  row.appendChild(checkbox);
+  row.appendChild(titleInput);
+  if (isSubtask) {
+    row.appendChild(fiammaBtn);
+  } else {
+    row.appendChild(prioritaBadge);
+    row.appendChild(editTaskBtn);
+  }
+  row.appendChild(deleteBtn);
+
+  const descWrap = document.createElement('div');
+  descWrap.id = descRowId;
+  descWrap.className = 'd-none mt-2';
+  descWrap.innerHTML = `
+    <textarea class="form-control task-desc-area" rows="3">${escapeHtml(item.descrizione || '')}</textarea>
+  `;
+
+  chevron.addEventListener('click', () => {
+    const isHidden = descWrap.classList.toggle('d-none');
+    chevron.textContent = isHidden ? '▸' : '▾';
+  });
+
+  checkbox.addEventListener('change', async () => {
+    try {
+      hideError();
+      const nuovoValore = checkbox.checked ? 1 : 0;
+      if (isSubtask) {
+        await updateSubtaskField(item.id_sub_task, { is_completato: nuovoValore });
+      } else {
+        await updateTaskField(item.id_task, { stato: nuovoValore ? 'Completato' : 'Da Fare' });
+      }
+      titleInput.classList.toggle('task-barrato', checkbox.checked);
+      await refreshTaskViews();
+    } catch (error) {
+      showError(error.message);
+      checkbox.checked = !checkbox.checked;
+    }
+  });
+
+  titleInput.addEventListener('blur', async () => {
+    const titolo = titleInput.value.trim();
+    if (!titolo) return;
+    try {
+      hideError();
+      if (isSubtask) {
+        await updateSubtaskField(item.id_sub_task, { titolo });
+      } else {
+        await updateTaskField(item.id_task, { titolo });
+      }
+      await refreshTaskViews();
+    } catch (error) {
+      showError(error.message);
+    }
+  });
+
+  if (isSubtask) {
+    fiammaBtn.addEventListener('click', async () => {
+      const isCritico = fiammaBtn.classList.contains('fiamma-accesa') ? 0 : 1;
+      try {
+        hideError();
+        await updateSubtaskField(item.id_sub_task, { is_critico: isCritico });
+        if (isCritico) {
+          fiammaBtn.classList.add('fiamma-accesa');
+          fiammaBtn.classList.remove('fiamma-spenta');
+        } else {
+          fiammaBtn.classList.remove('fiamma-accesa');
+          fiammaBtn.classList.add('fiamma-spenta');
+        }
+        await refreshTaskViews();
+      } catch (error) {
+        showError(error.message);
+      }
+    });
+  }
+
+  deleteBtn.addEventListener('click', async () => {
+    const conferma = confirm(`Confermi l eliminazione ${isSubtask ? 'della sotto-attivita' : 'del task'}?`);
+    if (!conferma) return;
+    try {
+      hideError();
+      if (isSubtask) {
+        await requestJson(`${API_BASE}/subtasks/${item.id_sub_task}`, { method: 'DELETE' });
+      } else {
+        await requestJson(`${API_BASE}/tasks/${item.id_task}`, { method: 'DELETE' });
+      }
+      await refreshTaskViews();
+    } catch (error) {
+      showError(error.message);
+    }
+  });
+
+  const textarea = descWrap.querySelector('textarea');
+  textarea.value = item.descrizione || '';
+  textarea.addEventListener('blur', async () => {
+    try {
+      hideError();
+      const descrizione = textarea.value.trim();
+      if (isSubtask) {
+        await updateSubtaskField(item.id_sub_task, { descrizione });
+      } else {
+        await updateTaskField(item.id_task, { descrizione });
+      }
+      await refreshTaskViews();
+    } catch (error) {
+      showError(error.message);
+    }
+  });
+
+  wrapper.appendChild(row);
+  wrapper.appendChild(descWrap);
+  return wrapper;
+}
+
+async function updateTaskField(idTask, fields) {
+  await requestJson(`${API_BASE}/tasks/${idTask}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+}
+
+async function updateSubtaskField(idSubtask, fields) {
+  await requestJson(`${API_BASE}/subtasks/${idSubtask}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+}
+
+async function onAggiungiSubtask(idTask) {
+  try {
+    hideError();
+    await requestJson(`${API_BASE}/subtasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id_task: idTask,
+        titolo: 'Nuova sotto-attivita',
+        descrizione: '',
+      }),
+    });
+    await refreshTaskViews();
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+async function refreshTaskViews() {
+  await Promise.all([loadTasks(currentProjectId), loadStrutturaTasks(currentProjectId)]);
 }
 
 function renderKanban(tasks) {
@@ -337,7 +580,7 @@ async function onSubmitGestioneTask(event) {
     }
     document.getElementById('formGestioneTask').reset();
     closeModal('modalGestioneTask');
-    await loadTasks(currentProjectId);
+    await refreshTaskViews();
   } catch (error) {
     showError(error.message || 'Errore durante il salvataggio del task.');
   }
@@ -385,13 +628,18 @@ async function onDeleteTaskCorrente() {
     hideError();
     await requestJson(`${API_BASE}/tasks/${idTask}`, { method: 'DELETE' });
     closeModal('modalGestioneTask');
-    await loadTasks(currentProjectId);
+    await refreshTaskViews();
   } catch (error) {
     showError(error.message || 'Errore durante eliminazione task.');
   }
 }
 
 window.apriModaleModificaTask = apriModaleModificaTask;
+
+async function openModalNuovoTaskFromElenco() {
+  await onOpenNuovoTaskModal();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGestioneTask')).show();
+}
 
 function normalizeTaskStato(value) {
   if (!value) return 'Da Fare';
