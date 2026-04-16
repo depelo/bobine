@@ -101,6 +101,7 @@
                         <th>Etichetta</th>
                         <th class="text-center" style="width: 80px;">Riga</th>
                         <th>FormPos</th>
+                        <th>DescrPos</th>
                         <th>Form</th>
                         <th style="width: 220px;">Azione</th>
                     </tr>
@@ -529,6 +530,7 @@
             const riga = item.et_layer_nriga || 0;
             const formVal = item.Form || "";
             const formPosVal = item.FormPos || "";
+            const descrPosVal = item.DescrPos || "";
             const figlioDescHtml = item.figlioDesc ? ` <span class="text-muted ms-1 fw-normal" style="font-size: 0.9em;">- ${item.figlioDesc}</span>` : "";
             const isConfigurata = item.IsConfigurata === 1;
 
@@ -543,6 +545,7 @@
                 <td>${figlio}${figlioDescHtml}</td>
                 <td class="text-center">${riga}</td>
                 <td>${formPosVal}</td>
+                <td>${descrPosVal}</td>
                 <td>${formVal}</td>
                 <td>${btnHtml}</td>
             `;
