@@ -363,41 +363,75 @@
     border: 1px solid color-mix(in srgb, var(--success, #16a34a) 30%, white);
 }
 
-/* Card scorporata — riga confermata estratta da card multi-data */
+/* ── Blocco ordine confermato (raggruppato per data consegna) ── */
 .proposta-scorporo {
     border-left: 4px solid var(--success, #16a34a);
+    background: color-mix(in srgb, var(--success, #16a34a) 4%, var(--bg-content, #fff));
 }
 
-.proposta-scorporo-label {
-    font-size: 0.72rem;
+.proposta-scorporo-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--success, #16a34a) 10%, white);
+    font-size: 0.82rem;
+    color: var(--text, #1e293b);
+    border-bottom: 1px solid color-mix(in srgb, var(--success, #16a34a) 20%, white);
+}
+
+.proposta-scorporo-header .conferma-icon {
+    color: var(--success, #16a34a);
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.proposta-scorporo-count {
+    margin-left: auto;
+    font-size: 0.78rem;
     color: var(--text-muted, #64748b);
-    margin-left: 8px;
-    font-style: italic;
 }
 
-/* Bottone "Emetti →" sulla card confermata */
+.proposta-scorporo-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.proposta-scorporo-table th {
+    background: var(--bg, #f0f2f5);
+    padding: 4px 8px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.7rem;
+    color: var(--text-muted, #64748b);
+    border-bottom: 1px solid var(--border, #cbd5e1);
+}
+
+.proposta-scorporo-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border, #cbd5e1);
+}
+
+.proposta-scorporo-table .num {
+    text-align: right;
+}
+
+/* Bottone "Emetti →" nel blocco ordine confermato */
 .btn-emetti-card {
     background: var(--success, #16a34a);
     color: white;
     border: none;
-    padding: 4px 14px;
+    padding: 5px 16px;
     border-radius: var(--radius-sm, 4px);
     font-weight: 700;
     font-size: 0.78rem;
     cursor: pointer;
     transition: all 0.15s;
-    margin-left: 8px;
     white-space: nowrap;
 }
 .btn-emetti-card:hover {
     background: #15803d;
-}
-
-/* Wrapper del bottone emetti sotto i badge (card single/tutto-confermato) */
-.proposta-card-emetti {
-    display: flex;
-    justify-content: flex-end;
-    padding: 4px 8px 6px;
 }
 
 /* Badge informativo "ordine già emesso e email inviata" sul header fornitore */

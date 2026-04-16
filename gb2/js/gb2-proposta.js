@@ -665,9 +665,16 @@ const MrpProposta = (() => {
     function aggiornaStatoVisivo() {
         const confermati = MrpApp.state.ordiniConfermati;
 
-        // Rimuovi card scorporate e bottoni emetti dal ciclo precedente
+        // Pulizia dal ciclo precedente
         document.querySelectorAll('.proposta-scorporo').forEach(el => el.remove());
         document.querySelectorAll('.proposta-card-emetti').forEach(el => el.remove());
+        // Ripristina card nascoste (tutto-confermato nascondeva la card intera)
+        document.querySelectorAll('.proposta-articolo').forEach(el => { el.style.display = ''; });
+
+        // ── Passo 1: itero le card articolo, nascondo righe confermate,
+        //    marco le card confermate, e raccolgo tutti i confermati per fornitore ──
+        // Map<fornCode, Map<dataCons, Array<{key, ordine}>>>
+        const confPerFornData = new Map();
 
         document.querySelectorAll('.proposta-articolo').forEach(artEl => {
             const codartEl = artEl.querySelector('.proposta-art-codart');
@@ -676,9 +683,8 @@ const MrpProposta = (() => {
             artEl.classList.remove('proposta-art-confermato');
             artEl.querySelectorAll('.proposta-conferma-badge').forEach(b => b.remove());
 
-            // Ripristina righe nascoste dal ciclo precedente
+            // Ripristina righe nascoste
             artEl.querySelectorAll('tr[data-progr]').forEach(tr => { tr.style.display = ''; });
-            // Ripristina badge "N date" originale
             const mdBadge = artEl.querySelector('.proposta-multidate-badge');
 
             const progrList = (codartEl.dataset.olprogrlist || '').split(',').filter(Boolean);
@@ -687,117 +693,115 @@ const MrpProposta = (() => {
                 const ordine = confermati.get(p);
                 if (ordine) ordiniCard.push({ key: p, ordine });
             }
-            // Fallback card singola
             if (progrList.length === 0) {
                 const singleProgr = codartEl.dataset.olprogr || '0';
                 const ordine = confermati.get(singleProgr);
                 if (ordine) ordiniCard.push({ key: singleProgr, ordine });
             }
 
+            if (ordiniCard.length === 0) return;
+
             const isMulti = progrList.length > 1;
             const tuttiConfermati = isMulti && ordiniCard.length === progrList.length;
-            const parziale = isMulti && ordiniCard.length > 0 && !tuttiConfermati;
+            const parziale = isMulti && !tuttiConfermati;
+
+            // Nascondi righe confermate nella tabella (sia parziale che tutto)
+            for (const { key } of ordiniCard) {
+                const tr = artEl.querySelector(`tr[data-progr="${key}"]`);
+                if (tr) tr.style.display = 'none';
+            }
 
             if (parziale) {
-                // ── SCORPORO: conferme parziali su card multi-data ──
-                // Nascondi le righe confermate nella tabella originale
-                for (const { key } of ordiniCard) {
-                    const tr = artEl.querySelector(`tr[data-progr="${key}"]`);
-                    if (tr) tr.style.display = 'none';
-                }
-                // Aggiorna badge "N date" con il conteggio residuo
                 const residue = progrList.length - ordiniCard.length;
                 if (mdBadge) mdBadge.textContent = residue + ' date';
-
-                // Ricalcola totale articolo visibile (solo righe non nascoste)
                 _ricalcolaTotaleArticolo(artEl);
-
-                // Crea mini-card scorporate per le righe confermate, inserite PRIMA della card
-                for (const { key, ordine } of ordiniCard) {
-                    const scorporo = _buildScorporoCard(ordine, key, codartEl);
-                    artEl.parentElement.insertBefore(scorporo, artEl);
-                }
-            } else if (ordiniCard.length > 0) {
-                // ── TUTTO CONFERMATO o SINGOLA ──
+            } else {
+                // Tutta la card confermata → nascondo la card intera
                 artEl.classList.add('proposta-art-confermato');
-                const fornCode = ordiniCard[0].ordine.fornitore_codice;
-                const allKeys = ordiniCard.map(o => o.key).join(',');
-                for (const { key, ordine } of ordiniCard) {
-                    const badge = document.createElement('div');
-                    badge.className = 'proposta-conferma-badge proposta-badge-confermato';
-                    const dataFmt = ordine.data_consegna
-                        ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
-                    const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
-                    badge.innerHTML =
-                        '<span class="conferma-icon">&#x2713;</span> '
-                        + '<strong>' + Number(ordine.quantita_confermata).toLocaleString('it-IT') + ' ' + esc(ordine.ol_unmis || 'PZ') + '</strong>'
-                        + ' entro ' + esc(dataFmt)
-                        + (valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')
-                        + ' <button class="btn-modifica-conferma" data-key="' + escAttr(key) + '" title="Modifica">&#9998;</button>'
-                        + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi conferma">&#128465;</button>';
-                    artEl.appendChild(badge);
-                }
-                // Bottone "Emetti" sulla card — emette solo gli articoli di questa card
-                const emettiDiv = document.createElement('div');
-                emettiDiv.className = 'proposta-card-emetti';
-                let totValore = 0;
-                ordiniCard.forEach(o => { totValore += o.ordine.quantita_confermata * o.ordine.prezzo / (Number(o.ordine.perqta) || 1); });
-                emettiDiv.innerHTML = '<button class="btn-emetti-card" data-forn="' + escAttr(fornCode) + '" data-keys="' + escAttr(allKeys)
-                    + '">\u2713 ' + ordiniCard.length + ' art. &mdash; &euro; '
-                    + totValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                    + ' &nbsp; Emetti \u2192</button>';
-                artEl.appendChild(emettiDiv);
+                artEl.style.display = 'none';
+            }
+
+            // Raccogli per (fornitore, data)
+            for (const { key, ordine } of ordiniCard) {
+                const fk = String(ordine.fornitore_codice);
+                const dt = ordine.data_consegna || 'no-date';
+                if (!confPerFornData.has(fk)) confPerFornData.set(fk, new Map());
+                const byDate = confPerFornData.get(fk);
+                if (!byDate.has(dt)) byDate.set(dt, []);
+                byDate.get(dt).push({ key, ordine });
             }
         });
+
+        // ── Passo 2: per ogni (fornitore, data), creo un blocco ordine visuale ──
+        for (const [fornCode, byDate] of confPerFornData) {
+            const fornEl = document.querySelector(`.proposta-fornitore-header[data-forn="${fornCode}"]`);
+            if (!fornEl) continue;
+            const bodyEl = fornEl.nextElementSibling;
+            if (!bodyEl) continue;
+
+            for (const [dataConsegna, items] of byDate) {
+                const blocco = _buildBloccoOrdineConfermato(items, dataConsegna);
+                bodyEl.insertBefore(blocco, bodyEl.firstChild);
+            }
+        }
 
         aggiornaBarreFornitori();
     }
 
     /**
-     * Costruisce una mini-card "scorporata" per una riga confermata estratta
-     * da una card multi-data. Stile coerente con le card articolo.
+     * Costruisce un blocco visuale "ordine in attesa di emissione" che raggruppa
+     * tutti gli articoli confermati per la stessa (fornitore, data_consegna).
+     * Mostra una mini-tabella con tutti gli articoli + bottone Emetti.
      */
-    function _buildScorporoCard(ordine, key, codartEl) {
+    function _buildBloccoOrdineConfermato(items, dataConsegna) {
         const div = document.createElement('div');
         div.className = 'proposta-articolo proposta-scorporo proposta-art-confermato';
-        div.dataset.confKey = key;
-        div.dataset.confForn = ordine.fornitore_codice;
 
-        const dataFmt = ordine.data_consegna
-            ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
-        const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
+        const dataFmt = dataConsegna && dataConsegna !== 'no-date'
+            ? new Date(dataConsegna).toLocaleDateString('it-IT') : 'Senza data';
+        const allKeys = items.map(i => i.key).join(',');
+        const fornCode = items[0].ordine.fornitore_codice;
+
+        let totValore = 0;
+        let htmlRighe = '';
+        for (const { key, ordine } of items) {
+            const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
+            totValore += valore;
+            htmlRighe += `<tr>
+                <td>${esc(ordine.ol_codart)}</td>
+                <td>${esc(ordine.ar_descr || '')}</td>
+                <td class="num">${Number(ordine.quantita_confermata).toLocaleString('it-IT')}</td>
+                <td>${esc(ordine.ol_unmis || 'PZ')}</td>
+                <td class="num">${(ordine.prezzo || 0).toFixed(4)}</td>
+                <td class="num">\u20ac ${valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td>
+                    <button class="btn-modifica-conferma" data-key="${escAttr(key)}" title="Modifica">&#9998;</button>
+                    <button class="btn-rimuovi-conferma" data-key="${escAttr(key)}" title="Rimuovi">&#128465;</button>
+                </td>
+            </tr>`;
+        }
 
         div.innerHTML = `
-            <div class="proposta-art-header">
-                <span class="proposta-art-codart"
-                    data-codart="${escAttr(ordine.ol_codart)}"
-                    data-fornitore="${escAttr(ordine.fornitore_codice)}"
-                    data-fornitorenome="${escAttr(ordine.fornitore_nome || '')}"
-                    data-fase="${escAttr(String(ordine.ol_fase || '0'))}"
-                    data-magaz="${escAttr(String(ordine.ol_magaz || '1'))}"
-                    data-unmis="${escAttr(ordine.ol_unmis || 'PZ')}"
-                    data-olprogr="${escAttr(String(ordine.ol_progr || 0))}"
-                    data-olprogrlist="${escAttr(String(ordine.ol_progr || 0))}"
-                    data-multidate="0"
-                    data-quant="${escAttr(String(ordine.quantita_confermata))}"
-                    data-prezzo="${escAttr(String(ordine.prezzo || 0))}"
-                    data-perqta="${escAttr(String(ordine.perqta || 1))}"
-                    data-datcons="${escAttr(ordine.data_consegna || '')}"
-                    data-descr="${escAttr(ordine.ar_descr || '')}"
-                    data-codalt="${escAttr(ordine.ar_codalt || '')}"
-                    title="Clicca per aprire i Progressivi">${esc(ordine.ol_codart)}</span>
-                <span class="proposta-art-descr">${esc(ordine.ar_descr || '')}</span>
-                <span class="proposta-scorporo-label">consegna ${esc(dataFmt)}</span>
+            <div class="proposta-scorporo-header">
+                <span class="conferma-icon">\u2713</span>
+                <strong>Ordine da emettere</strong> \u2014 consegna ${esc(dataFmt)}
+                <span class="proposta-scorporo-count">${items.length} art. \u2014 \u20ac ${totValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <button class="btn-emetti-card" data-forn="${escAttr(fornCode)}" data-keys="${escAttr(allKeys)}">Emetti \u2192</button>
             </div>
-            <div class="proposta-conferma-badge proposta-badge-confermato">
-                <span class="conferma-icon">&#x2713;</span>
-                <strong>${Number(ordine.quantita_confermata).toLocaleString('it-IT')} ${esc(ordine.ol_unmis || 'PZ')}</strong>
-                entro ${esc(dataFmt)}
-                ${valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
-                <button class="btn-modifica-conferma" data-key="${escAttr(key)}" title="Modifica">&#9998;</button>
-                <button class="btn-rimuovi-conferma" data-key="${escAttr(key)}" title="Rimuovi conferma">&#128465;</button>
-                <button class="btn-emetti-card" data-forn="${escAttr(ordine.fornitore_codice)}" data-keys="${escAttr(key)}" title="Emetti questo ordine">Emetti \u2192</button>
-            </div>
+            <table class="proposta-scorporo-table">
+                <thead>
+                    <tr>
+                        <th>Cod. Articolo</th>
+                        <th>Descrizione</th>
+                        <th class="num">Quantit\u00e0</th>
+                        <th>UM</th>
+                        <th class="num">Prezzo</th>
+                        <th class="num">Valore</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>${htmlRighe}</tbody>
+            </table>
         `;
 
         return div;
