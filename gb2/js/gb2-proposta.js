@@ -345,7 +345,7 @@ const MrpProposta = (() => {
                 });
                 elabHtml = `
                     <div class="proposta-stat-item proposta-stat-elab">
-                        Elab. <span class="proposta-stat-value">#${elab.id}</span>
+                        Elab. <span class="proposta-stat-value">#${elab.numeroElab || elab.id}</span>
                         &mdash; Batch: <span class="proposta-stat-value">${elabDate}</span>
                         &mdash; Gestite: <span class="proposta-stat-value">${elab.totaleGestite}/${elab.totaleProposte}</span>
                     </div>

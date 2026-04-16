@@ -347,7 +347,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                     .input('fp', sql.DateTime, fingerprint)
                     .input('amb', sql.VarChar(20), serverDest)
                     .query(`
-                        SELECT ID, TotaleProposte, TotaleGestite, Fingerprint, RilevatoIl
+                        SELECT ID, TotaleProposte, TotaleGestite, Fingerprint, RilevatoIl, NumeroElab
                         FROM [GB2].[dbo].[ElaborazioniMRP]
                         WHERE Fingerprint = @fp AND Ambiente = @amb
                     `);
@@ -362,10 +362,13 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                             .input('uid', sql.Int, userId)
                             .input('amb', sql.VarChar(20), serverDest)
                             .query(`
+                                DECLARE @nextNum INT = ISNULL(
+                                    (SELECT MAX(NumeroElab) FROM [GB2].[dbo].[ElaborazioniMRP] WHERE Ambiente = @amb),
+                                    0) + 1;
                                 INSERT INTO [GB2].[dbo].[ElaborazioniMRP]
-                                    (Fingerprint, TotaleProposte, TotaleGestite, IDUser, Ambiente)
-                                VALUES (@fp, @tot, 0, @uid, @amb);
-                                SELECT SCOPE_IDENTITY() AS newId;
+                                    (Fingerprint, TotaleProposte, TotaleGestite, IDUser, Ambiente, NumeroElab)
+                                VALUES (@fp, @tot, 0, @uid, @amb, @nextNum);
+                                SELECT SCOPE_IDENTITY() AS newId, @nextNum AS numElab;
                             `);
                         elabId = insRes.recordset[0].newId;
                     } catch (dupErr) {
@@ -407,12 +410,14 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                         `);
                     }
 
-                    elaborazione = { id: elabId, fingerprint, totaleProposte: rows.length, totaleGestite: 0 };
+                    const numElab = insRes.recordset[0].numElab || elabId;
+                    elaborazione = { id: elabId, numeroElab: numElab, fingerprint, totaleProposte: rows.length, totaleGestite: 0 };
                 } else {
                     // Elaborazione esistente
                     elabId = elabRes.recordset[0].ID;
                     elaborazione = {
                         id: elabId,
+                        numeroElab: elabRes.recordset[0].NumeroElab || elabId,
                         fingerprint: elabRes.recordset[0].Fingerprint,
                         totaleProposte: elabRes.recordset[0].TotaleProposte,
                         totaleGestite: elabRes.recordset[0].TotaleGestite
