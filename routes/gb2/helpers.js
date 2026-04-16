@@ -40,7 +40,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
     }
 
     // Versione deploy — incrementare quando si modificano le SP o le tabelle
-    const DEPLOY_VERSION = '2.9';
+    const DEPLOY_VERSION = '3.2';
 
     /**
      * Deploy SP e tabelle nel DB [GB2_SP] del server di destinazione.
@@ -101,7 +101,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         }
 
         try {
-            for (const file of ['usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql', 'usp_AggiungiRigheOrdineFornitore.sql']) {
+            for (const file of ['usp_CreaOrdineFornitore.sql', 'usp_AggiornaStatoInvioOrdine.sql', 'usp_AggiungiRigheOrdineFornitore.sql', 'usp_RimuoviRigaOrdineFornitore.sql']) {
                 const filePath = path.join(sqlDir, file);
                 if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
                 try {
@@ -110,6 +110,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
                         sqlText = sqlText.replace(/usp_AggiungiRigheOrdineFornitore/g, 'usp_AggiungiRigheOrdineFornitore' + suffix);
                         sqlText = sqlText.replace(/usp_CreaOrdineFornitore/g, 'usp_CreaOrdineFornitore' + suffix);
                         sqlText = sqlText.replace(/usp_AggiornaStatoInvioOrdine/g, 'usp_AggiornaStatoInvioOrdine' + suffix);
+                        sqlText = sqlText.replace(/usp_RimuoviRigaOrdineFornitore/g, 'usp_RimuoviRigaOrdineFornitore' + suffix);
                     }
                     const batches = sqlText.split(/^\s*GO\s*$/im).filter(b => b.trim());
                     for (const b of batches) {

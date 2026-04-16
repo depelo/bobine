@@ -67,6 +67,38 @@ const MrpProposta = (() => {
     }
 
     function onPropostaListBadgeClick(e) {
+        // Rimuovi singola riga da ordine emesso (non ancora inviato via email)
+        const btnRimuoviRiga = e.target.closest('.btn-rimuovi-riga-ordine');
+        if (btnRimuoviRiga) {
+            e.stopPropagation();
+            const { anno, serie, numord, riga } = btnRimuoviRiga.dataset;
+            (async () => {
+                try {
+                    const res = await fetch(`${MrpApp.API_BASE}/rimuovi-riga-ordine`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            anno: parseInt(anno, 10),
+                            serie: serie,
+                            numord: parseInt(numord, 10),
+                            riga: parseInt(riga, 10),
+                            elaborazione_id: MrpApp.state.elaborazioneId || ''
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        await caricaProposta();
+                    } else {
+                        await modale('error', 'Errore', data.error || 'Errore nella rimozione della riga');
+                    }
+                } catch (err) {
+                    await modale('error', 'Errore', err.message);
+                }
+            })();
+            return;
+        }
+
         // Emetti da card singola
         const btnEmettiCard = e.target.closest('.btn-emetti-card');
         if (btnEmettiCard) {
@@ -129,6 +161,15 @@ const MrpProposta = (() => {
                     aggiornaStatoVisivo();
                 }
             });
+        }
+
+        // Pulsante Annulla nei blocchi "Ordine da emettere" — azione diretta senza conferma
+        const btnAnnullaConf = e.target.closest('.btn-annulla-conferma');
+        if (btnAnnullaConf) {
+            e.stopPropagation();
+            const keys = (btnAnnullaConf.dataset.key || '').split(',').filter(Boolean);
+            for (const k of keys) MrpApp.rimuoviOrdine(k);
+            aggiornaStatoVisivo();
         }
     }
 
@@ -581,11 +622,13 @@ const MrpProposta = (() => {
 
         let htmlRighe = '';
         let totaleValore = 0;
+        const extraMultiRiga = righe.length > 1 && !extra.email_inviata;
         for (const r of righe) {
             const valore = (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
             totaleValore += valore;
+            const rigaNum = r.ord_riga || r.mo_riga || 0;
             htmlRighe += `<tr>
-                <td>${esc(r.ol_codart)}</td>
+                <td>${esc(r.ol_codart)}${extraMultiRiga ? ' <button class="btn-rimuovi-riga-ordine" data-anno="' + escAttr(String(extra.anno)) + '" data-serie="' + escAttr(extra.serie) + '" data-numord="' + escAttr(String(extra.numord)) + '" data-riga="' + escAttr(String(rigaNum)) + '" data-codart="' + escAttr(r.ol_codart) + '" title="Rimuovi articolo dall\'ordine">\u274C</button>' : ''}</td>
                 <td>${esc(r.ar_descr || '')}</td>
                 <td>${fmtDate(r.ol_datcons)}</td>
                 <td>${esc(r.ol_unmis || 'PZ')}</td>
@@ -721,10 +764,11 @@ const MrpProposta = (() => {
                 artEl.style.display = 'none';
             }
 
-            // Raccogli per (fornitore, data)
+            // Raccogli per (fornitore, data) — normalizza data a YYYY-MM-DD
             for (const { key, ordine } of ordiniCard) {
                 const fk = String(ordine.fornitore_codice);
-                const dt = ordine.data_consegna || 'no-date';
+                const dtRaw = ordine.data_consegna || '';
+                const dt = dtRaw ? new Date(dtRaw).toISOString().split('T')[0] : 'no-date';
                 if (!confPerFornData.has(fk)) confPerFornData.set(fk, new Map());
                 const byDate = confPerFornData.get(fk);
                 if (!byDate.has(dt)) byDate.set(dt, []);
@@ -764,11 +808,12 @@ const MrpProposta = (() => {
 
         let totValore = 0;
         let htmlRighe = '';
+        const isMultiRiga = items.length > 1;
         for (const { key, ordine } of items) {
             const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
             totValore += valore;
             htmlRighe += `<tr>
-                <td>${esc(ordine.ol_codart)}</td>
+                <td>${esc(ordine.ol_codart)}${isMultiRiga ? ' <button class="btn-annulla-conferma btn-annulla-inline" data-key="' + escAttr(key) + '" title="Rimuovi articolo">\u274C</button>' : ''}</td>
                 <td>${esc(ordine.ar_descr || '')}</td>
                 <td class="num">${Number(ordine.quantita_confermata).toLocaleString('it-IT')}</td>
                 <td>${esc(ordine.ol_unmis || 'PZ')}</td>
@@ -776,7 +821,6 @@ const MrpProposta = (() => {
                 <td class="num">\u20ac ${valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td>
                     <button class="btn-modifica-conferma" data-key="${escAttr(key)}" title="Modifica">&#9998;</button>
-                    <button class="btn-rimuovi-conferma" data-key="${escAttr(key)}" title="Rimuovi">&#128465;</button>
                 </td>
             </tr>`;
         }
@@ -785,8 +829,11 @@ const MrpProposta = (() => {
             <div class="proposta-scorporo-header">
                 <span class="conferma-icon">\u2713</span>
                 <strong>Ordine da emettere</strong> \u2014 consegna ${esc(dataFmt)}
-                <span class="proposta-scorporo-count">${items.length} art. \u2014 \u20ac ${totValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                <button class="btn-emetti-card" data-forn="${escAttr(fornCode)}" data-keys="${escAttr(allKeys)}">Emetti \u2192</button>
+                <span class="proposta-scorporo-actions">
+                    <button class="btn-annulla-conferma" data-key="${escAttr(allKeys)}" title="Annulla ordine">\u274C Annulla</button>
+                    <span class="proposta-scorporo-count">${items.length} art. \u2014 \u20ac ${totValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <button class="btn-emetti-card" data-forn="${escAttr(fornCode)}" data-keys="${escAttr(allKeys)}">Emetti \u2192</button>
+                </span>
             </div>
             <table class="proposta-scorporo-table">
                 <thead>
@@ -1576,7 +1623,8 @@ const MrpProposta = (() => {
     function raggruppaPerData(articoli) {
         const gruppi = new Map();
         for (const a of articoli) {
-            const dt = a.data_consegna || 'no-date';
+            const dtRaw = a.data_consegna || '';
+            const dt = dtRaw ? new Date(dtRaw).toISOString().split('T')[0] : 'no-date';
             if (!gruppi.has(dt)) gruppi.set(dt, []);
             gruppi.get(dt).push(a);
         }
@@ -1614,15 +1662,42 @@ const MrpProposta = (() => {
         const gruppiData = raggruppaPerData(articoliFornitore);
         const multiOrdine = gruppiData.length > 1;
 
-        // Branch merge: se esiste un ordine email-pending per questo fornitore,
-        // chiedi all'operatore se unire o emettere separato.
-        // NOTA: merge è disabilitato quando ci sono date multiple (ordini separati obbligatori)
-        const ordinePendente = ordiniEmessi.get(String(fornitore_codice));
+        // Raccogli TUTTI gli ordini pending (email non inviata) per questo fornitore
+        const ordiniPending = [];
+        const emesso = ordiniEmessi.get(String(fornitore_codice));
+        if (emesso && !emesso.email_inviata) ordiniPending.push(emesso);
+        const extras = ordiniEmessiExtra.get(String(fornitore_codice));
+        if (extras) extras.filter(e => !e.email_inviata).forEach(e => ordiniPending.push(e));
+
+        // Per ogni ordine pending, calcola la data consegna predominante dalle sue righe
+        function getDataOrdine(ord) {
+            if (!ord.righe || ord.righe.length === 0) return 'no-date';
+            // Prendi la data della prima riga (gli ordini GB2 hanno tutti la stessa data)
+            const dt = ord.righe[0].ol_datcons || '';
+            return dt ? new Date(dt).toISOString().split('T')[0] : 'no-date';
+        }
+
+        // Mappa data → ordine pending con quella data
+        const pendingPerData = new Map();
+        for (const ord of ordiniPending) {
+            const dt = getDataOrdine(ord);
+            if (!pendingPerData.has(dt)) pendingPerData.set(dt, []);
+            pendingPerData.get(dt).push(ord);
+        }
+
+        // Per ogni gruppo, determina se c'è un ordine pending con stessa data → proponi merge
+        // Se multiOrdine, il merge viene chiesto per-gruppo nella fase emissione
         let mergeMode = null; // null | 'merge' | 'separate'
-        if (ordinePendente && !ordinePendente.email_inviata && !multiOrdine) {
-            const scelta = await apriDialogMergeDecision(fornitore_codice, ordinePendente, articoliFornitore);
-            if (scelta === null) return;
-            mergeMode = scelta;
+        let mergeTarget = null; // ordine a cui unire
+        if (!multiOrdine && gruppiData.length === 1) {
+            const dataGruppo = gruppiData[0].data;
+            const pendentiStessaData = pendingPerData.get(dataGruppo);
+            if (pendentiStessaData && pendentiStessaData.length > 0) {
+                mergeTarget = pendentiStessaData[0];
+                const scelta = await apriDialogMergeDecision(fornitore_codice, mergeTarget, articoliFornitore);
+                if (scelta === null) return;
+                mergeMode = scelta;
+            }
         }
 
         // Check duplicati pre-emissione (skip in modalità merge)
@@ -1716,15 +1791,16 @@ const MrpProposta = (() => {
         document.getElementById('btnEmettiConferma').onclick = () => {
             overlay.classList.remove('open');
             if (multiOrdine) {
-                // Emetti N ordini separati, uno per gruppo data
-                emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData);
+                // Emetti N ordini separati, uno per gruppo data.
+                // Per ogni gruppo, verifica se c'è un ordine pending con stessa data → merge automatico.
+                emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData, pendingPerData);
             } else {
                 const opts = {};
-                if (mergeMode === 'merge' && ordinePendente) {
+                if (mergeMode === 'merge' && mergeTarget) {
                     opts.mergeWith = {
-                        anno: ordinePendente.anno,
-                        serie: ordinePendente.serie,
-                        numord: ordinePendente.numord
+                        anno: mergeTarget.anno,
+                        serie: mergeTarget.serie,
+                        numord: mergeTarget.numord
                     };
                 }
                 eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts);
@@ -1736,7 +1812,7 @@ const MrpProposta = (() => {
      * Emette N ordini separati per lo stesso fornitore, uno per ogni data di consegna.
      * Ogni ordine genera un proprio PDF e una propria email.
      */
-    async function emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData) {
+    async function emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData, pendingPerData) {
         const risultati = [];
         for (const gruppo of gruppiData) {
             try {
@@ -1744,7 +1820,19 @@ const MrpProposta = (() => {
                     ? new Date(gruppo.data).toLocaleDateString('it-IT')
                     : 'senza data';
                 console.log(`[Proposta] Emissione ordine per ${fornitore_codice} — consegna ${dataLabel} (${gruppo.articoli.length} art.)`);
-                await eseguiEmissioneOrdine(fornitore_codice, gruppo.articoli, fornitore_nome, {});
+
+                // Se esiste un ordine pending con la stessa data → merge automatico
+                const opts = {};
+                if (pendingPerData) {
+                    const pendenti = pendingPerData.get(gruppo.data);
+                    if (pendenti && pendenti.length > 0) {
+                        const target = pendenti[0];
+                        opts.mergeWith = { anno: target.anno, serie: target.serie, numord: target.numord };
+                        console.log(`[Proposta] Merge con ordine ${target.numord}/${target.serie} (stessa data ${dataLabel})`);
+                    }
+                }
+
+                await eseguiEmissioneOrdine(fornitore_codice, gruppo.articoli, fornitore_nome, opts);
                 risultati.push({ data: gruppo.data, ok: true });
             } catch (err) {
                 risultati.push({ data: gruppo.data, ok: false, error: err.message });

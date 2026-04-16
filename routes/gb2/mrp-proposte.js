@@ -278,7 +278,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                     return await poolGB2.request()
                         .input('amb', sql.VarChar(20), serverDest)
                         .query(`
-                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, ol_codart, ol_conto,
+                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, ord_riga, ol_codart, ol_conto,
                                    quantita_ordinata, data_emissione, elaborazione_id,
                                    ISNULL(email_inviata, 0) AS email_inviata, email_inviata_il,
                                    ISNULL(origine, 'gb2') AS origine
@@ -288,7 +288,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 } catch (_) {
                     try {
                         return await poolGB2.request().query(`
-                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, ol_codart, ol_conto,
+                            SELECT ol_progr, ord_anno, ord_serie, ord_numord, ord_riga, ol_codart, ol_conto,
                                    quantita_ordinata, data_emissione, elaborazione_id,
                                    0 AS email_inviata, NULL AS email_inviata_il,
                                    'gb2' AS origine
@@ -532,6 +532,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                         ol_codart: o.mo_codart,
                         ol_conto: o.td_conto,
                         ord_anno: o.td_anno, ord_serie: o.td_serie, ord_numord: o.td_numord,
+                        ord_riga: o.mo_riga || 0,
                         quantita_ordinata: o.mo_quant,
                         data_emissione: o.td_datord,
                         elaborazione_id: '',
@@ -601,6 +602,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 r.ord_anno = em.ord_anno;
                 r.ord_serie = em.ord_serie;
                 r.ord_numord = em.ord_numord;
+                r.ord_riga = em.ord_riga || 0;
                 r.quantita_ordinata = em.quantita_ordinata;
                 r.data_emissione = em.data_emissione;
                 r.elaborazione_id = em.elaborazione_id;

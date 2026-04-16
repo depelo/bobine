@@ -558,6 +558,125 @@ router.post('/modifica-ordine', authMiddleware, async (req, res) => {
     }
 });
 
+// Rimuovi una singola riga da un ordine fornitore (non ancora inviato via email)
+router.post('/rimuovi-riga-ordine', authMiddleware, async (req, res) => {
+    try {
+        const { anno, serie, numord, riga } = req.body;
+        if (!anno || !serie || !numord || riga == null) {
+            return res.status(400).json({ error: 'anno, serie, numord, riga obbligatori' });
+        }
+
+        const uid = getUserId(req);
+        const poolSP = await getPoolDest(uid);
+        const profile = getActiveProfile(uid);
+        const spName = '[GB2_SP].[dbo].' + getSpName('usp_RimuoviRigaOrdineFornitore', profile);
+
+        const spExists = await checkSpExists(poolSP, spName);
+        if (!spExists) {
+            return res.status(409).json({ error: 'SP_NOT_FOUND', sp: spName });
+        }
+
+        // Prima: leggi ol_progr della riga per poter aggiornare ordini_emessi/SnapshotProposte
+        let olProgr = 0;
+        try {
+            const moRes = await poolSP.request()
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .input('riga', sql.Int, parseInt(riga, 10))
+                .query(`
+                    SELECT mo_codart, mo_fase, mo_magaz
+                    FROM [UJET11].[dbo].[movord]
+                    WHERE codditt = 'UJET11' AND mo_tipork = 'O'
+                      AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord AND mo_riga = @riga
+                `);
+            if (moRes.recordset.length > 0) {
+                // Cerca ol_progr in ordini_emessi@163
+                const poolOE = await getPool163();
+                const oeRes = await poolOE.request()
+                    .input('anno', sql.SmallInt, parseInt(anno, 10))
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, parseInt(numord, 10))
+                    .input('riga', sql.Int, parseInt(riga, 10))
+                    .query(`SELECT id, ol_progr FROM dbo.ordini_emessi
+                            WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord AND ord_riga=@riga`);
+                if (oeRes.recordset.length > 0) {
+                    olProgr = oeRes.recordset[0].ol_progr;
+                }
+            }
+        } catch (_) {}
+
+        // Chiama la SP
+        const result = await poolSP.request()
+            .input('anno', sql.SmallInt, parseInt(anno, 10))
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, parseInt(numord, 10))
+            .input('riga', sql.Int, parseInt(riga, 10))
+            .input('operatore', sql.VarChar(20), uid ? 'GB2' + uid : 'GB2IDerror')
+            .execute(spName);
+
+        if (!result.recordset || !result.recordset[0] || !result.recordset[0].success) {
+            return res.status(500).json({ error: 'La stored procedure non ha restituito dati' });
+        }
+
+        const spResult = result.recordset[0];
+
+        // Aggiorna ordini_emessi e SnapshotProposte su 163
+        const poolOE = await getPool163();
+
+        // Rimuovi la riga da ordini_emessi
+        try {
+            await poolOE.request()
+                .input('anno', sql.SmallInt, parseInt(anno, 10))
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, parseInt(numord, 10))
+                .input('riga', sql.Int, parseInt(riga, 10))
+                .query(`DELETE FROM dbo.ordini_emessi
+                        WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord AND ord_riga=@riga`);
+        } catch (oeErr) {
+            console.warn('[RimuoviRiga] DELETE ordini_emessi fallito:', oeErr.message);
+        }
+
+        // Ripristina la proposta: segna come non gestita in SnapshotProposte
+        if (olProgr > 0) {
+            try {
+                const elaborazione_id = req.body.elaborazione_id;
+                if (elaborazione_id) {
+                    await poolOE.request()
+                        .input('eid', sql.Int, parseInt(elaborazione_id, 10))
+                        .input('progr', sql.Int, olProgr)
+                        .query(`UPDATE [GB2].[dbo].[SnapshotProposte]
+                                SET Gestita = 0, OrdineEmessoID = NULL, UpdatedAt = GETDATE()
+                                WHERE ElaborazioneID = @eid AND ol_progr = @progr`);
+                }
+            } catch (snapErr) {
+                console.warn('[RimuoviRiga] Ripristino SnapshotProposte fallito:', snapErr.message);
+            }
+        }
+
+        // Se l'ordine è stato cancellato (0 righe), pulisci anche tutti i riferimenti ordini_emessi
+        if (spResult.risultato === 'ordine_cancellato') {
+            try {
+                await poolOE.request()
+                    .input('anno', sql.SmallInt, parseInt(anno, 10))
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, parseInt(numord, 10))
+                    .query(`DELETE FROM dbo.ordini_emessi
+                            WHERE ord_anno=@anno AND ord_serie=@serie AND ord_numord=@numord`);
+            } catch (_) {}
+        }
+
+        res.json({
+            success: true,
+            risultato: spResult.risultato,
+            righe_rimanenti: spResult.righe_rimanenti
+        });
+    } catch (err) {
+        console.error('[RimuoviRiga] Errore:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Annulla un ordine fornitore gia emesso
 // Chiama la SP BCube bussp_bsorgsor9_fcancella che fa DELETE fisico + storno saldi
 router.post('/annulla-ordine', authMiddleware, async (req, res) => {

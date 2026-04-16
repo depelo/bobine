@@ -386,8 +386,14 @@
     font-weight: 900;
 }
 
-.proposta-scorporo-count {
+.proposta-scorporo-actions {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.proposta-scorporo-count {
     font-size: 0.78rem;
     color: var(--text-muted, #64748b);
 }
@@ -635,8 +641,9 @@
     color: var(--text-muted, #64748b);
 }
 
-/* Pulsante annulla ordine */
-.btn-annulla-ordine {
+/* Pulsante annulla ordine (emesso) e annulla conferma (da emettere) — stesso stile */
+.btn-annulla-ordine,
+.btn-annulla-conferma {
     font-size: 0.72rem;
     color: white;
     border: none;
@@ -647,8 +654,31 @@
     transition: all 0.15s;
     font-weight: 600;
 }
-.btn-annulla-ordine:hover {
+.btn-annulla-ordine:hover,
+.btn-annulla-conferma:hover {
     background: #be123c;
+}
+
+/* Annulla inline — piccolo, accanto al codart dentro la riga tabella */
+.btn-annulla-inline,
+.btn-rimuovi-riga-ordine {
+    font-size: 0.6rem;
+    padding: 1px 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+    line-height: 1;
+    background: var(--danger, #e11d48);
+    color: #fff;
+    text-shadow: none;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0.85;
+    transition: opacity 0.15s;
+}
+.btn-annulla-inline:hover,
+.btn-rimuovi-riga-ordine:hover {
+    opacity: 1;
 }
 
 /* Badge "BCube" per ordini emessi da BCube */

@@ -14,7 +14,7 @@
 -- Vincoli:
 --   * L'ordine deve esistere, td_flevas='N', nessuna riga evasa/prenotata.
 --   * Articoli duplicati (stessa chiave codart+fase+magaz gia' in movord):
---     FALLIMENTO esplicito. L'operatore gestisce da BCube.
+--     CONSENTITI. Ogni riga e' indipendente (es. scaglioni prezzo, date diverse).
 --   * Applock per-ordine 'ModOrd_{anno}_{serie}_{numord}' per permettere
 --     modifiche parallele su ordini diversi.
 -- ============================================================
@@ -187,23 +187,10 @@ BEGIN
         RETURN;
     END
 
-    -- 3c. Verifica duplicati codart+fase+magaz rispetto al movord esistente
-    IF EXISTS (
-        SELECT 1
-        FROM #articoli a
-        JOIN [UJET11].[dbo].[movord] mo
-          ON mo.codditt = @codditt AND mo.mo_tipork = 'O'
-         AND mo.mo_anno = @anno AND mo.mo_serie = @serie AND mo.mo_numord = @numord
-         AND mo.mo_codart = a.codart
-         AND ISNULL(mo.mo_fase, 0)  = ISNULL(a.fase, 0)
-         AND ISNULL(mo.mo_magaz, 1) = ISNULL(a.magaz, 1)
-    )
-    BEGIN
-        EXEC sp_releaseapplock @Resource = @lock_name;
-        ROLLBACK;
-        RAISERROR('Articolo gia presente nell''ordine: modificare quantita da BCube', 16, 1);
-        RETURN;
-    END
+    -- 3c. Duplicati codart+fase+magaz: CONSENTITI.
+    -- BCube supporta nativamente piu righe dello stesso articolo nello stesso ordine
+    -- (es. scaglioni prezzo, date diverse aggregate). La chiave di movord e' mo_riga,
+    -- non codart. Ogni conferma dell'operatore diventa una riga indipendente.
 
     -- 3d. Calcola mo_riga di partenza (dentro l'applock — nessuno puo' inserirne altre)
     SELECT @riga_start = ISNULL(MAX(mo_riga), 0)
