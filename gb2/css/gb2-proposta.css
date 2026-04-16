@@ -375,6 +375,31 @@
     font-style: italic;
 }
 
+/* Bottone "Emetti →" sulla card confermata */
+.btn-emetti-card {
+    background: var(--success, #16a34a);
+    color: white;
+    border: none;
+    padding: 4px 14px;
+    border-radius: var(--radius-sm, 4px);
+    font-weight: 700;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: 8px;
+    white-space: nowrap;
+}
+.btn-emetti-card:hover {
+    background: #15803d;
+}
+
+/* Wrapper del bottone emetti sotto i badge (card single/tutto-confermato) */
+.proposta-card-emetti {
+    display: flex;
+    justify-content: flex-end;
+    padding: 4px 8px 6px;
+}
+
 /* Badge informativo "ordine già emesso e email inviata" sul header fornitore */
 .fornitore-congelato-badge {
     display: inline-block;

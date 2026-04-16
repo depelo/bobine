@@ -67,6 +67,16 @@ const MrpProposta = (() => {
     }
 
     function onPropostaListBadgeClick(e) {
+        // Emetti da card singola
+        const btnEmettiCard = e.target.closest('.btn-emetti-card');
+        if (btnEmettiCard) {
+            e.stopPropagation();
+            const forn = btnEmettiCard.dataset.forn;
+            const keys = (btnEmettiCard.dataset.keys || '').split(',').filter(Boolean);
+            if (forn && keys.length > 0) emettiDaCard(forn, keys);
+            return;
+        }
+
         const btnModifica = e.target.closest('.btn-modifica-conferma');
         const btnRimuovi = e.target.closest('.btn-rimuovi-conferma');
 
@@ -655,8 +665,9 @@ const MrpProposta = (() => {
     function aggiornaStatoVisivo() {
         const confermati = MrpApp.state.ordiniConfermati;
 
-        // Rimuovi card scorporate dal ciclo precedente
+        // Rimuovi card scorporate e bottoni emetti dal ciclo precedente
         document.querySelectorAll('.proposta-scorporo').forEach(el => el.remove());
+        document.querySelectorAll('.proposta-card-emetti').forEach(el => el.remove());
 
         document.querySelectorAll('.proposta-articolo').forEach(artEl => {
             const codartEl = artEl.querySelector('.proposta-art-codart');
@@ -709,6 +720,8 @@ const MrpProposta = (() => {
             } else if (ordiniCard.length > 0) {
                 // ── TUTTO CONFERMATO o SINGOLA ──
                 artEl.classList.add('proposta-art-confermato');
+                const fornCode = ordiniCard[0].ordine.fornitore_codice;
+                const allKeys = ordiniCard.map(o => o.key).join(',');
                 for (const { key, ordine } of ordiniCard) {
                     const badge = document.createElement('div');
                     badge.className = 'proposta-conferma-badge proposta-badge-confermato';
@@ -724,6 +737,16 @@ const MrpProposta = (() => {
                         + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi conferma">&#128465;</button>';
                     artEl.appendChild(badge);
                 }
+                // Bottone "Emetti" sulla card — emette solo gli articoli di questa card
+                const emettiDiv = document.createElement('div');
+                emettiDiv.className = 'proposta-card-emetti';
+                let totValore = 0;
+                ordiniCard.forEach(o => { totValore += o.ordine.quantita_confermata * o.ordine.prezzo / (Number(o.ordine.perqta) || 1); });
+                emettiDiv.innerHTML = '<button class="btn-emetti-card" data-forn="' + escAttr(fornCode) + '" data-keys="' + escAttr(allKeys)
+                    + '">\u2713 ' + ordiniCard.length + ' art. &mdash; &euro; '
+                    + totValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    + ' &nbsp; Emetti \u2192</button>';
+                artEl.appendChild(emettiDiv);
             }
         });
 
@@ -737,6 +760,8 @@ const MrpProposta = (() => {
     function _buildScorporoCard(ordine, key, codartEl) {
         const div = document.createElement('div');
         div.className = 'proposta-articolo proposta-scorporo proposta-art-confermato';
+        div.dataset.confKey = key;
+        div.dataset.confForn = ordine.fornitore_codice;
 
         const dataFmt = ordine.data_consegna
             ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
@@ -771,6 +796,7 @@ const MrpProposta = (() => {
                 ${valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
                 <button class="btn-modifica-conferma" data-key="${escAttr(key)}" title="Modifica">&#9998;</button>
                 <button class="btn-rimuovi-conferma" data-key="${escAttr(key)}" title="Rimuovi conferma">&#128465;</button>
+                <button class="btn-emetti-card" data-forn="${escAttr(ordine.fornitore_codice)}" data-keys="${escAttr(key)}" title="Emetti questo ordine">Emetti \u2192</button>
             </div>
         `;
 
@@ -879,19 +905,22 @@ const MrpProposta = (() => {
 
             if (conteggioConfermati > 0) {
                 header.classList.add('fornitore-completato');
-                statoBadge.textContent = '\u2713 ' + conteggioConfermati + ' art. \u2014 \u20ac '
-                    + totaleValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                statoBadge.style.display = '';
-
-                const btn = document.createElement('button');
-                btn.className = 'btn-emetti-ordine';
-                btn.textContent = 'Emetti (' + conteggioConfermati + ') \u2192';
-                btn.dataset.forn = fornCode;
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    apriModaleEmettiOrdine(fornCode);
-                });
-                header.appendChild(btn);
+                // I bottoni "Emetti" sono ora sulle card singole.
+                // Nella barra blu: solo "Emetti Tutti (N)" se N >= 2 per batch fornitore.
+                if (conteggioConfermati >= 2) {
+                    statoBadge.style.display = 'none';
+                    const btn = document.createElement('button');
+                    btn.className = 'btn-emetti-ordine';
+                    btn.textContent = 'Emetti Tutti (' + conteggioConfermati + ') \u2192';
+                    btn.dataset.forn = fornCode;
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        apriModaleEmettiOrdine(fornCode);
+                    });
+                    header.appendChild(btn);
+                } else {
+                    statoBadge.style.display = 'none';
+                }
             } else {
                 statoBadge.style.display = 'none';
             }
@@ -1550,15 +1579,27 @@ const MrpProposta = (() => {
         return Array.from(gruppi.entries()).map(([data, arts]) => ({ data, articoli: arts }));
     }
 
-    async function apriModaleEmettiOrdine(fornitore_codice) {
+    /**
+     * Emetti da card singola — emette solo gli articoli specificati dai keys.
+     * Riusa apriModaleEmettiOrdine filtrando i confermati ai soli keys richiesti.
+     */
+    async function emettiDaCard(fornitore_codice, keys) {
+        // Emetti passando il filtro keys — la funzione emissione prenderà solo questi
+        await apriModaleEmettiOrdine(fornitore_codice, keys);
+    }
+
+    async function apriModaleEmettiOrdine(fornitore_codice, filterKeys) {
         if (!await assicuraSPEsiste()) return;
         const confermati = MrpApp.state.ordiniConfermati;
         const articoliFornitore = [];
         let fornitore_nome = '';
+        const keyFilter = filterKeys ? new Set(filterKeys) : null;
 
         confermati.forEach((ordine, key) => {
             if (String(ordine.fornitore_codice) === String(fornitore_codice)) {
-                articoliFornitore.push(ordine);
+                if (!keyFilter || keyFilter.has(key)) {
+                    articoliFornitore.push(ordine);
+                }
                 if (!fornitore_nome) fornitore_nome = ordine.fornitore_nome || '';
             }
         });
