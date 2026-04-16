@@ -833,7 +833,7 @@ router.post('/subtasks', authenticateToken, async (req, res) => {
         const { idColumn, parentColumn } = await resolveSubTasksColumns(pool);
         const result = await pool.request()
             .input('id_task', sql.Int, id_task)
-            .input('titolo', sql.NVarChar(255), titolo || 'Nuova sotto-attivita')
+            .input('titolo', sql.NVarChar(255), titolo ?? '')
             .input('descrizione', sql.NVarChar(sql.MAX), descrizione || null)
             .query(`
                 INSERT INTO dbo.sub_tasks (${parentColumn}, titolo, descrizione, is_completato, is_critico)
