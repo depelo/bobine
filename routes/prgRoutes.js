@@ -777,6 +777,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         const pool = await getPoolPRG();
         let statoFinale = stato ?? null;
 
+        // Gestione avanzamento stato o completamento
         if (id_colonna !== undefined && id_colonna !== null) {
             const colonnaResult = await pool.request()
                 .input('id_colonna', sql.Int, id_colonna)
@@ -785,6 +786,22 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
                 return res.status(400).json({ ok: false, message: 'Colonna non valida.' });
             }
             statoFinale = colonnaResult.recordset[0].nome;
+        } else if (is_completato !== undefined && is_completato !== null) {
+            statoFinale = is_completato ? 'Completato' : 'Da Fare';
+        }
+
+        // Costruzione dinamica dell'UPDATE
+        const updates = [];
+        if (titolo !== undefined) updates.push('titolo = @titolo');
+        if (id_persona !== undefined) updates.push('id_persona = @id_persona');
+        if (priorita !== undefined) updates.push('priorita = @priorita');
+        if (descrizione !== undefined) updates.push('descrizione = @descrizione');
+        if (dipende_da_id !== undefined) updates.push('dipende_da_id = @dipende_da_id');
+        if (id_colonna !== undefined) updates.push('id_colonna = @id_colonna');
+        if (statoFinale !== null) updates.push('stato = @stato');
+
+        if (updates.length === 0) {
+            return res.json({ ok: true }); // Nessun campo da aggiornare
         }
 
         const result = await pool.request()
@@ -796,23 +813,9 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
             .input('dipende_da_id', sql.Int, dipende_da_id ?? null)
             .input('id_colonna', sql.Int, id_colonna ?? null)
             .input('stato', sql.NVarChar(50), statoFinale)
-            .input('is_completato', sql.Bit, is_completato ?? null)
             .query(`
                 UPDATE dbo.tasks
-                SET titolo = COALESCE(@titolo, titolo),
-                    id_persona = COALESCE(@id_persona, id_persona),
-                    priorita = COALESCE(@priorita, priorita),
-                    descrizione = COALESCE(@descrizione, descrizione),
-                    dipende_da_id = COALESCE(@dipende_da_id, dipende_da_id),
-                    id_colonna = COALESCE(@id_colonna, id_colonna),
-                    stato = COALESCE(
-                        @stato,
-                        CASE
-                            WHEN @is_completato IS NULL THEN stato
-                            WHEN @is_completato = 1 THEN 'Completato'
-                            ELSE 'Da Fare'
-                        END
-                    )
+                SET ${updates.join(', ')}
                 WHERE id_task = @id_task AND is_active = 1
             `);
 

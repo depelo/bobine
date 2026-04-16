@@ -8,6 +8,7 @@ let currentTaskStructure = [];
 let currentKanbanColumns = [];
 let currentEditingColumnId = null;
 let selectedColumnColor = '#f8f9fa';
+let hideCompletedSubtasks = false;
 
 function getTodayISODate() {
   // YYYY-MM-DD in UTC; compatibile con <input type="date">
@@ -43,6 +44,7 @@ async function initApp() {
   const btnContextAssegna = document.getElementById('btnContextAssegna');
   const formModificaColonna = document.getElementById('formModificaColonna');
   const paletteButtons = document.querySelectorAll('#colonnaPalette [data-colore]');
+  const toggleFocusMode = document.getElementById('toggleFocusMode');
 
   formAssegnaPersona.addEventListener('submit', onSubmitAssegnaPersona);
   modalAssegnaPersona.addEventListener('show.bs.modal', loadPersoneSelect);
@@ -70,6 +72,13 @@ async function initApp() {
   paletteButtons.forEach((btn) => {
     btn.addEventListener('click', () => setSelectedColumnColor(btn.dataset.colore || '#f8f9fa'));
   });
+  if (toggleFocusMode) {
+    toggleFocusMode.addEventListener('change', (e) => {
+      hideCompletedSubtasks = e.target.checked;
+      renderKanban(currentTasks);
+      renderElencoTask(currentTaskStructure);
+    });
+  }
 
   await loadDettaglioProgetto(currentProjectId);
   await loadTeam(currentProjectId);
@@ -188,9 +197,13 @@ function updateContextualActionBar(activeTabId) {
   const btnContextModifica = document.getElementById('btnContextModifica');
   const btnContextNuovoTask = document.getElementById('btnContextNuovoTask');
   const btnContextAssegna = document.getElementById('btnContextAssegna');
+  const containerFocusMode = document.getElementById('containerFocusMode');
   btnContextModifica.classList.add('d-none');
   btnContextNuovoTask.classList.add('d-none');
   btnContextAssegna.classList.add('d-none');
+  if (containerFocusMode) {
+    containerFocusMode.classList.add('d-none');
+  }
 
   if (activeTabId === 'tab-info') {
     btnContextModifica.classList.remove('d-none');
@@ -198,6 +211,9 @@ function updateContextualActionBar(activeTabId) {
   }
   if (activeTabId === 'tab-piano-operativo' || activeTabId === 'tab-elenco-task') {
     btnContextNuovoTask.classList.remove('d-none');
+    if (containerFocusMode) {
+      containerFocusMode.classList.remove('d-none');
+    }
     return;
   }
   if (activeTabId === 'tab-team') {
@@ -269,7 +285,10 @@ function renderElencoTask(struttura) {
     subtaskContainer.id = subtaskContainerId;
     subtaskContainer.className = 'ms-4 mt-1';
 
-    const subtasks = Array.isArray(task.sub_tasks) ? task.sub_tasks : [];
+    let subtasks = Array.isArray(task.sub_tasks) ? task.sub_tasks : [];
+    if (hideCompletedSubtasks) {
+      subtasks = subtasks.filter(st => !st.is_completato);
+    }
     subtasks.forEach((subtask) => {
       subtaskContainer.appendChild(buildTaskRow(subtask, true, task.id_task));
     });
@@ -310,11 +329,11 @@ function buildTaskRow(item, isSubtask, parentTaskId = null, options = {}) {
   titleInput.className = `task-inline-input fw-semibold ${item.is_completato ? 'task-barrato' : ''}`;
   titleInput.placeholder = isSubtask ? 'Nuovo sub-task' : 'Nuovo task';
   titleInput.value = item.titolo || '';
-  const descToggleBtn = document.createElement('button');
-  descToggleBtn.type = 'button';
-  descToggleBtn.className = 'task-action-btn text-secondary';
-  descToggleBtn.title = 'Mostra/nascondi descrizione';
-  descToggleBtn.innerHTML = '<i class="bi bi-chat-left-text"></i>';
+  const descBtn = document.createElement('button');
+  descBtn.type = 'button';
+  descBtn.className = 'task-action-btn text-secondary';
+  descBtn.title = 'Mostra/nascondi descrizione';
+  descBtn.innerHTML = '<i class="bi bi-text-paragraph"></i>';
 
   const prioritaBadge = document.createElement('span');
   prioritaBadge.className = `badge ${getPrioritaBadgeClass(item.priorita || 'Media')}`;
@@ -340,7 +359,7 @@ function buildTaskRow(item, isSubtask, parentTaskId = null, options = {}) {
   row.appendChild(chevron);
   row.appendChild(checkbox);
   row.appendChild(titleInput);
-  row.appendChild(descToggleBtn);
+  row.appendChild(descBtn);
   if (isSubtask) {
     row.appendChild(fiammaBtn);
   } else {
@@ -368,10 +387,10 @@ function buildTaskRow(item, isSubtask, parentTaskId = null, options = {}) {
     chevron.textContent = isHidden ? '▸' : '▾';
   });
 
-  descToggleBtn.addEventListener('click', () => {
+  descBtn.addEventListener('click', () => {
     const isHidden = descWrap.classList.toggle('d-none');
-    descToggleBtn.classList.toggle('text-secondary', isHidden);
-    descToggleBtn.classList.toggle('text-primary', !isHidden);
+    descBtn.classList.toggle('text-primary', !isHidden);
+    descBtn.classList.toggle('text-secondary', isHidden);
   });
 
   checkbox.addEventListener('change', async () => {
@@ -607,9 +626,13 @@ function createTaskCard(task) {
   const persona = task.nome_assegnato || 'Non assegnato';
   const initials = getInitials(persona);
   const dipendenzaTitolo = task.titolo_dipendenza || '';
-  const subTasks = getSubtasksForTask(task.id_task);
-  const subTasksCompletate = subTasks.filter((item) => Boolean(item.is_completato)).length;
-  const hasActiveCriticalSubtask = subTasks.some((item) => Number(item.is_critico) === 1 && !Boolean(item.is_completato));
+  const allSubTasks = getSubtasksForTask(task.id_task);
+  let subTasks = allSubTasks;
+  if (hideCompletedSubtasks) {
+    subTasks = subTasks.filter(st => !st.is_completato);
+  }
+  const subTasksCompletate = allSubTasks.filter((item) => Boolean(item.is_completato)).length;
+  const hasActiveCriticalSubtask = allSubTasks.some((item) => Number(item.is_critico) === 1 && !Boolean(item.is_completato));
   const collapseId = `task-subtasks-${task.id_task}`;
   const hasDescrizione = Boolean(task.descrizione && String(task.descrizione).trim());
   const descrizioneId = `task-descrizione-${task.id_task}`;
@@ -628,7 +651,7 @@ function createTaskCard(task) {
   const subtaskToggleHtml = subTasks.length
     ? `
       <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-primary" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false">
-        <span data-subtask-counter>${subTasksCompletate}/${subTasks.length} completati</span>
+        <span data-subtask-counter>${subTasksCompletate}/${allSubTasks.length} completati</span>
       </button>
       <span data-critical-fire class="${hasActiveCriticalSubtask ? '' : 'd-none'}" title="Sono presenti sub-task critici aperti" aria-label="Sub-task critici aperti">
         <i class="bi bi-fire text-danger"></i>
@@ -640,7 +663,9 @@ function createTaskCard(task) {
     <div class="card-body p-2">
       <div class="d-flex justify-content-between align-items-start">
         <div class="fw-semibold d-flex align-items-center gap-1">
-          <span>${escapeHtml(task.titolo || `Task ${task.id_task}`)}</span>
+          <span class="task-title-clamp" title="${escapeHtml(task.titolo || `Task ${task.id_task}`)}">
+            ${escapeHtml(task.titolo || `Task ${task.id_task}`)}
+          </span>
           ${hasDescrizione ? `
             <button
               type="button"
