@@ -610,6 +610,113 @@ router.get('/fornitore-ultimo-ordine/:codice', authMiddleware, async (req, res) 
     }
 });
 
+// Articoli di un fornitore (da codarfo + artico)
+router.get('/fornitore-articoli/:codice', authMiddleware, async (req, res) => {
+    try {
+        const codice = parseInt(req.params.codice, 10);
+        if (!codice || isNaN(codice)) return res.status(400).json({ error: 'codice non valido' });
+        const pool = await getPoolDest(getUserId(req));
+        const r = await pool.request()
+            .input('codice', sql.Int, codice)
+            .query(`
+                SELECT cf.caf_codart AS codart, cf.caf_codarfo AS codart_forn,
+                       a.ar_descr AS descr, a.ar_codalt AS codalt, a.ar_unmis AS unmis,
+                       a.ar_polriord AS polriord
+                FROM dbo.codarfo cf
+                INNER JOIN dbo.artico a ON cf.caf_codart = a.ar_codart
+                WHERE cf.caf_conto = @codice AND cf.codditt = 'UJET11'
+                ORDER BY cf.caf_codart
+            `);
+        res.json({ articoli: r.recordset });
+    } catch (err) {
+        console.error('[API] Errore fornitore-articoli:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Lookup prezzo da listini BCube (cascata: fornitore specifico → listino generico)
+// Restituisce prezzo corrente per scaglione + tutti gli scaglioni disponibili
+router.get('/prezzo-listino', authMiddleware, async (req, res) => {
+    try {
+        const { codart, fornitore, quantita, data } = req.query;
+        if (!codart || !fornitore) return res.status(400).json({ error: 'codart e fornitore obbligatori' });
+
+        // Clamp quantità per evitare overflow DECIMAL(18,9) — max 9 cifre intere
+        const qtaRaw = Number(quantita) || 1;
+        const qta = Math.min(Math.max(qtaRaw, 0), 999999999);
+        const dataOrdine = data || new Date().toISOString().split('T')[0];
+        const fornCode = parseInt(fornitore, 10);
+        const pool = await getPoolDest(getUserId(req));
+
+        // 1. Leggi an_listino del fornitore
+        const anag = await pool.request()
+            .input('conto', sql.Int, fornCode)
+            .query(`SELECT COALESCE(an_listino, 0) AS an_listino
+                    FROM dbo.anagra WHERE an_conto = @conto`);
+        const nListino = anag.recordset[0]?.an_listino || 0;
+
+        // 2. Cerca prezzo per lo scaglione corrente (cascata BCube)
+        // NOTA: lc_daquant=0 e lc_aquant=0 significa "qualsiasi quantità" (nessuno scaglione)
+        const prezzoResult = await pool.request()
+            .input('codart', sql.VarChar(50), codart)
+            .input('conto', sql.Int, fornCode)
+            .input('listino', sql.SmallInt, nListino)
+            .input('data', sql.Date, dataOrdine)
+            .input('qta', sql.Decimal(18, 9), qta)
+            .query(`
+                SELECT TOP 1 lc_prezzo, lc_perqta, lc_conto,
+                             lc_daquant, lc_aquant
+                FROM dbo.listini
+                WHERE codditt = 'UJET11'
+                  AND lc_codart = @codart
+                  AND ((lc_conto = @conto AND lc_listino = 0)
+                       OR (lc_conto = 0 AND lc_listino = @listino))
+                  AND @data BETWEEN lc_datagg AND lc_datscad
+                  AND (
+                      (lc_daquant = 0 AND lc_aquant = 0)
+                      OR @qta BETWEEN lc_daquant AND lc_aquant
+                  )
+                  AND lc_codvalu = 0 AND lc_codlavo = 0
+                ORDER BY lc_conto DESC, lc_codtpro DESC,
+                         lc_datagg DESC, lc_daquant ASC
+            `);
+
+        // 3. Tutti gli scaglioni per articolo+fornitore (per la barra visiva)
+        const scaglioniResult = await pool.request()
+            .input('codart', sql.VarChar(50), codart)
+            .input('conto', sql.Int, fornCode)
+            .input('listino', sql.SmallInt, nListino)
+            .input('data', sql.Date, dataOrdine)
+            .query(`
+                SELECT lc_prezzo, lc_perqta, lc_daquant, lc_aquant, lc_conto
+                FROM dbo.listini
+                WHERE codditt = 'UJET11'
+                  AND lc_codart = @codart
+                  AND ((lc_conto = @conto AND lc_listino = 0)
+                       OR (lc_conto = 0 AND lc_listino = @listino))
+                  AND @data BETWEEN lc_datagg AND lc_datscad
+                  AND lc_codvalu = 0 AND lc_codlavo = 0
+                ORDER BY lc_daquant ASC
+            `);
+
+        const row = prezzoResult.recordset[0];
+        res.json({
+            prezzo: row ? Number(row.lc_prezzo) : null,
+            perqta: row ? Number(row.lc_perqta) || 1 : 1,
+            fonte: row ? (row.lc_conto > 0 ? 'fornitore' : 'listino') : null,
+            scaglioni: scaglioniResult.recordset.map(s => ({
+                da: Number(s.lc_daquant),
+                a: Number(s.lc_aquant),
+                prezzo: Number(s.lc_prezzo),
+                perqta: Number(s.lc_perqta) || 1
+            }))
+        });
+    } catch (err) {
+        console.error('[API] Errore prezzo-listino:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Aggiorna email e/o banca di un fornitore in anagrafica
 router.put('/fornitore-anagrafica/:codice', authMiddleware, async (req, res) => {
     try {

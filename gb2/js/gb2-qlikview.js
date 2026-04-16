@@ -37,6 +37,9 @@ const QlikView = (() => {
         if (!overlay) return;
         overlay.classList.add('open');
 
+        // Chiudi cliccando fuori dal modale
+        overlay.addEventListener('click', _onOverlayClick);
+
         const content = document.getElementById('qvContent');
         if (content) content.innerHTML = '<div class="qv-loading">Caricamento dati...</div>';
 
@@ -54,9 +57,17 @@ const QlikView = (() => {
         }
     }
 
+    function _onOverlayClick(e) {
+        // Chiudi solo se il click è direttamente sull'overlay (backdrop)
+        if (e.target === e.currentTarget) close();
+    }
+
     function close() {
         const overlay = document.getElementById('qvOverlay');
-        if (overlay) overlay.classList.remove('open');
+        if (overlay) {
+            overlay.classList.remove('open');
+            overlay.removeEventListener('click', _onOverlayClick);
+        }
         if (_chartMonthly) { _chartMonthly.destroy(); _chartMonthly = null; }
         if (_chartYearly) { _chartYearly.destroy(); _chartYearly = null; }
         _rawData = null;

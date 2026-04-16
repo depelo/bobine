@@ -136,7 +136,7 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         const oeIds = []; // ID inseriti, servono per SnapshotProposte
         try {
             for (const riga of righeOrdine) {
-                if (!riga.ol_progr || riga.ol_progr <= 0) continue;
+                if (!riga.ol_progr) continue; // 0 = skip, negativo = riga manuale
                 const insRes = await poolOE.request()
                     .input('ol_progr', sql.Int, riga.ol_progr)
                     .input('ol_codart', sql.NVarChar, riga.mo_codart)
@@ -204,13 +204,18 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
                 const progrList = righeOrdine
                     .filter(r => r.ol_progr && r.ol_progr > 0)
                     .map(r => String(r.ol_progr));
-                if (progrList.length > 0) {
+                // Includi anche ol_progr negativi (righe manuali) dal payload originale
+                const manualiList = (articoli || [])
+                    .filter(a => a.ol_progr && a.ol_progr < 0)
+                    .map(a => String(a.ol_progr));
+                const allProgr = progrList.concat(manualiList);
+                if (allProgr.length > 0) {
                     await poolOE.request()
                         .input('eid', sql.Int, eid)
                         .input('uid', sql.Int, uid)
                         .query(`DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
                                 WHERE elaborazione_id=@eid AND user_id=@uid
-                                  AND ol_progr IN (${progrList.join(',')})`);
+                                  AND ol_progr IN (${allProgr.join(',')})`);
                 }
             } catch (cpErr) {
                 console.warn('[Emetti Ordine] Cleanup pending fallito (continuo):', cpErr.message);
@@ -455,7 +460,7 @@ router.post('/modifica-ordine', authMiddleware, async (req, res) => {
         const oeIds = [];
         try {
             for (const riga of righeNuove) {
-                if (!riga.ol_progr || riga.ol_progr <= 0) continue;
+                if (!riga.ol_progr) continue; // 0 = skip, negativo = riga manuale
                 const insRes = await poolOE.request()
                     .input('ol_progr', sql.Int, riga.ol_progr)
                     .input('ol_codart', sql.NVarChar, riga.mo_codart)
@@ -519,13 +524,18 @@ router.post('/modifica-ordine', authMiddleware, async (req, res) => {
                 const progrList = righeNuove
                     .filter(r => r.ol_progr && r.ol_progr > 0)
                     .map(r => String(r.ol_progr));
-                if (progrList.length > 0) {
+                // Includi anche ol_progr negativi (righe manuali) dal payload originale
+                const manualiList = (articoli || [])
+                    .filter(a => a.ol_progr && a.ol_progr < 0)
+                    .map(a => String(a.ol_progr));
+                const allProgr = progrList.concat(manualiList);
+                if (allProgr.length > 0) {
                     await poolOE.request()
                         .input('eid', sql.Int, eid)
                         .input('uid', sql.Int, uid)
                         .query(`DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
                                 WHERE elaborazione_id=@eid AND user_id=@uid
-                                  AND ol_progr IN (${progrList.join(',')})`);
+                                  AND ol_progr IN (${allProgr.join(',')})`);
                 }
             } catch (cpErr) {
                 console.warn('[Modifica Ordine] Cleanup pending fallito (continuo):', cpErr.message);

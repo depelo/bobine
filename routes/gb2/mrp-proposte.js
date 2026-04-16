@@ -570,10 +570,16 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
         }
 
         // ─── Match emissioni → proposte ───
+        // Filtra: solo emissioni dell'elaborazione corrente (ogni elaborazione è un mondo chiuso)
+        const elabIdStr = elaborazione ? String(elaborazione.id) : '';
+        const emissioniCorrente = elabIdStr
+            ? emissioni.filter(em => String(em.elaborazione_id) === elabIdStr)
+            : emissioni; // fallback se elaborazione non rilevata: mostra tutto (backward compat)
+
         // Mappa per ol_progr (ordini gb2) + mappa per conto+codart (ordini bcube)
         const emissioniByProgr = new Map();
         const emissioniByCodart = new Map(); // chiave: conto_codart → array di emissioni
-        for (const em of emissioni) {
+        for (const em of emissioniCorrente) {
             if (em.ol_progr && em.ol_progr > 0) {
                 emissioniByProgr.set(em.ol_progr, em);
             }

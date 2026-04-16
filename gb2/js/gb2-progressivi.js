@@ -771,7 +771,189 @@ const MrpProgressivi = (() => {
     // ── Contatore per ol_progr temporanei (righe manuali aggiunte con "+") ──
     let _manualProgrCounter = -1;
 
+    function _syncManualCounter() {
+        // Evita collisioni dopo reload: il counter deve partire sotto il minimo esistente
+        for (const [k] of MrpApp.state.ordiniConfermati) {
+            const n = Number(k);
+            if (n < 0 && n <= _manualProgrCounter) _manualProgrCounter = n - 1;
+        }
+    }
+
+    // ── Pricing dinamico: fetch listino + barra scaglioni ──
+    let _prezzoDebounceTimer = null;
+    let _scaglioniCache = null;  // { codart, fornitore, scaglioni[] }
+
+    async function _fetchPrezzoListino(codart, fornitore, qta, data) {
+        try {
+            const params = new URLSearchParams({ codart, fornitore: String(fornitore), quantita: String(qta || 1) });
+            if (data) params.set('data', data);
+            const res = await fetch(`${MrpApp.API_BASE}/prezzo-listino?${params}`, { credentials: 'include' });
+            if (!res.ok) return null;
+            return await res.json();
+        } catch (e) {
+            console.warn('[Pricing] Errore fetch listino:', e.message);
+            return null;
+        }
+    }
+
+    function _renderScaglioni(panel, scaglioni, qtaAttuale, perqta, unmis) {
+        let container = panel.querySelector('.decisione-scaglioni');
+        // Nessuno scaglione → rimuovi barra se esiste
+        if (!scaglioni || scaglioni.length === 0) {
+            if (container) container.remove();
+            return;
+        }
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'decisione-scaglioni';
+            // Inserisci dopo la tabella, prima delle actions
+            const actions = panel.querySelector('.decisione-actions');
+            if (actions) panel.insertBefore(container, actions);
+            else panel.appendChild(container);
+        }
+
+        const qta = Number(qtaAttuale) || 0;
+        const fmtPrezzo = (p) => p.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+        let html = '';
+
+        // Scaglione unico (prezzo piatto) → messaggio semplice, niente falsi "scaglioni"
+        if (scaglioni.length === 1) {
+            html += '<span class="decisione-scaglioni-label">Prezzo listino:</span>';
+            html += `<span class="decisione-scaglione attivo">${fmtPrezzo(scaglioni[0].prezzo)}</span>`;
+        } else {
+            // Scaglioni multipli → formato leggibile
+            html += '<span class="decisione-scaglioni-label">Scaglioni:</span>';
+            for (let i = 0; i < scaglioni.length; i++) {
+                const s = scaglioni[i];
+                const catchAll = s.da === 0 && s.a === 0;
+                const isAttivo = catchAll || (qta >= s.da && (s.a === 0 || qta <= s.a));
+                const cls = isAttivo ? 'decisione-scaglione attivo' : 'decisione-scaglione';
+
+                let label;
+                if (catchAll) {
+                    label = 'qualsiasi qtà';
+                } else if (i === 0 && s.da <= 1) {
+                    // Primo scaglione: "fino a 500"
+                    label = 'fino a ' + s.a.toLocaleString('it-IT');
+                } else if (s.a >= 9999999 || s.a === 0) {
+                    // Ultimo scaglione: "oltre 500"
+                    label = 'oltre ' + s.da.toLocaleString('it-IT');
+                } else {
+                    // Intermedio: "101 – 500"
+                    label = s.da.toLocaleString('it-IT') + ' – ' + s.a.toLocaleString('it-IT');
+                }
+                html += `<span class="${cls}">${label} → ${fmtPrezzo(s.prezzo)}</span>`;
+                if (i < scaglioni.length - 1) html += '<span class="decisione-scaglione-sep">│</span>';
+            }
+        }
+        // Hint perqta
+        if (perqta && perqta > 1) {
+            html += `<span class="decisione-perqta-hint">Prezzo per ${perqta} ${unmis || 'PZ'}</span>`;
+        }
+        container.innerHTML = html;
+    }
+
+    function _bindPrezzoListino(panel, tr, codart, fornitore, unmis) {
+        const prezzoInput = tr.querySelector('.decisione-prezzo');
+        const qtaInput = tr.querySelector('.decisione-qta');
+        const dataInput = tr.querySelector('.decisione-data');
+        const resetBtn = tr.querySelector('.decisione-reset-prezzo');
+        if (!prezzoInput || !qtaInput) return;
+
+        // Listener prezzo: aggiorna dataset + valore + flag override
+        prezzoInput.addEventListener('input', function() {
+            tr.dataset.prezzo = String(Number(this.value) || 0);
+            tr.dataset.prezzoOverride = '1';
+            if (resetBtn) resetBtn.classList.add('visibile');
+            aggiornaValoreRiga(qtaInput);
+        });
+
+        // Listener reset: ripristina da listino
+        if (resetBtn) {
+            resetBtn.addEventListener('click', async () => {
+                delete tr.dataset.prezzoOverride;
+                resetBtn.classList.remove('visibile');
+                const qta = Number(qtaInput.value) || 1;
+                const data = dataInput ? dataInput.value : '';
+                const result = await _fetchPrezzoListino(codart, fornitore, qta, data);
+                if (result && result.prezzo != null) {
+                    prezzoInput.value = result.prezzo;
+                    tr.dataset.prezzo = String(result.prezzo);
+                    tr.dataset.perqta = String(result.perqta || 1);
+                    aggiornaValoreRiga(qtaInput);
+                    _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis);
+                    _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni };
+                }
+            });
+        }
+
+        // Debounce per cambio quantità → refetch prezzo
+        const triggerPriceUpdate = () => {
+            clearTimeout(_prezzoDebounceTimer);
+            _prezzoDebounceTimer = setTimeout(async () => {
+                const qta = Number(qtaInput.value) || 0;
+                if (qta <= 0) return;
+                const data = dataInput ? dataInput.value : '';
+                const result = await _fetchPrezzoListino(codart, fornitore, qta, data);
+                if (!result) return;
+                // Aggiorna scaglioni sempre (anche se override)
+                _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis);
+                _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni };
+                // Aggiorna prezzo solo se non in override
+                if (!tr.dataset.prezzoOverride && result.prezzo != null) {
+                    prezzoInput.value = result.prezzo;
+                    tr.dataset.prezzo = String(result.prezzo);
+                    tr.dataset.perqta = String(result.perqta || 1);
+                    aggiornaValoreRiga(qtaInput);
+                }
+            }, 300);
+        };
+
+        qtaInput.addEventListener('input', () => {
+            aggiornaValoreRiga(qtaInput);
+            triggerPriceUpdate();
+        });
+        if (dataInput) dataInput.addEventListener('change', triggerPriceUpdate);
+    }
+
+    async function _initPrezzoPanel(panel, codart, fornitore, unmis) {
+        // Fetch scaglioni una volta per l'articolo, poi render
+        const primaRiga = panel.querySelector('.decisione-row');
+        if (!primaRiga) return;
+        const qtaInput = primaRiga.querySelector('.decisione-qta');
+        const dataInput = primaRiga.querySelector('.decisione-data');
+        const qta = qtaInput ? Number(qtaInput.value) || 1 : 1;
+        const data = dataInput ? dataInput.value : '';
+        const result = await _fetchPrezzoListino(codart, fornitore, qta, data);
+        if (!result) return;
+        _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni };
+        _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis);
+
+        // Per righe senza prezzo (catalogo/manuali): autocompila
+        panel.querySelectorAll('.decisione-row').forEach(tr => {
+            if (tr.dataset.prezzoOverride) return;
+            const prezzoInput = tr.querySelector('.decisione-prezzo');
+            if (!prezzoInput) return;
+            const prezzoAttuale = Number(prezzoInput.value) || 0;
+            if (prezzoAttuale <= 0 && result.prezzo != null) {
+                const rowQta = Number(tr.querySelector('.decisione-qta')?.value) || 0;
+                // Per multi-riga potrebbe servire un fetch specifico per la qta della riga
+                if (rowQta > 0) {
+                    // Lookup locale dagli scaglioni cached
+                    const scaglione = result.scaglioni.find(s => rowQta >= s.da && rowQta <= s.a);
+                    const p = scaglione ? scaglione.prezzo : result.prezzo;
+                    prezzoInput.value = p;
+                    tr.dataset.prezzo = String(p);
+                    tr.dataset.perqta = String(scaglione ? scaglione.perqta : result.perqta || 1);
+                    aggiornaValoreRiga(tr.querySelector('.decisione-qta'));
+                }
+            }
+        });
+    }
+
     function mostraPanelDecisione() {
+        _syncManualCounter();
         const proposta = MrpApp.state.propostaCorrente;
         const panel = document.getElementById('panelDecisione');
         if (!panel) return;
@@ -784,51 +966,60 @@ const MrpProgressivi = (() => {
         panel.style.display = 'block';
 
         // Costruisci righe: da propostaCorrente.righe (multi-data) o singola riga
-        const righe = (proposta.righe && proposta.righe.length > 0)
-            ? proposta.righe
-            : [proposta]; // Fallback: una sola riga dal proposta stesso
+        const daCatalogo = !proposta.righe || proposta.righe.length === 0;
+        const righe = daCatalogo ? [] : proposta.righe;
 
         const confermati = MrpApp.state.ordiniConfermati;
-        const isMulti = righe.length > 1;
         const prezzo = Number(proposta.ol_prezzo) || 0;
         const perqta = Number(proposta.ol_perqta) || 1;
         const unmis = proposta.ol_unmis || 'PZ';
 
-        let htmlRighe = '';
-        for (const r of righe) {
+        // Filtra righe già gestite (confermate o emesse)
+        const righeDisponibili = righe.filter(r => {
             const progr = String(r.ol_progr || proposta.ol_progr || 0);
-            const conf = confermati.get(progr);
-            const emesso = r.emesso;
+            return !confermati.get(progr) && !r.emesso;
+        });
+
+        if (righeDisponibili.length === 0 && !daCatalogo) {
+            panel.style.display = 'none';
+            return;
+        }
+
+        const isMulti = righeDisponibili.length > 1;
+
+        let htmlRighe = '';
+        for (let _ri = 0; _ri < righeDisponibili.length; _ri++) {
+            const r = righeDisponibili[_ri];
+            const progr = String(r.ol_progr || proposta.ol_progr || 0);
             const rPrezzo = Number(r.ol_prezzo || proposta.ol_prezzo) || 0;
             const rPerqta = Number(r.ol_perqta || proposta.ol_perqta) || 1;
 
             const datcons = r.ol_datcons ? new Date(r.ol_datcons).toISOString().split('T')[0]
                           : (proposta.ol_datcons ? new Date(proposta.ol_datcons).toISOString().split('T')[0] : '');
-            const qta = conf ? conf.quantita_confermata : Math.round(Number(r.ol_quant || proposta.ol_quant) || 0);
-            const dataVal = conf ? conf.data_consegna : datcons;
+            const qta = Math.round(Number(r.ol_quant || proposta.ol_quant) || 0);
             const valore = qta * rPrezzo / rPerqta;
+            const primaRiga = _ri === 0;
 
-            htmlRighe += `<tr class="decisione-row${conf ? ' decisione-row-confermato' : ''}${emesso ? ' decisione-row-emesso' : ''}"
+            htmlRighe += `<tr class="decisione-row"
                 data-progr="${esc(progr)}" data-prezzo="${rPrezzo}" data-perqta="${rPerqta}">
                 <td class="decisione-chk-cell">
-                    ${emesso ? '<span title="Gi\u00e0 ordinato">\u2709</span>'
-                    : '<input type="checkbox" class="decisione-chk" ' + (conf ? 'checked' : '') + '>'}
+                    <input type="checkbox" class="decisione-chk"${primaRiga ? ' checked' : ''}>
                 </td>
-                <td>${fmtDate(r.ol_datcons || proposta.ol_datcons)}</td>
-                <td><input type="number" class="decisione-qta" value="${qta}" min="0" step="1" ${emesso ? 'disabled' : ''}></td>
+                <td class="decisione-datprop" style="cursor:pointer;">${fmtDate(r.ol_datcons || proposta.ol_datcons)}</td>
+                <td><input type="number" class="decisione-qta" value="${qta}" min="0" step="1"></td>
                 <td>${esc(r.ol_unmis || unmis)}</td>
-                <td><input type="date" class="decisione-data" value="${dataVal}" ${emesso ? 'disabled' : ''}></td>
-                <td class="num">${rPrezzo > 0 ? rPrezzo.toFixed(4) : '-'}</td>
+                <td><input type="date" class="decisione-data" value="${datcons}"></td>
+                <td class="num"><input type="number" class="decisione-prezzo" value="${rPrezzo > 0 ? rPrezzo : ''}" min="0" step="0.0001" placeholder="Prezzo" style="width:80px;text-align:right;"><button class="decisione-reset-prezzo" title="Ripristina da listino">\u21bb</button></td>
                 <td class="num decisione-valore">${valore > 0 ? '\u20ac ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-                <td>${emesso
-                    ? '<span class="decisione-stato-ord">Ordinato ' + esc(r.ord_numord || '') + '/' + esc(r.ord_serie || 'F') + '</span>'
-                    : (conf ? '<span class="decisione-stato-conf">\u2713 Confermato</span>' : '')}</td>
+                <td></td>
             </tr>`;
         }
 
-        const infoHtml = isMulti
-            ? `<div class="decisione-info">BCube propone <strong>${righe.length} date di consegna</strong> per questo articolo. Seleziona le righe da confermare \u2014 ogni data produce un ordine separato.</div>`
-            : '';
+        const infoHtml = daCatalogo
+            ? '<div class="decisione-info">Ordine manuale \u2014 aggiungi righe con quantit\u00e0, data e prezzo.</div>'
+            : (isMulti
+                ? `<div class="decisione-info">BCube propone <strong>${righeDisponibili.length} date di consegna</strong> per questo articolo. Seleziona le righe da confermare \u2014 ogni data produce un ordine separato.</div>`
+                : '');
 
         panel.innerHTML = `
             <div class="decisione-header">
@@ -871,10 +1062,29 @@ const MrpProgressivi = (() => {
         if (btnSelAll) btnSelAll.addEventListener('click', () => {
             panel.querySelectorAll('.decisione-chk:not(:disabled)').forEach(cb => { cb.checked = true; });
         });
-        // Event: aggiorna valore quando cambiano le quantità
-        panel.querySelectorAll('.decisione-qta').forEach(input => {
-            input.addEventListener('input', () => aggiornaValoreRiga(input));
+        // Event: click su cella Dt.Cons. Proposta togla il checkbox
+        panel.querySelectorAll('.decisione-datprop').forEach(td => {
+            td.addEventListener('click', () => {
+                const cb = td.closest('tr')?.querySelector('.decisione-chk');
+                if (cb && !cb.disabled) cb.checked = !cb.checked;
+            });
         });
+        // Event: pricing reattivo + valore su tutte le righe
+        const _codart = proposta.ol_codart;
+        const _fornitore = proposta.fornitore_codice;
+        const _unmis = unmis;
+        panel.querySelectorAll('.decisione-row').forEach(tr => {
+            _bindPrezzoListino(panel, tr, _codart, _fornitore, _unmis);
+        });
+
+        // Se da catalogo (nessuna proposta BCube), aggiungi subito una riga manuale vuota
+        if (daCatalogo) {
+            aggiungiRigaManuale(panel);
+        }
+
+        // Fetch iniziale scaglioni (e autocompila prezzo se mancante)
+        _scaglioniCache = null;
+        _initPrezzoPanel(panel, _codart, _fornitore, _unmis);
 
         panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -917,15 +1127,30 @@ const MrpProgressivi = (() => {
             <td><input type="number" class="decisione-qta" value="" min="0" step="1" placeholder="Qt\u00e0"></td>
             <td>${esc(unmis)}</td>
             <td><input type="date" class="decisione-data" value=""></td>
-            <td class="num">${prezzo > 0 ? prezzo.toFixed(4) : '-'}</td>
+            <td class="num"><input type="number" class="decisione-prezzo" value="${prezzo > 0 ? prezzo : ''}" min="0" step="0.0001" placeholder="Prezzo" style="width:80px;text-align:right;"><button class="decisione-reset-prezzo" title="Ripristina da listino">\u21bb</button></td>
             <td class="num decisione-valore">-</td>
             <td><button class="decisione-rimuovi-riga" title="Rimuovi">\u2716</button></td>
         `;
         tbody.appendChild(tr);
 
-        tr.querySelector('.decisione-qta').addEventListener('input', function() { aggiornaValoreRiga(this); });
+        // Binding pricing reattivo (debounce, override, reset)
+        _bindPrezzoListino(panel, tr, proposta.ol_codart, proposta.fornitore_codice, unmis);
         tr.querySelector('.decisione-rimuovi-riga').addEventListener('click', () => tr.remove());
         tr.querySelector('.decisione-qta').focus();
+    }
+
+    function _showDecisioneError(panel, msg) {
+        let errEl = panel.querySelector('.decisione-error');
+        if (!errEl) {
+            errEl = document.createElement('div');
+            errEl.className = 'decisione-error';
+            errEl.style.cssText = 'color:var(--danger,#d32f2f);background:var(--danger-bg,#ffeaea);padding:8px 12px;border-radius:6px;margin:8px 0;font-size:0.9rem;';
+            const actions = panel.querySelector('.decisione-actions');
+            if (actions) panel.insertBefore(errEl, actions);
+            else panel.appendChild(errEl);
+        }
+        errEl.textContent = msg;
+        setTimeout(() => { if (errEl.parentNode) errEl.remove(); }, 5000);
     }
 
     function confermaOrdineHandler() {
@@ -936,7 +1161,7 @@ const MrpProgressivi = (() => {
 
         const checked = panel.querySelectorAll('.decisione-chk:checked');
         if (checked.length === 0) {
-            alert('Seleziona almeno una riga da confermare.');
+            _showDecisioneError(panel, 'Seleziona almeno una riga da confermare.');
             return;
         }
 
@@ -959,8 +1184,7 @@ const MrpProgressivi = (() => {
             const rigaOrig = righeOrigine.find(r => String(r.ol_progr) === progr);
             const isManuale = Number(progr) < 0;
 
-            const key = isManuale ? MrpApp.getKeyByProgr(0) + '_m' + Math.abs(Number(progr))
-                                  : MrpApp.getKeyByProgr(progr);
+            const key = MrpApp.getKeyByProgr(progr);
 
             MrpApp.confermaOrdine(key, {
                 fornitore_codice: proposta.fornitore_codice,
@@ -971,7 +1195,7 @@ const MrpProgressivi = (() => {
                 ol_fase: rigaOrig ? rigaOrig.ol_fase : proposta.ol_fase,
                 ol_magaz: rigaOrig ? rigaOrig.ol_magaz : proposta.ol_magaz,
                 ol_unmis: rigaOrig ? (rigaOrig.ol_unmis || proposta.ol_unmis) : proposta.ol_unmis,
-                ol_progr: isManuale ? 0 : (rigaOrig ? rigaOrig.ol_progr : proposta.ol_progr || 0),
+                ol_progr: rigaOrig ? rigaOrig.ol_progr : (isManuale ? Number(progr) : (proposta.ol_progr || 0)),
                 quantita_confermata: qta,
                 data_consegna: data,
                 quantita_proposta: rigaOrig ? (Number(rigaOrig.ol_quant) || 0) : (Number(proposta.ol_quant) || 0),
@@ -992,7 +1216,9 @@ const MrpProgressivi = (() => {
         });
 
         if (errori > 0) {
-            alert(errori + ' riga/e ignorata/e: quantit\u00e0 o data mancante.');
+            _showDecisioneError(panel, errori + ' riga/e ignorata/e: quantità o data mancante. Correggi i dati e riprova.');
+            // Non uscire dal pannello — lascia l'utente correggere
+            if (errori === checked.length) return;
         }
 
         MrpApp.state.propostaCorrente = null;

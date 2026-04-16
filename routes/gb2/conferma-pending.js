@@ -79,7 +79,8 @@ module.exports = function(router, deps) {
                 });
             }
 
-            if (!(await progrValidoInSnapshot(pool, eid, olProgr))) {
+            // ol_progr negativi = righe manuali, non passano dallo snapshot
+            if (olProgr > 0 && !(await progrValidoInSnapshot(pool, eid, olProgr))) {
                 return res.status(409).json({
                     error: 'CHIAVE_NON_VALIDA',
                     message: 'ol_progr non corrisponde ad alcuna proposta di questa elaborazione.'
@@ -213,8 +214,11 @@ module.exports = function(router, deps) {
                             `);
                         applied++;
                     } else if (op.action === 'upsert') {
-                        const ok = await progrValidoInSnapshot(pool, eid, olProgr);
-                        if (!ok) { skipped++; continue; }
+                        // ol_progr negativi = righe manuali, non passano dallo snapshot
+                        if (olProgr > 0) {
+                            const ok = await progrValidoInSnapshot(pool, eid, olProgr);
+                            if (!ok) { skipped++; continue; }
+                        }
 
                         await pool.request()
                             .input('eid', sql.Int, eid)

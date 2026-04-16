@@ -174,6 +174,14 @@ const MrpProposta = (() => {
     }
 
     async function onPropostaBodyClick(e) {
+        // Pulsante "+" aggiunta articolo da catalogo fornitore
+        const btnAggiungi = e.target.closest('.btn-aggiungi-articolo');
+        if (btnAggiungi) {
+            e.stopPropagation();
+            apriCatalogoFornitore(btnAggiungi);
+            return;
+        }
+
         const header = e.target.closest('.proposta-fornitore-header');
         if (header) {
             const bodyEl = header.nextElementSibling;
@@ -307,6 +315,27 @@ const MrpProposta = (() => {
                     for (const p of pendingRows) {
                         const key = String(p.ol_progr);
                         const riga = byProgr.get(key);
+                        if (!riga && Number(p.ol_progr) < 0) {
+                            // Riga manuale: ricostruisci da dati pending (non serve riga proposta)
+                            MrpApp.state.ordiniConfermati.set(key, {
+                                ol_progr: p.ol_progr,
+                                fornitore_codice: p.fornitore_codice,
+                                fornitore_nome: '',
+                                ol_codart: p.codart,
+                                ar_codalt: '',
+                                ar_descr: '',
+                                ol_fase: p.fase || 0,
+                                ol_magaz: p.magaz || 1,
+                                quantita_confermata: Number(p.quantita_confermata),
+                                data_consegna: p.data_consegna,
+                                prezzo: p.prezzo_override != null ? Number(p.prezzo_override) : 0,
+                                perqta: 1,
+                                ol_unmis: '',
+                                _fromPending: true,
+                                _manuale: true
+                            });
+                            continue;
+                        }
                         if (!riga) continue; // orfana → la cleanup al boot se ne occuperà
                         const prezzo = (p.prezzo_override != null) ? Number(p.prezzo_override) : Number(riga.ol_prezzo || 0);
                         MrpApp.state.ordiniConfermati.set(key, {
@@ -337,6 +366,17 @@ const MrpProposta = (() => {
             // vengono filtrate via dalla vista per evitare che l'operatore le riusi per errore.
             const righeVisibili = ripristinaOrdiniEmessiDaServer(data);
             data = righeVisibili;
+
+            // Cleanup: rimuovi da ordiniConfermati le entry il cui ol_progr
+            // non è più nella proposta visibile (già emesso o congelato).
+            // Evita che il conteggio "Emetti Tutti (N)" includa articoli fantasma.
+            const visibileSet = new Set(righeVisibili.filter(r => r.ol_progr).map(r => String(r.ol_progr)));
+            for (const [key] of MrpApp.state.ordiniConfermati) {
+                if (Number(key) < 0) continue; // righe manuali — non hanno proposta visibile
+                if (!visibileSet.has(key)) {
+                    MrpApp.state.ordiniConfermati.delete(key);
+                }
+            }
 
             renderProposta(righeVisibili, listEl, stats);
         } catch (err) {
@@ -572,7 +612,8 @@ const MrpProposta = (() => {
 
             const isRelevant = String(forn.codice).startsWith('200');
             div.innerHTML = `
-                <div class="proposta-fornitore-header" data-forn="${escAttr(forn.codice)}">
+                <div class="proposta-fornitore-header" data-forn="${escAttr(forn.codice)}" data-fornnome="${escAttr(forn.nome || '')}">
+                    <button class="btn-aggiungi-articolo" data-forn="${escAttr(forn.codice)}" title="Aggiungi articolo da catalogo fornitore">+</button>
                     <span>${fornLabel}</span>
                     <span class="forn-toggle">${isRelevant ? '▼' : '▶'}</span>
                 </div>
@@ -705,6 +746,110 @@ const MrpProposta = (() => {
             .replace(/>/g, '&gt;');
     }
 
+    // ============================================================
+    // CATALOGO ARTICOLI FORNITORE (popup "+" nella barra fornitore)
+    // ============================================================
+    let _catalogoAperto = null; // riferimento al popup aperto
+
+    function _chiudiCatalogo() {
+        if (_catalogoAperto) {
+            _catalogoAperto.remove();
+            _catalogoAperto = null;
+        }
+        document.removeEventListener('click', _chiudiCatalogoOutside);
+    }
+
+    function _chiudiCatalogoOutside(e) {
+        if (_catalogoAperto && !_catalogoAperto.contains(e.target) && !e.target.closest('.btn-aggiungi-articolo')) {
+            _chiudiCatalogo();
+        }
+    }
+
+    async function apriCatalogoFornitore(btn) {
+        const fornCode = btn.dataset.forn;
+        if (!fornCode) return;
+
+        // Toggle: se già aperto per questo fornitore, chiudi
+        if (_catalogoAperto && _catalogoAperto.dataset.forn === fornCode) {
+            _chiudiCatalogo();
+            return;
+        }
+        _chiudiCatalogo();
+
+        const header = btn.closest('.proposta-fornitore-header');
+        const fornNome = header ? (header.dataset.fornnome || '') : '';
+
+        // Crea popup
+        const popup = document.createElement('div');
+        popup.className = 'catalogo-fornitore-popup';
+        popup.dataset.forn = fornCode;
+        popup.innerHTML = '<div class="catalogo-loading">Caricamento articoli\u2026</div>';
+
+        // Posiziona sotto il pulsante
+        header.appendChild(popup);
+        _catalogoAperto = popup;
+
+        setTimeout(() => document.addEventListener('click', _chiudiCatalogoOutside), 0);
+
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/fornitore-articoli/${fornCode}`, { credentials: 'include' });
+            const data = await res.json();
+            if (!res.ok || !data.articoli || data.articoli.length === 0) {
+                popup.innerHTML = '<div class="catalogo-vuoto">Nessun articolo trovato per questo fornitore</div>';
+                return;
+            }
+
+            let html = '<table class="catalogo-table"><thead><tr><th>Codice</th><th>Descrizione</th><th>UM</th></tr></thead><tbody>';
+            for (const art of data.articoli) {
+                html += `<tr class="catalogo-row" data-codart="${escAttr(art.codart)}" data-descr="${escAttr(art.descr || '')}"
+                             data-unmis="${escAttr(art.unmis || 'PZ')}" data-codalt="${escAttr(art.codalt || '')}"
+                             data-forn="${escAttr(fornCode)}" data-fornnome="${escAttr(fornNome)}">
+                    <td class="catalogo-codart">${esc(art.codart)}</td>
+                    <td>${esc(art.descr || '')}</td>
+                    <td>${esc(art.unmis || 'PZ')}</td>
+                </tr>`;
+            }
+            html += '</tbody></table>';
+            popup.innerHTML = html;
+
+            // Click su riga → apri progressivi con propostaCorrente
+            popup.querySelectorAll('.catalogo-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    const codart = row.dataset.codart;
+                    MrpApp.state.propostaCorrente = {
+                        fornitore_codice: row.dataset.forn,
+                        fornitore_nome: row.dataset.fornnome,
+                        ol_codart: codart,
+                        ar_codalt: row.dataset.codalt || '',
+                        ar_descr: row.dataset.descr || '',
+                        ol_fase: '0',
+                        ol_magaz: '1',
+                        ol_unmis: row.dataset.unmis || 'PZ',
+                        ol_progr: '0',
+                        ol_quant: '0',
+                        ol_prezzo: '0',
+                        ol_perqta: '1',
+                        ol_datcons: '',
+                        ol_colli: '0',
+                        ol_ump: '',
+                        ol_stato: '',
+                        fase_descr: '',
+                        righe: []
+                    };
+                    _chiudiCatalogo();
+                    MrpParametri.eseguiDiretto({
+                        codart: codart,
+                        fase: '',
+                        magaz: '',
+                        descr: row.dataset.descr || ''
+                    });
+                });
+            });
+        } catch (err) {
+            popup.innerHTML = '<div class="catalogo-vuoto">Errore: ' + esc(err.message) + '</div>';
+        }
+    }
+
     function aggiornaStatoVisivo() {
         const confermati = MrpApp.state.ordiniConfermati;
 
@@ -774,6 +919,18 @@ const MrpProposta = (() => {
                 if (!byDate.has(dt)) byDate.set(dt, []);
                 byDate.get(dt).push({ key, ordine });
             }
+        });
+
+        // ── Passo 1b: righe manuali (ol_progr < 0) — non hanno elemento DOM ──
+        confermati.forEach((ordine, key) => {
+            if (Number(key) >= 0) return;
+            const fk = String(ordine.fornitore_codice);
+            const dtRaw = ordine.data_consegna || '';
+            const dt = dtRaw ? new Date(dtRaw).toISOString().split('T')[0] : 'no-date';
+            if (!confPerFornData.has(fk)) confPerFornData.set(fk, new Map());
+            const byDate = confPerFornData.get(fk);
+            if (!byDate.has(dt)) byDate.set(dt, []);
+            byDate.get(dt).push({ key, ordine });
         });
 
         // ── Passo 2: per ogni (fornitore, data), creo un blocco ordine visuale ──
@@ -887,16 +1044,9 @@ const MrpProposta = (() => {
             if (!header || articoli.length === 0) return;
 
             const fornCode = header.dataset.forn;
-            let conteggioConfermati = 0;
-            let totaleValore = 0;
-
-            // Conta conferme per fornitore scorrendo tutti gli ol_progr confermati
-            confermati.forEach((ordine, key) => {
-                if (String(ordine.fornitore_codice) === String(fornCode)) {
-                    conteggioConfermati++;
-                    totaleValore += ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
-                }
-            });
+            const bodyEl = header.nextElementSibling;
+            const conteggioConfermati = bodyEl
+                ? bodyEl.querySelectorAll('.proposta-scorporo').length : 0;
 
             header.classList.remove('fornitore-completato', 'fornitore-parziale', 'fornitore-emesso');
 
@@ -3052,9 +3202,9 @@ const MrpProposta = (() => {
                     pdfCache.set(pdfCacheKey(data.ordine.anno, data.ordine.serie, data.ordine.numord), { pdf_base64: data.pdf_base64, pdf_filename: data.pdf_filename });
                     st.emissioneProgress.successi++;
 
-                    // Auto-send se richiesto
+                    // Auto-send se richiesto (await = serializza invio email)
                     if ((st.autoSendAll || st.autoSendSet.has(String(f.fornitore_codice))) && f.emissioneResult.fornitore_email) {
-                        _inviaEmailPerFornitore(String(f.fornitore_codice)); // fire-and-forget
+                        await _inviaEmailPerFornitore(String(f.fornitore_codice));
                     }
                 } else {
                     f.status = 'emit_failed';
@@ -3083,7 +3233,8 @@ const MrpProposta = (() => {
     function gestisciInviaSelezionate() {
         const st = _batchUnifiedState;
 
-        // Raccogli righe checked
+        // Raccogli righe checked — dividi tra "invia subito" e "metti in coda"
+        const daInviareSubito = [];
         document.querySelectorAll('.unified-chk:checked').forEach(cb => {
             const fk = cb.dataset.forn;
             const f = st.fornitori.find(x => String(x.fornitore_codice) === fk);
@@ -3094,8 +3245,7 @@ const MrpProposta = (() => {
             if (tplSel) f.selectedTemplateId = tplSel.value;
 
             if (f.status === 'emitted') {
-                // Gia emesso: invia subito
-                _inviaEmailPerFornitore(fk);
+                daInviareSubito.push(fk);
             } else if (f.status === 'waiting' || f.status === 'emitting') {
                 // Non ancora emesso: metti in coda
                 st.autoSendSet.add(fk);
@@ -3113,6 +3263,13 @@ const MrpProposta = (() => {
             btnInvia.disabled = true;
             btnInvia.style.opacity = '0.5';
         }
+
+        // Invia email in sequenza (non in parallelo — evita throttling SMTP)
+        (async () => {
+            for (const fk of daInviareSubito) {
+                await _inviaEmailPerFornitore(fk);
+            }
+        })();
     }
 
     /** Invia email per un singolo fornitore (usa _inviaEmailDirect esistente) */

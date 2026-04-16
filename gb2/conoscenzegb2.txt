@@ -2,7 +2,7 @@
   CONOSCENZE PROGETTO GB2 (Gabriele 2.0) — APP MRP WEB
   Modulo integrato nell'ecosistema PortalUjet
   Documento destinato a un'IA che prende in mano il progetto
-  Ultimo aggiornamento: 13 Aprile 2026
+  Ultimo aggiornamento: 16 Aprile 2026
 ================================================================================
 
 INDICE
@@ -32,7 +32,8 @@ INDICE
 23. PERSONALIZZAZIONE COLONNE (ColumnManager)
 24. BREADCRUMB NAVIGAZIONE ARTICOLI
 25. PREZZO PER QUANTITA (perqta)
-26. BUG FIX LOG
+26. SISTEMA PREZZI BCUBE — TABELLA LISTINI E MOTORE PRICING (+ pricing dinamico)
+27. BUG FIX LOG
 
 
 ================================================================================
@@ -118,13 +119,19 @@ Server:
      Database GB2@163 (naming cross-database [GB2].[dbo].[...]):
        Operators, UserPreferences, TestProfiles, ElaborazioniMRP,
        SnapshotProposte, EmailTemplates, EmailTemplateAssegnazioni,
-       EmailDrafts, DeployVersion
+       EmailDrafts, DeployVersion, ordini_confermati_pending
 
-  C) STORED PROCEDURES (database [GB2] sul server di destinazione):
-     Le SP (usp_CreaOrdineFornitore, usp_AggiornaStatoInvioOrdine) vivono
-     nel database [GB2] sullo STESSO server di UJET11. Referenziano
-     [UJET11].[dbo] come cross-database locale — zero MSDTC.
+  C) STORED PROCEDURES (database [GB2_SP] sul server di destinazione):
+     Le SP vivono nel database [GB2_SP] sullo STESSO server di UJET11.
+     Referenziano [UJET11].[dbo] come cross-database locale — zero MSDTC.
      Deploy automatico al boot con versioning (DEPLOY_VERSION in helpers.js).
+     SP presenti:
+       usp_CreaOrdineFornitore        — creazione ordine atomico
+       usp_AggiornaStatoInvioOrdine   — aggiornamento stato invio email
+       usp_AggiungiRigheOrdineFornitore — merge righe in ordine esistente
+                                         (duplicati codart consentiti: ogni riga e' indipendente)
+       usp_RimuoviRigaOrdineFornitore — rimozione singola riga + storno saldi BCube
+                                         (se ultima riga → cancella ordine + ripristina tabnuma)
 
 --- I 4 POOL E QUANDO USARLI ---
 
@@ -200,7 +207,8 @@ Server:
       db-profiles.js        ← gestione profili connessione DB
       articoli.js           ← ricerca articoli + progressivi + caricaMRP
       mrp-proposte.js       ← proposte ordini MRP + consumi storici
-      ordini.js             ← emissione ordini + PDF + storico + duplicati
+      ordini.js             ← emissione ordini + PDF + storico + duplicati + rimozione riga
+      conferma-pending.js   ← safety-net ordini confermati non emessi (upsert/delete/flush)
       email.js              ← SMTP + invio email + preview + drafts
       fornitori.js          ← classificazione fornitori + anagrafica + template
 
@@ -210,7 +218,12 @@ Server:
 
   Le funzioni helper (getUserId, getSpName, executeSqlFile, deployProductionObjects,
   deployTestObjects, dropTestSPs, checkSpExists, compilaTemplate, getPoliticaRiordino,
-  getPoolRiep) sono in helpers.js e accessibili via deps.helpers.
+  getPoolRiep, fetchOrdineCompleto, cleanupStaleConfermatiPending) sono in helpers.js
+  e accessibili via deps.helpers.
+
+  fetchOrdineCompleto(pool, anno, serie, numord): query centralizzata per PDF completo
+  con tutte le JOIN (banca, porto, valuta, destinazione, codarfo, artico).
+  Usata da /emetti-ordine, /modifica-ordine, /ordine-pdf, /invia-ordine-email.
 
 --- PRINCIPI DI PERFORMANCE — PARALLELISMO E RENDERING IMMEDIATO ---
 
@@ -323,7 +336,7 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
       gb2-proposta.css        # Stili foglio proposta ordini
       gb2-modali.css          # Stili modali
       gb2-dbconfig.css        # Stili pannello configurazione DB
-      gb2-decisione.css       # Stili pannello decisionale
+      gb2-decisione.css       # Stili pannello decisionale unificato (multi-riga, stile blu)
       gb2-theme.css           # Stili pannello personalizzazione colori
       gb2-theme-presets.css   # Preset tematici (deuteranopia, protanopia, alto contrasto)
     js/
@@ -333,7 +346,9 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
       gb2-parametri.js        # Logica form parametri: combo articoli, fasi, magazzini
       gb2-column-manager.js   # Personalizzazione colonne (menu contestuale, colori, nascondi)
       gb2-progressivi.js      # Logica griglia progressivi, chart, breadcrumb navigazione
-      gb2-proposta.js         # Logica proposte ordine: rendering, conferma, emissione
+      gb2-proposta.js         # Logica proposte ordine: rendering, scorporo, raggruppamento per data, emissione
+      gb2-pending-sync.js    # PendingSync: safety-net DB per conferme (localStorage-first, chiave ol_progr)
+                             #   Supporta ol_progr negativi (righe manuali): parseInt("-1")=-1, sync nativo
       gb2-dbconfig.js         # Logica configurazione profili DB e SMTP personale
 
   gb2.html                    # Pagina unica SPA (header, nav, views, modali)
@@ -346,6 +361,10 @@ I file di GB2 sono distribuiti nella root del progetto bobine:
     create_test_profiles.sql  # DDL tabella profili di prova per operatore
     usp_CreaOrdineFornitore.sql # SP creazione ordine atomico (cross-db locale [UJET11].[dbo])
     usp_AggiornaStatoInvioOrdine.sql # SP aggiornamento stato invio
+    usp_AggiungiRigheOrdineFornitore.sql # SP merge righe in ordine esistente (no check duplicati)
+    usp_RimuoviRigaOrdineFornitore.sql   # SP rimozione riga + storno saldi BCube
+    create_ordini_confermati_pending.sql  # DDL safety-net conferme non emesse
+    migrate_ocp_ol_progr.sql             # Migration PK a ol_progr (idempotente)
     create_email_templates.sql # DDL tabella template email
     create_email_template_assegnazioni.sql # DDL assegnazioni template per fornitore
 
@@ -423,15 +442,32 @@ FILE IN .GITIGNORE:
     UpdatedAt           DATETIME
 
   ElaborazioniMRP       Tracciamento batch MRP (fingerprint = ol_ultagg)
-    ID                  PK identity
+    ID                  PK identity (chiave interna, usata dalle FK)
+    NumeroElab          INT — contatore sequenziale PER AMBIENTE (display: "Elab. #N")
+                        Non condiviso tra server — calcolato come MAX+1 per Ambiente all'INSERT.
     Fingerprint         DATETIME — data ultima elaborazione MRP (da ol_ultagg)
     RilevatoIl          DATETIME — quando l'app ha rilevato il batch
     TotaleProposte      INT — numero totale proposte nel batch
     TotaleGestite       INT — numero proposte con ordine emesso
-    Ambiente            VARCHAR(20) — 'produzione' o 'prova' (default 'produzione')
+    Ambiente            VARCHAR(20) — server destinazione (es. 'BCUBE2', '192.168.0.163')
     IDUser              INT — chi ha rilevato il batch
     Note, CreatedAt, UpdatedAt
     UNIQUE INDEX: UX_ElaborazioniMRP_Fingerprint_Ambiente (Fingerprint, Ambiente)
+
+  ordini_confermati_pending   Safety-net per conferme non ancora emesse
+    elaborazione_id     INT — FK -> ElaborazioniMRP.ID (ON DELETE CASCADE)
+    user_id             INT — chi ha confermato
+    ol_progr            INT — PK riga ordlist (univoca per elaborazione)
+                          Valori positivi = righe da proposta BCube (ol_progr reale)
+                          Valori negativi = righe manuali (-1, -2, ...) aggiunte dall'operatore
+    PK: (elaborazione_id, user_id, ol_progr)
+    fornitore_codice, codart, fase, magaz  — denormalizzati per filtro/display
+    data_consegna       DATE
+    quantita_confermata DECIMAL(18,3)
+    prezzo_override     DECIMAL(18,5) — NULL = usa prezzo proposta
+    updated_at          DATETIME
+    Persist pattern: localStorage-first + flush asincrono via PendingSync.
+    Migration idempotente: migrate_ocp_ol_progr.sql (non droppa se schema OK).
 
   SnapshotProposte      Foto delle proposte al momento del rilevamento batch
     ID                  PK identity
@@ -555,8 +591,14 @@ GET  /check-sp                   Verifica esistenza stored procedures
 ================================================================================
 
 La SPA ha un unico file HTML (gb2.html) con due "views" switchabili via nav:
-  - view-parametri:    Form di ricerca + pannello proposta ordini
-  - view-progressivi:  Griglia progressivi articolo + grafici
+  - view-parametri:    Pannello proposta ordini (fullscreen) + drawer Selezione Articolo
+  - view-progressivi:  Griglia progressivi articolo + grafici + pannello decisionale
+
+  Il pannello "Selezione Articolo" (form parametri MRP) e collassato di default
+  (classe .collapsed sul div #panelSelezione). Si apre come drawer overlay laterale
+  con bottone toggle nella header proposta. Click su codart nella proposta naviga
+  direttamente ai progressivi senza aprire il drawer (chiamata diretta a
+  MrpParametri.eseguiDiretto, senza ponte via form DOM).
 
 Moduli JavaScript (pattern IIFE, ciascuno espone un oggetto globale):
   - MrpApp           Stato globale, routing views, API_BASE ('/api/mrp'), init
@@ -566,10 +608,19 @@ Moduli JavaScript (pattern IIFE, ciascuno espone un oggetto globale):
   - MrpDbConfig      Gestione profili DB + configurazione SMTP personale
   - MrpParametri     Gestione form parametri, combo autocomplete
   - MrpProgressivi   Griglia progressivi, chart consumi, pannello decisionale
-  - MrpProposta      Proposte ordine, conferma, emissione, rendering fornitore
+                     Pannello decisionale unificato: sempre multi-riga, generato
+                     dinamicamente in mostraPanelDecisione(). Bottone "+" per righe
+                     manuali (ol_progr negativi: -1, -2, ...). Conferma multi-riga
+                     con chiave ol_progr. Righe gia confermate/emesse filtrate
+                     dalla vista (righeDisponibili).
+  - PendingSync      Safety-net DB per conferme (gb2-pending-sync.js, chiave ol_progr)
+  - MrpProposta      Proposte ordine, scorporo, raggruppamento per data, emissione
                      Gestione elaborazioni, storico ordini, dettaglio ordine emesso
                      Funzioni: apriStorico(), caricaStorico(), renderStorico(),
                      apriDettaglioOrdine(), controllo duplicati pre-emissione
+                     aggiornaStatoVisivo: passo 1 (DOM) + passo 1b (righe manuali)
+                     Conteggio "Emetti Tutti (N)": N = numero card scorporo (.proposta-scorporo)
+                     nel body del fornitore (conta ordini raggruppati per data, non singole righe)
 
 Ordine di caricamento script (in gb2.html, fondo body):
   1. gb2-theme.js        (prima di tutto per prevenire FOUC)
@@ -638,9 +689,43 @@ IMPORTANTE — DUE TABELLE, DUE RELAZIONI PADRE-FIGLIO:
 8. FLUSSO EMISSIONE ORDINI FORNITORE
 ================================================================================
 
-Passo 1 — Conferma (client-side):
-  L'operatore conferma quantita, data, prezzo nel pannello decisionale.
-  Dati in MrpApp.state.ordiniConfermati. NIENTE va in DB in questa fase.
+Passo 1 — Conferma (client-side + safety-net DB):
+  L'operatore conferma nel pannello decisionale unificato (in fondo ai progressivi).
+  Il pannello e sempre tabellare (multi-riga) — anche 1 data mostra 1 riga.
+  Bottone "+" per aggiungere righe manuali con date arbitrarie.
+  Chiave Map: String(ol_progr) — univoca per riga ordlist.
+  Dati in MrpApp.state.ordiniConfermati + persistiti via PendingSync su
+  ordini_confermati_pending (safety-net: sopravvive a F5/crash/cambio PC).
+
+  RIGHE MANUALI (ol_progr negativi):
+    L'operatore puo aggiungere righe che non derivano da proposte BCube.
+    Queste righe ricevono un ol_progr negativo (-1, -2, ...) come identita.
+    Il counter (_manualProgrCounter in gb2-progressivi.js) decrementa da -1
+    e si sincronizza con entry esistenti per evitare collisioni dopo reload.
+    ol_progr < 0 = riga manuale in tutto il flusso:
+    - PendingSync: parseInt("-1") = -1, funziona nativamente
+    - conferma-pending.js: skip validazione SnapshotProposte per negativi
+    - ordini.js: registra in ordini_emessi anche con ol_progr negativo
+    - aggiornaStatoVisivo: passo 1b raccoglie entry manuali dalla Map
+      (non hanno elemento DOM) e le aggiunge a confPerFornData
+    - Cleanup visibileSet: esclude chiavi negative (non hanno proposta)
+    - Idratazione al reload: ricostruisce entry manuali da dati pending
+      senza bisogno di riga proposta in byProgr
+
+  Il pannello decisione mostra solo righe disponibili: quelle gia confermate
+  o emesse vengono filtrate (righeDisponibili) prima del rendering.
+
+  Scorporo visivo: articoli multi-data con conferme parziali mostrano le righe
+  confermate come blocchi "Ordine da emettere" raggruppati per (fornitore, data).
+  Articoli di codart diverso ma stessa data+fornitore vengono accorpati nello
+  stesso blocco — incluse righe manuali con stessa data. Re-merge automatico
+  al rimuovi conferma.
+
+  Emissione per data: raggruppaPerData() normalizza a YYYY-MM-DD. Stessa data →
+  stesso ordine BCube. Date diverse → ordini separati (PDF+email distinti).
+
+  Merge con ordini esistenti: dialog merge solo se esiste ordine pending (email
+  non inviata) con STESSA data consegna. La SP accetta duplicati codart.
 
 Passo 2 — Emissione (POST /emetti-ordine):
   Pool SP: in produzione usa poolBcube (BCUBE2 diretto), in prova usa getPoolMRP(uid).
@@ -1040,7 +1125,7 @@ ARCHITETTURA SP — DB [GB2] SUL SERVER DI DESTINAZIONE:
     [GB2].[dbo].Operators, UserPreferences, ElaborazioniMRP, SnapshotProposte, ecc.
 
 VERSIONING DEPLOY:
-  Costante DEPLOY_VERSION = '2.0' in helpers.js. Al boot e allo switch profilo,
+  Costante DEPLOY_VERSION in helpers.js (attualmente '3.2'). Al boot e allo switch profilo,
   il sistema confronta con [GB2].[dbo].[DeployVersion].Versione sul server target.
   Se uguale → skip (~50ms). Se diversa → deploy completo + aggiorna versione.
   Il suffisso prova e incluso nella versionKey: es. '2.0_T1' per prova T1.
@@ -1487,7 +1572,195 @@ ALTRI CAMPI ARTICOLO CORRELATI:
 
 
 ================================================================================
-26. BUG FIX LOG
+26. SISTEMA PREZZI BCUBE — TABELLA LISTINI E MOTORE PRICING
+================================================================================
+
+TABELLA LISTINI (prefisso lc_):
+  Tabella BCube che contiene i prezzi con scaglioni quantita e validita temporale.
+  Una riga = un prezzo per un articolo in un range quantita in un periodo di tempo.
+
+  Colonne principali:
+    lc_progr    (int)        — PK progressivo
+    lc_codart   (varchar 50) — codice articolo
+    lc_conto    (int)        — codice fornitore/cliente (0 = generico, >0 = specifico)
+    lc_listino  (smallint)   — numero listino (FK verso tablist.tb_codlist)
+    lc_prezzo   (decimal)    — prezzo
+    lc_perqta   (decimal)    — prezzo per quantita (divisore), come ar_perqta
+    lc_daquant  (decimal)    — quantita minima dello scaglione
+    lc_aquant   (decimal)    — quantita massima dello scaglione
+    lc_datagg   (datetime)   — data inizio validita
+    lc_datscad  (datetime)   — data fine validita
+    lc_codvalu  (smallint)   — codice valuta (0 = EUR)
+    lc_codtpro  (smallint)   — codice tipo promozione
+    lc_netto    (varchar 1)  — flag prezzo netto (no sconti)
+    lc_unmis    (varchar 3)  — unita di misura prezzo
+    lc_tipo     (varchar 1)  — tipo
+    lc_codlavo  (smallint)   — codice lavorazione
+    lc_fase     (smallint)   — fase
+    lc_coddest  (int)        — codice destinazione
+
+  Tabella decodifica: TABLIST
+    tb_codlist (smallint) — codice listino
+    tb_deslist (varchar 30) — descrizione
+    tb_ivato   (varchar 1) — flag IVA inclusa
+
+SCAGLIONI QUANTITA:
+  Ogni riga listini copre un range: lc_daquant..lc_aquant (BETWEEN).
+  Se lc_daquant=0 e lc_aquant=9999999999 → prezzo valido per qualsiasi quantita.
+  Esempio pratico:
+    Articolo X, fornitore Y:
+      1-100 PZ   → prezzo 5.00
+      101-500 PZ → prezzo 4.50
+      501+   PZ  → prezzo 4.00
+
+VALIDITA TEMPORALE:
+  Ogni riga ha finestra: lc_datagg..lc_datscad (BETWEEN con data ordine).
+  Quando un listino scade, ne viene creato uno nuovo con date aggiornate.
+
+CASCATA DI RICERCA PREZZO (logica BCube — CercaPrezzo in CLDLBMENU.cs):
+  BCube cerca il prezzo in 4 step con fallback:
+
+  STEP 1 — CercaPrezzo_PreList: prezzo di listino base (lc_conto=0, listino generico)
+    SELECT TOP 1 FROM listini WHERE lc_codart=@art AND lc_conto=0
+      AND lc_listino=@listino AND @data BETWEEN lc_datagg AND lc_datscad
+      AND @qta BETWEEN lc_daquant AND lc_aquant
+    ORDER BY lc_datagg DESC, lc_daquant
+
+  STEP 2 — CercaPrezzo_Listino: prezzo specifico, privilegia il fornitore
+    SELECT FROM listini WHERE lc_codart=@art
+      AND ((lc_conto=@fornitore AND lc_listino=0)    -- prezzo dedicato fornitore
+           OR (lc_conto=0 AND lc_listino=@listino))  -- prezzo generico listino
+      AND @data BETWEEN lc_datagg AND lc_datscad
+      AND @qta BETWEEN lc_daquant AND lc_aquant
+    ORDER BY lc_conto DESC, lc_codtpro DESC, lc_datagg DESC, lc_daquant
+    → lc_conto>0 ha priorita massima (prezzo fornitore specifico batte generico)
+
+  STEP 3 — CercaPrezzo_Costi: fallback su artprox (costi interni)
+    Listini speciali (negativi):
+      0  = ultimo costo (artprox)
+      -1 = costo medio (artprox)
+      -2 = ultimo prezzo d'acquisto medio (artprox) — DEFAULT per proposte MRP
+      -3 = prezzo FIFO
+      -4 = costo medio ponderato
+
+  STEP 4 — CercaPrezzo_Valuta: se serve valuta estera (lc_codvalu>0)
+
+SCELTA DEL LISTINO PER PROPOSTE MRP (CLEDBEMRP.cs):
+  Per ol_tipork="O" (acquisto — il nostro caso):
+    - Se fornitore specificato (lConto!=0): usa anagra.an_listino (listino fornitore)
+    - Se fornitore=0: usa impostazione BSDBEMRP > Listino_Default_POF (default=-2)
+
+COMPORTAMENTO REALE QUANDO an_listino = 0 (verificato su sorgenti decompilati):
+  BCube NON ha fallback intelligente. Trace esatto:
+    CLEDBEMRP.cs:11890 → nListino = NTSCInt(dataRow["an_listino"])  // copia diretta, NULL→0
+    Tra linea 11890 e 12106 NON esiste alcun controllo "if nListino == 0".
+    Il valore 0 viene passato letteralmente al motore prezzi.
+
+  Con nListino=0, il motore prezzi (CLDLBMENU.cs:7127-7146):
+    1. Cerca prezzo specifico fornitore (lc_conto=@fornitore AND lc_listino=0) → OK
+    2. Se non trova → fallback su artprox (CercaPrezzo_ArtProx, ultimo costo)
+    3. NON consulta altri listini generici, tabparam, gruppi merceologici, o categorie
+
+  Il setting Listino_Default_POF (da ARCPROC.dbo.regprop) scatta SOLO quando
+  lConto==0 (fornitore mancante), NON quando il fornitore esiste con an_listino=0.
+  In piu, la config UJET11 ha BSVEBOLL/Tipo_list_costi_mat_carichi = "3" che
+  bypassa completamente la lettura di Listino_Default_POF e forza nListinoPOF = -2.
+
+  Conseguenza: an_listino=0 per la maggior parte dei fornitori e BY DESIGN.
+  Quei fornitori usano prezzi specifici (lc_conto=@fornitore), non listini generici.
+
+DISTRIBUZIONE REALE LISTINI (produzione BCUBE2, aprile 2026):
+  Listini generici (lc_conto=0): esistono 15+ listini diversi.
+    I piu grossi: listino 50 (8.982 righe), 8 (3.525), 51 (3.379), 99 (2.682).
+    Sono prevalentemente listini di VENDITA (per clienti), non di acquisto.
+    Scaglioni nei generici: ~3.000 articoli con 2+ scaglioni.
+
+  Listini fornitore (lc_conto > 0): 76.482 righe, 1.966 fornitori distinti.
+    84% dei fornitori usati negli ordini ha prezzi specifici in questa modalita.
+    Scaglioni nei fornitore: 629 coppie art/forn con 2+ scaglioni.
+
+  Fornitori con an_listino configurato: solo 174 su 2.062 (9, 1, 3).
+  Fornitori senza an_listino: 1.888 (91%) — usano prezzi specifici, non generici.
+
+TABELLA ARTPROX — FALLBACK ULTIMO COSTO:
+  Quando il motore prezzi non trova nulla in listini, ricade su artprox.
+  Campo chiave: ultimo costo d'acquisto per articolo.
+  Usato con nListino in {0, -1, -2, -3, -4}:
+    0  = ultimo costo
+    -1 = costo medio
+    -2 = ultimo prezzo d'acquisto medio (DEFAULT per proposte MRP UJET11)
+    -3 = prezzo FIFO
+    -4 = costo medio ponderato
+
+  Nostro endpoint /prezzo-listino: quando listini non restituisce nulla,
+  dovremmo cercare in artprox come fallback (TODO).
+
+lc_codtpro — PROMOZIONI (irrilevante per UJET11):
+  lc_codtpro e il codice tipo promozione (FK a tabtpro). Nel DB UJET11:
+  - 138.574 righe listini hanno tutte lc_codtpro = 0
+  - Tabella tabtpro e vuota (0 righe)
+  - Le promozioni non sono mai state usate. Dimensione inerte.
+  Non confondere con "tipo listino" — e una cosa diversa.
+
+CALCOLO perqta:
+  dPerQta = (ar_perqta == 0) ? 1 : ar_perqta   (da artico.ar_perqta)
+
+FORMULA VALORE COMPLETA:
+  ol_valore = ol_prezzo * ol_quant / ol_perqta
+              * (100-scont1)/100 * (100-scont2)/100 * ... * (100-scont6)/100
+  (6 livelli di sconto a cascata)
+
+QUERY DI LOOKUP PREZZO PER GB2:
+  Per replicare la logica BCube nel nostro codice:
+
+    SELECT TOP 1 lc_prezzo, lc_perqta, lc_netto, lc_daquant, lc_aquant,
+                 lc_datagg, lc_datscad, lc_conto
+    FROM listini
+    WHERE codditt = 'UJET11'
+      AND lc_codart = @codart
+      AND ((lc_conto = @codfornitore AND lc_listino = 0)
+           OR (lc_conto = 0 AND lc_listino = @nListino))
+      AND @dataordine BETWEEN lc_datagg AND lc_datscad
+      AND @quantita BETWEEN lc_daquant AND lc_aquant
+      AND lc_codvalu = 0
+      AND lc_codlavo = 0
+    ORDER BY lc_conto DESC, lc_codtpro DESC, lc_datagg DESC, lc_daquant ASC
+
+  Se nessun risultato → fallback su artprox (ultimo costo / costo medio).
+
+NOTA: il numero listino del fornitore si trova in anagra.an_listino (JOIN per conto).
+
+DATI REALI (conferma):
+  codart=0066614, prezzo=7.643266, perqta=1000, quant=1620 → per 1000 PZ
+  codart=0072750, prezzo=0.118,    perqta=1,    quant=1620 → unitario
+  codart=0070510, prezzo=3.971498, perqta=1,    quant=6.21 → unitario
+
+PRICING DINAMICO NEL PANNELLO DECISIONE (implementato):
+  Endpoint: GET /api/mrp/prezzo-listino?codart=X&fornitore=Y&quantita=Z&data=D
+  File backend: routes/gb2/fornitori.js
+  File frontend: gb2/js/gb2-progressivi.js (funzioni _fetchPrezzoListino,
+    _renderScaglioni, _bindPrezzoListino, _initPrezzoPanel)
+  File CSS: gb2/css/gb2-decisione.css (classi decisione-scaglioni, decisione-prezzo)
+
+  Comportamento:
+    - Tutte le righe (BCube e manuali) hanno prezzo editabile
+    - Prezzo auto-compilato da listini BCube (cascata fornitore → generico → artprox)
+    - Prezzo reattivo alla quantita (debounce 300ms → refetch scaglione)
+    - Barra scaglioni sotto la tabella:
+        - 1 solo scaglione (prezzo piatto): mostra "Prezzo listino: X,XX" (pulito)
+        - 2+ scaglioni: "Scaglioni: fino a 100 → 5,00 │ 101-500 → 4,50 │ oltre 500 → 4,00"
+        - Scaglione attivo evidenziato con sfondo accent
+    - Override manuale: l'operatore cambia il prezzo, appare pulsante "↻" per reset
+    - Hint perqta mostrato quando perqta > 1 ("Prezzo per 1000 PZ")
+    - Se nessun listino trovato: campo vuoto, nessuna barra
+
+  Circuito dati: campo input → tr.dataset.prezzo → confermaOrdineHandler →
+    MrpApp.confermaOrdine → PendingSync → usp_CreaOrdineFornitore (SP usa il
+    prezzo che riceve, non fa lookup autonomo)
+
+
+================================================================================
+27. BUG FIX LOG
 ================================================================================
 
 2026-04-08: caricaMRP — getUserId(req) dove req non esiste
@@ -1751,44 +2024,28 @@ PERCHE NON FUNZIONA:
   solo se cancelli l'ultimo. Non e' un limite della nostra SP — e' la regola
   del gestionale.
 
-COSA FARE INVECE:
-  Per modificare un ordine pending (email non ancora inviata) bisogna MODIFICARE
-  l'ordine esistente, non ricrearlo:
+SOLUZIONE IMPLEMENTATA:
+  SP usp_AggiungiRigheOrdineFornitore in [GB2_SP]:
+    - INSERT nuove righe in movord (mo_riga continua da MAX+1)
+    - UPDATE testord ricalcolando totali + castelletto IVA
+    - Refresh saldi BCube (keyord/artpro/artprox/lotcpro) solo per righe nuove
+    - Applock per-ordine 'ModOrd_{anno}_{serie}_{numord}'
+    - Duplicati codart CONSENTITI: ogni riga e' indipendente in movord
+      (BCube supporta nativamente piu righe dello stesso articolo)
+  Endpoint: POST /modifica-ordine
 
-    1. INSERT nuove righe in movord (mo_riga continua da MAX+1 per quell'ordine)
-    2. UPDATE testord ricalcolando:
-       - td_totmerce, td_totdoc (SUM movord)
-       - Castelletto IVA: td_codiva_1..3, td_imponib_*, td_imposta_*
-         (raggruppando per aliquota come fa usp_CreaOrdineFornitore riga 231-239)
-       - td_datcons = MIN(movord.mo_datcons)
-       - td_ultagg = GETDATE()
-    3. EXEC bussp_bsorgsor9_faggiorn2 per rinfrescare keyord/artpro delle righe nuove
-    4. INSERT nuove righe in ordini_emessi su MRP@163 (stesso ord_anno/serie/numord)
-    5. UPDATE [GB2].[dbo].[SnapshotProposte] Gestita=1 per le nuove proposte
-    6. Rigenerare il PDF (nuovo totale, nuove righe)
+  SP usp_RimuoviRigaOrdineFornitore in [GB2_SP]:
+    - Operazione inversa: rimuove UNA riga da movord
+    - Sottrae delta da keyord/artpro/artprox/lotcpro
+    - Ricalcola totali testord + castelletto IVA
+    - Se ultima riga → cancella ordine + ripristina tabnuma
+    - Aggiorna ordini_emessi + SnapshotProposte (Gestita=0) per far ricomparire la proposta
+  Endpoint: POST /rimuovi-riga-ordine
 
-  Serializzare con sp_getapplock per evitare modifiche concorrenti sullo stesso
-  ordine. L'applock esistente 'OrdFornitore_{anno}_{serie}' basta se si vuole
-  essere conservativi; in alternativa un applock per-ordine 'ModOrd_{anno}_{serie}_{numord}'.
-
-  La sede naturale di questa logica e' una nuova SP in [GB2_SP]:
-    usp_AggiungiRigheOrdineFornitore(
-        @json_articoli_nuovi, @anno, @serie, @numord, @operatore, @codditt
-    )
-  che puo' riusare il blocco di arricchimento artico/contocontr/IVA della
-  usp_CreaOrdineFornitore esistente.
-
-VERIFICA PRECONDIZIONI PRIMA DEL MERGE:
-  - L'ordine deve esistere e avere mo_quaeva=0 AND mo_quapre=0 su tutte le righe
-    (stessa verifica che fa /annulla-ordine).
-  - email_inviata deve essere 0 (gia' verificato dal dialog merge lato client).
-  - td_flevas deve essere 'N' (ordine non in evasione).
-
-QUANDO RESTA LECITO "ANNULLA + RIEMETTI":
-  Mai in automatico. Se l'operatore decide esplicitamente di annullare e ricreare
-  da zero (es. per cambiare completamente il set di articoli), va fatto come due
-  azioni separate, e il nuovo ordine avra' un numord nuovo — comportamento
-  accettato dall'utente in modo informato.
+VERIFICA PRECONDIZIONI:
+  - Ordine deve esistere, td_flevas='N', nessuna riga evasa/prenotata.
+  - email_inviata deve essere 0 (verificato dal dialog merge lato client).
+  - Merge proposto solo per ordini con STESSA data consegna.
 
 STATUS: Plan "gestione-lista-ordini" (aprile 2026) inizialmente lo descriveva in
 modo errato. Corretto: il flusso merge deve usare la modifica in-place, mai

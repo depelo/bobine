@@ -50,7 +50,11 @@ function createTransporterFromConfig(config) {
     const opts = {
         host: config.host,
         port: config.port || 587,
-        secure: config.secure || false
+        secure: config.secure || false,
+        connectionTimeout: 15000,  // 15s per connettersi
+        greetingTimeout: 10000,    // 10s per il greeting SMTP
+        socketTimeout: 30000,      // 30s per operazione (invio)
+        pool: false                // una connessione per invio (no pool)
     };
 
     if (config.user && config.password) {
