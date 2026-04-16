@@ -89,15 +89,21 @@ BEGIN
     BEGIN
         ALTER TABLE [GB2].[dbo].[ElaborazioniMRP]
         ADD NumeroElab INT NULL;
-
-        -- Popola retroattivamente per le righe esistenti
-        ;WITH cte AS (
-            SELECT ID, ROW_NUMBER() OVER (PARTITION BY Ambiente ORDER BY ID) AS rn
-            FROM [GB2].[dbo].[ElaborazioniMRP]
-        )
-        UPDATE cte SET NumeroElab = rn;
-
-        PRINT 'Colonna NumeroElab aggiunta e popolata retroattivamente.';
+        PRINT 'Colonna NumeroElab aggiunta.';
     END
+END
+GO
+
+-- Backfill NumeroElab per righe che non ce l'hanno (batch separato per compatibilita SQL Server)
+IF EXISTS (
+    SELECT 1 FROM [GB2].[dbo].[ElaborazioniMRP] WHERE NumeroElab IS NULL
+)
+BEGIN
+    ;WITH cte AS (
+        SELECT ID, NumeroElab, ROW_NUMBER() OVER (PARTITION BY Ambiente ORDER BY ID) AS rn
+        FROM [GB2].[dbo].[ElaborazioniMRP]
+    )
+    UPDATE cte SET NumeroElab = rn WHERE NumeroElab IS NULL;
+    PRINT 'NumeroElab popolato retroattivamente.';
 END
 GO

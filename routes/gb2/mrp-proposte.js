@@ -343,33 +343,65 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                 const fingerprint = fpRes.recordset[0].fingerprint;
 
                 // 2) Check se elaborazione già registrata
-                let elabRes = await poolGB2.request()
-                    .input('fp', sql.DateTime, fingerprint)
-                    .input('amb', sql.VarChar(20), serverDest)
-                    .query(`
-                        SELECT ID, TotaleProposte, TotaleGestite, Fingerprint, RilevatoIl, NumeroElab
-                        FROM [GB2].[dbo].[ElaborazioniMRP]
-                        WHERE Fingerprint = @fp AND Ambiente = @amb
-                    `);
+                let elabRes;
+                try {
+                    elabRes = await poolGB2.request()
+                        .input('fp', sql.DateTime, fingerprint)
+                        .input('amb', sql.VarChar(20), serverDest)
+                        .query(`
+                            SELECT ID, TotaleProposte, TotaleGestite, Fingerprint, RilevatoIl, NumeroElab
+                            FROM [GB2].[dbo].[ElaborazioniMRP]
+                            WHERE Fingerprint = @fp AND Ambiente = @amb
+                        `);
+                } catch (colErr) {
+                    if (colErr.message.includes('NumeroElab')) {
+                        elabRes = await poolGB2.request()
+                            .input('fp', sql.DateTime, fingerprint)
+                            .input('amb', sql.VarChar(20), serverDest)
+                            .query(`
+                                SELECT ID, TotaleProposte, TotaleGestite, Fingerprint, RilevatoIl, NULL AS NumeroElab
+                                FROM [GB2].[dbo].[ElaborazioniMRP]
+                                WHERE Fingerprint = @fp AND Ambiente = @amb
+                            `);
+                    } else throw colErr;
+                }
 
                 let elabId;
                 if (elabRes.recordset.length === 0) {
                     // 3) Nuova elaborazione: INSERT + Snapshot proposte
                     try {
-                        const insRes = await poolGB2.request()
-                            .input('fp', sql.DateTime, fingerprint)
-                            .input('tot', sql.Int, result.recordset.length)
-                            .input('uid', sql.Int, userId)
-                            .input('amb', sql.VarChar(20), serverDest)
-                            .query(`
-                                DECLARE @nextNum INT = ISNULL(
-                                    (SELECT MAX(NumeroElab) FROM [GB2].[dbo].[ElaborazioniMRP] WHERE Ambiente = @amb),
-                                    0) + 1;
-                                INSERT INTO [GB2].[dbo].[ElaborazioniMRP]
-                                    (Fingerprint, TotaleProposte, TotaleGestite, IDUser, Ambiente, NumeroElab)
-                                VALUES (@fp, @tot, 0, @uid, @amb, @nextNum);
-                                SELECT SCOPE_IDENTITY() AS newId, @nextNum AS numElab;
-                            `);
+                        let insRes;
+                        try {
+                            insRes = await poolGB2.request()
+                                .input('fp', sql.DateTime, fingerprint)
+                                .input('tot', sql.Int, result.recordset.length)
+                                .input('uid', sql.Int, userId)
+                                .input('amb', sql.VarChar(20), serverDest)
+                                .query(`
+                                    DECLARE @nextNum INT = ISNULL(
+                                        (SELECT MAX(NumeroElab) FROM [GB2].[dbo].[ElaborazioniMRP] WHERE Ambiente = @amb),
+                                        0) + 1;
+                                    INSERT INTO [GB2].[dbo].[ElaborazioniMRP]
+                                        (Fingerprint, TotaleProposte, TotaleGestite, IDUser, Ambiente, NumeroElab)
+                                    VALUES (@fp, @tot, 0, @uid, @amb, @nextNum);
+                                    SELECT SCOPE_IDENTITY() AS newId, @nextNum AS numElab;
+                                `);
+                        } catch (numElabErr) {
+                            // Fallback: colonna NumeroElab potrebbe non esistere ancora
+                            if (numElabErr.message.includes('NumeroElab')) {
+                                insRes = await poolGB2.request()
+                                    .input('fp', sql.DateTime, fingerprint)
+                                    .input('tot', sql.Int, result.recordset.length)
+                                    .input('uid', sql.Int, userId)
+                                    .input('amb', sql.VarChar(20), serverDest)
+                                    .query(`
+                                        INSERT INTO [GB2].[dbo].[ElaborazioniMRP]
+                                            (Fingerprint, TotaleProposte, TotaleGestite, IDUser, Ambiente)
+                                        VALUES (@fp, @tot, 0, @uid, @amb);
+                                        SELECT SCOPE_IDENTITY() AS newId, 0 AS numElab;
+                                    `);
+                            } else throw numElabErr;
+                        }
                         elabId = insRes.recordset[0].newId;
                     } catch (dupErr) {
                         // Concorrenza: altro utente ha inserito la stessa fingerprint
