@@ -1,18 +1,47 @@
 /**
- * Generazione PDF Ordine Fornitore — replica layout BCube
- * Usa PDFKit per generare un Buffer PDF server-side.
- * Formato pagina: A4 (595x841 pt), come il PDF BCube originale.
+ * Generazione PDF Ordine Fornitore — replica layout BCube (Crystal Reports)
+ * Layout verificato su Ujetorfo.rpt (Italia) e Ujetorfv.rpt (Estero).
+ * Usa pdfmake per generare un Buffer PDF server-side — layout dichiarativo a tabelle.
+ * Formato pagina: A4.
+ *
+ * Riferimento completo: gb2/BCUBE-PDF-ORDINI-REFERENCE.md
  */
 
-const PDFDocument = require('pdfkit');
+const PdfPrinter = require('pdfmake/src/printer');
+const path = require('path');
+const fs = require('fs');
 
 // ============================================================
-// DATI AZIENDA (hardcodati da PDF reale BCube)
+// FONT
+// ============================================================
+const fonts = {
+    Helvetica: {
+        normal: 'Helvetica', bold: 'Helvetica-Bold',
+        italics: 'Helvetica-Oblique', bolditalics: 'Helvetica-BoldOblique'
+    }
+};
+const printer = new PdfPrinter(fonts);
+
+// ============================================================
+// ASSETS (caricati una volta al boot)
+// ============================================================
+const ASSETS_DIR = path.join(__dirname, '..', 'assets');
+const LOGO_B64 = (() => {
+    const p = path.join(ASSETS_DIR, 'logo-ujet.jpeg');
+    return fs.existsSync(p) ? 'data:image/jpeg;base64,' + fs.readFileSync(p).toString('base64') : null;
+})();
+const FIRMA_B64 = (() => {
+    const p = path.join(ASSETS_DIR, 'firma-tardioli.png');
+    return fs.existsSync(p) ? 'data:image/png;base64,' + fs.readFileSync(p).toString('base64') : null;
+})();
+
+// ============================================================
+// DATI AZIENDA (hardcodati, da PDF reale BCube)
 // ============================================================
 const AZIENDA = {
     nome: 'U. Jet  s.r.l.',
     indirizzo: 'via san Francescuccio de\' Mietitori, 32',
-    cap_citta: '06083 Bastia Umbra  (PG)',
+    cap_citta: '06083 Bastia Umbra (PG)',
     tel: '(075) 8004025 r.a.',
     fax: '(075) 8004180',
     email: 'info@ujet.it',
@@ -21,17 +50,16 @@ const AZIENDA = {
     capsoc: 'Cap.Soc. Eur 200.000 i.v. - R.E.A. PG n. 312389',
     registro: 'Registro Imprese di Perugia, P.IVA e Cod. Fisc. IT 03766750545',
     sdi: '1N74KED',
-    firma_nome: 'Pietro Tardioli',
-    modulo: 'Mod. 105/2'
+    firma_nome: 'Pietro Tardioli'
 };
 
-// ============================================================
-// NOTE LEGALI (testo fisso dal PDF reale)
-// ============================================================
-const NOTE_LEGALI = 'SI AVVERTE CHE, QUALORA QUESTO ORDINE NON VENISSE CONFERMATO ENTRO 8 GIORNI DALLA DATA DI INVIO, SI CONSIDERANO ACCETTATE TUTTE LE CONDIZIONI IN ESSO CONTENUTE.\n\nIMPORTANTE:\nIndicare sempre il numero d\'ordine sia in fattura che nelle bolle di consegna.\nP.O. Number must be indicated on invoice - delivery note.\n\nPer i dispositivi in ordine si chiede di inviare lotti preferibilmente univoci, tassativamente con il massimo di residuo di vita, quantomeno mai inferiore ai 2/3 della sua shelf-life.\n\nIl fornitore dichiara di conoscere il contenuto del Decreto Legislativo 8 giugno 2001 n. 231 e si impegna ad astenersi da comportamenti idonei a configurare le ipotesi di reato di cui al Decreto medesimo (a prescindere dalla effettiva consumazione del reato o dalla punibilita\' dello stesso). L\'inosservanza da parte del fornitore di tale impegno e\' considerato dalle Parti un inadempimento grave e motivo di risoluzione del contratto per inadempimento ai sensi dell\'art. 1453 c.c. e legittimera\' U.Jet Srl a risolvere lo stesso con effetto immediato. Il presente ordine si intende accettato integralmente per tutte le condizioni in esso riportate ed in tutte le sue clausole, ivi comprese espressamente quelle relative alle condizioni economiche, ai tempi di consegna ed ai termini di pagamento.';
+// Nota: i blocchi di testo legali sono inline in buildFooter() per permettere
+// formattazione granulare (IMPORTANTE con rientro colonnare, shelf-life bold, ecc.).
+// La discriminante IT/EX NON è an_nazion1/HH_TipoReport ma la VALUTA dell'ordine
+// (EUR → IT = Ujetorfo.rpt, altra valuta → EX = Ujetorfv.rpt).
 
 // ============================================================
-// Formatter helpers
+// FORMATTER HELPERS (identici al vecchio pdfOrdine)
 // ============================================================
 function fmtData(d) {
     if (!d) return '';
@@ -44,10 +72,7 @@ function fmtNum(n, decimali) {
     if (n === null || n === undefined) return '';
     const num = Number(n);
     if (isNaN(num)) return '';
-    return num.toLocaleString('it-IT', {
-        minimumFractionDigits: decimali,
-        maximumFractionDigits: decimali
-    });
+    return num.toLocaleString('it-IT', { minimumFractionDigits: decimali, maximumFractionDigits: decimali });
 }
 
 function fmtPrezzo(n) {
@@ -56,291 +81,626 @@ function fmtPrezzo(n) {
     return num.toLocaleString('it-IT', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 }
 
+function fmtSconti(sc1, sc2, sc3) {
+    const sconti = [sc1, sc2, sc3].filter(s => s && Number(s) !== 0);
+    if (!sconti.length) return '';
+    return sconti.map(s => fmtNum(s, 2) + '%').join('+');
+}
+
+function ss(val) { return (val || '').toString().replace(/\r/g, '').replace(/\u00d0/g, '').trim(); }
+
 // ============================================================
-// Colori e dimensioni
+// LAYOUT BORDI — sottili e neri, stile Crystal Reports
 // ============================================================
-const C = {
-    nero: '#000000',
-    grigio: '#666666',
-    grigioChiaro: '#999999',
-    lineaGrigio: '#BBBBBB',
-    lineaScuro: '#666666'
+const thinBorders = {
+    hLineWidth: () => 0.4,
+    vLineWidth: () => 0.4,
+    hLineColor: () => '#000',
+    vLineColor: () => '#000',
+    paddingLeft: () => 3,
+    paddingRight: () => 3,
+    paddingTop: () => 2,
+    paddingBottom: () => 2
 };
 
-const MARGIN = { left: 30, top: 30, right: 30, bottom: 30 };
-const PAGE_W = 595 - MARGIN.left - MARGIN.right; // ~535 pt utili
+const thinBordersPadded = {
+    ...thinBorders,
+    paddingTop: () => 2,
+    paddingBottom: () => 4
+};
+
+// Helper: cella con label grigia sopra e valore bold sotto
+function labelValue(label, value) {
+    return { text: [{ text: label + '\n', fontSize: 6.5, color: '#555' }, { text: value || '', fontSize: 8, bold: true }] };
+}
 
 // ============================================================
-// GENERA PDF
+// BUILDER: HEADER (logo + azienda SX | destinatario DX)
 // ============================================================
-/**
- * @param {Object} ordine - Dati testata dal resultset 1 della SP
- * @param {Array} righe - Array righe dal resultset 2 della SP
- * @returns {Promise<Buffer>} PDF buffer
- */
-/**
- * @param {Object} ordine - Dati testata dal resultset 1 della SP
- * @param {Array} righe - Array righe dal resultset 2 della SP
- * @param {Object} [options] - Opzioni: { ambiente: 'prova'|'produzione' }
- * @returns {Promise<Buffer>} PDF buffer
- */
+function buildHeader(ordine, isEstero, isProva) {
+    // Dati azienda colonna sinistra
+    const aziendaStack = [];
+    if (LOGO_B64) {
+        aziendaStack.push({ image: LOGO_B64, fit: [140, 45], margin: [0, 0, 0, 4] });
+    } else {
+        aziendaStack.push({ text: 'U.Jet', fontSize: 18, bold: true });
+    }
+    aziendaStack.push({ text: AZIENDA.nome, bold: true, fontSize: 8 });
+    aziendaStack.push({ text: AZIENDA.indirizzo, fontSize: 7.5 });
+    aziendaStack.push({ text: AZIENDA.cap_citta, fontSize: 7.5 });
+    aziendaStack.push({ text: 'Tel: ' + AZIENDA.tel + ' - Fax: ' + AZIENDA.fax, fontSize: 7.5 });
+
+    if (!isEstero) {
+        aziendaStack.push({ text: 'Mail: ' + AZIENDA.email, fontSize: 7.5 });
+        aziendaStack.push({ text: 'PEC: ' + AZIENDA.pec, fontSize: 7.5 });
+        aziendaStack.push({ text: 'Website: ' + AZIENDA.web, fontSize: 7.5, margin: [0, 0, 0, 3] });
+    }
+
+    aziendaStack.push({ text: AZIENDA.capsoc, fontSize: 6 });
+    aziendaStack.push({ text: AZIENDA.registro, fontSize: 6 });
+
+    if (!isEstero) {
+        aziendaStack.push({ text: 'Codice destinatario univoco (SDI): ' + AZIENDA.sdi, fontSize: 6 });
+    }
+
+    // Destinatario colonna destra
+    const destStack = [];
+
+    // "PROVA" + "ORDINE D'ACQUISTO"
+    if (isProva) {
+        destStack.push({ text: 'PROVA', fontSize: 10, bold: true, color: '#cc0000', alignment: 'right' });
+    }
+    destStack.push({ text: 'ORDINE D\'ACQUISTO', fontSize: 11, bold: true, alignment: 'right', margin: [0, 0, 0, 10] });
+
+    destStack.push({ text: 'Destinatario :', fontSize: 7, color: '#555' });
+
+    // Nome fornitore + ( categoria )
+    const nomeFornitore = ss(ordine.fornitore_nome).toUpperCase();
+    const categ = ordine.fornitore_categ ? '( ' + ordine.fornitore_categ + ' )' : '';
+    if (categ) {
+        destStack.push({
+            columns: [
+                { text: nomeFornitore, fontSize: 10, bold: true, width: '*' },
+                { text: categ, fontSize: 8, color: '#555', width: 35, alignment: 'right' }
+            ],
+            margin: [0, 2, 0, 0]
+        });
+    } else {
+        destStack.push({ text: nomeFornitore, fontSize: 10, bold: true, margin: [0, 2, 0, 0] });
+    }
+
+    // Indirizzo
+    if (ss(ordine.fornitore_indirizzo)) {
+        destStack.push({ text: ss(ordine.fornitore_indirizzo), fontSize: 8, margin: [0, 2, 0, 0] });
+    }
+
+    // CAP Citta (Prov) — formula @CITTAPROV
+    const cittaParts = [ss(ordine.fornitore_cap), ss(ordine.fornitore_citta).toUpperCase()];
+    if (ss(ordine.fornitore_prov)) cittaParts.push('(' + ss(ordine.fornitore_prov) + ')');
+    destStack.push({ text: cittaParts.filter(Boolean).join(' '), fontSize: 8 });
+
+    // Fax
+    if (ss(ordine.fornitore_fax)) {
+        destStack.push({
+            columns: [
+                { text: 'Fax :', fontSize: 7, color: '#555', width: 28 },
+                { text: ss(ordine.fornitore_fax), fontSize: 8, width: '*' }
+            ],
+            margin: [0, 4, 0, 0]
+        });
+    }
+
+    // Luogo di destinazione (DESTDIV) — se presente
+    if (ss(ordine.dest_nome)) {
+        destStack.push({ text: '', margin: [0, 4, 0, 0] });
+        destStack.push({ text: 'Luogo di destinazione :', fontSize: 7, color: '#555' });
+        destStack.push({ text: ss(ordine.dest_nome), fontSize: 8, bold: true });
+        if (ss(ordine.dest_indirizzo)) {
+            destStack.push({ text: ss(ordine.dest_indirizzo), fontSize: 8 });
+        }
+        const destCitta = [ss(ordine.dest_cap), ss(ordine.dest_citta)];
+        if (ss(ordine.dest_prov)) destCitta.push('(' + ss(ordine.dest_prov) + ')');
+        destStack.push({ text: destCitta.filter(Boolean).join(' '), fontSize: 8 });
+    }
+
+    return {
+        columns: [
+            { width: 230, stack: aziendaStack },
+            { width: '*', stack: destStack }
+        ],
+        columnGap: 20,
+        margin: [0, 0, 0, 8]
+    };
+}
+
+// ============================================================
+// BUILDER: METADATI (titolo + griglia conto/pagamento/porto)
+// ============================================================
+function buildMetadati(ordine, isEstero) {
+    const numSerie = ss(ordine.serie) ? ordine.numord + '/' + ss(ordine.serie) : String(ordine.numord);
+    const titolo = 'Ordine d\'Acquisto n\u00b0 ' + numSerie + ' del ' + fmtData(ordine.data_ordine);
+
+    // Banca — Italia: da testord (banca appoggio azienda), Estero: da anagra (banca fornitore)
+    const banca1 = isEstero ? ss(ordine.fornitore_banca_1) : ss(ordine.banca_appoggio_1);
+    const banca2 = isEstero ? ss(ordine.fornitore_banca_2) : ss(ordine.banca_appoggio_2);
+    const bancaStr = [banca1, banca2].filter(Boolean).join(' - ');
+
+    // Porto descrizione
+    const portoDescr = ss(ordine.porto_descr);
+
+    // Valuta
+    const valutaLabel = isEstero ? ss(ordine.valuta_nome) : (ss(ordine.valuta_sigla) || 'EUR');
+
+    return [
+        // Titolo ordine + Rif./Ref. — riga libera FUORI da qualunque tabella (replica BCube)
+        {
+            columns: [
+                { text: titolo, fontSize: 10, bold: true },
+                { text: 'Rif. / Ref.' + (ss(ordine.riferimento) ? '  ' + ss(ordine.riferimento) : ''),
+                  fontSize: 8, bold: true, alignment: 'right', width: 120 }
+            ],
+            margin: [0, 4, 0, 3]
+        },
+        // Tabella conto | pagamento | banca
+        {
+            table: {
+                widths: [52, 175, '*'],
+                body: [[
+                    labelValue('conto', String(ordine.fornitore_codice || '')),
+                    labelValue('pagamento / terms', ss(ordine.pagamento_descr)),
+                    labelValue('banca d\'appoggio / bank', bancaStr)
+                ]]
+            },
+            layout: thinBordersPadded
+        },
+        // Tabella spedizione | vettore
+        {
+            table: {
+                widths: ['*', '*'],
+                body: [[
+                    { text: 'spedizione a mezzo del / despatch by', fontSize: 6.5, color: '#555' },
+                    { text: 'vettore', fontSize: 6.5, color: '#555' }
+                ]]
+            },
+            layout: thinBorders,
+            margin: [0, -0.4, 0, 0]
+        },
+        // Tabella porto | valuta | imballo
+        {
+            table: {
+                widths: [165, 115, '*'],
+                body: [[
+                    labelValue('porto', portoDescr),
+                    labelValue('valuta', valutaLabel),
+                    { text: [{ text: 'imballo / packaging\n', fontSize: 6.5, color: '#555' }, { text: 'GRATIS', fontSize: 8, bold: true }], alignment: 'right' }
+                ]]
+            },
+            layout: thinBordersPadded,
+            margin: [0, -0.4, 0, 0]
+        }
+    ];
+}
+
+// ============================================================
+// BUILDER: COLONNA COD.ARTICOLO (con ar_codalt su riga sotto)
+// Replica BCube: mo_codart su riga 1, (ar_codalt) tra parentesi su riga 2.
+// ============================================================
+function buildCodArticoloCol(r) {
+    const isDescRiga = ss(r.mo_codart) === 'D';
+    if (isDescRiga) return { text: '', fontSize: 8 };
+    const stack = [{ text: ss(r.mo_codart), fontSize: 8 }];
+    // ar_codalt solo se presente e diverso da 'D'
+    if (ss(r.ar_codalt) && ss(r.ar_codalt) !== 'D') {
+        stack.push({ text: '(' + ss(r.ar_codalt) + ')', fontSize: 6.5, color: '#555' });
+    }
+    return { stack };
+}
+
+// ============================================================
+// BUILDER: DESCRIZIONE RIGA (con tutte le sotto-righe Crystal)
+//
+// Struttura replicata da BCube (Ujetorfv.rpt) — i campi sono concatenati
+// verticalmente in quest'ordine rigoroso:
+//   1. movord.mo_descr       — titolo articolo (bold)
+//   2. movord.mo_desint      — specifica tecnica / descrizione integrativa
+//   3. artico.ar_note        — note anagrafica articolo, MAX 5 righe logiche
+//                              (split su \r\n, convenzione: righe 6+ = interne)
+//   4. 'N.B.: ' + mo_note    — note riga ordine inserite dall'operatore, integrali
+//
+// NOTA: ar_codalt è stato spostato nella colonna Cod.articolo (vedi buildCodArticoloCol).
+// ============================================================
+function buildDescrizioneRiga(r, isEstero) {
+    const parts = [];
+
+    // [1] Descrizione principale (mo_descr)
+    parts.push({ text: ss(r.mo_descr), fontSize: 8 });
+
+    // [2] Descrizione integrativa (mo_desint) — senza ar_codalt, che ora sta in colonna sinistra
+    if (ss(r.mo_desint)) {
+        parts.push({ text: ss(r.mo_desint), fontSize: 6.5, color: '#555' });
+    }
+
+    // LOT (solo se lotto > 0)
+    if (r.mo_lotto && Number(r.mo_lotto) > 0) {
+        parts.push({ text: 'LOT ' + r.mo_lotto, fontSize: 6.5, color: '#555' });
+    }
+
+    // [3] Note anagrafica articolo (ar_note) — MAX 5 RIGHE LOGICHE (split \r\n).
+    // Regola confermata dall'analisi del DB produzione BCUBE2 (15.681 articoli):
+    // l'operatore scrive deliberatamente 5 righe "pubbliche" (istruzioni, dimensioni,
+    // controlli, tolleranze, rif. tecnici) e dalla 6a riga in poi info interne
+    // (parametri GFM, settaggi, attenzioni di reparto) che NON devono andare al fornitore.
+    // Le righe sono sempre ben delimitate da \r\n nel DB — nessun affidamento al wrap visivo.
+    //
+    // IMPORTANTE: NON usare ss() qui! ss() fa .trim() e ucciderebbe le righe iniziali
+    // vuote: un ar_note che comincia con "\n\n\n\n\n\n\nPeso Anima: 610 gr" (info
+    // interna su riga 8) diventerebbe dopo trim "Peso Anima: 610 gr" come riga 1,
+    // bypassando la regola 5-righe. Va rimosso solo \r e \u00d0 SENZA trim.
+    if (r.ar_note) {
+        const arNoteRaw = r.ar_note.toString().replace(/\r/g, '').replace(/\u00d0/g, '');
+        const arNoteLines = arNoteRaw.split('\n').slice(0, 5).join('\n').trim();
+        if (arNoteLines) parts.push({ text: arNoteLines, fontSize: 6.5, color: '#555' });
+    }
+
+    // [4] N.B. note riga ordine (mo_note) — integrale, nessun troncamento
+    if (ss(r.mo_note)) {
+        parts.push({ text: [{ text: 'N.B.: ', bold: true, fontSize: 6.5, color: '#555' }, { text: ss(r.mo_note), fontSize: 6.5, color: '#555' }] });
+    }
+
+    // NOTA: "Riferimenti fornitore" NON va qui dentro — in BCube è una riga full-width
+    // separata sotto la riga articolo (Crystal sezione "Dettagli g"). Viene gestita in
+    // buildTabellaArticoli aggiungendo una riga extra con colSpan sul body.
+
+    // Conversione UM (solo Italia, se UM diverse)
+    if (!isEstero && ss(r.mo_unmis) !== ss(r.mo_ump) && r.ar_conver && Number(r.ar_conver) !== 0) {
+        const conv = Math.round(1 / Number(r.ar_conver));
+        parts.push({ text: '1 ' + ss(r.mo_unmis) + ' = ' + conv + ' ' + ss(r.mo_ump), fontSize: 6, color: '#555' });
+    }
+
+    return { stack: parts };
+}
+
+// ============================================================
+// BUILDER: TABELLA ARTICOLI — approccio "mini-tabella per articolo"
+//
+// APPROCCIO (replica fedele del modello a bande di Crystal Reports):
+// invece di una tabella unica con trucchi di layout, generiamo:
+//   (1) una tabella "header" con solo la riga intestazioni colonne
+//   (2) una mini-tabella per ciascun articolo, con le stesse widths dell'header,
+//       contenente 1–3 righe interne (riga dati + eventuale "Riferimenti fornitore"
+//       full-width + eventuale "Attention Unit Price" full-width).
+//
+// Vantaggi:
+//   - Il blocco articolo è un'entità reale (una tabella), non un'illusione.
+//   - pdfmake NON spezza una tabella marcata `dontBreakRows`+`keepWithHeaderRows`,
+//     quindi ogni blocco articolo resta integro su una pagina.
+//   - Il bordo esterno della mini-tabella crea naturalmente il nucleo solido.
+//
+// Bordi: per evitare doppie linee dove le mini-tabelle si toccano, l'header
+// rinuncia al bordo inferiore e ogni mini-tabella rinuncia al bordo superiore.
+// L'ultimo articolo restituisce il suo bordo inferiore (layout diverso) per
+// chiudere la tabella.
+// ============================================================
+const ARTICOLI_WIDTHS = [52, '*', 20, 58, 45, 28, 65, 28];
+const ARTICOLI_COLS = ARTICOLI_WIDTHS.length; // 8
+
+// Layout mini-tabella articolo — niente bordo TOP (lo fornisce la tabella precedente,
+// che sia l'header o la mini-tabella dell'articolo precedente). Evita doppie linee.
+const miniArticoloLayout = {
+    hLineWidth: (i) => (i === 0 ? 0 : 0.4),
+    vLineWidth: () => 0.4,
+    hLineColor: () => '#000',
+    vLineColor: () => '#000',
+    paddingLeft: () => 3,
+    paddingRight: () => 3,
+    paddingTop: () => 2,
+    paddingBottom: () => 2
+};
+
+// Layout header articoli — ha TUTTI i bordi (incluso il bottom, che funge da
+// separatore verso la prima mini-tabella articolo).
+const headerArticoliLayout = {
+    hLineWidth: () => 0.4,
+    vLineWidth: () => 0.4,
+    hLineColor: () => '#000',
+    vLineColor: () => '#000',
+    paddingLeft: () => 3,
+    paddingRight: () => 3,
+    paddingTop: () => 2,
+    paddingBottom: () => 3
+};
+
+function buildHeaderArticoli(isEstero) {
+    const mkHeader = (it, en, align) => ({
+        text: [{ text: it + '\n', bold: true, fontSize: 7 }, { text: en, fontSize: 5.5, color: '#555' }],
+        alignment: align || 'left'
+    });
+
+    const headerRow = isEstero
+        ? [
+            mkHeader('Cod.articolo', 'Our Code'),
+            mkHeader('Descrizione', 'Description'),
+            mkHeader('UM', 'Unit', 'center'),
+            mkHeader('Q.t\u00e0', 'Quantity', 'right'),
+            mkHeader('Prezzo', 'Unit Price', 'right'),
+            mkHeader('Sconti', 'Disc.', 'right'),
+            mkHeader('Cons.', 'Deliv.time', 'center'),
+            mkHeader('Note', 'Remarks')
+        ]
+        : [
+            mkHeader('Cod.articolo', 'Our Code'),
+            mkHeader('Descrizione', 'Description'),
+            mkHeader('UM', 'Unit', 'center'),
+            mkHeader('Quantit\u00e0', 'Quantity', 'right'),
+            mkHeader('Prezzo', 'Unit Price', 'right'),
+            mkHeader('Sconti', 'Discount', 'right'),
+            mkHeader('Data Spedizione', 'Shipping Date', 'center'),
+            mkHeader('Note', 'Remarks')
+        ];
+
+    return {
+        table: { widths: ARTICOLI_WIDTHS, body: [headerRow] },
+        layout: headerArticoliLayout,
+        margin: [0, 8, 0, 0]
+    };
+}
+
+function buildMiniTabellaArticolo(r, isEstero) {
+    const isDescRiga = ss(r.mo_codart) === 'D';
+
+    // Formula @UM
+    let um = '';
+    if (!isDescRiga) {
+        um = isEstero ? ss(r.mo_unmis)
+            : ((ss(r.mo_unmis) === ss(r.mo_ump)) ? ss(r.mo_ump) : ss(r.mo_unmis));
+    }
+
+    // Formula @QUANT
+    let quant = '';
+    if (!isDescRiga) {
+        quant = isEstero ? fmtNum(r.mo_quant, 2)
+            : fmtNum((ss(r.mo_unmis) === ss(r.mo_ump)) ? r.mo_quant : r.mo_colli, 2);
+    }
+
+    const body = [];
+
+    // Riga principale articolo
+    body.push([
+        buildCodArticoloCol(r),
+        buildDescrizioneRiga(r, isEstero),
+        { text: um, fontSize: 8, alignment: 'center' },
+        { text: quant, fontSize: 8, alignment: 'right' },
+        { text: isDescRiga ? '' : fmtPrezzo(r.mo_prezzo), fontSize: 8, alignment: 'right' },
+        { text: isDescRiga ? '' : fmtSconti(r.mo_scont1, r.mo_scont2, r.mo_scont3), fontSize: 6, alignment: 'right' },
+        { text: isDescRiga ? '' : fmtData(r.mo_datcons), fontSize: 7, alignment: 'center' },
+        { text: '', fontSize: 7 }
+    ]);
+
+    // Riga full-width: Riferimenti fornitore (Crystal "Dettagli g")
+    // NOTA: con colSpan in pdfmake, i bordi vanno forzati esplicitamente via `border`
+    // sulla cella spanning — altrimenti le verticali interne "mangiate" dal colSpan
+    // possono causare un rendering senza bordi laterali.
+    if (ss(r.rif_fornitore)) {
+        let rifStr = 'Riferimenti fornitore: ' + ss(r.rif_fornitore);
+        if (ss(r.rif_note)) rifStr += '    ' + ss(r.rif_note);
+        const row = [{
+            text: rifStr, fontSize: 6.5, color: '#555',
+            colSpan: ARTICOLI_COLS,
+            border: [true, true, true, true]
+        }];
+        for (let i = 1; i < ARTICOLI_COLS; i++) row.push({});
+        body.push(row);
+    }
+
+    // Riga full-width: Attention Unit Price (Crystal "Dettagli i")
+    if (!isDescRiga && r.mo_perqta && Number(r.mo_perqta) > 1) {
+        const arUn = ss(r.ar_un) || ss(r.mo_unmis);
+        const attStr = 'Attention: Unit Price is referred to ' + Number(r.mo_perqta) + ' ' + arUn;
+        const row = [{
+            text: attStr, fontSize: 6.5, color: '#555', italics: true,
+            colSpan: ARTICOLI_COLS,
+            border: [true, true, true, true]
+        }];
+        for (let i = 1; i < ARTICOLI_COLS; i++) row.push({});
+        body.push(row);
+    }
+
+    // ====== RIGA SPAZIATRICE ======
+    // Riga vuota alla fine di ogni mini-tabella per creare spazio visivo tra
+    // blocchi articolo (suggerimento utente — sta nelle regole native di pdfmake).
+    // fontSize piccolo + cella vuota → altezza minima ma non zero → gap visibile.
+    {
+        const spacerRow = [{
+            text: ' ', fontSize: 5,
+            colSpan: ARTICOLI_COLS,
+            border: [true, true, true, true]
+        }];
+        for (let i = 1; i < ARTICOLI_COLS; i++) spacerRow.push({});
+        body.push(spacerRow);
+    }
+
+    return {
+        table: { widths: ARTICOLI_WIDTHS, body, dontBreakRows: true },
+        layout: miniArticoloLayout
+    };
+}
+
+function buildArticoliSection(righe, isEstero) {
+    const content = [buildHeaderArticoli(isEstero)];
+    for (const r of righe) content.push(buildMiniTabellaArticolo(r, isEstero));
+    return content;
+}
+
+// ============================================================
+// BUILDER: FOOTER — replica fedele Ujetorfo.rpt (IT) / Ujetorfv.rpt (EX)
+//
+// Struttura BCube (verificata su screenshot ordini reali 289/F/2026 ALL FLEX IT
+// e 281/F/2026 NURTEKS TR, entrambi ricevono il footer IT perché in EUR):
+//
+// ┌───────────────────────────────────────────┬──────────────────────┐
+// │ note / remarks                             │     totale ordine    │
+// │                                            │        EUR 11.250,00 │
+// │ [solo IT] Per i dispositivi... shelf-life. │                      │
+// │                                            │ Distinti saluti/     │
+// │ SI AVVERTE CHE, QUALORA QUESTO ORDINE...   │ Regards              │
+// │                                            │ U.Jet s.r.l.         │
+// │ IMPORTANTE   Indicare sempre il numero...  │ Pietro Tardioli      │
+// │              P.O. Number must be...        │ [firma]              │
+// │ [solo EX] INVIARE FATTURA IN DUPLICE COPIA │                      │
+// └───────────────────────────────────────────┴──────────────────────┘
+//
+// [solo IT] Il fornitore dichiara di conoscere il contenuto del D.Lgs 231/2001
+//           ... (paragrafo lungo giustificato, FUORI dal box)
+//
+// Mod. 105/2
+//
+// Discriminante IT/EX: valuta ordine (EUR=IT, altro=EX), NON il paese del fornitore.
+// ============================================================
+function buildFooter(ordine, isEstero) {
+    const valSigla = ss(ordine.valuta_sigla) || 'EUR';
+    const noteText = ss(ordine.note_ordine); // per ora non compilato, ma supportato
+    const content = [];
+
+    // ========== COLONNA SX DEL BOX: note/remarks + avvisi legali ==========
+    const noteLeftStack = [
+        { text: 'note / remarks', fontSize: 7, color: '#555' }
+    ];
+
+    if (noteText) {
+        noteLeftStack.push({ text: noteText, fontSize: 6.5, margin: [0, 3, 0, 0] });
+    }
+
+    // Shelf-life (solo IT) — bold, sopra SI AVVERTE
+    if (!isEstero) {
+        noteLeftStack.push({
+            text: 'Per i dispositivi in ordine si chiede di inviare lotti preferibilmente univoci, tassativamente con il massimo di residuo di vita, quantomeno mai inferiore ai 2/3 della sua shelf-life.',
+            fontSize: 7, bold: true, margin: [0, 10, 0, 0]
+        });
+    }
+
+    // SI AVVERTE CHE — versione IT o EX
+    const siAvverte = isEstero
+        ? 'SI AVVERTE CHE, QUALORA CODESTO ORDINE NON VENISSE CONFERMATO ENTRO 8 GIORNI DALLA DATA DI INVIO, TUTTE LE CONDIZIONI IN ESSO CONTENUTE SI CONSIDERANO ACCETTATE.'
+        : 'SI AVVERTE CHE, QUALORA QUESTO ORDINE NON VENISSE CONFERMATO ENTRO 8 GIORNI DALLA DATA DI INVIO, SI CONSIDERANO ACCETTATE TUTTE LE CONDIZIONI IN ESSO CONTENUTE.';
+
+    noteLeftStack.push({ text: siAvverte, fontSize: 6, margin: [0, 6, 0, 0] });
+
+    // IMPORTANTE con rientro — label "IMPORTANTE" + 2 righe rientrate a destra
+    noteLeftStack.push({
+        columns: [
+            { text: 'IMPORTANTE', width: 55, fontSize: 6, bold: true },
+            {
+                width: '*',
+                stack: [
+                    { text: 'Indicare sempre il numero d\'ordine sia in fattura che nelle bolle di consegna.', fontSize: 6 },
+                    { text: 'P.O. Number must be indicated on invoice - delivery note.', fontSize: 6 }
+                ]
+            }
+        ],
+        margin: [0, 2, 0, 0]
+    });
+
+    // INVIARE FATTURA IN DUPLICE COPIA (solo EX)
+    if (isEstero) {
+        noteLeftStack.push({
+            text: 'INVIARE FATTURA IN DUPLICE COPIA.',
+            fontSize: 6, bold: true, margin: [0, 4, 0, 0]
+        });
+    }
+
+    // ========== COLONNA DX DEL BOX: totale + firma ==========
+    const rightStack = [
+        { text: 'totale ordine', fontSize: 7, color: '#555', alignment: 'right' },
+        { text: valSigla + '  ' + fmtNum(ordine.totale_merce, 2), fontSize: 12, bold: true, alignment: 'right', margin: [0, 1, 0, 0] },
+        { text: 'Distinti saluti / Regards', fontSize: 7, color: '#555', alignment: 'right', margin: [0, 12, 0, 0] },
+        { text: AZIENDA.nome, fontSize: 8, bold: true, alignment: 'right', margin: [0, 2, 0, 0] },
+        { text: AZIENDA.firma_nome, fontSize: 8, alignment: 'right' }
+    ];
+    if (FIRMA_B64) {
+        rightStack.push({ image: FIRMA_B64, fit: [90, 30], alignment: 'right', margin: [0, 2, 0, 0] });
+    }
+
+    // ========== BOX TABELLARE (note/remarks SX | totale+firma DX) ==========
+    content.push({
+        table: {
+            widths: ['*', 160],
+            body: [[
+                { stack: noteLeftStack },
+                { stack: rightStack }
+            ]]
+        },
+        layout: {
+            hLineWidth: () => 0.4,
+            vLineWidth: () => 0.4,
+            hLineColor: () => '#000',
+            vLineColor: () => '#000',
+            paddingLeft: () => 5,
+            paddingRight: () => 5,
+            paddingTop: () => 4,
+            paddingBottom: () => 5
+        },
+        margin: [0, 8, 0, 0]
+    });
+
+    // ========== D.LGS 231 — FUORI dal box, solo IT ==========
+    if (!isEstero) {
+        content.push({
+            text: 'Il fornitore dichiara di conoscere il contenuto del Decreto Legislativo 8 giugno 2001 n. 231 e si impegna ad astenersi da comportamenti idonei a configurare le ipotesi di reato di cui al Decreto medesimo (a prescindere dalla effettiva consumazione del reato o dalla punibilita\' dello stesso). L\'inosservanza da parte del fornitore di tale impegno e\' considerato dalle Parti un inadempimento grave e motivo di risoluzione del contratto per inadempimento ai sensi dell\'art. 1453 c.c. e legittimera\' U.Jet Srl a risolvere lo stesso con effetto immediato. Il presente ordine si intende accettato integralmente per tutte le condizioni in esso riportate ed in tutte le sue clausole, ivi comprese espressamente quelle relative alle condizioni economiche, ai tempi di consegna ed ai termini di pagamento.',
+            fontSize: 6, alignment: 'justify', margin: [0, 4, 0, 0], lineHeight: 1.15
+        });
+    }
+
+    // ========== "Mod. 105/2" in basso a sinistra ==========
+    content.push({
+        text: 'Mod. 105/2',
+        fontSize: 6, color: '#555',
+        margin: [0, 8, 0, 0]
+    });
+
+    return content;
+}
+
+// ============================================================
+// FUNZIONE PRINCIPALE
+// ============================================================
 async function generaPdfOrdine(ordine, righe, options = {}) {
     return new Promise((resolve, reject) => {
         try {
             const isProva = options.ambiente === 'prova';
-            const doc = new PDFDocument({
-                size: 'A4',
-                margins: MARGIN,
+            // IMPORTANTE: la discriminante IT/EX NON è il tipo fornitore (HH_TipoReport),
+            // ma la VALUTA dell'ordine. Verificato su BCUBE2 produzione: fornitori
+            // extra-UE (es. NURTEKS TR) ricevono comunque il footer IT completo se
+            // l'ordine è in EUR (td_valuta=0). Solo gli ordini in valuta estera
+            // (USD, CNY, GBP...) usano il template Ujetorfv.rpt (EX).
+            const isEstero = Number(ordine.valuta_codice || 0) !== 0;
+
+            const docDefinition = {
+                pageSize: 'A4',
+                pageMargins: [30, 28, 30, 30],
+                defaultStyle: { font: 'Helvetica', fontSize: 7.5, lineHeight: 1.15 },
                 info: {
-                    Title: `${isProva ? '[PROVA] ' : ''}Ordine ${ordine.numord}/${ordine.serie} - ${ordine.fornitore_nome || ''}`,
-                    Author: 'U.Jet s.r.l. - MRP Web',
-                    Subject: 'Ordine d\'Acquisto Fornitore'
-                }
-            });
+                    title: (isProva ? '[PROVA] ' : '') + 'Ordine ' + ordine.numord + '/' + ss(ordine.serie) + ' - ' + ss(ordine.fornitore_nome),
+                    author: 'U.Jet s.r.l. - GB2',
+                    subject: 'Ordine d\'Acquisto Fornitore'
+                },
+                content: [
+                    buildHeader(ordine, isEstero, isProva),
+                    ...buildMetadati(ordine, isEstero),
+                    ...buildArticoliSection(righe, isEstero),
+                    ...buildFooter(ordine, isEstero)
+                ]
+            };
 
+            const pdfDoc = printer.createPdfKitDocument(docDefinition);
             const chunks = [];
-            doc.on('data', chunk => chunks.push(chunk));
-            doc.on('end', () => resolve(Buffer.concat(chunks)));
-            doc.on('error', err => reject(err));
-
-            // Watermark PROVA su ogni pagina
-            if (isProva) {
-                addWatermark(doc);
-                doc.on('pageAdded', () => addWatermark(doc));
-            }
-
-            renderPdf(doc, ordine, righe);
-
-            doc.end();
+            pdfDoc.on('data', chunk => chunks.push(chunk));
+            pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
+            pdfDoc.on('error', err => reject(err));
+            pdfDoc.end();
         } catch (err) {
             reject(err);
         }
     });
-}
-
-/**
- * Disegna watermark "PROVA" diagonale semitrasparente sulla pagina corrente
- */
-function addWatermark(doc) {
-    doc.save();
-    doc.opacity(0.10);
-    doc.fontSize(100).font('Helvetica-Bold').fillColor('#ff0000');
-    // Centro pagina A4: 297.5, 420.5
-    doc.translate(297, 420);
-    doc.rotate(-45, { origin: [0, 0] });
-    doc.text('PROVA', -200, -50, { width: 400, align: 'center' });
-    doc.restore();
-    // Reset opacity per il contenuto che segue
-    doc.opacity(1);
-}
-
-function renderPdf(doc, ordine, righe) {
-    const x0 = MARGIN.left;
-    const xMid = x0 + PAGE_W / 2 + 10;
-    let y = MARGIN.top;
-
-    // ============================================================
-    // INTESTAZIONE — due colonne
-    // ============================================================
-
-    // Colonna SX: destinatario
-    doc.fontSize(7).fillColor(C.grigio).text('Destinatario :', x0, y);
-    y += 12;
-    doc.fontSize(10).fillColor(C.nero).font('Helvetica-Bold')
-        .text((ordine.fornitore_nome || '').toUpperCase(), x0, y);
-    y += 14;
-    doc.fontSize(8).font('Helvetica')
-        .text(ordine.fornitore_indirizzo || '', x0, y);
-    y += 11;
-
-    const cittaStr = [
-        ordine.fornitore_cap || '',
-        (ordine.fornitore_citta || '').toUpperCase(),
-        ordine.fornitore_prov ? `(${ordine.fornitore_prov})` : ''
-    ].filter(Boolean).join(' ');
-    doc.text(cittaStr, x0, y);
-    y += 11;
-
-    if (ordine.fornitore_fax) {
-        doc.fontSize(7).fillColor(C.grigio).text('Fax :', x0, y);
-        doc.fontSize(8).fillColor(C.nero).text(ordine.fornitore_fax, x0 + 25, y);
-        y += 11;
-    }
-
-    // Colonna DX: dati azienda
-    let yDx = MARGIN.top;
-    doc.fontSize(11).font('Helvetica-Bold').fillColor('#333333')
-        .text('ORDINE D\'ACQUISTO', xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 18;
-    doc.fontSize(10).font('Helvetica-Bold').fillColor(C.nero)
-        .text(AZIENDA.nome, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 14;
-    doc.fontSize(7.5).font('Helvetica')
-        .text(AZIENDA.indirizzo, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 10;
-    doc.text(AZIENDA.cap_citta, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 10;
-    doc.text(`Tel: ${AZIENDA.tel} - Fax: ${AZIENDA.fax}`, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 10;
-    doc.text(`Mail: ${AZIENDA.email}`, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 10;
-    doc.text(`PEC: ${AZIENDA.pec}`, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 10;
-    doc.text(`Website: ${AZIENDA.web}`, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 12;
-    doc.fontSize(6.5).fillColor('#555555')
-        .text(AZIENDA.capsoc, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 8;
-    doc.text(AZIENDA.registro, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-    yDx += 8;
-    doc.text(`Codice destinatario univoco (SDI): ${AZIENDA.sdi}`, xMid, yDx, { width: PAGE_W / 2 - 10, align: 'right' });
-
-    y = Math.max(y, yDx) + 16;
-
-    // ============================================================
-    // TITOLO ORDINE
-    // ============================================================
-    const numOrd = `${ordine.numord}/${ordine.serie}`;
-    const datOrd = fmtData(ordine.data_ordine);
-    const titolo = `Ordine d'Acquisto n\u00b0 ${numOrd} del ${datOrd}`;
-
-    doc.fontSize(10).font('Helvetica-Bold').fillColor(C.nero)
-        .text(titolo, x0, y);
-    // Sottolineatura
-    const titoloW = doc.widthOfString(titolo);
-    doc.moveTo(x0, y + 13).lineTo(x0 + titoloW, y + 13)
-        .lineWidth(0.5).strokeColor(C.nero).stroke();
-    y += 20;
-
-    // ============================================================
-    // METADATI (conto, pagamento, porto, valuta)
-    // ============================================================
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio);
-    doc.text('conto', x0, y);
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero)
-        .text(` ${ordine.fornitore_codice}`, x0 + 30, y);
-
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('pagamento / terms', x0 + 110, y);
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero)
-        .text(ordine.pagamento_descr || '', x0 + 210, y, { width: 180 });
-
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('porto', x0 + 400, y);
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero)
-        .text(ordine.porto || '', x0 + 425, y);
-
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('valuta', x0 + 475, y);
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero)
-        .text('EUR', x0 + 500, y);
-
-    y += 18;
-
-    // ============================================================
-    // TABELLA ARTICOLI
-    // ============================================================
-    const cols = [
-        { label: 'Cod.articolo\nOur Code',      x: x0,       w: 65,  align: 'left' },
-        { label: 'Descrizione\nDescription',     x: x0 + 65,  w: 195, align: 'left' },
-        { label: 'UM\nUnit',                     x: x0 + 260, w: 25,  align: 'center' },
-        { label: 'Quantit\u00e0\nQuantity',      x: x0 + 285, w: 70,  align: 'right' },
-        { label: 'Prezzo\nUnit Price',           x: x0 + 355, w: 55,  align: 'right' },
-        { label: 'Sconti\nDiscount',             x: x0 + 410, w: 40,  align: 'right' },
-        { label: 'Data Spedizione\nShipping Date',x: x0 + 450, w: 85,  align: 'center' }
-    ];
-
-    // Header riga
-    const headerH = 22;
-    doc.rect(x0, y, PAGE_W, headerH).fillAndStroke('#F0F0F0', C.lineaGrigio);
-    doc.fillColor('#333333').fontSize(6).font('Helvetica-Bold');
-    for (const col of cols) {
-        const lines = col.label.split('\n');
-        doc.text(lines[0], col.x + 2, y + 3, { width: col.w - 4, align: col.align });
-        if (lines[1]) {
-            doc.fontSize(5).font('Helvetica').fillColor(C.grigio)
-                .text(lines[1], col.x + 2, y + 11, { width: col.w - 4, align: col.align });
-        }
-    }
-    y += headerH;
-
-    // Righe articolo
-    for (const r of righe) {
-        const descr = (r.mo_descr || '');
-        const desint = (r.mo_desint || '').trim();
-        const fullDescr = desint ? `${descr}\n${desint}` : descr;
-
-        // Calcola altezza necessaria
-        doc.fontSize(7.5).font('Helvetica');
-        const descrH = doc.heightOfString(fullDescr, { width: cols[1].w - 4 });
-        const rowH = Math.max(descrH + 6, 16);
-
-        // Controlla se serve nuova pagina
-        if (y + rowH > 780) {
-            doc.addPage();
-            y = MARGIN.top;
-        }
-
-        // Linea sotto
-        doc.moveTo(x0, y + rowH).lineTo(x0 + PAGE_W, y + rowH)
-            .lineWidth(0.3).strokeColor(C.lineaGrigio).stroke();
-
-        // Valori
-        doc.fontSize(7.5).font('Helvetica').fillColor(C.nero);
-        doc.text(r.mo_codart || '',         cols[0].x + 2, y + 3, { width: cols[0].w - 4 });
-        doc.text(fullDescr,                 cols[1].x + 2, y + 3, { width: cols[1].w - 4 });
-        doc.text(r.mo_unmis || '',          cols[2].x + 2, y + 3, { width: cols[2].w - 4, align: 'center' });
-        doc.text(fmtNum(r.mo_quant, 2),     cols[3].x + 2, y + 3, { width: cols[3].w - 4, align: 'right' });
-        doc.text(fmtPrezzo(r.mo_prezzo),    cols[4].x + 2, y + 3, { width: cols[4].w - 4, align: 'right' });
-        doc.text('',                        cols[5].x + 2, y + 3, { width: cols[5].w - 4, align: 'right' });
-        doc.text(fmtData(r.mo_datcons),     cols[6].x + 2, y + 3, { width: cols[6].w - 4, align: 'center' });
-
-        y += rowH;
-    }
-
-    // Linea finale tabella
-    doc.moveTo(x0, y).lineTo(x0 + PAGE_W, y).lineWidth(0.5).strokeColor(C.lineaScuro).stroke();
-    y += 12;
-
-    // ============================================================
-    // TOTALE ORDINE
-    // ============================================================
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('totale ordine', x0 + 350, y);
-    doc.fontSize(10).font('Helvetica-Bold').fillColor(C.nero)
-        .text(fmtNum(ordine.totale_merce, 2), x0 + 430, y - 1, { width: 105, align: 'right' });
-    y += 20;
-
-    // ============================================================
-    // CHIUSURA
-    // ============================================================
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('Distinti saluti / Regards', x0, y);
-    y += 10;
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(C.nero)
-        .text(AZIENDA.nome, x0, y);
-    y += 11;
-    doc.fontSize(8).font('Helvetica').fillColor(C.nero)
-        .text(AZIENDA.firma_nome, x0, y);
-    y += 14;
-    doc.fontSize(6).fillColor(C.grigioChiaro)
-        .text(AZIENDA.modulo, x0, y);
-    y += 16;
-
-    // ============================================================
-    // NOTE LEGALI
-    // ============================================================
-    // Controlla spazio disponibile
-    if (y > 600) {
-        doc.addPage();
-        y = MARGIN.top;
-    }
-
-    doc.fontSize(7).font('Helvetica').fillColor(C.grigio)
-        .text('note / remarks', x0, y);
-    y += 10;
-    doc.fontSize(6).font('Helvetica').fillColor('#444444')
-        .text(NOTE_LEGALI, x0, y, { width: PAGE_W, lineGap: 1.5 });
 }
 
 module.exports = { generaPdfOrdine, AZIENDA };

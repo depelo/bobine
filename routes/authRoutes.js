@@ -81,7 +81,7 @@ module.exports = function createAuthRoutes({ io }) {
                 INNER JOIN [GA].[dbo].[Modules] M ON V.IDModule = M.IDModule
                 INNER JOIN [GA].[dbo].[GlobalRoles] GR ON V.IDGlobalRole = GR.IDGlobalRole
                 INNER JOIN [GA].[dbo].[AppRoles] AR ON V.IDModule = AR.IDModule AND V.IDGlobalRole = AR.IDGlobalRole
-                WHERE V.IDUser = @idUserLoggato
+                WHERE V.IDUser = @idUserLoggato AND V.IsActive = 1
             `);
 
             const authorizedApps = accessRes.recordset;

@@ -5,7 +5,7 @@
  */
 
 const nodemailer = require('nodemailer');
-const { getPoolProd, sql } = require('./db-gb2');
+const { getPool163, sql } = require('./db-gb2');
 const { decrypt } = require('./crypto');
 
 /**
@@ -14,7 +14,7 @@ const { decrypt } = require('./crypto');
  * @returns {Object|null} { host, port, secure, user, password, from_address, from_name }
  */
 async function getSmtpConfigForUser(userId) {
-    const pool = await getPoolProd();
+    const pool = await getPool163();
     const result = await pool.request()
         .input('userId', sql.Int, userId)
         .query(`SELECT SmtpHost, SmtpPort, SmtpSecure, SmtpUser, SmtpPassword,

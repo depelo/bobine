@@ -4,8 +4,10 @@
 const MrpProgressivi = (() => {
 
     const expandFetched = {};
-    /** Dati 3-blocchi MRP per Split View (nodo root + articolo in esaurimento con sostitutivo). */
     let splitSostData = null;
+
+    // ── Breadcrumb navigazione articoli ──
+    let _navStack = []; // [{ codart, descr }]
 
     const MRP_COL_COUNT = 14;
 
@@ -49,21 +51,40 @@ const MrpProgressivi = (() => {
     }
 
     function init() {
+        // Inizializza ColumnManager per la personalizzazione colonne
+        if (typeof ColumnManager !== 'undefined') {
+            ColumnManager.init();
+            ColumnManager.setSortCallback((tableId, col, asc) => {
+                _ordiniModaleSortCol = col;
+                _ordiniModaleSortAsc = asc;
+                if (_ordiniModaleData.length > 0 && _currentRenderFn) {
+                    const sorted = _sortData(_ordiniModaleData, col, asc);
+                    _currentRenderFn(sorted);
+                    // Rigenera header per aggiornare freccia
+                    const thead = document.querySelector('#tblModalOrdini thead tr');
+                    if (thead && _currentTableId) ColumnManager.buildHeader(_currentTableId, thead);
+                    if (_currentTableId) ColumnManager.applyToBody(_currentTableId, document.getElementById('modalOrdiniBody'));
+                }
+            });
+            ColumnManager.setRefreshCallback((tableId) => {
+                // Rigenera header + body con le preferenze aggiornate
+                const thead = document.querySelector('#tblModalOrdini thead tr');
+                if (thead) ColumnManager.buildHeader(tableId, thead);
+                if (_ordiniModaleData.length > 0 && _currentRenderFn) {
+                    _currentRenderFn(_ordiniModaleData);
+                    ColumnManager.applyToBody(tableId, document.getElementById('modalOrdiniBody'));
+                }
+                _updateHiddenColsBtn(tableId);
+            });
+        }
+
         document.getElementById('btnBackToParams').addEventListener('click', () => {
             MrpApp.state.propostaCorrente = null;
             MrpApp.switchView('parametri');
         });
 
-        // Pannello decisionale ordine
-        const btnConferma = document.getElementById('btnConfermaOrdine');
-        const btnEscludi = document.getElementById('btnEscludiOrdine');
-        const btnSkip = document.getElementById('btnSkipOrdine');
-        const inputQtaDec = document.getElementById('decisioneQta');
-
-        if (btnConferma) btnConferma.addEventListener('click', confermaOrdineHandler);
-        if (btnEscludi) btnEscludi.addEventListener('click', escludiOrdineHandler);
-        if (btnSkip) btnSkip.addEventListener('click', skipOrdineHandler);
-        if (inputQtaDec) inputQtaDec.addEventListener('input', aggiornaValoreDecisione);
+        // Pannello decisionale ordine — i listener sono creati dinamicamente
+        // da mostraPanelDecisione() ad ogni rendering (contenuto rigenerato).
 
         document.getElementById('btnRefresh').addEventListener('click', async () => {
             Object.keys(expandFetched).forEach(k => delete expandFetched[k]);
@@ -74,6 +95,7 @@ const MrpProgressivi = (() => {
                     const data = await res.json();
                     if (res.ok) {
                         MrpApp.state.ultimoRisultato = data;
+                        _resetBreadcrumb(); // Nuova ricerca — reset navigazione
                         render(data);
                     }
                 } catch (err) { console.error('[Progressivi] Errore refresh:', err); }
@@ -308,6 +330,14 @@ const MrpProgressivi = (() => {
             e.preventDefault();
             e.stopPropagation();
             apriModaleConsumi(btnConsumi.dataset.codart, btnConsumi.dataset.descr);
+            return;
+        }
+
+        const btnQlik = e.target.closest('.btn-qlikview');
+        if (btnQlik) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof QlikView !== 'undefined') QlikView.open(btnQlik.dataset.codart);
             return;
         }
 
@@ -637,6 +667,17 @@ const MrpProgressivi = (() => {
         document.getElementById('progressiviTitle').textContent =
             `${articolo.ar_descr} (${articolo.ar_codart})`;
 
+        // Breadcrumb: aggiorna descrizione dell'ultimo elemento (poteva essere stato pushato con solo codart)
+        if (_navStack.length === 0) {
+            _pushBreadcrumb(articolo.ar_codart, articolo.ar_descr);
+        } else {
+            const last = _navStack[_navStack.length - 1];
+            if (last && last.codart === articolo.ar_codart) {
+                last.descr = articolo.ar_descr;
+                _renderBreadcrumb();
+            }
+        }
+
         const rootCodart = articolo.ar_codart;
 
         if (data.sostitutivo) {
@@ -727,6 +768,9 @@ const MrpProgressivi = (() => {
         mostraPanelDecisione();
     }
 
+    // ── Contatore per ol_progr temporanei (righe manuali aggiunte con "+") ──
+    let _manualProgrCounter = -1;
+
     function mostraPanelDecisione() {
         const proposta = MrpApp.state.propostaCorrente;
         const panel = document.getElementById('panelDecisione');
@@ -739,111 +783,217 @@ const MrpProgressivi = (() => {
 
         panel.style.display = 'block';
 
-        document.getElementById('decisioneFornitore').textContent =
-            proposta.fornitore_nome + (proposta.fornitore_codice ? ' (' + proposta.fornitore_codice + ')' : '');
-        document.getElementById('decisioneArticolo').textContent =
-            proposta.ol_codart + (proposta.ar_descr ? ' \u2014 ' + proposta.ar_descr : '');
-        document.getElementById('decisioneQtaProposta').textContent =
-            Number(proposta.ol_quant).toLocaleString('it-IT');
-        document.getElementById('decisioneUM').textContent = proposta.ol_unmis || 'PZ';
-        document.getElementById('decisionePrezzo').textContent =
-            proposta.ol_prezzo && Number(proposta.ol_prezzo) > 0
-                ? Number(proposta.ol_prezzo).toFixed(4) : '-';
+        // Costruisci righe: da propostaCorrente.righe (multi-data) o singola riga
+        const righe = (proposta.righe && proposta.righe.length > 0)
+            ? proposta.righe
+            : [proposta]; // Fallback: una sola riga dal proposta stesso
 
-        const inputQta = document.getElementById('decisioneQta');
-        const inputData = document.getElementById('decisioneData');
+        const confermati = MrpApp.state.ordiniConfermati;
+        const isMulti = righe.length > 1;
+        const prezzo = Number(proposta.ol_prezzo) || 0;
+        const perqta = Number(proposta.ol_perqta) || 1;
+        const unmis = proposta.ol_unmis || 'PZ';
 
-        // Se già confermato, mostra i valori confermati; altrimenti precompila dalla proposta
-        const key = MrpApp.getKeyOrdine(proposta.fornitore_codice, proposta.ol_codart, proposta.ol_fase, proposta.ol_magaz);
-        const esistente = MrpApp.state.ordiniConfermati.get(key);
+        let htmlRighe = '';
+        for (const r of righe) {
+            const progr = String(r.ol_progr || proposta.ol_progr || 0);
+            const conf = confermati.get(progr);
+            const emesso = r.emesso;
+            const rPrezzo = Number(r.ol_prezzo || proposta.ol_prezzo) || 0;
+            const rPerqta = Number(r.ol_perqta || proposta.ol_perqta) || 1;
 
-        if (esistente && !esistente.escluso) {
-            inputQta.value = esistente.quantita_confermata;
-            inputData.value = esistente.data_consegna;
-        } else {
-            inputQta.value = Math.round(Number(proposta.ol_quant) || 0);
-            if (proposta.ol_datcons) {
-                const d = new Date(proposta.ol_datcons);
-                if (!isNaN(d.getTime())) {
-                    inputData.value = d.toISOString().split('T')[0];
-                }
-            }
+            const datcons = r.ol_datcons ? new Date(r.ol_datcons).toISOString().split('T')[0]
+                          : (proposta.ol_datcons ? new Date(proposta.ol_datcons).toISOString().split('T')[0] : '');
+            const qta = conf ? conf.quantita_confermata : Math.round(Number(r.ol_quant || proposta.ol_quant) || 0);
+            const dataVal = conf ? conf.data_consegna : datcons;
+            const valore = qta * rPrezzo / rPerqta;
+
+            htmlRighe += `<tr class="decisione-row${conf ? ' decisione-row-confermato' : ''}${emesso ? ' decisione-row-emesso' : ''}"
+                data-progr="${esc(progr)}" data-prezzo="${rPrezzo}" data-perqta="${rPerqta}">
+                <td class="decisione-chk-cell">
+                    ${emesso ? '<span title="Gi\u00e0 ordinato">\u2709</span>'
+                    : '<input type="checkbox" class="decisione-chk" ' + (conf ? 'checked' : '') + '>'}
+                </td>
+                <td>${fmtDate(r.ol_datcons || proposta.ol_datcons)}</td>
+                <td><input type="number" class="decisione-qta" value="${qta}" min="0" step="1" ${emesso ? 'disabled' : ''}></td>
+                <td>${esc(r.ol_unmis || unmis)}</td>
+                <td><input type="date" class="decisione-data" value="${dataVal}" ${emesso ? 'disabled' : ''}></td>
+                <td class="num">${rPrezzo > 0 ? rPrezzo.toFixed(4) : '-'}</td>
+                <td class="num decisione-valore">${valore > 0 ? '\u20ac ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td>${emesso
+                    ? '<span class="decisione-stato-ord">Ordinato ' + esc(r.ord_numord || '') + '/' + esc(r.ord_serie || 'F') + '</span>'
+                    : (conf ? '<span class="decisione-stato-conf">\u2713 Confermato</span>' : '')}</td>
+            </tr>`;
         }
 
-        aggiornaValoreDecisione();
+        const infoHtml = isMulti
+            ? `<div class="decisione-info">BCube propone <strong>${righe.length} date di consegna</strong> per questo articolo. Seleziona le righe da confermare \u2014 ogni data produce un ordine separato.</div>`
+            : '';
+
+        panel.innerHTML = `
+            <div class="decisione-header">
+                <strong>Decisione Ordine: ${esc(proposta.ol_codart)}</strong>
+                ${proposta.ar_descr ? ' \u2014 ' + esc(proposta.ar_descr) : ''}
+                <span class="decisione-fornitore">${esc(proposta.fornitore_nome)} (${esc(proposta.fornitore_codice)})</span>
+            </div>
+            ${infoHtml}
+            <table class="decisione-table">
+                <thead>
+                    <tr>
+                        <th style="width:30px"></th>
+                        <th>Dt.Cons. Proposta</th>
+                        <th>Quantit\u00e0</th>
+                        <th>UM</th>
+                        <th>Data Consegna</th>
+                        <th class="num">Prezzo</th>
+                        <th class="num">Valore</th>
+                        <th>Stato</th>
+                    </tr>
+                </thead>
+                <tbody id="decisioneRighe">${htmlRighe}</tbody>
+            </table>
+            <div class="decisione-actions">
+                <button type="button" class="mrp-btn-conferma" id="btnConfermaOrdine">\u2713 Conferma Selezionate</button>
+                <button type="button" class="mrp-btn-secondary" id="btnAggiungiRiga">+ Aggiungi riga</button>
+                ${isMulti ? '<button type="button" class="mrp-btn-secondary" id="btnSelezionaTutte">Seleziona Tutte</button>' : ''}
+                <button type="button" class="mrp-btn-secondary" id="btnSkipOrdine">Torna al foglio \u2192</button>
+            </div>
+        `;
+
+        // Event: conferma
+        panel.querySelector('#btnConfermaOrdine').addEventListener('click', confermaOrdineHandler);
+        // Event: skip
+        panel.querySelector('#btnSkipOrdine').addEventListener('click', skipOrdineHandler);
+        // Event: aggiungi riga
+        panel.querySelector('#btnAggiungiRiga').addEventListener('click', () => aggiungiRigaManuale(panel));
+        // Event: seleziona tutte
+        const btnSelAll = panel.querySelector('#btnSelezionaTutte');
+        if (btnSelAll) btnSelAll.addEventListener('click', () => {
+            panel.querySelectorAll('.decisione-chk:not(:disabled)').forEach(cb => { cb.checked = true; });
+        });
+        // Event: aggiorna valore quando cambiano le quantità
+        panel.querySelectorAll('.decisione-qta').forEach(input => {
+            input.addEventListener('input', () => aggiornaValoreRiga(input));
+        });
+
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-    function aggiornaValoreDecisione() {
-        const qta = Number(document.getElementById('decisioneQta').value) || 0;
-        const proposta = MrpApp.state.propostaCorrente;
-        const prezzo = proposta ? Number(proposta.ol_prezzo) || 0 : 0;
-        const valore = qta * prezzo;
-        document.getElementById('decisioneValore').textContent =
-            valore > 0
+    function aggiornaValoreRiga(input) {
+        const tr = input.closest('tr');
+        if (!tr) return;
+        const qta = Number(input.value) || 0;
+        const prezzo = Number(tr.dataset.prezzo) || 0;
+        const perqta = Number(tr.dataset.perqta) || 1;
+        const valore = qta * prezzo / perqta;
+        const valEl = tr.querySelector('.decisione-valore');
+        if (valEl) {
+            valEl.textContent = valore > 0
                 ? '\u20ac ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                 : '-';
+        }
+    }
+
+    function aggiungiRigaManuale(panel) {
+        const proposta = MrpApp.state.propostaCorrente;
+        if (!proposta) return;
+
+        const tbody = panel.querySelector('#decisioneRighe');
+        if (!tbody) return;
+
+        const progr = String(_manualProgrCounter--);
+        const prezzo = Number(proposta.ol_prezzo) || 0;
+        const perqta = Number(proposta.ol_perqta) || 1;
+        const unmis = proposta.ol_unmis || 'PZ';
+
+        const tr = document.createElement('tr');
+        tr.className = 'decisione-row decisione-row-manuale';
+        tr.dataset.progr = progr;
+        tr.dataset.prezzo = String(prezzo);
+        tr.dataset.perqta = String(perqta);
+        tr.innerHTML = `
+            <td class="decisione-chk-cell"><input type="checkbox" class="decisione-chk" checked></td>
+            <td><em>Manuale</em></td>
+            <td><input type="number" class="decisione-qta" value="" min="0" step="1" placeholder="Qt\u00e0"></td>
+            <td>${esc(unmis)}</td>
+            <td><input type="date" class="decisione-data" value=""></td>
+            <td class="num">${prezzo > 0 ? prezzo.toFixed(4) : '-'}</td>
+            <td class="num decisione-valore">-</td>
+            <td><button class="decisione-rimuovi-riga" title="Rimuovi">\u2716</button></td>
+        `;
+        tbody.appendChild(tr);
+
+        tr.querySelector('.decisione-qta').addEventListener('input', function() { aggiornaValoreRiga(this); });
+        tr.querySelector('.decisione-rimuovi-riga').addEventListener('click', () => tr.remove());
+        tr.querySelector('.decisione-qta').focus();
     }
 
     function confermaOrdineHandler() {
         const proposta = MrpApp.state.propostaCorrente;
         if (!proposta) return;
+        const panel = document.getElementById('panelDecisione');
+        if (!panel) return;
 
-        const qta = Number(document.getElementById('decisioneQta').value);
-        const data = document.getElementById('decisioneData').value;
-
-        if (!qta || qta <= 0) { alert('Inserire una quantità valida'); return; }
-        if (!data) { alert('Inserire una data di consegna'); return; }
-
-        const key = MrpApp.getKeyOrdine(proposta.fornitore_codice, proposta.ol_codart, proposta.ol_fase, proposta.ol_magaz);
-
-        MrpApp.confermaOrdine(key, {
-            fornitore_codice: proposta.fornitore_codice,
-            fornitore_nome: proposta.fornitore_nome,
-            ol_codart: proposta.ol_codart,
-            ar_codalt: proposta.ar_codalt,
-            ar_descr: proposta.ar_descr,
-            ol_fase: proposta.ol_fase,
-            ol_magaz: proposta.ol_magaz,
-            ol_unmis: proposta.ol_unmis,
-            ol_progr: proposta.ol_progr || 0,
-            quantita_confermata: qta,
-            data_consegna: data,
-            quantita_proposta: Number(proposta.ol_quant) || 0,
-            prezzo: Number(proposta.ol_prezzo) || 0,
-            timestamp_conferma: new Date().toISOString()
-        });
-
-        MrpApp.state.propostaCorrente = null;
-        MrpApp.switchView('parametri');
-
-        if (typeof MrpProposta !== 'undefined' && MrpProposta.aggiornaStatoVisivo) {
-            MrpProposta.aggiornaStatoVisivo();
+        const checked = panel.querySelectorAll('.decisione-chk:checked');
+        if (checked.length === 0) {
+            alert('Seleziona almeno una riga da confermare.');
+            return;
         }
-    }
 
-    function escludiOrdineHandler() {
-        const proposta = MrpApp.state.propostaCorrente;
-        if (!proposta) return;
+        const righeOrigine = (proposta.righe && proposta.righe.length > 0)
+            ? proposta.righe : [proposta];
 
-        const key = MrpApp.getKeyOrdine(proposta.fornitore_codice, proposta.ol_codart, proposta.ol_fase, proposta.ol_magaz);
+        let errori = 0;
+        checked.forEach(cb => {
+            const tr = cb.closest('tr');
+            if (!tr) return;
+            const progr = tr.dataset.progr;
+            const qtaInput = tr.querySelector('.decisione-qta');
+            const dataInput = tr.querySelector('.decisione-data');
+            const qta = qtaInput ? Number(qtaInput.value) : 0;
+            const data = dataInput ? dataInput.value : '';
 
-        MrpApp.confermaOrdine(key, {
-            fornitore_codice: proposta.fornitore_codice,
-            fornitore_nome: proposta.fornitore_nome,
-            ol_codart: proposta.ol_codart,
-            ar_codalt: proposta.ar_codalt,
-            ar_descr: proposta.ar_descr,
-            ol_fase: proposta.ol_fase,
-            ol_magaz: proposta.ol_magaz,
-            ol_unmis: proposta.ol_unmis,
-            ol_progr: proposta.ol_progr || 0,
-            quantita_confermata: 0,
-            data_consegna: '',
-            quantita_proposta: Number(proposta.ol_quant) || 0,
-            prezzo: Number(proposta.ol_prezzo) || 0,
-            escluso: true,
-            timestamp_conferma: new Date().toISOString()
+            if (!qta || qta <= 0 || !data) { errori++; return; }
+
+            // Trova riga originale per dati anagrafici (fase, magaz, ecc.)
+            const rigaOrig = righeOrigine.find(r => String(r.ol_progr) === progr);
+            const isManuale = Number(progr) < 0;
+
+            const key = isManuale ? MrpApp.getKeyByProgr(0) + '_m' + Math.abs(Number(progr))
+                                  : MrpApp.getKeyByProgr(progr);
+
+            MrpApp.confermaOrdine(key, {
+                fornitore_codice: proposta.fornitore_codice,
+                fornitore_nome: proposta.fornitore_nome,
+                ol_codart: proposta.ol_codart,
+                ar_codalt: proposta.ar_codalt,
+                ar_descr: proposta.ar_descr,
+                ol_fase: rigaOrig ? rigaOrig.ol_fase : proposta.ol_fase,
+                ol_magaz: rigaOrig ? rigaOrig.ol_magaz : proposta.ol_magaz,
+                ol_unmis: rigaOrig ? (rigaOrig.ol_unmis || proposta.ol_unmis) : proposta.ol_unmis,
+                ol_progr: isManuale ? 0 : (rigaOrig ? rigaOrig.ol_progr : proposta.ol_progr || 0),
+                quantita_confermata: qta,
+                data_consegna: data,
+                quantita_proposta: rigaOrig ? (Number(rigaOrig.ol_quant) || 0) : (Number(proposta.ol_quant) || 0),
+                prezzo: Number(tr.dataset.prezzo) || 0,
+                perqta: Number(tr.dataset.perqta) || 1,
+                timestamp_conferma: new Date().toISOString()
+            });
         });
+
+        // Rimuovi conferme per righe de-selezionate (non manuali)
+        panel.querySelectorAll('.decisione-chk:not(:checked)').forEach(cb => {
+            const tr = cb.closest('tr');
+            if (!tr) return;
+            const progr = tr.dataset.progr;
+            if (Number(progr) >= 0 && MrpApp.state.ordiniConfermati.has(progr)) {
+                MrpApp.rimuoviOrdine(progr);
+            }
+        });
+
+        if (errori > 0) {
+            alert(errori + ' riga/e ignorata/e: quantit\u00e0 o data mancante.');
+        }
 
         MrpApp.state.propostaCorrente = null;
         MrpApp.switchView('parametri');
@@ -855,7 +1005,8 @@ const MrpProgressivi = (() => {
 
     function skipOrdineHandler() {
         MrpApp.state.propostaCorrente = null;
-        document.getElementById('panelDecisione').style.display = 'none';
+        const panel = document.getElementById('panelDecisione');
+        if (panel) panel.style.display = 'none';
         MrpApp.switchView('parametri');
     }
 
@@ -945,14 +1096,23 @@ const MrpProgressivi = (() => {
             // Popola Dettaglio con pulsante Consumi
             const titleEl = document.getElementById('splitDetailTitle');
             if (titleEl) {
-                const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:10px;vertical-align:middle;" title="Vedi Consumi Storici">📊</button>`;
-                titleEl.innerHTML = `${esc(articolo.descr)} <span class="code-dim">(${esc(articolo.codart)})</span> ${btnConsumi}`;
+                const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:10px;vertical-align:middle;" title="Vedi Consumi Storici">\uD83D\uDCCA</button>`;
+                const btnQlik = `<button type="button" class="btn-qlikview" data-codart="${esc(articolo.codart)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:2px;vertical-align:middle;" title="Analisi Articolo (QlikView)">\uD83D\uDCC8</button>`;
+                titleEl.innerHTML = `${esc(articolo.descr)} <span class="code-dim">(${esc(articolo.codart)})</span> ${btnConsumi}${btnQlik}`;
                 const bc = titleEl.querySelector('.btn-consumi');
                 if (bc) {
                     bc.addEventListener('click', (ev) => {
                         ev.preventDefault();
                         ev.stopPropagation();
                         apriModaleConsumi(bc.dataset.codart, bc.dataset.descr);
+                    });
+                }
+                const bq = titleEl.querySelector('.btn-qlikview');
+                if (bq) {
+                    bq.addEventListener('click', (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        if (typeof QlikView !== 'undefined') QlikView.open(bq.dataset.codart);
                     });
                 }
             }
@@ -1180,13 +1340,14 @@ const MrpProgressivi = (() => {
         const descrStrong = (articolo.tipo === 'padre' || articolo.tipo === 'sostitutivo-header' || isRoot)
             ? `<strong>${esc(articolo.descr)}</strong>`
             : esc(articolo.descr);
-        const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:4px;" title="Vedi Consumi Storici">📊</button>`;
+        const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:4px;" title="Vedi Consumi Storici">\uD83D\uDCCA</button>`;
+        const btnQlikview = `<button type="button" class="btn-qlikview" data-codart="${esc(articolo.codart)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:1px;" title="Analisi Articolo (QlikView)">\uD83D\uDCC8</button>`;
 
         const marginL = (isRoot || soloFlatMrp) ? '0' : '8px';
         const sostPref = articolo.tipo === 'sostitutivo-header'
             ? '<span class="mrp-sostitutivo-prefix">Sostitutivo:</span> '
             : '';
-        const parteInner = `${btnEspandi} <span class="mrp-desc-articolo" style="margin-left:${marginL}">${sostPref}${descrStrong} <span class="code-dim">${esc(articolo.codart)}</span> ${btnConsumi}</span> ${scadutoBadge}`;
+        const parteInner = `${btnEspandi} <span class="mrp-desc-articolo" style="margin-left:${marginL}">${sostPref}${descrStrong} <span class="code-dim">${esc(articolo.codart)}</span> ${btnConsumi}${btnQlikview}</span> ${scadutoBadge}`;
 
         // Totali mostrati solo nella riga TOTALE in fondo, non nella riga padre
         tr.innerHTML = rigaArticoloHTML(rowNum, parteInner, articolo, null);
@@ -1565,6 +1726,263 @@ const MrpProgressivi = (() => {
         await caricaOrdiniModale(codart, '', '');
     }
 
+    // ── Breadcrumb funzioni ──
+    function _pushBreadcrumb(codart, descr) {
+        // Non aggiungere duplicato se siamo già su questo articolo
+        if (_navStack.length > 0 && _navStack[_navStack.length - 1].codart === codart) return;
+        _navStack.push({ codart, descr: descr || codart });
+        _renderBreadcrumb();
+    }
+
+    function _resetBreadcrumb() {
+        _navStack = [];
+        _renderBreadcrumb();
+    }
+
+    function _renderBreadcrumb() {
+        const el = document.getElementById('progressiviBreadcrumb');
+        if (!el) return;
+        if (_navStack.length <= 1) {
+            el.style.display = 'none';
+            return;
+        }
+        el.style.display = 'flex';
+        el.innerHTML = '';
+
+        _navStack.forEach((item, idx) => {
+            if (idx > 0) {
+                const sep = document.createElement('span');
+                sep.className = 'breadcrumb-separator';
+                sep.textContent = '\u25B6';
+                el.appendChild(sep);
+            }
+
+            const span = document.createElement('span');
+            const isLast = idx === _navStack.length - 1;
+            span.className = 'breadcrumb-item' + (isLast ? ' current' : '');
+
+            // Mostra codice + descrizione troncata
+            const label = item.codart + (item.descr && item.descr !== item.codart ? ' \u2014 ' + item.descr.substring(0, 30) : '');
+            span.textContent = (idx === 0 ? '\u21A9 ' : '') + label;
+            span.title = item.descr || item.codart;
+
+            if (!isLast) {
+                span.addEventListener('click', () => {
+                    // Torna a questo livello — tronca lo stack
+                    _navStack = _navStack.slice(0, idx + 1);
+                    _renderBreadcrumb();
+                    // Naviga a quell'articolo
+                    navigaProgressiviDaRmp(item.codart);
+                });
+            }
+
+            el.appendChild(span);
+        });
+    }
+
+    // ── Ordinamento e personalizzazione tabelle nel ciclo esplorativo ──
+    let _ordiniModaleData = [];
+    let _ordiniModaleSortCol = null;
+    let _ordiniModaleSortAsc = true;
+    let _currentRenderFn = null;
+    let _currentTableId = null; // ID tabella attiva per ColumnManager
+
+    function _sortData(data, col, asc) {
+        return [...data].sort((a, b) => {
+            let va = a[col], vb = b[col];
+            if (va === null || va === undefined) va = '';
+            if (vb === null || vb === undefined) vb = '';
+            if (typeof va === 'number' && typeof vb === 'number') return asc ? va - vb : vb - va;
+            if (col.includes('dat')) { const da = new Date(va || 0), db = new Date(vb || 0); return asc ? da - db : db - da; }
+            const sa = String(va).toLowerCase(), sb = String(vb).toLowerCase();
+            return asc ? sa.localeCompare(sb) : sb.localeCompare(sa);
+        });
+    }
+
+    function _updateHiddenColsBtn(tableId) {
+        const btn = document.getElementById('btnHiddenColsOrdini');
+        if (!btn || typeof ColumnManager === 'undefined') return;
+        const hidden = ColumnManager.getHiddenColumns(tableId);
+        if (hidden.length > 0) {
+            btn.style.display = '';
+            btn.innerHTML = '\uD83D\uDC41<span class="hidden-count">' + hidden.length + '</span>';
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                // Toggle dropdown
+                let dd = btn.querySelector('.hidden-cols-dropdown');
+                if (dd) { dd.remove(); return; }
+                dd = document.createElement('div');
+                dd.className = 'hidden-cols-dropdown';
+                hidden.forEach(h => {
+                    const item = document.createElement('div');
+                    item.className = 'hidden-cols-item';
+                    item.innerHTML = '\uD83D\uDC41 ' + (h.label || h.id);
+                    item.addEventListener('click', () => { ColumnManager.unhideColumn(tableId, h.id); });
+                    dd.appendChild(item);
+                });
+                btn.appendChild(dd);
+                setTimeout(() => document.addEventListener('click', () => { if (dd.parentNode) dd.remove(); }, { once: true }), 10);
+            };
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+
+    function _renderOrdiniModaleRows(data) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(o => {
+            const tr = document.createElement('tr');
+            if (o.mo_tipork === 'Y') tr.className = 'modal-row-impprod';
+            else if (o.mo_tipork === 'H' || o.mo_tipork === 'R') tr.className = 'modal-row-ordprod';
+            else tr.className = 'modal-row-ordforn';
+
+            const drillBtn = o.mo_tipork === 'Y'
+                ? `<button class="btn-drill-padre" title="Mostra ordini produzione padre" data-codart="${esc(o.mo_codart)}" data-magaz="${esc(String(o.mo_magaz || ''))}" data-fase="${esc(String(o.mo_fase || ''))}">🔍</button>`
+                : '';
+
+            tr.innerHTML = `
+                <td style="text-align:center">${drillBtn}</td>
+                <td>${esc(o.desc_tipo || o.mo_tipork)}</td>
+                <td>${esc(o.mo_anno)}</td>
+                <td>${esc(o.mo_serie)}</td>
+                <td>${esc(o.mo_numord)}</td>
+                <td>${esc(o.mo_riga)}</td>
+                <td style="text-align:center">${esc(o.mo_magaz)}</td>
+                <td style="text-align:center">${esc(o.mo_fase)}</td>
+                <td>${fmtDate(o.mo_datcons)}</td>
+                <td style="text-align:right">${fmt(o.mo_quant)}</td>
+                <td style="text-align:right">${fmt(o.mo_quaeva)}</td>
+                <td>${esc(o.mo_flevas)}</td>
+                <td>${esc(o.fornitore || '')}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function _renderRmpRows(data) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(o => {
+            const tr = document.createElement('tr');
+            if (o.ol_tipork === 'Y') {
+                tr.className = 'modal-row-impprod rmp-drill-row';
+                tr.dataset.codart = o.ol_codart || '';
+                tr.dataset.magaz = String(o.ol_magaz || '');
+                tr.dataset.fase = String(o.ol_fase || '');
+                tr.title = 'Clicca per vedere gli ordini produzione padre';
+            } else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') {
+                tr.className = 'modal-row-ordprod';
+            } else {
+                tr.className = 'modal-row-ordforn';
+            }
+            const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
+            const badge = '<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;' + badgeColor + '">' + esc(o.conf_gen || '') + '</span>';
+            tr.innerHTML = '<td style="text-align:center">' + esc(o.ol_magaz) + '</td>'
+                + '<td style="text-align:center">' + esc(o.ol_fase) + '</td>'
+                + '<td>' + fmtDate(o.ol_datcons) + '</td>'
+                + '<td>' + esc(o.desc_tipo || o.ol_tipork) + '</td>'
+                + '<td style="text-align:right"><strong>' + fmt(o.quantita) + '</strong></td>'
+                + '<td style="text-align:center">' + badge + '</td>'
+                + '<td>' + esc(o.fornitore || '') + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    function _renderDrillPadreRows(data) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(o => {
+            const tr = document.createElement('tr');
+            tr.className = 'modal-row-ordprod';
+            tr.innerHTML = '<td></td>'
+                + '<td>' + esc(o.padre_desc_tipo || o.padre_tipork) + '</td>'
+                + '<td>' + esc(o.padre_anno) + '</td>'
+                + '<td>' + esc(o.padre_serie) + '</td>'
+                + '<td>' + esc(o.padre_numord) + '</td>'
+                + '<td>' + esc(o.padre_riga) + '</td>'
+                + '<td><strong>' + esc(o.padre_codart) + '</strong></td>'
+                + '<td>' + esc(o.padre_descr) + '</td>'
+                + '<td style="text-align:center">' + esc(o.padre_magaz) + '</td>'
+                + '<td style="text-align:center">' + esc(o.padre_fase) + '</td>'
+                + '<td>' + fmtDate(o.padre_datcons) + '</td>'
+                + '<td style="text-align:right">' + fmt(o.padre_quant) + '</td>'
+                + '<td>' + esc(o.padre_fornitore || '') + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    function _renderDrillPadreRmpRows(data) {
+        const tbody = document.getElementById('modalOrdiniBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(o => {
+            const tr = document.createElement('tr');
+            tr.className = 'modal-row-ordprod rmp-row-clickable';
+            tr.dataset.codart = o.padre_codart;
+            const badgeColor = o.padre_conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
+            const badge = '<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;' + badgeColor + '">' + esc(o.padre_conf_gen || '') + '</span>';
+            tr.innerHTML = '<td><strong>' + esc(o.padre_codart) + '</strong></td>'
+                + '<td style="text-align:center">' + esc(o.padre_magaz) + '</td>'
+                + '<td style="text-align:center">' + esc(o.padre_fase) + '</td>'
+                + '<td>' + esc(o.padre_descr) + '</td>'
+                + '<td>' + fmtDate(o.datcons) + '</td>'
+                + '<td>' + esc(o.padre_desc_tipo || o.padre_tipork) + '</td>'
+                + '<td style="text-align:right"><strong>' + fmt(o.quantita) + '</strong></td>'
+                + '<td style="text-align:center">' + badge + '</td>'
+                + '<td>' + esc(o.padre_fornitore || '') + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    function _sortOrdiniModale(col) {
+        if (_ordiniModaleSortCol === col) {
+            _ordiniModaleSortAsc = !_ordiniModaleSortAsc;
+        } else {
+            _ordiniModaleSortCol = col;
+            _ordiniModaleSortAsc = true;
+        }
+        const sorted = [..._ordiniModaleData].sort((a, b) => {
+            let va = a[col], vb = b[col];
+            if (va === null || va === undefined) va = '';
+            if (vb === null || vb === undefined) vb = '';
+            // Numeri
+            if (typeof va === 'number' && typeof vb === 'number') return _ordiniModaleSortAsc ? va - vb : vb - va;
+            // Date
+            if (col === 'mo_datcons') {
+                const da = new Date(va || 0), db = new Date(vb || 0);
+                return _ordiniModaleSortAsc ? da - db : db - da;
+            }
+            // Stringhe
+            const sa = String(va).toLowerCase(), sb = String(vb).toLowerCase();
+            return _ordiniModaleSortAsc ? sa.localeCompare(sb) : sb.localeCompare(sa);
+        });
+        (_currentRenderFn || _renderOrdiniModaleRows)(sorted);
+
+        // Aggiorna indicatori nelle intestazioni
+        document.querySelectorAll('#tblModalOrdini thead th[data-sort]').forEach(th => {
+            const base = th.textContent.replace(/ [▲▼⇅]$/, '');
+            if (th.dataset.sort === col) {
+                th.textContent = base + (_ordiniModaleSortAsc ? ' ▲' : ' ▼');
+            } else {
+                th.textContent = base + ' ⇅';
+            }
+        });
+    }
+
+    // Delegazione click sulle intestazioni
+    (function initOrdiniSort() {
+        document.addEventListener('click', (e) => {
+            const th = e.target.closest('#tblModalOrdini thead th[data-sort]');
+            if (th && _ordiniModaleData.length > 0) {
+                _sortOrdiniModale(th.dataset.sort);
+            }
+        });
+    })();
+
     async function caricaOrdiniModale(codart, magaz, fase) {
         const tbody = document.getElementById('modalOrdiniBody');
         const loading = document.getElementById('modalOrdiniLoading');
@@ -1618,40 +2036,20 @@ const MrpProgressivi = (() => {
                 return;
             }
 
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-                
-                // Colore per tipo operazione
-                if (o.mo_tipork === 'Y') {
-                    tr.className = 'modal-row-impprod';
-                } else if (o.mo_tipork === 'H' || o.mo_tipork === 'R') {
-                    tr.className = 'modal-row-ordprod';
-                } else {
-                    tr.className = 'modal-row-ordforn';
-                }
-
-                // Bottone drill-through solo per Imp.Prod
-                const drillBtn = o.mo_tipork === 'Y'
-                    ? `<button class="btn-drill-padre" title="Mostra ordini produzione padre" data-codart="${esc(o.mo_codart)}" data-magaz="${esc(String(o.mo_magaz || ''))}" data-fase="${esc(String(o.mo_fase || ''))}">🔍</button>`
-                    : '';
-
-                tr.innerHTML = `
-                    <td style="text-align:center">${drillBtn}</td>
-                    <td>${esc(o.desc_tipo || o.mo_tipork)}</td>
-                    <td>${esc(o.mo_anno)}</td>
-                    <td>${esc(o.mo_serie)}</td>
-                    <td>${esc(o.mo_numord)}</td>
-                    <td>${esc(o.mo_riga)}</td>
-                    <td style="text-align:center">${esc(o.mo_magaz)}</td>
-                    <td style="text-align:center">${esc(o.mo_fase)}</td>
-                    <td>${fmtDate(o.mo_datcons)}</td>
-                    <td style="text-align:right">${fmt(o.mo_quant)}</td>
-                    <td style="text-align:right">${fmt(o.mo_quaeva)}</td>
-                    <td>${esc(o.mo_flevas)}</td>
-                    <td>${esc(o.fornitore || '')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            _ordiniModaleData = data;
+            _ordiniModaleSortCol = null;
+            _ordiniModaleSortAsc = true;
+            _currentRenderFn = _renderOrdiniModaleRows;
+            _currentTableId = 'ordini_impegni';
+            // Header via ColumnManager (se disponibile)
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.buildHeader('ordini_impegni', document.querySelector('#tblModalOrdini thead tr'));
+            }
+            _renderOrdiniModaleRows(data);
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.applyToBody('ordini_impegni', document.getElementById('modalOrdiniBody'));
+                _updateHiddenColsBtn('ordini_impegni');
+            }
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
@@ -1665,18 +2063,18 @@ const MrpProgressivi = (() => {
 
         const codartList = splitCodartComposito(codart);
         const titoloCod = codartList.length > 1 ? codartList.join(' + ') : codart;
-        titolo.textContent = `RMP (Generati/Confermati): ${titoloCod}`;
+        titolo.textContent = `MRP (Generati/Confermati): ${titoloCod}`;
 
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (thead) {
             thead.innerHTML = `
-                <th>Mag</th>
-                <th>Fase</th>
-                <th>Data Cons.</th>
-                <th>Operazione</th>
-                <th>Q.tà Ordinata</th>
-                <th>Stato</th>
-                <th>Fornitore</th>
+                <th data-sort="ol_magaz" style="cursor:pointer;">Mag \u21C5</th>
+                <th data-sort="ol_fase" style="cursor:pointer;">Fase \u21C5</th>
+                <th data-sort="ol_datcons" style="cursor:pointer;">Data Cons. \u21C5</th>
+                <th data-sort="desc_tipo" style="cursor:pointer;">Operazione \u21C5</th>
+                <th data-sort="quantita" style="cursor:pointer;">Q.t\u00e0 Ordinata \u21C5</th>
+                <th data-sort="conf_gen" style="cursor:pointer;">Stato \u21C5</th>
+                <th data-sort="fornitore" style="cursor:pointer;">Fornitore \u21C5</th>
             `;
         }
 
@@ -1708,35 +2106,19 @@ const MrpProgressivi = (() => {
                 return;
             }
 
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-
-                if (o.ol_tipork === 'Y') {
-                    tr.className = 'modal-row-impprod rmp-drill-row';
-                    tr.dataset.codart = o.ol_codart || codart;
-                    tr.dataset.magaz = String(o.ol_magaz || '');
-                    tr.dataset.fase = String(o.ol_fase || '');
-                    tr.title = 'Clicca per vedere gli ordini produzione padre';
-                } else if (o.ol_tipork === 'H' || o.ol_tipork === 'R') {
-                    tr.className = 'modal-row-ordprod';
-                } else {
-                    tr.className = 'modal-row-ordforn';
-                }
-
-                const badgeColor = o.conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
-                const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.conf_gen || '')}</span>`;
-
-                tr.innerHTML = `
-                    <td style="text-align:center">${esc(o.ol_magaz)}</td>
-                    <td style="text-align:center">${esc(o.ol_fase)}</td>
-                    <td>${fmtDate(o.ol_datcons)}</td>
-                    <td>${esc(o.desc_tipo || o.ol_tipork)}</td>
-                    <td style="text-align:right"><strong>${fmt(o.quantita)}</strong></td>
-                    <td style="text-align:center">${badge}</td>
-                    <td>${esc(o.fornitore || '')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            _ordiniModaleData = data;
+            _ordiniModaleSortCol = null;
+            _ordiniModaleSortAsc = true;
+            _currentRenderFn = _renderRmpRows;
+            _currentTableId = 'rmp';
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.buildHeader('rmp', document.querySelector('#tblModalOrdini thead tr'));
+            }
+            _renderRmpRows(data);
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.applyToBody('rmp', document.getElementById('modalOrdiniBody'));
+                _updateHiddenColsBtn('rmp');
+            }
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>';
@@ -1758,18 +2140,18 @@ const MrpProgressivi = (() => {
         if (thead) {
             thead.innerHTML = `
             <th style="width:30px;"></th>
-            <th>Operazione</th>
-            <th>Anno</th>
-            <th>Ser</th>
-            <th>Num.Doc</th>
-            <th>Riga</th>
-            <th>Cod. Art. Padre</th>
-            <th>Descrizione Articolo</th>
-            <th>Mag</th>
-            <th>Fase</th>
-            <th>Data Cons.</th>
-            <th>Q.tà</th>
-            <th>Fornitore</th>
+            <th data-sort="padre_desc_tipo" style="cursor:pointer;">Operazione \u21C5</th>
+            <th data-sort="padre_anno" style="cursor:pointer;">Anno \u21C5</th>
+            <th data-sort="padre_serie" style="cursor:pointer;">Ser \u21C5</th>
+            <th data-sort="padre_numord" style="cursor:pointer;">Num.Doc \u21C5</th>
+            <th data-sort="padre_riga" style="cursor:pointer;">Riga \u21C5</th>
+            <th data-sort="padre_codart" style="cursor:pointer;">Cod. Art. Padre \u21C5</th>
+            <th data-sort="padre_descr" style="cursor:pointer;">Descrizione Articolo \u21C5</th>
+            <th data-sort="padre_magaz" style="cursor:pointer;">Mag \u21C5</th>
+            <th data-sort="padre_fase" style="cursor:pointer;">Fase \u21C5</th>
+            <th data-sort="padre_datcons" style="cursor:pointer;">Data Cons. \u21C5</th>
+            <th data-sort="padre_quant" style="cursor:pointer;">Q.t\u00e0 \u21C5</th>
+            <th data-sort="padre_fornitore" style="cursor:pointer;">Fornitore \u21C5</th>
         `;
         }
 
@@ -1794,27 +2176,19 @@ const MrpProgressivi = (() => {
                 return;
             }
 
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-                tr.className = 'modal-row-ordprod'; // I padri sono sempre Ord.Prod
-
-                tr.innerHTML = `
-                    <td></td>
-                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
-                    <td>${esc(o.padre_anno)}</td>
-                    <td>${esc(o.padre_serie)}</td>
-                    <td>${esc(o.padre_numord)}</td>
-                    <td>${esc(o.padre_riga)}</td>
-                    <td><strong>${esc(o.padre_codart)}</strong></td>
-                    <td>${esc(o.padre_descr)}</td>
-                    <td style="text-align:center">${esc(o.padre_magaz)}</td>
-                    <td style="text-align:center">${esc(o.padre_fase)}</td>
-                    <td>${fmtDate(o.padre_datcons)}</td>
-                    <td style="text-align:right">${fmt(o.padre_quant)}</td>
-                    <td>${esc(o.padre_fornitore || '')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            _ordiniModaleData = data;
+            _ordiniModaleSortCol = null;
+            _ordiniModaleSortAsc = true;
+            _currentRenderFn = _renderDrillPadreRows;
+            _currentTableId = 'drill_padre';
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.buildHeader('drill_padre', document.querySelector('#tblModalOrdini thead tr'));
+            }
+            _renderDrillPadreRows(data);
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.applyToBody('drill_padre', document.getElementById('modalOrdiniBody'));
+                _updateHiddenColsBtn('drill_padre');
+            }
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
@@ -1835,15 +2209,15 @@ const MrpProgressivi = (() => {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (thead) {
             thead.innerHTML = `
-            <th>Cod. Art.</th>
-            <th>Mag</th>
-            <th>Fase</th>
-            <th>Descrizione Articolo</th>
-            <th>Data Cons.</th>
-            <th>Operazione</th>
-            <th>Q.tà Ordinata</th>
-            <th>Stato</th>
-            <th>Fornitore</th>
+            <th data-sort="padre_codart" style="cursor:pointer;">Cod. Art. \u21C5</th>
+            <th data-sort="padre_magaz" style="cursor:pointer;">Mag \u21C5</th>
+            <th data-sort="padre_fase" style="cursor:pointer;">Fase \u21C5</th>
+            <th data-sort="padre_descr" style="cursor:pointer;">Descrizione Articolo \u21C5</th>
+            <th data-sort="datcons" style="cursor:pointer;">Data Cons. \u21C5</th>
+            <th data-sort="padre_desc_tipo" style="cursor:pointer;">Operazione \u21C5</th>
+            <th data-sort="quantita" style="cursor:pointer;">Q.t\u00e0 Ordinata \u21C5</th>
+            <th data-sort="padre_conf_gen" style="cursor:pointer;">Stato \u21C5</th>
+            <th data-sort="padre_fornitore" style="cursor:pointer;">Fornitore \u21C5</th>
         `;
         }
 
@@ -1868,28 +2242,19 @@ const MrpProgressivi = (() => {
                 return;
             }
 
-            data.forEach(o => {
-                const tr = document.createElement('tr');
-                tr.className = 'modal-row-ordprod';
-                tr.classList.add('rmp-row-clickable');
-                tr.dataset.codart = o.padre_codart;
-
-                const badgeColor = o.padre_conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
-                const badge = `<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;${badgeColor}">${esc(o.padre_conf_gen || '')}</span>`;
-
-                tr.innerHTML = `
-                    <td><strong>${esc(o.padre_codart)}</strong></td>
-                    <td style="text-align:center">${esc(o.padre_magaz)}</td>
-                    <td style="text-align:center">${esc(o.padre_fase)}</td>
-                    <td>${esc(o.padre_descr)}</td>
-                    <td>${fmtDate(o.datcons)}</td>
-                    <td>${esc(o.padre_desc_tipo || o.padre_tipork)}</td>
-                    <td style="text-align:right"><strong>${fmt(o.quantita)}</strong></td>
-                    <td style="text-align:center">${badge}</td>
-                    <td>${esc(o.padre_fornitore || '')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            _ordiniModaleData = data;
+            _ordiniModaleSortCol = null;
+            _ordiniModaleSortAsc = true;
+            _currentRenderFn = _renderDrillPadreRmpRows;
+            _currentTableId = 'drill_padre_rmp';
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.buildHeader('drill_padre_rmp', document.querySelector('#tblModalOrdini thead tr'));
+            }
+            _renderDrillPadreRmpRows(data);
+            if (typeof ColumnManager !== 'undefined') {
+                ColumnManager.applyToBody('drill_padre_rmp', document.getElementById('modalOrdiniBody'));
+                _updateHiddenColsBtn('drill_padre_rmp');
+            }
         } catch (err) {
             loading.style.display = 'none';
             tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger)">Errore di connessione</td></tr>`;
@@ -1899,21 +2264,26 @@ const MrpProgressivi = (() => {
     function ripristinaHeaderModale() {
         const thead = document.querySelector('#tblModalOrdini thead tr');
         if (!thead) return;
-        thead.innerHTML = `
-            <th style="width:30px;"></th>
-            <th>Operazione</th>
-            <th>Anno</th>
-            <th>Ser</th>
-            <th>Num.Doc</th>
-            <th>Riga</th>
-            <th>Mag</th>
-            <th>Fase</th>
-            <th>Data Cons.</th>
-            <th>Q.tà Ordinata</th>
-            <th>Q.tà Evasa</th>
-            <th>Stato</th>
-            <th>Fornitore</th>
-        `;
+        _currentTableId = 'ordini_impegni';
+        if (typeof ColumnManager !== 'undefined') {
+            ColumnManager.buildHeader('ordini_impegni', thead);
+        } else {
+            thead.innerHTML = `
+                <th style="width:30px;"></th>
+                <th style="cursor:pointer;">Operazione</th>
+                <th style="cursor:pointer;">Anno</th>
+                <th style="cursor:pointer;">Ser</th>
+                <th style="cursor:pointer;">Num.Doc</th>
+                <th style="cursor:pointer;">Riga</th>
+                <th style="cursor:pointer;">Mag</th>
+                <th style="cursor:pointer;">Fase</th>
+                <th style="cursor:pointer;">Data Cons.</th>
+                <th style="cursor:pointer;">Q.t\u00e0 Ordinata</th>
+                <th style="cursor:pointer;">Q.t\u00e0 Evasa</th>
+                <th style="cursor:pointer;">Stato</th>
+                <th style="cursor:pointer;">Fornitore</th>
+            `;
+        }
     }
 
     function chiudiModale() {
@@ -2520,9 +2890,29 @@ const MrpProgressivi = (() => {
 
     async function navigaProgressiviDaRmp(codartTarget) {
         chiudiModale();
+        // Push nella breadcrumb (la descrizione verrà aggiornata dopo il fetch)
+        _pushBreadcrumb(codartTarget, codartTarget);
         const inputCodart = document.getElementById('inputCodart');
         if (inputCodart) inputCodart.value = codartTarget;
         try {
+            // Skeleton immediato — l'utente vede subito la transizione
+            const tbody = getTbody();
+            if (tbody) {
+                tbody.innerHTML =
+                    '<tr><td colspan="16" style="padding:0;border:none;">' +
+                    '<div class="progressivi-skeleton">' +
+                        '<div class="skeleton-bar" style="width:60%;height:20px;margin-bottom:8px;"></div>' +
+                        '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                        '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                        '<div class="skeleton-bar" style="width:90%;height:16px;"></div>' +
+                        '<div class="skeleton-bar" style="width:100%;height:20px;margin-top:6px;margin-bottom:8px;"></div>' +
+                        '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                        '<div class="skeleton-bar" style="width:85%;height:16px;"></div>' +
+                    '</div></td></tr>';
+            }
+            document.getElementById('progressiviTitle').textContent = codartTarget;
+            MrpApp.switchView('progressivi');
+
             const params = new URLSearchParams({ codart: codartTarget, magaz: '', fase: '', modo: '2', sintetico: '0' });
             const res = await fetch(`${MrpApp.API_BASE}/progressivi?${params}`, { credentials: 'include' });
             const data = await res.json();
@@ -2530,7 +2920,6 @@ const MrpProgressivi = (() => {
                 MrpApp.state.parametri = { codart: codartTarget, magaz: '', fase: '', modo: '2', sintetico: '0' };
                 MrpApp.state.ultimoRisultato = data;
                 render(data);
-                MrpApp.switchView('progressivi');
             }
         } catch (err) {
             console.error('[RMP] Errore navigazione progressivi:', err);

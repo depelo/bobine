@@ -4,14 +4,40 @@
 const MrpProposta = (() => {
     let data = [];
 
-    async function waitForDB(maxRetries = 5) {
-        for (let i = 0; i < maxRetries; i++) {
-            try {
-                const res = await fetch(`${MrpApp.API_BASE}/health`, { credentials: 'include' });
-                const dataHealth = await res.json();
-                if (dataHealth.status === 'ok') return;
-            } catch (e) { /* ignore */ }
-            await new Promise(r => setTimeout(r, 1000));
+    // Multi-date support: mappa codart|fornitore → array righe originali
+    // Popolata da renderProposta, usata dal pannello decisionale multi-data.
+    const cardRowsData = new Map();
+
+    async function waitForDB() {
+        // Check singolo + 1 retry — il pool DB si connette durante il caricamento della pagina,
+        // quindi e quasi sempre pronto. Max 1s di attesa invece dei precedenti 5s.
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/health`, { credentials: 'include' });
+            const data = await res.json();
+            if (data.status === 'ok') return;
+        } catch (_) {}
+        // 1 retry dopo 1s
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/health`, { credentials: 'include' });
+            const data = await res.json();
+            if (data.status === 'ok') return;
+        } catch (_) {}
+    }
+
+    // ── Pannello Selezione Articolo (drawer laterale) ──
+    function togglePanelSelezione(forceOpen) {
+        const panel = document.getElementById('panelSelezione');
+        const overlay = document.getElementById('selezioneOverlay');
+        if (!panel) return;
+        const isOpen = !panel.classList.contains('collapsed');
+        const shouldOpen = forceOpen !== undefined ? forceOpen : !isOpen;
+        if (shouldOpen) {
+            panel.classList.remove('collapsed');
+            if (overlay) overlay.classList.add('open');
+        } else {
+            panel.classList.add('collapsed');
+            if (overlay) overlay.classList.remove('open');
         }
     }
 
@@ -28,6 +54,12 @@ const MrpProposta = (() => {
             listEl.addEventListener('click', onPropostaListBadgeClick);
         }
 
+        // Toggle pannello Selezione Articolo
+        const btnToggle = document.getElementById('btnToggleSelezione');
+        if (btnToggle) btnToggle.addEventListener('click', () => togglePanelSelezione());
+        const overlay = document.getElementById('selezioneOverlay');
+        if (overlay) overlay.addEventListener('click', () => togglePanelSelezione(false));
+
         initStorico();
 
         await waitForDB();
@@ -35,6 +67,16 @@ const MrpProposta = (() => {
     }
 
     function onPropostaListBadgeClick(e) {
+        // Emetti da card singola
+        const btnEmettiCard = e.target.closest('.btn-emetti-card');
+        if (btnEmettiCard) {
+            e.stopPropagation();
+            const forn = btnEmettiCard.dataset.forn;
+            const keys = (btnEmettiCard.dataset.keys || '').split(',').filter(Boolean);
+            if (forn && keys.length > 0) emettiDaCard(forn, keys);
+            return;
+        }
+
         const btnModifica = e.target.closest('.btn-modifica-conferma');
         const btnRimuovi = e.target.closest('.btn-rimuovi-conferma');
 
@@ -56,6 +98,7 @@ const MrpProposta = (() => {
                 ol_progr: ordine.ol_progr || 0,
                 ol_quant: ordine.quantita_proposta,
                 ol_prezzo: ordine.prezzo,
+                ol_perqta: ordine.perqta || '1',
                 ol_datcons: ordine.data_consegna,
                 ol_colli: '0',
                 ol_ump: '',
@@ -63,11 +106,12 @@ const MrpProposta = (() => {
                 fase_descr: ''
             };
 
-            document.getElementById('paramCodart').value = ordine.ol_codart;
-            if (typeof MrpParametri !== 'undefined' && MrpParametri.caricaFasi) {
-                MrpParametri.caricaFasi(ordine.ol_codart);
-            }
-            setTimeout(() => document.getElementById('btnEsegui').click(), 100);
+            MrpParametri.eseguiDiretto({
+                codart: ordine.ol_codart,
+                fase: ordine.ol_fase || '',
+                magaz: ordine.ol_magaz || '',
+                descr: ordine.ar_descr || ''
+            });
         }
 
         if (btnRimuovi) {
@@ -114,7 +158,7 @@ const MrpProposta = (() => {
         const codartRaw = codartEl.getAttribute('data-codart');
         if (!codartRaw) return;
 
-        // Salva il contesto della riga proposta prima di navigare ai progressivi
+        // Salva il contesto della riga proposta (usato dal pannello decisionale progressivi)
         MrpApp.state.propostaCorrente = {
             fornitore_codice: codartEl.dataset.fornitore || '',
             fornitore_nome: codartEl.dataset.fornitorenome || '',
@@ -127,43 +171,23 @@ const MrpProposta = (() => {
             ol_progr: codartEl.dataset.olprogr || '0',
             ol_quant: codartEl.dataset.quant || '0',
             ol_prezzo: codartEl.dataset.prezzo || '0',
+            ol_perqta: codartEl.dataset.perqta || '1',
             ol_datcons: codartEl.dataset.datcons || '',
             ol_colli: codartEl.dataset.colli || '0',
             ol_ump: codartEl.dataset.ump || '',
             ol_stato: codartEl.dataset.stato || '',
-            fase_descr: codartEl.dataset.fasedescr || ''
+            fase_descr: codartEl.dataset.fasedescr || '',
+            // Tutte le righe dell'articolo (multi-data support per pannello decisionale)
+            righe: cardRowsData.get(codartRaw.trim() + '|' + (codartEl.dataset.fornitore || '')) || []
         };
 
-        const codart = codartRaw.trim();
-        document.getElementById('paramCodart').value = codart;
-
-        try {
-            const res = await fetch(`${MrpApp.API_BASE}/articoli/search?q=${encodeURIComponent(codart)}&field=codart`, { credentials: 'include' });
-            const results = await res.json();
-            if (res.ok && Array.isArray(results) && results.length > 0) {
-                const art = results.find(r => String(r.ar_codart).trim() === codart) || results[0];
-                document.getElementById('paramCodalt').value = art.ar_codalt || '';
-                document.getElementById('paramDescr').value = art.ar_descr || '';
-                MrpApp.state.articoloSelezionato = art;
-                MrpApp.state.parametri.codart = art.ar_codart;
-                await MrpParametri.caricaFasi(art.ar_codart);
-            } else {
-                document.getElementById('paramCodalt').value = '';
-                document.getElementById('paramDescr').value = '';
-                MrpApp.state.articoloSelezionato = null;
-                MrpApp.state.parametri.codart = codart;
-                await MrpParametri.caricaFasi(codart);
-            }
-        } catch (err) {
-            console.error('[Proposta] ricerca articolo:', err);
-            MrpApp.state.articoloSelezionato = null;
-            MrpApp.state.parametri.codart = codart;
-            try {
-                await MrpParametri.caricaFasi(codart);
-            } catch (_) { /* ignore */ }
-        }
-
-        document.getElementById('btnEsegui').click();
+        // Chiamata diretta ai progressivi — nessun ponte via form DOM
+        MrpParametri.eseguiDiretto({
+            codart: codartRaw.trim(),
+            fase: codartEl.dataset.fase || '',
+            magaz: codartEl.dataset.magaz || '',
+            descr: codartEl.dataset.descr || ''
+        });
     }
 
     async function caricaProposta() {
@@ -178,7 +202,12 @@ const MrpProposta = (() => {
         if (stats) stats.innerHTML = '';
 
         try {
-            const res = await fetch(`${MrpApp.API_BASE}/proposta-ordini`, { credentials: 'include' });
+            // Avvia fetch proposta + template email IN PARALLELO (non in serie)
+            // I template servono per il render, ma possiamo caricarli mentre la query pesante gira
+            const [res, _tplDone] = await Promise.all([
+                fetch(`${MrpApp.API_BASE}/proposta-ordini`, { credentials: 'include' }),
+                caricaTemplateEmail()
+            ]);
             const payload = await res.json();
 
             if (loading) loading.style.display = 'none';
@@ -215,13 +244,60 @@ const MrpProposta = (() => {
                 MrpApp.state.elaborazione = null;
             }
 
-            // Popola ordiniEmessi dal server (righe già emesse persistite in ordini_emessi)
-            ripristinaOrdiniEmessiDaServer(data);
+            // Inizializza PendingSync e idrata dai pending persistiti lato DB.
+            // Nota: hydrateFromDB popola MrpApp.state.ordiniConfermati con le entry
+            // non ancora emesse, così il refresh non perde il lavoro dell'operatore.
+            try {
+                if (window.PendingSync && elaborazione && elaborazione.id) {
+                    PendingSync.init({
+                        elaborazioneId: String(elaborazione.id),
+                        userId: (MrpApp.state && MrpApp.state.userId) || 0
+                    });
+                    const pendingRows = Array.isArray(payload.ordini_confermati_pending)
+                        ? payload.ordini_confermati_pending : [];
+                    // Popola Map RAM a partire da SnapshotProposte + pendingRows.
+                    // Per ogni row pending trovo la riga corrispondente nella proposta
+                    // (usando ol_progr come chiave univoca) e ricostruisco il dato
+                    // dell'ordine confermato.
+                    const byProgr = new Map();
+                    for (const r of data) {
+                        if (r.ol_progr) byProgr.set(String(r.ol_progr), r);
+                    }
+                    for (const p of pendingRows) {
+                        const key = String(p.ol_progr);
+                        const riga = byProgr.get(key);
+                        if (!riga) continue; // orfana → la cleanup al boot se ne occuperà
+                        const prezzo = (p.prezzo_override != null) ? Number(p.prezzo_override) : Number(riga.ol_prezzo || 0);
+                        MrpApp.state.ordiniConfermati.set(key, {
+                            ol_progr: p.ol_progr,
+                            fornitore_codice: riga.fornitore_codice,
+                            fornitore_nome: riga.fornitore_nome,
+                            fornitore_email: riga.fornitore_email,
+                            ol_codart: riga.ol_codart,
+                            ar_codalt: riga.ar_codalt,
+                            ar_descr: riga.ar_descr,
+                            ol_fase: riga.ol_fase || 0,
+                            ol_magaz: riga.ol_magaz || 1,
+                            quantita_confermata: Number(p.quantita_confermata),
+                            data_consegna: p.data_consegna || riga.ol_datcons,
+                            prezzo: prezzo,
+                            perqta: Number(riga.ol_perqta || 1),
+                            ol_unmis: riga.ol_unmis,
+                            _fromPending: true
+                        });
+                    }
+                    PendingSync.hydrateFromDB(pendingRows, { mergeIntoMap: null });
+                }
+            } catch (psErr) {
+                console.warn('[Proposta] PendingSync init/hydrate fallito (continuo):', psErr.message);
+            }
 
-            // Carica template email e assegnazioni (bloccante: servono prima del render)
-            await caricaTemplateEmail();
+            // Popola ordiniEmessi/ordiniCongelati dal server — le righe con email_inviata
+            // vengono filtrate via dalla vista per evitare che l'operatore le riusi per errore.
+            const righeVisibili = ripristinaOrdiniEmessiDaServer(data);
+            data = righeVisibili;
 
-            renderProposta(data, listEl, stats);
+            renderProposta(righeVisibili, listEl, stats);
         } catch (err) {
             if (loading) loading.style.display = 'none';
             listEl.innerHTML = `<div class="proposta-loading" style="color:var(--danger)">Errore di connessione: ${esc(err.message)}</div>`;
@@ -229,6 +305,7 @@ const MrpProposta = (() => {
     }
 
     function renderProposta(righe, listEl, statsEl) {
+        cardRowsData.clear();
         const fornitori = new Map();
 
         for (const r of righe) {
@@ -254,7 +331,7 @@ const MrpProposta = (() => {
             totArticoli += f.articoli.size;
             f.articoli.forEach(rows => {
                 rows.forEach(r => {
-                    totaleValore += (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0);
+                    totaleValore += (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
                 });
             });
         });
@@ -268,7 +345,7 @@ const MrpProposta = (() => {
                 });
                 elabHtml = `
                     <div class="proposta-stat-item proposta-stat-elab">
-                        Elab. <span class="proposta-stat-value">#${elab.id}</span>
+                        Elab. <span class="proposta-stat-value">#${elab.numeroElab || elab.id}</span>
                         &mdash; Batch: <span class="proposta-stat-value">${elabDate}</span>
                         &mdash; Gestite: <span class="proposta-stat-value">${elab.totaleGestite}/${elab.totaleProposte}</span>
                     </div>
@@ -283,15 +360,56 @@ const MrpProposta = (() => {
             `;
         }
 
-        for (const [, forn] of fornitori) {
+        // ─── Sort 4-tier (applicato solo al refresh della pagina) ───
+        //   Tier 0: fornitori con almeno un articolo confermato (verdi, ordine da emettere)
+        //   Tier 1: fornitori con ordini emessi ed email ancora da inviare
+        //   Tier 2: fornitori con ordini congelati (email gia inviata, solo informazione)
+        //   Tier 3: fornitori senza attivita
+        // Dentro ogni tier: ordine per codice fornitore.
+        function tierForForn(fk) {
+            // Confermati pending hanno priorita: sono lavoro attivo da emettere.
+            const confermati = MrpApp.state.ordiniConfermati;
+            for (const [k, v] of confermati) {
+                if (String(v && v.fornitore_codice) === fk) return 0;
+            }
+            if (ordiniEmessi.has(fk)) return 1;
+            const extras = ordiniEmessiExtra.get(fk);
+            if (extras && extras.length > 0) return 1;
+            if (ordiniCongelati.has(fk)) return 2;
+            return 3;
+        }
+        const fornitoriSorted = Array.from(fornitori.entries()).sort((a, b) => {
+            const ta = tierForForn(a[0]);
+            const tb = tierForForn(b[0]);
+            if (ta !== tb) return ta - tb;
+            return a[0].localeCompare(b[0], 'it');
+        });
+
+        let lastTier = -1;
+        for (const [fkIter, forn] of fornitoriSorted) {
+            const curTier = tierForForn(fkIter);
+            if (lastTier !== -1 && curTier !== lastTier) {
+                // Separator tra i tier
+                const sep = document.createElement('div');
+                sep.className = 'proposta-tier-divider';
+                sep.dataset.fromTier = String(lastTier);
+                sep.dataset.toTier = String(curTier);
+                listEl.appendChild(sep);
+            }
+            lastTier = curTier;
+
             const div = document.createElement('div');
             div.className = 'proposta-fornitore';
+            div.dataset.tier = String(curTier);
 
             let valoreFornitore = 0;
             let htmlArticoli = '';
 
             for (const [codart, rows] of forn.articoli) {
                 const first = rows[0];
+                // Salva righe originali per il pannello multi-data
+                const cardKey = codart + '|' + forn.codice;
+                cardRowsData.set(cardKey, rows);
                 const flags = [];
                 if (first.ar_inesaur === 'S') flags.push('<span class="proposta-flag-esaur">IN ESAUR.</span>');
                 if (first.ar_blocco && first.ar_blocco !== 'N') flags.push('<span class="proposta-flag-blocco">BLOCCO</span>');
@@ -315,12 +433,13 @@ const MrpProposta = (() => {
                 for (const r of rows) {
                     totColli += Number(r.ol_colli) || 0;
                     totQuant += Number(r.ol_quant) || 0;
-                    valoreFornitore += (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0);
+                    valoreFornitore += (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
 
                     let stato, statoClass;
                     if (r.emesso) {
                         const emailIcon = r.email_inviata ? ' \u2709' : '';
-                        stato = `Ordinato ${r.ord_numord || ''}/${r.ord_serie || 'F'}${emailIcon}`;
+                        const bcubeTag = r.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
+                        stato = `Ordinato ${r.ord_numord || ''}/${r.ord_serie || 'F'}${emailIcon}${bcubeTag}`;
                         statoClass = 'proposta-stato-ordinato';
                     } else {
                         const statoRaw = (r.ol_stato || '').trim();
@@ -328,7 +447,7 @@ const MrpProposta = (() => {
                         statoClass = '';
                     }
 
-                    htmlRighe += `<tr class="${r.emesso ? 'proposta-riga-emessa' : ''}">
+                    htmlRighe += `<tr class="${r.emesso ? 'proposta-riga-emessa' : ''}" data-progr="${escAttr(String(r.ol_progr || 0))}">
                         <td>${fmtDate(r.ol_datcons)}</td>
                         <td>${esc(r.ol_unmis)}</td>
                         <td class="num">${fmtNum(r.ol_colli, 3)}</td>
@@ -343,6 +462,9 @@ const MrpProposta = (() => {
 
                 const tutteEmesse = rows.every(r => r.emesso);
                 const gestitaInElab = tutteEmesse && rows.some(r => r.elaborazione_id === MrpApp.state.elaborazioneId);
+                // Raccolta di tutti gli ol_progr per questa card (multi-data support)
+                const progrList = rows.map(r => String(r.ol_progr || 0)).filter(p => p !== '0');
+
                 htmlArticoli += `
                 <div class="proposta-articolo${gestitaInElab ? ' proposta-art-gestita' : ''}">
                     <div class="proposta-art-header">
@@ -354,8 +476,11 @@ const MrpProposta = (() => {
                     data-magaz="${escAttr(String(first.ol_magaz ?? '1'))}"
                     data-unmis="${escAttr(first.ol_unmis || '')}"
                     data-olprogr="${escAttr(String(first.ol_progr ?? '0'))}"
+                    data-olprogrlist="${escAttr(progrList.join(','))}"
+                    data-multidate="${rows.length > 1 ? '1' : '0'}"
                     data-quant="${escAttr(String(first.ol_quant ?? '0'))}"
                     data-prezzo="${escAttr(String(first.ol_prezzo ?? '0'))}"
+                    data-perqta="${escAttr(String(first.ol_perqta ?? '1'))}"
                     data-datcons="${escAttr(first.ol_datcons || '')}"
                     data-colli="${escAttr(String(first.ol_colli ?? '0'))}"
                     data-ump="${escAttr(first.ol_ump || '')}"
@@ -363,9 +488,10 @@ const MrpProposta = (() => {
                     data-descr="${escAttr(first.ar_descr || '')}"
                     data-codalt="${escAttr(first.ar_codalt || '')}"
                     data-fasedescr="${escAttr(first.fase_descr || '')}"
-                    title="Clicca per aprire i Progressivi">${esc(String(codart))}</span>
+                    title="${rows.length > 1 ? 'Clicca per decisione multi-data (' + rows.length + ' date)' : 'Clicca per aprire i Progressivi'}">${esc(String(codart))}</span>
                         ${codaltStr}
                         <span class="proposta-art-descr">${esc(first.ar_descr)}</span>
+                        ${rows.length > 1 ? '<span class="proposta-multidate-badge">' + rows.length + ' date</span>' : ''}
                         <span class="proposta-art-flags">${flags.join('')}</span>
                         ${faseStr}
                         ${polStr}
@@ -418,10 +544,87 @@ const MrpProposta = (() => {
             `;
 
             listEl.appendChild(div);
+
+            // Tutti gli ordini emessi (primo + extra) come sub-card dentro il body del padre.
+            // Ogni ordine ha la sua pulsantiera — la barra blu resta pulita.
+            const bodyEl = div.querySelector('.proposta-fornitore-body');
+            if (bodyEl) {
+                const primoEmesso = ordiniEmessi.get(fkIter);
+                const extras = ordiniEmessiExtra.get(fkIter);
+                // Inserisci in ordine inverso (insertBefore firstChild) così il primo resta in cima
+                if (extras && extras.length > 0) {
+                    for (let i = extras.length - 1; i >= 0; i--) {
+                        const extraDiv = buildBloccoOrdineExtra(forn, extras[i]);
+                        if (extraDiv) bodyEl.insertBefore(extraDiv, bodyEl.firstChild);
+                    }
+                }
+                if (primoEmesso && primoEmesso.righe && primoEmesso.righe.length > 0) {
+                    const primoDiv = buildBloccoOrdineExtra(forn, primoEmesso);
+                    if (primoDiv) bodyEl.insertBefore(primoDiv, bodyEl.firstChild);
+                }
+            }
         }
 
         // Ripristina gli stati visivi degli ordini già confermati
         aggiornaStatoVisivo();
+    }
+
+    /**
+     * Phase 6: Costruisce un sub-blocco per un ordine extra (2°+ ordine per lo stesso fornitore).
+     * Renderizzato come sub-card indentata dentro il body del fornitore padre.
+     */
+    function buildBloccoOrdineExtra(forn, extra) {
+        const righe = extra.righe || [];
+        if (righe.length === 0) return null;
+
+        const bcubeLabel = extra.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
+
+        let htmlRighe = '';
+        let totaleValore = 0;
+        for (const r of righe) {
+            const valore = (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
+            totaleValore += valore;
+            htmlRighe += `<tr>
+                <td>${esc(r.ol_codart)}</td>
+                <td>${esc(r.ar_descr || '')}</td>
+                <td>${fmtDate(r.ol_datcons)}</td>
+                <td>${esc(r.ol_unmis || 'PZ')}</td>
+                <td class="num">${fmtNum(r.ol_quant, 3)}</td>
+                <td class="num">${fmtNum(r.ol_prezzo, 4)}</td>
+                <td class="num">\u20ac ${fmtNum(valore, 2)}</td>
+            </tr>`;
+        }
+
+        const div = document.createElement('div');
+        div.className = 'proposta-ordine-extra';
+        div.innerHTML = `
+            <div class="proposta-extra-header" data-forn="${escAttr(forn.codice)}"
+                 data-extra-anno="${escAttr(String(extra.anno))}"
+                 data-extra-serie="${escAttr(extra.serie)}"
+                 data-extra-numord="${escAttr(String(extra.numord))}">
+                <span class="extra-label">Ordine separato <strong>${esc(String(extra.numord))}/${esc(extra.serie)}</strong>${bcubeLabel}</span>
+                <span class="extra-actions"></span>
+            </div>
+            <table class="proposta-extra-table">
+                <thead>
+                    <tr>
+                        <th>Cod. Articolo</th>
+                        <th>Descrizione</th>
+                        <th>Dt.Cons.</th>
+                        <th>UM</th>
+                        <th class="num">Quantit\u00e0</th>
+                        <th class="num">Prezzo</th>
+                        <th class="num">Valore</th>
+                    </tr>
+                </thead>
+                <tbody>${htmlRighe}</tbody>
+            </table>
+            <div class="extra-totale">
+                Totale ordine \u2192 <strong>\u20ac ${fmtNum(totaleValore, 2)}</strong>
+            </div>
+        `;
+
+        return div;
     }
 
     function fmtNum(n, decimals) {
@@ -462,49 +665,170 @@ const MrpProposta = (() => {
     function aggiornaStatoVisivo() {
         const confermati = MrpApp.state.ordiniConfermati;
 
+        // Pulizia dal ciclo precedente
+        document.querySelectorAll('.proposta-scorporo').forEach(el => el.remove());
+        document.querySelectorAll('.proposta-card-emetti').forEach(el => el.remove());
+        // Ripristina card nascoste (tutto-confermato nascondeva la card intera)
+        document.querySelectorAll('.proposta-articolo').forEach(el => { el.style.display = ''; });
+
+        // ── Passo 1: itero le card articolo, nascondo righe confermate,
+        //    marco le card confermate, e raccolgo tutti i confermati per fornitore ──
+        // Map<fornCode, Map<dataCons, Array<{key, ordine}>>>
+        const confPerFornData = new Map();
+
         document.querySelectorAll('.proposta-articolo').forEach(artEl => {
             const codartEl = artEl.querySelector('.proposta-art-codart');
             if (!codartEl) return;
 
-            const key = MrpApp.getKeyOrdine(
-                codartEl.dataset.fornitore,
-                codartEl.dataset.codart,
-                codartEl.dataset.fase || '0',
-                codartEl.dataset.magaz || '1'
-            );
-            const ordine = confermati.get(key);
+            artEl.classList.remove('proposta-art-confermato');
+            artEl.querySelectorAll('.proposta-conferma-badge').forEach(b => b.remove());
 
-            artEl.classList.remove('proposta-art-confermato', 'proposta-art-escluso');
-            const oldBadge = artEl.querySelector('.proposta-conferma-badge');
-            if (oldBadge) oldBadge.remove();
+            // Ripristina righe nascoste
+            artEl.querySelectorAll('tr[data-progr]').forEach(tr => { tr.style.display = ''; });
+            const mdBadge = artEl.querySelector('.proposta-multidate-badge');
 
-            if (ordine) {
-                const badge = document.createElement('div');
-                badge.className = 'proposta-conferma-badge';
-                if (ordine.escluso) {
-                    artEl.classList.add('proposta-art-escluso');
-                    badge.classList.add('proposta-badge-escluso');
-                    badge.innerHTML = '&#x2717; Escluso'
-                        + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi esclusione">&#128465;</button>';
-                } else {
-                    artEl.classList.add('proposta-art-confermato');
-                    badge.classList.add('proposta-badge-confermato');
-                    const dataFmt = ordine.data_consegna
-                        ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
-                    const valore = ordine.quantita_confermata * ordine.prezzo;
-                    badge.innerHTML =
-                        '<span class="conferma-icon">&#x2713;</span> '
-                        + '<strong>' + Number(ordine.quantita_confermata).toLocaleString('it-IT') + ' ' + esc(ordine.ol_unmis || 'PZ') + '</strong>'
-                        + ' entro ' + esc(dataFmt)
-                        + (valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')
-                        + ' <button class="btn-modifica-conferma" data-key="' + escAttr(key) + '" title="Modifica">&#9998;</button>'
-                        + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi conferma">&#128465;</button>';
-                }
-                artEl.appendChild(badge);
+            const progrList = (codartEl.dataset.olprogrlist || '').split(',').filter(Boolean);
+            const ordiniCard = [];
+            for (const p of progrList) {
+                const ordine = confermati.get(p);
+                if (ordine) ordiniCard.push({ key: p, ordine });
+            }
+            if (progrList.length === 0) {
+                const singleProgr = codartEl.dataset.olprogr || '0';
+                const ordine = confermati.get(singleProgr);
+                if (ordine) ordiniCard.push({ key: singleProgr, ordine });
+            }
+
+            if (ordiniCard.length === 0) return;
+
+            const isMulti = progrList.length > 1;
+            const tuttiConfermati = isMulti && ordiniCard.length === progrList.length;
+            const parziale = isMulti && !tuttiConfermati;
+
+            // Nascondi righe confermate nella tabella (sia parziale che tutto)
+            for (const { key } of ordiniCard) {
+                const tr = artEl.querySelector(`tr[data-progr="${key}"]`);
+                if (tr) tr.style.display = 'none';
+            }
+
+            if (parziale) {
+                const residue = progrList.length - ordiniCard.length;
+                if (mdBadge) mdBadge.textContent = residue + ' date';
+                _ricalcolaTotaleArticolo(artEl);
+            } else {
+                // Tutta la card confermata → nascondo la card intera
+                artEl.classList.add('proposta-art-confermato');
+                artEl.style.display = 'none';
+            }
+
+            // Raccogli per (fornitore, data)
+            for (const { key, ordine } of ordiniCard) {
+                const fk = String(ordine.fornitore_codice);
+                const dt = ordine.data_consegna || 'no-date';
+                if (!confPerFornData.has(fk)) confPerFornData.set(fk, new Map());
+                const byDate = confPerFornData.get(fk);
+                if (!byDate.has(dt)) byDate.set(dt, []);
+                byDate.get(dt).push({ key, ordine });
             }
         });
 
+        // ── Passo 2: per ogni (fornitore, data), creo un blocco ordine visuale ──
+        for (const [fornCode, byDate] of confPerFornData) {
+            const fornEl = document.querySelector(`.proposta-fornitore-header[data-forn="${fornCode}"]`);
+            if (!fornEl) continue;
+            const bodyEl = fornEl.nextElementSibling;
+            if (!bodyEl) continue;
+
+            for (const [dataConsegna, items] of byDate) {
+                const blocco = _buildBloccoOrdineConfermato(items, dataConsegna);
+                bodyEl.insertBefore(blocco, bodyEl.firstChild);
+            }
+        }
+
         aggiornaBarreFornitori();
+    }
+
+    /**
+     * Costruisce un blocco visuale "ordine in attesa di emissione" che raggruppa
+     * tutti gli articoli confermati per la stessa (fornitore, data_consegna).
+     * Mostra una mini-tabella con tutti gli articoli + bottone Emetti.
+     */
+    function _buildBloccoOrdineConfermato(items, dataConsegna) {
+        const div = document.createElement('div');
+        div.className = 'proposta-articolo proposta-scorporo proposta-art-confermato';
+
+        const dataFmt = dataConsegna && dataConsegna !== 'no-date'
+            ? new Date(dataConsegna).toLocaleDateString('it-IT') : 'Senza data';
+        const allKeys = items.map(i => i.key).join(',');
+        const fornCode = items[0].ordine.fornitore_codice;
+
+        let totValore = 0;
+        let htmlRighe = '';
+        for (const { key, ordine } of items) {
+            const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
+            totValore += valore;
+            htmlRighe += `<tr>
+                <td>${esc(ordine.ol_codart)}</td>
+                <td>${esc(ordine.ar_descr || '')}</td>
+                <td class="num">${Number(ordine.quantita_confermata).toLocaleString('it-IT')}</td>
+                <td>${esc(ordine.ol_unmis || 'PZ')}</td>
+                <td class="num">${(ordine.prezzo || 0).toFixed(4)}</td>
+                <td class="num">\u20ac ${valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td>
+                    <button class="btn-modifica-conferma" data-key="${escAttr(key)}" title="Modifica">&#9998;</button>
+                    <button class="btn-rimuovi-conferma" data-key="${escAttr(key)}" title="Rimuovi">&#128465;</button>
+                </td>
+            </tr>`;
+        }
+
+        div.innerHTML = `
+            <div class="proposta-scorporo-header">
+                <span class="conferma-icon">\u2713</span>
+                <strong>Ordine da emettere</strong> \u2014 consegna ${esc(dataFmt)}
+                <span class="proposta-scorporo-count">${items.length} art. \u2014 \u20ac ${totValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <button class="btn-emetti-card" data-forn="${escAttr(fornCode)}" data-keys="${escAttr(allKeys)}">Emetti \u2192</button>
+            </div>
+            <table class="proposta-scorporo-table">
+                <thead>
+                    <tr>
+                        <th>Cod. Articolo</th>
+                        <th>Descrizione</th>
+                        <th class="num">Quantit\u00e0</th>
+                        <th>UM</th>
+                        <th class="num">Prezzo</th>
+                        <th class="num">Valore</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>${htmlRighe}</tbody>
+            </table>
+        `;
+
+        return div;
+    }
+
+    /**
+     * Ricalcola il totale articolo nella card dopo aver nascosto righe scorporate.
+     */
+    function _ricalcolaTotaleArticolo(artEl) {
+        const tfoot = artEl.querySelector('.proposta-art-totale');
+        if (!tfoot) return;
+        let totColli = 0, totQuant = 0;
+        artEl.querySelectorAll('tbody tr[data-progr]').forEach(tr => {
+            if (tr.style.display === 'none') return;
+            const cells = tr.querySelectorAll('td');
+            if (cells.length >= 5) {
+                const colli = parseFloat((cells[2].textContent || '0').replace(/\./g, '').replace(',', '.')) || 0;
+                const quant = parseFloat((cells[4].textContent || '0').replace(/\./g, '').replace(',', '.')) || 0;
+                totColli += colli;
+                totQuant += quant;
+            }
+        });
+        const tds = tfoot.querySelectorAll('td');
+        if (tds.length >= 5) {
+            tds[2].textContent = fmtNum(totColli, 2);
+            tds[4].textContent = fmtNum(totQuant, 2);
+        }
     }
 
     function aggiornaBarreFornitori() {
@@ -516,28 +840,14 @@ const MrpProposta = (() => {
             if (!header || articoli.length === 0) return;
 
             const fornCode = header.dataset.forn;
-            let tuttiGestiti = true;
             let conteggioConfermati = 0;
-            let conteggioEsclusi = 0;
             let totaleValore = 0;
 
-            articoli.forEach(artEl => {
-                const codartEl = artEl.querySelector('.proposta-art-codart');
-                if (!codartEl) { tuttiGestiti = false; return; }
-                const key = MrpApp.getKeyOrdine(
-                    codartEl.dataset.fornitore,
-                    codartEl.dataset.codart,
-                    codartEl.dataset.fase || '0',
-                    codartEl.dataset.magaz || '1'
-                );
-                const ordine = confermati.get(key);
-                if (!ordine) {
-                    tuttiGestiti = false;
-                } else if (ordine.escluso) {
-                    conteggioEsclusi++;
-                } else {
+            // Conta conferme per fornitore scorrendo tutti gli ol_progr confermati
+            confermati.forEach((ordine, key) => {
+                if (String(ordine.fornitore_codice) === String(fornCode)) {
                     conteggioConfermati++;
-                    totaleValore += ordine.quantita_confermata * ordine.prezzo;
+                    totaleValore += ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
                 }
             });
 
@@ -550,88 +860,71 @@ const MrpProposta = (() => {
                 header.appendChild(statoBadge);
             }
 
-            // Rimuovi vecchi pulsanti emetti
+            // Rimuovi vecchi pulsanti/badge
             const oldBtn = header.querySelector('.btn-emetti-ordine');
             if (oldBtn) oldBtn.remove();
-            const oldEmesso = header.querySelector('.fornitore-emesso-badge');
-            if (oldEmesso) oldEmesso.remove();
+            header.querySelectorAll('.fornitore-emesso-badge').forEach(el => el.remove());
+            const oldCongelato = header.querySelector('.fornitore-congelato-badge');
+            if (oldCongelato) oldCongelato.remove();
 
-            // Controlla se ordine gia emesso
+            // Badge informativo ordini già emessi + email inviata (congelati)
+            const congelati = ordiniCongelati.get(fornCode);
+            if (congelati && congelati.length > 0) {
+                const congBadge = document.createElement('span');
+                congBadge.className = 'fornitore-congelato-badge';
+                const labels = congelati.map(c => {
+                    const dt = c.email_inviata_il
+                        ? ' il ' + new Date(c.email_inviata_il).toLocaleDateString('it-IT')
+                        : '';
+                    return '\u2709 ' + c.numord + '/' + c.serie + dt;
+                }).join(' · ');
+                congBadge.innerHTML = '\u2713 Ordine emesso e inviato: ' + esc(labels);
+                congBadge.title = 'Articoli di questi ordini nascosti dalla vista (email già inviata)';
+                header.appendChild(congBadge);
+            }
+
+            // Ordini emessi: i pulsanti PDF/Email/Annulla sono nei sub-blocchi dentro il body,
+            // non nella barra blu. Qui aggiorniamo solo le pulsantiere dei sub-blocchi.
             const emesso = ordiniEmessi.get(fornCode);
             if (emesso) {
                 header.classList.add('fornitore-emesso');
-                statoBadge.style.display = 'none';
-                const emessoBadge = document.createElement('span');
-                emessoBadge.className = 'fornitore-emesso-badge';
-
-                const emailIcon = emesso.email_inviata ? ' \u2709' : '';
-                emessoBadge.innerHTML = '&#x1F4C4; Ordine ' + emesso.numord + '/' + emesso.serie + emailIcon;
-
-                const btnPdf = document.createElement('button');
-                btnPdf.className = 'btn-scarica-pdf-forn';
-                btnPdf.textContent = '\u2B07 PDF';
-                btnPdf.title = 'Scarica PDF ordine';
-                btnPdf.addEventListener('click', (e) => { e.stopPropagation(); scaricaPdf(emesso); });
-                emessoBadge.appendChild(btnPdf);
-
-                // Dropdown template email
-                const tplSelectHtml = buildTemplateSelect(fornCode);
-                if (tplSelectHtml) {
-                    const tplWrapper = document.createElement('span');
-                    tplWrapper.innerHTML = tplSelectHtml;
-                    const selectEl = tplWrapper.firstElementChild;
-                    selectEl.addEventListener('click', (e) => e.stopPropagation());
-                    selectEl.addEventListener('change', (e) => {
-                        e.stopPropagation();
-                        onTemplateSelectChange(fornCode, parseInt(selectEl.value, 10));
-                    });
-                    emessoBadge.appendChild(selectEl);
-                }
-
-                const btnEmail = document.createElement('button');
-                btnEmail.className = 'btn-invia-email-forn';
-                if (emesso.email_inviata) {
-                    btnEmail.textContent = '\u2709 Re-invia Email';
-                    btnEmail.classList.add('email-gia-inviata');
-                } else {
-                    btnEmail.textContent = '\u2709 Invia Email';
-                    btnEmail.classList.add('email-non-inviata');
-                }
-                btnEmail.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const sel = header.querySelector('.select-template-forn');
-                    const templateId = sel ? parseInt(sel.value, 10) : null;
-                    inviaEmailOrdine(emesso, { template_id: templateId });
-                });
-                emessoBadge.appendChild(btnEmail);
-
-                header.appendChild(emessoBadge);
-                return;
+                aggiornaHeaderOrdineExtra(fornCode, emesso);
             }
 
-            const gestiti = conteggioConfermati + conteggioEsclusi;
-            if (tuttiGestiti && gestiti > 0) {
-                header.classList.add('fornitore-completato');
-                statoBadge.textContent = '\u2713 ' + conteggioConfermati + ' art. \u2014 \u20ac '
-                    + totaleValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                statoBadge.style.display = '';
+            const extras = ordiniEmessiExtra.get(fornCode);
+            if (extras && extras.length > 0) {
+                for (const ex of extras) {
+                    aggiornaHeaderOrdineExtra(fornCode, ex);
+                }
+            }
 
-                // Aggiungi pulsante "Emetti Ordine"
-                if (conteggioConfermati > 0) {
+            // Nuova regola: basta 1 articolo confermato per sbloccare l'emissione.
+            // Lo stato di emissione (nessuno/email_pending/email_sent) è esposto su dataset
+            // per facilitare il batch handler "Emetti Tutti".
+            let statoEmissione = 'nessuno';
+            if (emesso) statoEmissione = 'email_pending';
+            else if (congelati && congelati.length > 0) statoEmissione = 'email_sent';
+            header.dataset.statoEmissione = statoEmissione;
+            header.dataset.conteggioConfermati = String(conteggioConfermati);
+
+            if (conteggioConfermati > 0) {
+                header.classList.add('fornitore-completato');
+                // I bottoni "Emetti" sono ora sulle card singole.
+                // Nella barra blu: solo "Emetti Tutti (N)" se N >= 2 per batch fornitore.
+                if (conteggioConfermati >= 2) {
+                    statoBadge.style.display = 'none';
                     const btn = document.createElement('button');
                     btn.className = 'btn-emetti-ordine';
-                    btn.textContent = 'Emetti Ordine \u2192';
+                    btn.textContent = 'Emetti Tutti (' + conteggioConfermati + ') \u2192';
                     btn.dataset.forn = fornCode;
                     btn.addEventListener('click', (e) => {
                         e.stopPropagation();
                         apriModaleEmettiOrdine(fornCode);
                     });
                     header.appendChild(btn);
+                } else {
+                    statoBadge.style.display = 'none';
                 }
-            } else if (gestiti > 0) {
-                header.classList.add('fornitore-parziale');
-                statoBadge.textContent = gestiti + '/' + articoli.length + ' gestiti';
-                statoBadge.style.display = '';
             } else {
                 statoBadge.style.display = 'none';
             }
@@ -644,47 +937,212 @@ const MrpProposta = (() => {
     // ORDINI GIA EMESSI (ripristinati dal server ad ogni caricamento)
     // ============================================================
     const ordiniEmessi = new Map(); // key = fornitore_codice, value = { anno, serie, numord, pdf_base64, pdf_filename, email, fornitore_nome }
+    // 2° e successivi ordini pending per lo stesso fornitore (caso raro: operatore ha
+    // emesso volontariamente più ordini separati). ordiniEmessi contiene il primo,
+    // questa Map contiene gli extra. Ogni entry ha la stessa shape di ordiniEmessi.
+    const ordiniEmessiExtra = new Map(); // key = fornitore_codice, value = Array<ordine>
+    // Ordini "congelati" — già emessi E con email inviata. Righe escluse dalla vista proposta.
+    const ordiniCongelati = new Map(); // key = fornitore_codice, value = [ { anno, serie, numord, email_inviata_il, fornitore_nome } ]
 
     // Cache PDF in memoria per la sessione (i PDF non sono nel DB, solo nel response dell'emissione)
-    const pdfCache = new Map(); // key = fornitore_codice, value = { pdf_base64, pdf_filename }
+    const pdfCache = new Map(); // key = "anno|serie|numord", value = { pdf_base64, pdf_filename }
+
+    function pdfCacheKey(anno, serie, numord) {
+        return `${anno}|${serie}|${numord}`;
+    }
 
     /**
-     * Ripristina ordiniEmessi dalla risposta del server (righe con emesso=true).
-     * Raggruppa per fornitore: se TUTTE le righe di un fornitore sono emesse,
-     * marca il fornitore come emesso nella Map.
-     * Questa è l'unica fonte di verità per lo stato "emesso".
+     * Ripristina ordiniEmessi + ordiniCongelati dalla risposta del server.
+     * - Righe con emesso=true + email_inviata=false → ordiniEmessi (email-pending, mutabile via merge)
+     * - Righe con emesso=true + email_inviata=true → ordiniCongelati (filtrate dalla vista)
+     * Ritorna l'array di righe da mostrare (escluse le congelate).
      */
     function ripristinaOrdiniEmessiDaServer(righe) {
-        // Svuota la Map — verrà ripopolata interamente dal server
         ordiniEmessi.clear();
+        ordiniEmessiExtra.clear();
+        ordiniCongelati.clear();
 
-        // Raggruppa righe per fornitore
-        const fornitori = new Map();
+        // Raggruppa righe emesse per fornitore e per (anno|serie|numord)
+        const pendingByForn = new Map(); // fk -> { ordKey -> entry }
+        const congelatiByForn = new Map(); // fk -> Map<ordKey, entry>
+        const righeFiltrate = [];
+
         for (const r of righe) {
-            const fk = String(r.fornitore_codice);
-            if (!fornitori.has(fk)) fornitori.set(fk, { righe: [], nome: r.fornitore_nome || '' });
-            fornitori.get(fk).righe.push(r);
+            if (r.emesso && r.email_inviata) {
+                const fk = String(r.fornitore_codice);
+                const ordKey = `${r.ord_anno}|${r.ord_serie}|${r.ord_numord}`;
+                if (!congelatiByForn.has(fk)) congelatiByForn.set(fk, new Map());
+                if (!congelatiByForn.get(fk).has(ordKey)) {
+                    congelatiByForn.get(fk).set(ordKey, {
+                        anno: r.ord_anno,
+                        serie: r.ord_serie,
+                        numord: r.ord_numord,
+                        email_inviata_il: r.email_inviata_il || null,
+                        fornitore_nome: r.fornitore_nome || '',
+                        fornitore_codice: fk,
+                        origine: r.origine || 'gb2'
+                    });
+                }
+                // Riga nascosta dalla vista
+                continue;
+            }
+            righeFiltrate.push(r);
+
+            if (r.emesso && !r.email_inviata) {
+                const fk = String(r.fornitore_codice);
+                const ordKey = `${r.ord_anno}|${r.ord_serie}|${r.ord_numord}`;
+                if (!pendingByForn.has(fk)) pendingByForn.set(fk, new Map());
+                if (!pendingByForn.get(fk).has(ordKey)) {
+                    pendingByForn.get(fk).set(ordKey, {
+                        anno: r.ord_anno,
+                        serie: r.ord_serie,
+                        numord: r.ord_numord,
+                        fornitore_nome: r.fornitore_nome || '',
+                        fornitore_codice: fk,
+                        fornitore_email: r.fornitore_email || '',
+                        origine: r.origine || 'gb2',
+                        righe: []
+                    });
+                }
+                pendingByForn.get(fk).get(ordKey).righe.push(r);
+            }
         }
 
-        for (const [fk, info] of fornitori) {
-            const tutteEmesse = info.righe.every(r => r.emesso === true);
-            if (tutteEmesse && info.righe.length > 0) {
-                const primo = info.righe[0];
-                const cached = pdfCache.get(fk) || {};
-                ordiniEmessi.set(fk, {
-                    anno: primo.ord_anno,
-                    serie: primo.ord_serie,
-                    numord: primo.ord_numord,
-                    pdf_base64: cached.pdf_base64 || null,
-                    pdf_filename: cached.pdf_filename || null,
-                    email: '', // il pulsante email appare sempre, il server verificherà
-                    email_inviata: !!primo.email_inviata,
-                    email_inviata_il: primo.email_inviata_il || null,
-                    fornitore_nome: info.nome,
-                    fornitore_codice: fk,
-                    fornitore_email: info.righe[0].fornitore_email || ''
-                });
+        // Filtra da righeFiltrate TUTTE le righe emesse pending (primo + extra).
+        // Ogni ordine emesso ha il proprio sub-blocco nel body del fornitore,
+        // quindi le righe non devono apparire anche nella lista proposte.
+        const emesseRigheSet = new Set();
+        for (const [fk, ordMap] of pendingByForn) {
+            for (const [ordKey, entry] of ordMap) {
+                for (const r of entry.righe) {
+                    emesseRigheSet.add(fk + '|' + String(r.ol_progr || r.ol_codart + '|' + (r.ol_fase || 0) + '|' + (r.ol_magaz || 1)));
+                }
             }
+        }
+        const righeFiltrateFinal = righeFiltrate.filter(r => {
+            if (!r.emesso) return true;
+            const fk = String(r.fornitore_codice);
+            const rKey = fk + '|' + String(r.ol_progr || r.ol_codart + '|' + (r.ol_fase || 0) + '|' + (r.ol_magaz || 1));
+            return !emesseRigheSet.has(rKey);
+        });
+
+        // Popola ordiniEmessi con il primo ordine pending per fornitore e ordiniEmessiExtra
+        // con eventuali successivi (caso raro: operatore ha creato più ordini separati).
+        for (const [fk, ordMap] of pendingByForn) {
+            const entries = Array.from(ordMap.values());
+            const primo = entries[0];
+            const cached = pdfCache.get(pdfCacheKey(primo.anno, primo.serie, primo.numord)) || {};
+            ordiniEmessi.set(fk, {
+                anno: primo.anno,
+                serie: primo.serie,
+                numord: primo.numord,
+                pdf_base64: cached.pdf_base64 || null,
+                pdf_filename: cached.pdf_filename || null,
+                email: '',
+                email_inviata: false,
+                email_inviata_il: null,
+                fornitore_nome: primo.fornitore_nome,
+                fornitore_codice: fk,
+                fornitore_email: primo.fornitore_email,
+                origine: primo.origine,
+                righe: primo.righe || []
+            });
+            if (entries.length > 1) {
+                const extras = entries.slice(1).map(e => ({
+                    anno: e.anno,
+                    serie: e.serie,
+                    numord: e.numord,
+                    pdf_base64: null,
+                    pdf_filename: null,
+                    email: '',
+                    email_inviata: false,
+                    email_inviata_il: null,
+                    fornitore_nome: e.fornitore_nome,
+                    fornitore_codice: fk,
+                    fornitore_email: e.fornitore_email,
+                    origine: e.origine,
+                    righe: e.righe || []
+                }));
+                ordiniEmessiExtra.set(fk, extras);
+            }
+        }
+
+        // Popola ordiniCongelati
+        for (const [fk, ordMap] of congelatiByForn) {
+            ordiniCongelati.set(fk, Array.from(ordMap.values()));
+        }
+
+        return righeFiltrateFinal;
+    }
+
+    /**
+     * Phase 6: Aggiunge pulsanti PDF/Email/Annulla al blocco ordine extra.
+     * I pulsanti usano le stesse classi del badge ordine principale per coerenza visiva.
+     */
+    /**
+     * Aggiunge pulsanti PDF / Template / Email / Annulla al sub-blocco ordine.
+     * Usato sia per il primo ordine che per gli extra — stessa pulsantiera per tutti.
+     */
+    function aggiornaHeaderOrdineExtra(fornCode, emesso) {
+        const sel = `.proposta-extra-header[data-forn="${fornCode}"][data-extra-numord="${emesso.numord}"][data-extra-serie="${emesso.serie}"]`;
+        const headerEl = document.querySelector(sel);
+        if (!headerEl) return;
+
+        const actionsEl = headerEl.querySelector('.extra-actions');
+        if (!actionsEl) return;
+        actionsEl.innerHTML = '';
+
+        // PDF
+        const btnPdf = document.createElement('button');
+        btnPdf.className = 'btn-scarica-pdf-forn';
+        btnPdf.textContent = '\u2B07 PDF';
+        btnPdf.title = 'Scarica PDF ordine';
+        btnPdf.addEventListener('click', (e) => { e.stopPropagation(); scaricaPdf(emesso); });
+        actionsEl.appendChild(btnPdf);
+
+        // Template select
+        const tplSelectHtml = buildTemplateSelect(fornCode);
+        if (tplSelectHtml) {
+            const tplWrapper = document.createElement('span');
+            tplWrapper.innerHTML = tplSelectHtml;
+            const selectEl = tplWrapper.firstElementChild;
+            selectEl.addEventListener('click', (e) => e.stopPropagation());
+            selectEl.addEventListener('change', (e) => {
+                e.stopPropagation();
+                onTemplateSelectChange(fornCode, parseInt(selectEl.value, 10));
+            });
+            actionsEl.appendChild(selectEl);
+        }
+
+        // Email
+        const btnEmail = document.createElement('button');
+        btnEmail.className = 'btn-invia-email-forn';
+        if (emesso.email_inviata) {
+            btnEmail.textContent = '\u2709 Re-invia Email';
+            btnEmail.classList.add('email-gia-inviata');
+        } else {
+            btnEmail.textContent = '\u2709 Invia Email';
+            btnEmail.classList.add('email-non-inviata');
+        }
+        btnEmail.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const tplSel = actionsEl.querySelector('.select-template-forn');
+            const templateId = tplSel ? parseInt(tplSel.value, 10) : null;
+            inviaEmailOrdine(emesso, { template_id: templateId });
+        });
+        actionsEl.appendChild(btnEmail);
+
+        // Annulla (solo se email non ancora inviata)
+        if (!emesso.email_inviata) {
+            const btnAnnulla = document.createElement('button');
+            btnAnnulla.className = 'btn-annulla-ordine';
+            btnAnnulla.textContent = '\u274C Annulla';
+            btnAnnulla.title = 'Annulla ordine ' + emesso.numord + '/' + emesso.serie;
+            btnAnnulla.addEventListener('click', (e) => {
+                e.stopPropagation();
+                apriModaleAnnullaOrdine(emesso);
+            });
+            actionsEl.appendChild(btnAnnulla);
         }
     }
 
@@ -696,19 +1154,23 @@ const MrpProposta = (() => {
         if (!listEl) return;
 
         let barraEl = document.getElementById('barraEmettiTutti');
+        // Fornitori con >=1 articolo confermato (tutti potenzialmente emettibili).
+        // Quelli email-pending faranno partire un dialog merge e vengono skippati dal batch,
+        // ma li contiamo comunque come "pronti" per il wording del bottone.
         const completati = document.querySelectorAll('.proposta-fornitore-header.fornitore-completato');
 
-        // Conta fornitori pronti (completati e non ancora emessi)
         let fornitoriPronti = 0;
         completati.forEach(h => {
-            const fc = h.dataset.forn;
-            if (!ordiniEmessi.has(fc)) fornitoriPronti++;
+            if (Number(h.dataset.conteggioConfermati || '0') > 0) fornitoriPronti++;
         });
 
-        // Conta email pendenti (emessi ma email non ancora inviata)
+        // Conta email pendenti (emessi ma email non ancora inviata) — include anche gli extras.
         let emailPendenti = 0;
         ordiniEmessi.forEach(emesso => {
             if (!emesso.email_inviata) emailPendenti++;
+        });
+        ordiniEmessiExtra.forEach(arr => {
+            for (const ex of arr) { if (!ex.email_inviata) emailPendenti++; }
         });
 
         if (fornitoriPronti === 0 && emailPendenti === 0) {
@@ -734,10 +1196,13 @@ const MrpProposta = (() => {
 
         // Costruisci bottoni
         let bottoni = '';
-        if (fornitoriPronti > 0) {
+        const emissioneAttiva = _batchUnifiedState.active && _batchUnifiedState.emissioneProgress.done < _batchUnifiedState.emissioneProgress.total;
+        if (emissioneAttiva) {
+            bottoni += `<button type="button" class="btn-emetti-tutti" id="btnMostraProgresso">\uD83D\uDCCA Mostra progresso</button>`;
+        } else if (fornitoriPronti > 0) {
             bottoni += `<button type="button" class="btn-emetti-tutti" id="btnEmettiTutti">&#x1F4E8; Emetti Tutti</button>`;
         }
-        if (emailPendenti > 0) {
+        if (emailPendenti > 0 && !emissioneAttiva) {
             bottoni += `<button type="button" class="btn-invia-tutte-email" id="btnInviaTutteEmail">\u2709\uFE0F Invia Tutte le Email</button>`;
         }
 
@@ -749,6 +1214,8 @@ const MrpProposta = (() => {
 
         const btnEmetti = document.getElementById('btnEmettiTutti');
         if (btnEmetti) btnEmetti.addEventListener('click', emettiTuttiHandler);
+        const btnProgresso = document.getElementById('btnMostraProgresso');
+        if (btnProgresso) btnProgresso.addEventListener('click', () => inviaTutteEmailHandler());
         const btnEmail = document.getElementById('btnInviaTutteEmail');
         if (btnEmail) btnEmail.addEventListener('click', inviaTutteEmailHandler);
     }
@@ -756,6 +1223,107 @@ const MrpProposta = (() => {
     // ============================================================
     // MODALE GENERICA (sostituisce alert/confirm)
     // ============================================================
+    // Modale con scheda fornitore + form bancario editabile (per warning pre-email)
+    function modaleBancaMancante(fornitore, warningMsg) {
+        return new Promise(resolve => {
+            const id = 'modalBancaWarn_' + Date.now();
+            const overlay = document.createElement('div');
+            overlay.id = id;
+            overlay.className = 'mrp-modal-overlay open';
+
+            const bankFormHtml =
+                '<div class="bank-form" data-codice="' + fornitore.codice + '" style="margin-top:10px;">' +
+                '<div class="bank-form-title">\uD83C\uDFE6 Dati bancari</div>' +
+                '<div class="bank-form-row"><label>Banca</label><input type="text" name="banca1" value="' + esc(fornitore.banca1 || '') + '" placeholder="Nome banca"></div>' +
+                '<div class="bank-form-row"><label>Filiale</label><input type="text" name="banca2" value="' + esc(fornitore.banca2 || '') + '" placeholder="Filiale / Agenzia"></div>' +
+                '<div class="bank-form-row-double">' +
+                    '<div><label>ABI</label><input type="text" name="abi" value="' + (fornitore.abi > 0 ? String(fornitore.abi).padStart(5,'0') : '') + '" maxlength="5" placeholder="00000"></div>' +
+                    '<div><label>CAB</label><input type="text" name="cab" value="' + (fornitore.cab > 0 ? String(fornitore.cab).padStart(5,'0') : '') + '" maxlength="5" placeholder="00000"></div>' +
+                '</div>' +
+                '<div class="bank-form-row"><label>IBAN</label><input type="text" name="iban" value="' + esc(fornitore.iban || '') + '" placeholder="IT00X0000000000000000000000" style="font-family:monospace;letter-spacing:1px;"></div>' +
+                '<div class="bank-form-row"><label>SWIFT</label><input type="text" name="swift" value="' + esc(fornitore.swift || '') + '" maxlength="14" placeholder="BPPIITRRXXX" style="font-family:monospace;"></div>' +
+                '<div class="bank-form-actions"><button class="bank-form-save" id="' + id + '_save">Salva dati bancari</button></div>' +
+                '</div>';
+
+            overlay.innerHTML =
+                '<div class="mrp-modal" style="max-width:520px;">' +
+                    '<div class="mrp-modal-header"><h3>\u26A0\uFE0F Dati bancari mancanti</h3>' +
+                    '<button class="mrp-modal-close" id="' + id + '_close">&times;</button></div>' +
+                    '<div style="padding:16px 20px;">' +
+                        '<div style="margin-bottom:12px;">' +
+                            '<div style="font-size:1rem; font-weight:700;">' + esc(fornitore.nome || '') + '</div>' +
+                            '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">' +
+                                '\uD83D\uDCCD ' + esc(fornitore.indirizzo || '') + (fornitore.citta ? ' \u2014 ' + esc(fornitore.citta) : '') +
+                            '</div>' +
+                            (fornitore.email ? '<div style="font-size:0.78rem; margin-top:2px;">\u2709 ' + esc(fornitore.email) + '</div>' : '') +
+                            '<div style="font-size:0.78rem; margin-top:2px;">\uD83D\uDCB3 ' + esc(fornitore.pagamento || 'N/D') + '</div>' +
+                        '</div>' +
+                        '<div style="font-size:0.82rem; color:var(--danger); margin-bottom:8px;">' + esc(warningMsg) + '</div>' +
+                        bankFormHtml +
+                        '<div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">' +
+                            '<button class="mrp-btn-secondary" id="' + id + '_cancel">Annulla</button>' +
+                            '<button class="mrp-btn-primary" id="' + id + '_send" style="background:var(--warning); border-color:var(--warning);">Invia senza banca</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            // Close / Cancel
+            document.getElementById(id + '_close').addEventListener('click', () => { overlay.remove(); resolve('cancel'); });
+            document.getElementById(id + '_cancel').addEventListener('click', () => { overlay.remove(); resolve('cancel'); });
+
+            // Invia senza banca
+            document.getElementById(id + '_send').addEventListener('click', () => { overlay.remove(); resolve('send_anyway'); });
+
+            // Salva dati bancari
+            document.getElementById(id + '_save').addEventListener('click', async () => {
+                const form = overlay.querySelector('.bank-form');
+                const btn = document.getElementById(id + '_save');
+                btn.disabled = true;
+                btn.textContent = 'Salvataggio...';
+                try {
+                    const body = {
+                        banca1: form.querySelector('[name="banca1"]').value.trim(),
+                        banca2: form.querySelector('[name="banca2"]').value.trim(),
+                        abi: form.querySelector('[name="abi"]').value.trim(),
+                        cab: form.querySelector('[name="cab"]').value.trim(),
+                        iban: form.querySelector('[name="iban"]').value.trim().replace(/\s/g, ''),
+                        swift: form.querySelector('[name="swift"]').value.trim()
+                    };
+                    const res = await fetch(MrpApp.API_BASE + '/fornitore-anagrafica/' + fornitore.codice, {
+                        method: 'PUT', credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    const data = await res.json();
+                    if (!data.success) throw new Error('Errore');
+
+                    btn.textContent = '\u2713 Salvato!';
+                    btn.className = 'bank-form-save success';
+                    form.querySelectorAll('input').forEach(i => i.classList.add('saved'));
+
+                    // Cambia il bottone "Invia senza banca" in "Invia email"
+                    const sendBtn = document.getElementById(id + '_send');
+                    sendBtn.textContent = 'Invia email';
+                    sendBtn.style.background = 'var(--primary)';
+                    sendBtn.style.borderColor = 'var(--primary)';
+
+                    // Click su "Invia email" → resolve saved
+                    sendBtn.onclick = () => { overlay.remove(); resolve('saved'); };
+                } catch (err) {
+                    btn.textContent = 'Errore!';
+                    btn.style.background = 'var(--danger)';
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.textContent = 'Salva dati bancari';
+                        btn.style.background = '';
+                    }, 2000);
+                }
+            });
+        });
+    }
+
     function modale(tipo, titolo, messaggio, pulsanti) {
         return new Promise(resolve => {
             const overlay = document.getElementById('modalGenericOverlay');
@@ -846,8 +1414,8 @@ const MrpProposta = (() => {
         }
 
         const ok = await modale('warning', 'Configurazione Database',
-            'La stored procedure necessaria non è ancora presente nel database MRP.<br><br>' +
-            'Verrà installata automaticamente (operazione da eseguire una sola volta).',
+            'La stored procedure necessaria non \u00E8 ancora presente nel server di destinazione.<br><br>' +
+            'Verr\u00E0 installata automaticamente (operazione da eseguire una sola volta).',
             [
                 { label: 'Installa e Continua', value: true, style: 'success' },
                 { label: 'Annulla', value: false, style: 'secondary' }
@@ -874,23 +1442,191 @@ const MrpProposta = (() => {
     // ============================================================
     // APRI MODALE EMETTI ORDINE (singolo fornitore)
     // ============================================================
-    async function apriModaleEmettiOrdine(fornitore_codice) {
+    async function apriModaleAnnullaOrdine(emesso) {
+        const ordLabel = emesso.numord + '/' + emesso.serie;
+        const fornNome = emesso.fornitore_nome || 'Fornitore ' + emesso.fornitore_codice;
+        const isBcube = emesso.origine === 'bcube';
+        const emailAvviso = emesso.email_inviata
+            ? '<br><br><strong style="color:var(--danger);">Attenzione:</strong> l\'email è già stata inviata al fornitore. Dovrai avvisarlo manualmente dell\'annullamento.'
+            : '';
+        const bcubeAvviso = isBcube
+            ? '<br><br><span style="color:var(--primary);font-weight:600;">Questo ordine è stato emesso da BCube.</span> L\'annullamento lo rimuoverà anche dal gestionale.'
+            : '';
+
+        const risposta = await modale('warning', 'Annullamento ordine',
+            'Sei sicuro di voler annullare l\'ordine <strong>' + esc(ordLabel) + '</strong> per <strong>' + esc(fornNome) + '</strong>?' +
+            bcubeAvviso +
+            '<br><br>L\'ordine verrà cancellato dal sistema.' +
+            '<br><span style="font-size:0.8rem;color:var(--text-muted);">Il numero ordine sarà recuperato solo se è l\'ultimo emesso.</span>' +
+            emailAvviso,
+            [{ label: 'Annulla ordine', value: true, style: 'danger' },
+             { label: 'Indietro', value: false, style: 'secondary' }]);
+
+        if (!risposta) return;
+
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/annulla-ordine`, {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ anno: emesso.anno, serie: emesso.serie, numord: emesso.numord })
+            });
+            const data = await res.json();
+
+            if (data.error === 'MERCE_EVASA') {
+                await modale('error', 'Annullamento impossibile', data.message);
+                return;
+            }
+            if (!data.success) {
+                await modale('error', 'Errore', 'Errore annullamento: ' + esc(data.error || 'sconosciuto'));
+                return;
+            }
+
+            // Successo: rimuovi da Map e ricarica proposte.
+            // Se l'ordine annullato era il primario, sgancia; altrimenti rimuovilo dagli extras.
+            // (caricaProposta() subito sotto ri-popola comunque tutto, ma evitiamo stato inconsistente
+            // nei ms prima che la refetch completi.)
+            const fk = String(emesso.fornitore_codice);
+            const primario = ordiniEmessi.get(fk);
+            const matches = (e) => e && String(e.anno) === String(emesso.anno)
+                && String(e.serie) === String(emesso.serie)
+                && String(e.numord) === String(emesso.numord);
+            if (matches(primario)) {
+                ordiniEmessi.delete(fk);
+            } else if (ordiniEmessiExtra.has(fk)) {
+                const arr = ordiniEmessiExtra.get(fk).filter(e => !matches(e));
+                if (arr.length > 0) ordiniEmessiExtra.set(fk, arr);
+                else ordiniEmessiExtra.delete(fk);
+            }
+            await modale('success', 'Ordine annullato',
+                'L\'ordine <strong>' + esc(ordLabel) + '</strong> è stato annullato con successo.');
+
+            // Ricarica proposte per aggiornare la vista
+            caricaProposta();
+        } catch (err) {
+            await modale('error', 'Errore di rete', 'Errore: <code>' + esc(err.message) + '</code>');
+        }
+    }
+
+    // ============================================================
+    // DIALOG DI DECISIONE MERGE (ordine email-pending + nuovi confermati)
+    // ============================================================
+    async function apriDialogMergeDecision(fornitore_codice, ordinePendente, articoliNuovi) {
+        const ordLabel = ordinePendente.numord + '/' + ordinePendente.serie;
+
+        // Verifica conflitto codart: se un articolo nuovo ha lo stesso (codart, fase, magaz)
+        // di una riga nell'ordine pendente, la SP usp_AggiungiRigheOrdineFornitore fallirebbe.
+        // In tal caso il merge è disabilitato.
+        const righeOrdine = ordinePendente.righe || [];
+        const keySetOrdine = new Set(righeOrdine.map(r =>
+            `${r.ol_codart}|${r.ol_fase || 0}|${r.ol_magaz || 1}`
+        ));
+        const conflitti = articoliNuovi.filter(a =>
+            keySetOrdine.has(`${a.ol_codart}|${a.ol_fase || 0}|${a.ol_magaz || 1}`)
+        );
+        const mergeDisabled = conflitti.length > 0;
+
+        let msgConflitto = '';
+        if (mergeDisabled) {
+            const artList = conflitti.map(a => '\u2022 ' + esc(a.ol_codart)).join('<br>');
+            msgConflitto =
+                '<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:4px; padding:8px; margin:8px 0; font-size:0.82rem;">' +
+                '<strong style="color:#991b1b;">\u26A0 Merge non disponibile</strong><br>' +
+                'L\'ordine ' + esc(ordLabel) + ' contiene già gli stessi articoli (codart+fase+magaz):<br>' +
+                artList + '<br>' +
+                'La stored procedure non ammette duplicati nello stesso ordine. ' +
+                'Per date diverse, emetti un ordine separato.' +
+                '</div>';
+        }
+
+        const msg =
+            'Esiste già un ordine <strong>' + esc(ordLabel) + '</strong> per questo fornitore, ' +
+            'emesso ma con email non ancora inviata.<br><br>' +
+            'Hai confermato <strong>' + articoliNuovi.length + '</strong> nuov' +
+            (articoliNuovi.length === 1 ? 'o articolo' : 'i articoli') + '. Cosa vuoi fare?' +
+            msgConflitto +
+            '<br><div style="text-align:left; font-size:0.82rem; color:var(--text-muted);">' +
+            '\u2022 <strong>Unisci</strong>: aggiunge i nuovi articoli all\'ordine ' + esc(ordLabel) + ' esistente. ' +
+            'L\'ordine viene modificato in-place: stesso numero, totali ricalcolati, PDF aggiornato.<br>' +
+            '\u2022 <strong>Separato</strong>: crea un secondo ordine solo con i nuovi articoli. ' +
+            'L\'ordine esistente rimane invariato.<br>' +
+            '</div>';
+
+        const pulsanti = [
+            { label: '\uD83D\uDD04 Unisci all\'ordine ' + ordLabel, value: 'merge', style: mergeDisabled ? 'disabled' : 'primary' },
+            { label: '\u2795 Emetti ordine separato', value: 'separate', style: 'secondary' },
+            { label: 'Annulla', value: null, style: 'secondary' }
+        ];
+
+        // Se merge è disabilitato, impediamo la selezione
+        if (mergeDisabled) {
+            return await modale('question', 'Ordine pendente per questo fornitore', msg, [
+                { label: '\u2795 Emetti ordine separato', value: 'separate', style: 'primary' },
+                { label: 'Annulla', value: null, style: 'secondary' }
+            ]);
+        }
+
+        return await modale('question', 'Ordine pendente per questo fornitore', msg, pulsanti);
+    }
+
+    /**
+     * Raggruppa articoli confermati per data_consegna.
+     * Articoli con la stessa data vanno nello stesso ordine.
+     * Date diverse → ordini separati (PDF + email distinti).
+     */
+    function raggruppaPerData(articoli) {
+        const gruppi = new Map();
+        for (const a of articoli) {
+            const dt = a.data_consegna || 'no-date';
+            if (!gruppi.has(dt)) gruppi.set(dt, []);
+            gruppi.get(dt).push(a);
+        }
+        return Array.from(gruppi.entries()).map(([data, arts]) => ({ data, articoli: arts }));
+    }
+
+    /**
+     * Emetti da card singola — emette solo gli articoli specificati dai keys.
+     * Riusa apriModaleEmettiOrdine filtrando i confermati ai soli keys richiesti.
+     */
+    async function emettiDaCard(fornitore_codice, keys) {
+        // Emetti passando il filtro keys — la funzione emissione prenderà solo questi
+        await apriModaleEmettiOrdine(fornitore_codice, keys);
+    }
+
+    async function apriModaleEmettiOrdine(fornitore_codice, filterKeys) {
         if (!await assicuraSPEsiste()) return;
         const confermati = MrpApp.state.ordiniConfermati;
         const articoliFornitore = [];
         let fornitore_nome = '';
+        const keyFilter = filterKeys ? new Set(filterKeys) : null;
 
         confermati.forEach((ordine, key) => {
-            if (String(ordine.fornitore_codice) === String(fornitore_codice) && !ordine.escluso) {
-                articoliFornitore.push(ordine);
+            if (String(ordine.fornitore_codice) === String(fornitore_codice)) {
+                if (!keyFilter || keyFilter.has(key)) {
+                    articoliFornitore.push(ordine);
+                }
                 if (!fornitore_nome) fornitore_nome = ordine.fornitore_nome || '';
             }
         });
 
         if (articoliFornitore.length === 0) return;
 
-        // Check duplicati pre-emissione
-        if (MrpApp.state.elaborazioneId) {
+        // Raggruppa per data consegna: date diverse → ordini separati
+        const gruppiData = raggruppaPerData(articoliFornitore);
+        const multiOrdine = gruppiData.length > 1;
+
+        // Branch merge: se esiste un ordine email-pending per questo fornitore,
+        // chiedi all'operatore se unire o emettere separato.
+        // NOTA: merge è disabilitato quando ci sono date multiple (ordini separati obbligatori)
+        const ordinePendente = ordiniEmessi.get(String(fornitore_codice));
+        let mergeMode = null; // null | 'merge' | 'separate'
+        if (ordinePendente && !ordinePendente.email_inviata && !multiOrdine) {
+            const scelta = await apriDialogMergeDecision(fornitore_codice, ordinePendente, articoliFornitore);
+            if (scelta === null) return;
+            mergeMode = scelta;
+        }
+
+        // Check duplicati pre-emissione (skip in modalità merge)
+        if (MrpApp.state.elaborazioneId && mergeMode !== 'merge') {
             try {
                 const dupRes = await fetch(`${MrpApp.API_BASE}/controlla-duplicato`, {
                     credentials: 'include',
@@ -921,27 +1657,53 @@ const MrpProposta = (() => {
             }
         }
 
-        const totale = articoliFornitore.reduce((s, a) => s + a.quantita_confermata * a.prezzo, 0);
+        const totale = articoliFornitore.reduce((s, a) => s + a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1), 0);
 
-        const riepilogoEl = document.getElementById('emettiRiepilogo');
-        riepilogoEl.innerHTML = `
-            <div class="emetti-riepilogo-fornitore">${esc(fornitore_nome)} (${esc(String(fornitore_codice))})</div>
+        // Riepilogo — mostra raggruppamento per data se multi-ordine
+        let riepilogoHtml = `<div class="emetti-riepilogo-fornitore">${esc(fornitore_nome)} (${esc(String(fornitore_codice))})</div>`;
+
+        if (multiOrdine) {
+            riepilogoHtml += `<div class="emetti-multiordine-avviso">
+                Date di consegna diverse &rarr; verranno emessi <strong>${gruppiData.length} ordini separati</strong>,
+                ciascuno con il proprio PDF e la propria email.
+            </div>`;
+        }
+
+        for (const gruppo of gruppiData) {
+            const dataLabel = gruppo.data !== 'no-date'
+                ? new Date(gruppo.data).toLocaleDateString('it-IT')
+                : 'Senza data';
+            const totGruppo = gruppo.articoli.reduce((s, a) => s + a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1), 0);
+
+            if (multiOrdine) {
+                riepilogoHtml += `<div class="emetti-gruppo-data-header">Ordine per consegna: <strong>${esc(dataLabel)}</strong></div>`;
+            }
+
+            riepilogoHtml += `
             <table class="emetti-riepilogo-table">
                 <thead><tr><th>Cod. Articolo</th><th>Descrizione</th><th class="num">Qt\u00e0</th><th>UM</th><th class="num">Prezzo</th><th class="num">Valore</th><th>Data Cons.</th></tr></thead>
                 <tbody>
-                ${articoliFornitore.map(a => `<tr>
+                ${gruppo.articoli.map(a => `<tr>
                     <td>${esc(a.ol_codart)}</td>
                     <td>${esc(a.ar_descr || '')}</td>
                     <td class="num">${Number(a.quantita_confermata).toLocaleString('it-IT')}</td>
                     <td>${esc(a.ol_unmis || 'PZ')}</td>
                     <td class="num">${Number(a.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 4 })}</td>
-                    <td class="num">\u20ac ${(a.quantita_confermata * a.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="num">\u20ac ${(a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td>${a.data_consegna ? new Date(a.data_consegna).toLocaleDateString('it-IT') : ''}</td>
                 </tr>`).join('')}
                 </tbody>
-            </table>
-            <div class="emetti-riepilogo-totale">Totale ordine: \u20ac ${totale.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-        `;
+            </table>`;
+
+            if (multiOrdine) {
+                riepilogoHtml += `<div class="emetti-gruppo-data-totale">Totale ordine: \u20ac ${totGruppo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
+            }
+        }
+
+        riepilogoHtml += `<div class="emetti-riepilogo-totale">Totale complessivo: \u20ac ${totale.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
+
+        const riepilogoEl = document.getElementById('emettiRiepilogo');
+        riepilogoEl.innerHTML = riepilogoHtml;
 
         const overlay = document.getElementById('modalEmettiOverlay');
         overlay.classList.add('open');
@@ -953,44 +1715,117 @@ const MrpProposta = (() => {
 
         document.getElementById('btnEmettiConferma').onclick = () => {
             overlay.classList.remove('open');
-            eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome);
+            if (multiOrdine) {
+                // Emetti N ordini separati, uno per gruppo data
+                emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData);
+            } else {
+                const opts = {};
+                if (mergeMode === 'merge' && ordinePendente) {
+                    opts.mergeWith = {
+                        anno: ordinePendente.anno,
+                        serie: ordinePendente.serie,
+                        numord: ordinePendente.numord
+                    };
+                }
+                eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts);
+            }
         };
+    }
+
+    /**
+     * Emette N ordini separati per lo stesso fornitore, uno per ogni data di consegna.
+     * Ogni ordine genera un proprio PDF e una propria email.
+     */
+    async function emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData) {
+        const risultati = [];
+        for (const gruppo of gruppiData) {
+            try {
+                const dataLabel = gruppo.data !== 'no-date'
+                    ? new Date(gruppo.data).toLocaleDateString('it-IT')
+                    : 'senza data';
+                console.log(`[Proposta] Emissione ordine per ${fornitore_codice} — consegna ${dataLabel} (${gruppo.articoli.length} art.)`);
+                await eseguiEmissioneOrdine(fornitore_codice, gruppo.articoli, fornitore_nome, {});
+                risultati.push({ data: gruppo.data, ok: true });
+            } catch (err) {
+                risultati.push({ data: gruppo.data, ok: false, error: err.message });
+            }
+        }
+
+        // Riepilogo finale se ci sono stati errori
+        const falliti = risultati.filter(r => !r.ok);
+        if (falliti.length > 0) {
+            const msg = falliti.map(f => {
+                const dl = f.data !== 'no-date' ? new Date(f.data).toLocaleDateString('it-IT') : 'senza data';
+                return `\u2022 Consegna ${dl}: ${f.error}`;
+            }).join('<br>');
+            await modale('warning', 'Emissione Parziale',
+                `${risultati.length - falliti.length} di ${risultati.length} ordini emessi con successo.<br><br>Errori:<br>${msg}`);
+        }
     }
 
     // ============================================================
     // ESEGUI EMISSIONE (chiama API)
     // ============================================================
-    async function eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome) {
-        const body = {
-            fornitore_codice: parseInt(fornitore_codice, 10),
-            elaborazione_id: MrpApp.state.elaborazioneId || '',
-            articoli: articoliFornitore.map(a => ({
-                codart: a.ol_codart,
-                fase: parseInt(a.ol_fase, 10) || 0,
-                magaz: parseInt(a.ol_magaz, 10) || 1,
-                quantita: a.quantita_confermata,
-                data_consegna: a.data_consegna,
-                prezzo: a.prezzo,
-                unmis: a.ol_unmis || 'PZ',
-                ol_progr: parseInt(a.ol_progr, 10) || 0
-            }))
-        };
+    async function eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts) {
+        opts = opts || {};
+        const articoliFinali = articoliFornitore.slice();
 
-        const data = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
+        // Mappa articoli → payload SP (formato comune a /emetti-ordine e /modifica-ordine)
+        const mapArticoloToApi = (a) => ({
+            codart: a.ol_codart,
+            fase: parseInt(a.ol_fase, 10) || 0,
+            magaz: parseInt(a.ol_magaz, 10) || 1,
+            quantita: a.quantita_confermata,
+            data_consegna: a.data_consegna,
+            prezzo: a.prezzo,
+            perqta: Number(a.perqta) || 1,
+            unmis: a.ol_unmis || 'PZ',
+            ol_progr: parseInt(a.ol_progr, 10) || 0
+        });
 
-        if (data.success) {
+        // Modalità merge: chiama /modifica-ordine che AGGIUNGE righe all'ordine
+        // esistente in-place (preserva numord, ricalcola totali, NON annulla).
+        // Passiamo SOLO gli articoli nuovi — la SP conosce già le righe esistenti.
+        let resp;
+        if (opts.mergeWith) {
+            const bodyMod = {
+                anno: opts.mergeWith.anno,
+                serie: opts.mergeWith.serie,
+                numord: opts.mergeWith.numord,
+                fornitore_codice: parseInt(fornitore_codice, 10),
+                elaborazione_id: MrpApp.state.elaborazioneId || '',
+                articoli: articoliFinali.map(mapArticoloToApi)
+            };
+            resp = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/modifica-ordine`, bodyMod);
+        } else {
+            const body = {
+                fornitore_codice: parseInt(fornitore_codice, 10),
+                elaborazione_id: MrpApp.state.elaborazioneId || '',
+                articoli: articoliFinali.map(mapArticoloToApi)
+            };
+            resp = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
+        }
+
+        if (resp.success) {
             // Salva PDF in memoria per download immediato (non disponibile dal server dopo)
-            pdfCache.set(String(fornitore_codice), {
-                pdf_base64: data.pdf_base64,
-                pdf_filename: data.pdf_filename
+            pdfCache.set(pdfCacheKey(resp.ordine.anno, resp.ordine.serie, resp.ordine.numord), {
+                pdf_base64: resp.pdf_base64,
+                pdf_filename: resp.pdf_filename
             });
+
+            // Rimuovi dalle conferme gli articoli appena emessi — così il loro badge
+            // "Confermato" non ricompare sulla riga ora marcata "Ordinato".
+            for (const a of articoliFinali) {
+                const k = String(a.ol_progr || 0);
+                if (k !== '0') MrpApp.rimuoviOrdine(k);
+            }
 
             // Ricarica proposta dal DB — l'UI riflette lo stato reale
             await caricaProposta();
 
-            mostraRisultatoEmissione(data, fornitore_nome);
+            mostraRisultatoEmissione(resp, fornitore_nome);
         } else {
-            await modale('error', 'Errore Emissione', `Impossibile emettere l'ordine per <strong>${esc(fornitore_nome)}</strong>.<br><br><code>${esc(data.error || 'Errore sconosciuto')}</code>`);
+            await modale('error', 'Errore Emissione', `Impossibile emettere l'ordine per <strong>${esc(fornitore_nome)}</strong>.<br><br><code>${esc(resp.error || 'Errore sconosciuto')}</code>`);
         }
     }
 
@@ -1010,6 +1845,7 @@ const MrpProposta = (() => {
                 ${data.ordine.num_righe} articol${data.ordine.num_righe > 1 ? 'i' : 'o'} &mdash;
                 Totale \u20ac ${Number(data.ordine.totale_documento || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}
             </div>
+            <div class="unified-warning-box" style="margin-top:10px;">\u26A0\uFE0F L'ordine \u00E8 stato registrato nel gestionale ma il fornitore non lo ricever\u00E0 finch\u00E9 non invii l'email.</div>
         `;
 
         azioni.innerHTML = '';
@@ -1047,6 +1883,22 @@ const MrpProposta = (() => {
             azioni.appendChild(btnEmail);
         }
 
+        // Pulsante annulla ordine
+        const btnAnnullaRis = document.createElement('button');
+        btnAnnullaRis.className = 'modal-generic-btn modal-generic-btn-danger';
+        btnAnnullaRis.textContent = '\u274C Annulla Ordine';
+        btnAnnullaRis.style.fontSize = '0.78rem';
+        btnAnnullaRis.addEventListener('click', () => {
+            overlay.classList.remove('open');
+            apriModaleAnnullaOrdine({
+                anno: data.ordine.anno, serie: data.ordine.serie, numord: data.ordine.numord,
+                fornitore_nome: fornitore_nome,
+                fornitore_codice: data.ordine.fornitore_codice,
+                email_inviata: false, origine: 'gb2'
+            });
+        });
+        azioni.appendChild(btnAnnullaRis);
+
         // Pulsante chiudi
         const btnChiudi = document.createElement('button');
         btnChiudi.className = 'modal-generic-btn modal-generic-btn-secondary';
@@ -1075,7 +1927,12 @@ const MrpProposta = (() => {
     }
 
     function scaricaPdf(emesso) {
-        if (emesso.pdf_base64) {
+        // Cerca prima nella cache per chiave ordine (non per fornitore)
+        const ck = pdfCacheKey(emesso.anno, emesso.serie, emesso.numord);
+        const cached = pdfCache.get(ck);
+        if (cached && cached.pdf_base64) {
+            scaricaPdfBase64(cached.pdf_base64, cached.pdf_filename);
+        } else if (emesso.pdf_base64) {
             scaricaPdfBase64(emesso.pdf_base64, emesso.pdf_filename);
         } else {
             window.open(`${MrpApp.API_BASE}/ordine-pdf/${emesso.anno}/${emesso.serie}/${emesso.numord}`, '_blank');
@@ -1140,7 +1997,23 @@ const MrpProposta = (() => {
                 }
             } catch (_) { /* ignora */ }
 
-            // 3) Mostra modale editabile
+            // 3) Avviso banca mancante per rimessa diretta — con scheda fornitore editabile
+            if (prevData.warning_banca && prevData.fornitore_dati) {
+                const fd = prevData.fornitore_dati;
+                const risposta = await modaleBancaMancante(fd, prevData.warning_banca);
+                if (risposta === 'cancel') return { success: false, error: 'CANCELLED' };
+                // Se ha salvato i dati bancari, 'saved' → procedi normalmente
+                // Se ha scelto 'send_anyway' → procedi
+            } else if (prevData.warning_banca) {
+                // Fallback semplice se fornitore_dati non disponibile
+                const risposta = await modale('warning', 'Dati bancari mancanti',
+                    prevData.warning_banca + '<br><br>Vuoi procedere comunque con l\'invio?',
+                    [{ label: 'Invia comunque', value: true, style: 'primary' },
+                     { label: 'Annulla', value: false, style: 'secondary' }]);
+                if (!risposta) return { success: false, error: 'CANCELLED' };
+            }
+
+            // 4) Mostra modale editabile
             const risultato = await modaleAnteprimaEmail({
                 ordine: `${emesso.numord}/${emesso.serie}`,
                 fornitore: prevData.fornitore_nome,
@@ -1150,7 +2023,8 @@ const MrpProposta = (() => {
                 corpo: corpoPreview,
                 anno: emesso.anno,
                 serie: emesso.serie,
-                numord: emesso.numord
+                numord: emesso.numord,
+                fornitore_codice: emesso.fornitore_codice || emesso.ol_conto
             });
 
             if (!risultato) return { success: false, error: 'CANCELLED' };
@@ -1169,7 +2043,7 @@ const MrpProposta = (() => {
     }
 
     /** Modale con anteprima email editabile. Restituisce { oggetto, corpo } oppure null se annullato */
-    function modaleAnteprimaEmail({ ordine, fornitore, destinatario, ambiente, oggetto, corpo, batchMode, anno, serie, numord }) {
+    function modaleAnteprimaEmail({ ordine, fornitore, destinatario, ambiente, oggetto, corpo, batchMode, anno, serie, numord, fornitore_codice }) {
         return new Promise(resolve => {
             // Usa overlay dedicato (layer sopra il batch/generic)
             const overlay = document.getElementById('modalAnteprimaOverlay');
@@ -1183,6 +2057,24 @@ const MrpProposta = (() => {
                 ? '<span style="background:#f59e0b; color:white; padding:2px 8px; border-radius:10px; font-size:0.72rem; font-weight:600;">PROVA</span>'
                 : '';
 
+            // Pulsante "Salva come personalizzato" in alto — nascosto, appare solo dopo modifiche
+            const salvaPersHtml = fornitore_codice
+                ? '<div id="prevSalvaPersonalizzato" style="display:none; gap:6px; align-items:center; margin-bottom:12px; padding:8px 10px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; position:relative;">' +
+                    '<span id="prevPersHelp" style="cursor:pointer; font-size:0.85rem; color:#3b82f6; line-height:1; user-select:none;" title="Info">\u2753</span>' +
+                    '<input type="text" id="prevPersNome" class="mrp-control" placeholder="Nome del messaggio..." style="flex:1; font-size:0.8rem; padding:4px 8px;" />' +
+                    '<button id="btnSalvaPersonalizzato" style="white-space:nowrap; font-size:0.78rem; padding:5px 12px; border-radius:5px; border:1px solid #3b82f6; background:#3b82f6; color:white; cursor:pointer; font-weight:600;">\u2605 Salva personalizzato per ' + esc(fornitore) + '</button>' +
+                    '<div id="prevPersTip" style="display:none; position:absolute; top:calc(100% + 8px); left:0; right:0; background:white; border:1px solid #cbd5e1; border-radius:8px; padding:12px 14px; box-shadow:0 4px 16px rgba(0,0,0,0.12); font-size:0.76rem; line-height:1.55; color:var(--text); z-index:10;">' +
+                        '<div style="position:absolute; top:-6px; left:24px; width:12px; height:12px; background:white; border-left:1px solid #cbd5e1; border-top:1px solid #cbd5e1; transform:rotate(45deg);"></div>' +
+                        '<div style="margin-bottom:6px;"><strong>Salva come personalizzato</strong></div>' +
+                        'Salva questo messaggio <strong>cos\u00ec com\'\u00e8</strong> per riutilizzarlo<br>con questo fornitore ai prossimi invii.<br><br>' +
+                        'Lo troverai nel <strong>menu di selezione</strong> sotto<br>la voce <em>\u2605 Personalizzati</em>.<br><br>' +
+                        'Se invece vuoi un messaggio che si <strong>adatti<br>automaticamente</strong> (nome fornitore, numero ordine,<br>totale, ecc.) vai in <strong>Impostazioni \u2192 Template Email</strong>.' +
+                    '</div>' +
+                  '</div>'
+                : '';
+            const _origOggetto = oggetto;
+            const _origCorpo = corpo;
+
             elTitolo.textContent = batchMode ? 'Modifica Email' : 'Anteprima Email';
             elIcona.textContent = batchMode ? '\u270E' : '\u2709';
             elMsg.innerHTML =
@@ -1191,10 +2083,8 @@ const MrpProposta = (() => {
                         '<span style="font-size:0.82rem; color:var(--text-muted);">Ordine <strong>' + esc(ordine) + '</strong> \u2014 ' + esc(fornitore) + '</span>' +
                         ambienteBadge +
                     '</div>' +
-                    '<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">Destinatario: <strong>' + esc(destinatario) + '</strong></div>' +
-                    '<div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:12px; opacity:0.7;">' +
-                        '\uD83D\uDCA1 Per creare un template riutilizzabile con variabili vai a <em>Impostazioni \u2192 Template Email</em>' +
-                    '</div>' +
+                    '<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:8px;">Destinatario: <strong>' + esc(destinatario) + '</strong></div>' +
+                    salvaPersHtml +
                     '<label style="font-size:0.78rem; font-weight:600; color:var(--text-muted);">Oggetto</label>' +
                     '<input type="text" id="prevEmailOggetto" class="mrp-control" value="' + escAttr(oggetto) + '" style="font-size:0.88rem; font-weight:600; margin-bottom:10px;" />' +
                     '<label style="font-size:0.78rem; font-weight:600; color:var(--text-muted);">Corpo</label>' +
@@ -1235,11 +2125,15 @@ const MrpProposta = (() => {
                     if (!vals) return;
                     btnSalva.disabled = true; btnSalva.textContent = 'Salvataggio...';
                     try {
-                        await fetch(`${MrpApp.API_BASE}/email-drafts`, {
+                        const resp = await fetch(`${MrpApp.API_BASE}/email-drafts`, {
                             credentials: 'include', method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ anno, serie, numord, oggetto: vals.oggetto, corpo: vals.corpo })
                         });
+                        if (!resp.ok) {
+                            const errData = await resp.json().catch(() => ({}));
+                            throw new Error(errData.error || 'Errore HTTP ' + resp.status);
+                        }
                         btnSalva.textContent = '\u2714 Bozza Salvata';
                         btnSalva.style.background = '#dcfce7';
                         btnSalva.style.borderColor = '#16a34a';
@@ -1280,6 +2174,99 @@ const MrpProposta = (() => {
             elAzioni.appendChild(btnPrimario);
 
             overlay.classList.add('open');
+
+            // --- Mostra/nascondi barra "Salva personalizzato" solo dopo modifiche ---
+            const salvaPersDiv = document.getElementById('prevSalvaPersonalizzato');
+            if (salvaPersDiv) {
+                const checkModifiche = () => {
+                    const curOgg = document.getElementById('prevEmailOggetto').value.trim();
+                    const curCorpo = document.getElementById('prevEmailCorpo').value.trim();
+                    const modificato = curOgg !== _origOggetto || curCorpo !== _origCorpo;
+                    salvaPersDiv.style.display = modificato ? 'flex' : 'none';
+                };
+                document.getElementById('prevEmailOggetto').addEventListener('input', checkModifiche);
+                document.getElementById('prevEmailCorpo').addEventListener('input', checkModifiche);
+
+                // --- Tooltip toggle al click su ❓ ---
+                const helpBtn = document.getElementById('prevPersHelp');
+                const tip = document.getElementById('prevPersTip');
+                if (helpBtn && tip) {
+                    helpBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        tip.style.display = tip.style.display === 'block' ? 'none' : 'block';
+                    });
+                    // Chiudi cliccando altrove
+                    overlay.addEventListener('click', () => { tip.style.display = 'none'; });
+                }
+            }
+
+            // --- Listener "Salva come personalizzato" ---
+            const btnSalvaPers = document.getElementById('btnSalvaPersonalizzato');
+            if (btnSalvaPers) {
+                btnSalvaPers.addEventListener('click', async () => {
+                    const nomeInput = document.getElementById('prevPersNome');
+                    const nome = (nomeInput && nomeInput.value.trim()) || '';
+                    if (!nome) { nomeInput.style.borderColor = 'var(--danger)'; nomeInput.focus(); return; }
+                    nomeInput.style.borderColor = '';
+
+                    const vals = getEditValues();
+                    if (!vals) return;
+
+                    btnSalvaPers.disabled = true;
+                    btnSalvaPers.textContent = 'Salvataggio...';
+                    try {
+                        const resp = await fetch(`${MrpApp.API_BASE}/email-templates`, {
+                            credentials: 'include', method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                nome: nome,
+                                oggetto: vals.oggetto,
+                                corpo: vals.corpo,
+                                lingua: 'it',
+                                isDefault: false,
+                                fornitoreCode: fornitore_codice
+                            })
+                        });
+                        if (!resp.ok) {
+                            const errData = await resp.json().catch(() => ({}));
+                            throw new Error(errData.error || 'Errore HTTP ' + resp.status);
+                        }
+                        const savedData = await resp.json();
+                        const newId = savedData.id;
+                        btnSalvaPers.textContent = '\u2714 Salvato!';
+                        btnSalvaPers.style.background = '#16a34a';
+                        // Ricarica i template per aggiornare i dropdown
+                        await caricaTemplateEmail();
+                        // Aggiorna e seleziona nel dropdown del widget fornitore
+                        const fk = String(fornitore_codice);
+                        const widgetSel = document.querySelector('.select-template-forn[data-forn="' + fk + '"]');
+                        if (widgetSel && newId) {
+                            // Ricostruisci le options con optgroup
+                            const tempDiv = document.createElement('div');
+                            tempDiv.innerHTML = buildTemplateSelect(fk);
+                            const newSelect = tempDiv.querySelector('select');
+                            if (newSelect) {
+                                widgetSel.innerHTML = newSelect.innerHTML;
+                                widgetSel.value = String(newId);
+                            }
+                            // Salva assegnazione
+                            onTemplateSelectChange(fk, newId);
+                        }
+                        // Aggiorna anche i valori originali per nascondere la barra
+                        if (salvaPersDiv) salvaPersDiv.style.display = 'none';
+                        setTimeout(() => {
+                            btnSalvaPers.disabled = false;
+                            btnSalvaPers.textContent = '\u2605 Salva personalizzato per ' + fornitore;
+                            btnSalvaPers.style.background = '#3b82f6';
+                        }, 2000);
+                    } catch (err) {
+                        btnSalvaPers.disabled = false;
+                        btnSalvaPers.textContent = '\u2605 Salva personalizzato per ' + fornitore;
+                        btnSalvaPers.style.background = '#3b82f6';
+                        alert('Errore: ' + err.message);
+                    }
+                });
+            }
 
             // Chiudi con X
             const closeBtn = document.getElementById('modalAnteprimaClose');
@@ -1333,22 +2320,27 @@ const MrpProposta = (() => {
             }
 
             if (data.success) {
-                // Aggiorna stato email nella Map ordiniEmessi e nel DOM
+                // Aggiorna stato email nella Map giusta — può essere primario o extra.
                 const fk = String(emesso.fornitore_codice || emesso.ol_conto || '');
-                if (fk && ordiniEmessi.has(fk)) {
+                const matchOrd = (e) =>
+                    String(e.anno) === String(emesso.anno) &&
+                    String(e.serie) === String(emesso.serie) &&
+                    String(e.numord) === String(emesso.numord);
+                if (fk && ordiniEmessi.has(fk) && matchOrd(ordiniEmessi.get(fk))) {
                     const entry = ordiniEmessi.get(fk);
                     entry.email_inviata = true;
                     entry.email_inviata_il = new Date().toISOString();
-                }
-                // Aggiorna bottone email nel DOM (da "Invia" a "Re-invia")
-                document.querySelectorAll('.btn-invia-email-forn').forEach(btn => {
-                    const header = btn.closest('.proposta-fornitore-header');
-                    if (header && header.dataset.forn === fk) {
-                        btn.textContent = '\u2709 Re-invia Email';
-                        btn.classList.remove('email-non-inviata');
-                        btn.classList.add('email-gia-inviata');
+                } else if (fk && ordiniEmessiExtra.has(fk)) {
+                    const arr = ordiniEmessiExtra.get(fk);
+                    const entry = arr.find(matchOrd);
+                    if (entry) {
+                        entry.email_inviata = true;
+                        entry.email_inviata_il = new Date().toISOString();
                     }
-                });
+                }
+                // Ri-renderizza i badge del fornitore per riflettere lo stato aggiornato
+                // (l'intero set di bottoni dipende dal flag email_inviata)
+                aggiornaBarreFornitori();
                 // In modalità 'ultima_scelta', salva il template usato per questo fornitore
                 if (_templateMode === 'ultima_scelta' && body.template_id && fk) {
                     onTemplateSelectChange(fk, body.template_id);
@@ -1376,17 +2368,43 @@ const MrpProposta = (() => {
 
     async function inviaTutteEmailHandler() {
         const pendenti = [];
+        // Email gia pendenti (ordini emessi in precedenza, email non ancora inviata).
+        // NOTA: gli ordini extra (2°+ ordine pending per lo stesso fornitore) sono gestiti
+        // solo tramite i loro bottoni Invia Email individuali nella header. Il flusso batch
+        // usa fornitore_codice come id DOM/riga ed è incompatibile con più righe per fk
+        // senza un refactor più grosso del modaleBatchEmail. Caso raro, limitazione nota.
         ordiniEmessi.forEach((emesso, fk) => {
             if (!emesso.email_inviata) {
                 pendenti.push({ ...emesso, fornitore_codice: fk });
             }
         });
-        if (pendenti.length === 0) return;
+
+        // Se c'e un'emissione in corso, aggiungi anche i fornitori in attesa
+        // (verranno mostrati come righe waiting nella tabella)
+        if (_batchUnifiedState.active) {
+            _batchUnifiedState.fornitori.forEach(f => {
+                const fk = String(f.fornitore_codice);
+                // Non aggiungere se gia presente nei pendenti (gia emesso e in ordiniEmessi)
+                if (pendenti.some(p => String(p.fornitore_codice) === fk)) return;
+                if (f.status === 'emit_failed') return; // non mostrare i falliti
+                pendenti.push({
+                    fornitore_codice: fk,
+                    fornitore_nome: f.nome,
+                    fornitore_email: f.emissioneResult ? f.emissioneResult.fornitore_email : '',
+                    numord: f.emissioneResult ? f.emissioneResult.numord : null,
+                    serie: f.emissioneResult ? f.emissioneResult.serie : null,
+                    anno: f.emissioneResult ? f.emissioneResult.anno : null,
+                    _emissioneInCorso: (f.status === 'waiting' || f.status === 'emitting')
+                });
+            });
+        }
+
+        if (pendenti.length === 0 && !_batchUnifiedState.active) return;
 
         _batchCustomOverrides.clear();
 
-        // Mostra modale riepilogativa con tabella interattiva
-        const risultato = await modaleBatchEmail(pendenti);
+        // Mostra modale — se c'e emissione in corso, attiva modalita emissione (barra avanzamento + stati riga)
+        const risultato = await modaleBatchEmail(pendenti, { emissioneMode: _batchUnifiedState.active });
         if (!risultato) return;
 
         const { righeSelezionate } = risultato;
@@ -1453,23 +2471,41 @@ const MrpProposta = (() => {
     }
 
     /** Modale batch: tabella con checkbox, dropdown template, modifica manuale */
-    async function modaleBatchEmail(pendenti) {
-        // Carica bozze salvate dal DB per pre-popolare overrides e badge
-        try {
-            const draftResp = await fetch(`${MrpApp.API_BASE}/email-drafts`, { credentials: 'include' });
-            const draftData = await draftResp.json();
-            if (draftData.drafts) {
-                draftData.drafts.forEach(d => {
-                    const key = pendenti.find(p => p.anno === d.Anno && p.serie === d.Serie && p.numord === d.NumOrd);
-                    if (key) {
-                        const fk = String(key.fornitore_codice || '');
-                        if (!_batchCustomOverrides.has(fk)) {
-                            _batchCustomOverrides.set(fk, { oggetto_custom: d.OggettoCustom, corpo_custom: d.CorpoCustom });
+    /**
+     * Modale batch email — usata sia per "Invia Tutte le Email" (modalità normale)
+     * sia per "Emetti Tutti" (modalità emissione: righe partono in stato waiting,
+     * barra avanzamento in cima, si accendono man mano che gli ordini vengono emessi).
+     *
+     * @param {Array} pendenti - array di oggetti fornitore (con dati ordine se disponibili)
+     * @param {Object} opts - { emissioneMode: boolean }
+     *   In emissioneMode le righe non hanno ancora anno/serie/numord, checkbox e controlli
+     *   sono disabilitati finché lo stato non diventa 'emitted'.
+     */
+    async function modaleBatchEmail(pendenti, opts = {}) {
+        const emissioneMode = !!opts.emissioneMode;
+
+        // Carica bozze salvate dal DB per pre-popolare overrides e badge (solo se non in emissione)
+        if (!emissioneMode) {
+            try {
+                const draftResp = await fetch(`${MrpApp.API_BASE}/email-drafts`, { credentials: 'include' });
+                const draftData = await draftResp.json();
+                if (draftData.drafts) {
+                    draftData.drafts.forEach(d => {
+                        const key = pendenti.find(p =>
+                            String(p.anno) === String(d.Anno) &&
+                            String(p.serie).trim() === String(d.Serie).trim() &&
+                            String(p.numord) === String(d.NumOrd)
+                        );
+                        if (key) {
+                            const fk = String(key.fornitore_codice || '');
+                            if (!_batchCustomOverrides.has(fk)) {
+                                _batchCustomOverrides.set(fk, { oggetto_custom: d.OggettoCustom, corpo_custom: d.CorpoCustom });
+                            }
                         }
-                    }
-                });
-            }
-        } catch (_) { /* ignora */ }
+                    });
+                }
+            } catch (_) { /* ignora */ }
+        }
 
         return new Promise(resolve => {
             const overlay = document.getElementById('modalGenericOverlay');
@@ -1479,71 +2515,143 @@ const MrpProposta = (() => {
             const elAzioni = document.getElementById('modalGenericAzioni');
             if (!overlay) { resolve(null); return; }
 
-            const optionsHtml = _emailTemplates.map(t => {
-                const badge = t.isSystem ? ' [S]' : '';
-                return '<option value="' + t.id + '">' + esc(t.nome) + badge + '</option>';
-            }).join('');
+            function buildBatchOptions(fk, selectedTid) {
+                const personalizzati = _emailTemplates.filter(t => String(t.fornitoreCode) === fk);
+                const generici = _emailTemplates.filter(t => !t.fornitoreCode);
+                let html = '';
+                if (personalizzati.length) {
+                    html += '<optgroup label="\u2605 Personalizzati">';
+                    personalizzati.forEach(t => {
+                        const sel = String(t.id) === selectedTid ? ' selected' : '';
+                        html += '<option value="' + t.id + '"' + sel + '>' + esc(t.nome) + '</option>';
+                    });
+                    html += '</optgroup>';
+                }
+                html += '<optgroup label="Template">';
+                generici.forEach(t => {
+                    const sel = String(t.id) === selectedTid ? ' selected' : '';
+                    const badge = t.isSystem ? ' [S]' : '';
+                    html += '<option value="' + t.id + '"' + sel + '>' + esc(t.nome) + badge + '</option>';
+                });
+                html += '</optgroup>';
+                return html;
+            }
 
             const righeHtml = pendenti.map(p => {
                 const fk = String(p.fornitore_codice || '');
                 const selWidget = document.querySelector('.select-template-forn[data-forn="' + fk + '"]');
                 const selectedTid = selWidget ? selWidget.value : String(getTemplateIdPerFornitore(fk) || '');
                 const email = p.fornitore_email || p.email_fornitore || '';
+                // In emissioneMode le righe partono disabilitate (waiting)
+                const isWaiting = emissioneMode && !p.numord;
+                const chkDisabled = isWaiting || !email ? ' disabled' : '';
+                const chkChecked = !isWaiting && email ? ' checked' : '';
+                const ctrlDisabled = isWaiting ? ' disabled' : '';
+                const rowClass = isWaiting ? ' class="unified-row-waiting"' : '';
+                const ordLabel = p.numord ? esc(p.numord + '/' + p.serie) : '\u2014';
+                const emailLabel = isWaiting ? '\u2014' : (email ? esc(email) : '<em>mancante</em>');
+                const emailColor = isWaiting ? 'var(--text-muted)' : (email ? 'var(--text-muted)' : 'var(--danger)');
+                const statusIcon = isWaiting ? '<span class="unified-status" style="color:var(--text-muted);">\u23F3</span>' : '';
 
-                const selHtml = '<select class="batch-tpl-sel" data-forn="' + escAttr(fk) + '" style="font-size:0.76rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;max-width:150px;">' +
-                    optionsHtml.replace('value="' + selectedTid + '"', 'value="' + selectedTid + '" selected') + '</select>';
+                const selHtml = '<select class="batch-tpl-sel" data-forn="' + escAttr(fk) + '" style="font-size:0.76rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;max-width:150px;"' + ctrlDisabled + '>' +
+                    buildBatchOptions(fk, selectedTid) + '</select>';
 
-                return '<tr data-forn="' + escAttr(fk) + '">' +
-                    '<td style="text-align:center;"><input type="checkbox" class="batch-chk" data-forn="' + escAttr(fk) + '" checked style="accent-color:var(--primary);" /></td>' +
-                    '<td><strong>' + esc(p.numord + '/' + p.serie) + '</strong></td>' +
+                return '<tr id="batchRow_' + escAttr(fk) + '"' + rowClass + ' data-forn="' + escAttr(fk) + '">' +
+                    '<td style="text-align:center;"><input type="checkbox" class="batch-chk" id="batchChk_' + escAttr(fk) + '" data-forn="' + escAttr(fk) + '"' + chkDisabled + chkChecked + ' style="accent-color:var(--primary);" /></td>' +
+                    '<td id="batchOrd_' + escAttr(fk) + '"><strong>' + ordLabel + '</strong></td>' +
                     '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(p.fornitore_nome || '') + '">' + esc(p.fornitore_nome || fk) + '</td>' +
-                    '<td style="font-size:0.73rem;color:' + (email ? 'var(--text-muted)' : 'var(--danger)') + ';max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="' + escAttr(email) + '">' + (email ? esc(email) : '<em>mancante</em>') + '</td>' +
+                    '<td id="batchEmail_' + escAttr(fk) + '" style="font-size:0.73rem;color:' + emailColor + ';max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="' + escAttr(email) + '">' + emailLabel + '</td>' +
                     '<td>' + selHtml + '</td>' +
                     '<td style="text-align:center;white-space:nowrap;">' +
-                        '<button class="batch-edit-btn" data-forn="' + escAttr(fk) + '" style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Modifica manuale">\u270E</button>' +
-                        '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" style="display:' + (_batchCustomOverrides.has(fk) ? 'inline' : 'none') + ';font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
+                        '<button class="batch-edit-btn" id="batchEdit_' + escAttr(fk) + '" data-forn="' + escAttr(fk) + '" style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Modifica manuale"' + ctrlDisabled + '>\u270E</button>' +
+                        '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" style="display:' + ((_batchCustomOverrides.has(fk) || _emailTemplates.some(t => String(t.id) === selectedTid && t.fornitoreCode)) ? 'inline' : 'none') + ';font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
                     '</td>' +
-                    '<td id="batchSt_' + escAttr(fk) + '" style="text-align:center;width:28px;"></td>' +
+                    '<td id="batchSt_' + escAttr(fk) + '" style="text-align:center;width:32px;">' + statusIcon + '</td>' +
                     '</tr>';
             }).join('');
 
             elTitolo.textContent = 'Invia Tutte le Email';
             elIcona.textContent = '\u2709';
+
+            // Barra avanzamento (solo in emissioneMode)
+            const progressHtml = emissioneMode ?
+                '<div class="unified-progress-section" id="unifiedProgressSection">' +
+                    '<div class="unified-progress-label" id="unifiedProgressLabel">Emissione: 0/' + pendenti.length + '</div>' +
+                    '<div class="unified-progress-track"><div class="unified-progress-bar" id="unifiedProgressBar"></div></div>' +
+                '</div>' : '';
+
+            // Info riga
+            const infoHtml = emissioneMode
+                ? '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;"><strong>' + pendenti.length + '</strong> ordini in emissione. Seleziona e invia le email appena pronti.</div>'
+                : '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;"><strong>' + pendenti.length + '</strong> email pronte. Seleziona, personalizza e invia.</div>';
+
+            // Avviso email (solo in emissioneMode)
+            const warningHtml = emissioneMode
+                ? '<div class="unified-warning-box">\u26A0\uFE0F Gli ordini vengono registrati nel gestionale ma i fornitori non li riceveranno finch\u00E9 non invii le email.</div>'
+                : '';
+
             elMsg.innerHTML =
                 '<div style="text-align:left;">' +
-                    '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;"><strong>' + pendenti.length + '</strong> email pronte. Seleziona, personalizza e invia.</div>' +
+                    progressHtml +
+                    infoHtml +
                     '<div style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">' +
                         '<table class="emetti-riepilogo-table" style="width:100%;margin:0;">' +
                             '<thead><tr>' +
                                 '<th style="width:28px;text-align:center;"><input type="checkbox" id="batchChkAll" checked style="accent-color:var(--primary);" /></th>' +
-                                '<th>Ordine</th><th>Fornitore</th><th>Email</th><th>Template</th><th style="text-align:center;">Azioni</th><th style="width:28px;"></th>' +
+                                '<th>Ordine</th><th>Fornitore</th><th>Email</th><th>Template</th><th style="text-align:center;">Azioni</th><th style="width:32px;"></th>' +
                             '</tr></thead>' +
                             '<tbody>' + righeHtml + '</tbody>' +
                         '</table>' +
                     '</div>' +
+                    warningHtml +
                 '</div>';
+
+            if (emissioneMode) _batchUnifiedState.modalOpen = true;
 
             elAzioni.innerHTML = '';
 
             // --- Checkbox "seleziona tutto" ---
             const chkAll = document.getElementById('batchChkAll');
             if (chkAll) chkAll.addEventListener('change', () => {
-                document.querySelectorAll('.batch-chk').forEach(cb => { cb.checked = chkAll.checked; });
+                document.querySelectorAll('.batch-chk:not(:disabled)').forEach(cb => { cb.checked = chkAll.checked; });
                 aggiornaContoBatch();
             });
             document.querySelectorAll('.batch-chk').forEach(cb => cb.addEventListener('change', aggiornaContoBatch));
+
+            // --- Cambio template: aggiorna badge personalizzato ---
+            document.querySelectorAll('.batch-tpl-sel').forEach(sel => {
+                sel.addEventListener('change', () => {
+                    const fk = sel.dataset.forn;
+                    const badge = document.querySelector('.batch-edit-badge[data-forn="' + fk + '"]');
+                    if (_batchCustomOverrides.has(fk)) _batchCustomOverrides.delete(fk);
+                    const tid = parseInt(sel.value, 10);
+                    const tpl = _emailTemplates.find(t => t.id === tid);
+                    if (badge) badge.style.display = (tpl && tpl.fornitoreCode) ? 'inline' : 'none';
+                    // Salva selezione nello stato unificato
+                    if (emissioneMode) {
+                        const f = _batchUnifiedState.fornitori.find(x => String(x.fornitore_codice) === fk);
+                        if (f) f.selectedTemplateId = sel.value;
+                    }
+                });
+            });
 
             // --- Bottoni modifica manuale ---
             document.querySelectorAll('.batch-edit-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     const fk = btn.dataset.forn;
-                    const emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
+                    // In emissioneMode, l'emesso e nello stato unificato
+                    let emesso;
+                    if (emissioneMode) {
+                        const f = _batchUnifiedState.fornitori.find(x => String(x.fornitore_codice) === fk);
+                        emesso = f ? f.emissioneResult : null;
+                    } else {
+                        emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
+                    }
                     if (!emesso) return;
 
                     const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
                     const tid = tplSel ? parseInt(tplSel.value, 10) : null;
 
-                    // Feedback visivo: loading
                     const origText = btn.textContent;
                     btn.classList.add('loading');
                     btn.textContent = '\u23F3';
@@ -1559,13 +2667,9 @@ const MrpProposta = (() => {
                         btn.classList.remove('loading');
                         btn.textContent = origText;
 
-                        if (prevData.error) {
-                            alert('Errore: ' + prevData.error);
-                            return;
-                        }
+                        if (prevData.error) { alert('Errore: ' + prevData.error); return; }
 
                         const esistente = _batchCustomOverrides.get(fk);
-                        // Si apre su modalAnteprimaOverlay (z-index 1150), sopra il batch (z-index 1100)
                         const risultato = await modaleAnteprimaEmail({
                             ordine: emesso.numord + '/' + emesso.serie,
                             fornitore: prevData.fornitore_nome,
@@ -1573,24 +2677,21 @@ const MrpProposta = (() => {
                             ambiente: prevData.ambiente,
                             oggetto: esistente ? esistente.oggetto_custom : prevData.oggetto,
                             corpo: esistente ? esistente.corpo_custom : prevData.corpo,
-                            batchMode: true
+                            batchMode: true,
+                            fornitore_codice: parseInt(fk, 10) || null
                         });
 
                         if (risultato) {
                             _batchCustomOverrides.set(fk, { oggetto_custom: risultato.oggetto, corpo_custom: risultato.corpo });
                             const badge = document.querySelector('.batch-edit-badge[data-forn="' + fk + '"]');
-                            if (badge) {
-                                badge.style.display = 'inline';
-                                badge.title = risultato.oggetto.substring(0, 60);
-                            }
-                            // Salva bozza nel DB per persistenza
+                            if (badge) { badge.style.display = 'inline'; badge.title = risultato.oggetto.substring(0, 60); }
                             try {
                                 await fetch(`${MrpApp.API_BASE}/email-drafts`, {
                                     credentials: 'include', method: 'PUT',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ anno: emesso.anno, serie: emesso.serie, numord: emesso.numord, oggetto: risultato.oggetto, corpo: risultato.corpo })
                                 });
-                            } catch (_) { /* best-effort */ }
+                            } catch (_) {}
                         }
                     } catch (err) {
                         btn.classList.remove('loading');
@@ -1604,45 +2705,57 @@ const MrpProposta = (() => {
             const contoSpan = document.createElement('span');
             contoSpan.id = 'batchConto';
             contoSpan.style.cssText = 'font-size:0.82rem;color:var(--text-muted);margin-right:auto;';
-            contoSpan.textContent = pendenti.length + ' selezionate';
 
             function aggiornaContoBatch() {
                 const n = document.querySelectorAll('.batch-chk:checked').length;
                 contoSpan.textContent = n + ' selezionate';
-                btnInvia.disabled = n === 0;
-                btnInvia.style.opacity = n === 0 ? '0.5' : '1';
+                if (btnInvia) {
+                    btnInvia.disabled = n === 0;
+                    btnInvia.style.opacity = n === 0 ? '0.5' : '1';
+                }
             }
+            contoSpan.textContent = document.querySelectorAll('.batch-chk:checked').length + ' selezionate';
 
             function cleanup(result) {
-                overlay.classList.remove('open');
+                if (emissioneMode) {
+                    chiudiModaleUnificato();
+                } else {
+                    overlay.classList.remove('open');
+                }
                 resolve(result);
             }
 
             const btnAnnulla = document.createElement('button');
-            btnAnnulla.textContent = 'Annulla';
+            btnAnnulla.textContent = emissioneMode ? 'Chiudi' : 'Annulla';
             btnAnnulla.className = 'mrp-btn mrp-btn-secondary';
             btnAnnulla.style.cssText = 'padding:8px 20px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-weight:600;font-size:0.85rem;';
             btnAnnulla.addEventListener('click', () => cleanup(null));
 
             const btnInvia = document.createElement('button');
+            btnInvia.id = 'unifiedBtnInvia';
             btnInvia.textContent = '\u2709 Invia Selezionate';
             btnInvia.className = 'mrp-btn mrp-btn-primary';
             btnInvia.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
             btnInvia.addEventListener('click', () => {
-                const righeSelezionate = [];
-                document.querySelectorAll('.batch-chk:checked').forEach(cb => {
-                    const fk = cb.dataset.forn;
-                    const emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
-                    if (!emesso) return;
-                    const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
-                    const tid = tplSel ? parseInt(tplSel.value, 10) : null;
-                    righeSelezionate.push({ ...emesso, templateId: tid });
-                });
-                // Disabilita tutto
-                document.querySelectorAll('.batch-chk,.batch-tpl-sel,.batch-edit-btn,#batchChkAll').forEach(el => el.disabled = true);
-                btnInvia.disabled = true; btnInvia.style.opacity = '0.5'; btnInvia.textContent = 'Invio in corso...';
-                btnAnnulla.disabled = true; btnAnnulla.style.opacity = '0.5';
-                resolve({ righeSelezionate });
+                if (emissioneMode) {
+                    // Modalita unificata: gestione queue
+                    gestisciInviaSelezionate();
+                } else {
+                    // Modalita normale: raccogli e risolvi
+                    const righeSelezionate = [];
+                    document.querySelectorAll('.batch-chk:checked').forEach(cb => {
+                        const fk = cb.dataset.forn;
+                        const emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
+                        if (!emesso) return;
+                        const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
+                        const tid = tplSel ? parseInt(tplSel.value, 10) : null;
+                        righeSelezionate.push({ ...emesso, templateId: tid });
+                    });
+                    document.querySelectorAll('.batch-chk,.batch-tpl-sel,.batch-edit-btn,#batchChkAll').forEach(el => el.disabled = true);
+                    btnInvia.disabled = true; btnInvia.style.opacity = '0.5'; btnInvia.textContent = 'Invio in corso...';
+                    btnAnnulla.disabled = true; btnAnnulla.style.opacity = '0.5';
+                    resolve({ righeSelezionate });
+                }
             });
 
             elAzioni.appendChild(contoSpan);
@@ -1653,67 +2766,168 @@ const MrpProposta = (() => {
             const closeBtn = document.getElementById('modalGenericClose');
             const closeHandler = () => { cleanup(null); closeBtn.removeEventListener('click', closeHandler); };
             closeBtn.addEventListener('click', closeHandler);
+
+            aggiornaContoBatch();
         });
     }
 
     // ============================================================
-    // EMETTI TUTTI (batch)
+    // MODALE UNIFICATA — Emetti Tutti + Invia Email
+    // State machine a livello modulo (sopravvive a close/reopen)
     // ============================================================
-    async function emettiTuttiHandler() {
-        if (!await assicuraSPEsiste()) return;
 
-        const completati = document.querySelectorAll('.proposta-fornitore-header.fornitore-completato');
-        const fornitori = [];
+    const _batchUnifiedState = {
+        active: false,
+        fornitori: [],       // { fornitore_codice, nome, articoli, status, emissioneResult, selectedTemplateId, emailError }
+        autoSendSet: new Set(),
+        autoSendAll: false,
+        modalOpen: false,
+        emissioneProgress: { done: 0, total: 0, successi: 0, falliti: 0 },
+        emailProgress: { done: 0, total: 0, successi: 0, falliti: 0 }
+    };
 
-        completati.forEach(h => {
-            const fc = h.dataset.forn;
-            if (ordiniEmessi.has(fc)) return; // gia emesso
-            const articoliFornitore = [];
-            const confermati = MrpApp.state.ordiniConfermati;
-            confermati.forEach((ordine, key) => {
-                if (String(ordine.fornitore_codice) === String(fc) && !ordine.escluso) {
-                    articoliFornitore.push(ordine);
-                }
+    function _resetBatchState() {
+        _batchUnifiedState.active = false;
+        _batchUnifiedState.fornitori = [];
+        _batchUnifiedState.autoSendSet.clear();
+        _batchUnifiedState.autoSendAll = false;
+        _batchUnifiedState.modalOpen = false;
+        _batchUnifiedState.emissioneProgress = { done: 0, total: 0, successi: 0, falliti: 0 };
+        _batchUnifiedState.emailProgress = { done: 0, total: 0, successi: 0, falliti: 0 };
+    }
+
+    /** Genera le options HTML per il dropdown template di un fornitore */
+    function _buildUnifiedTplOptions(fk, selectedTid) {
+        const personalizzati = _emailTemplates.filter(t => String(t.fornitoreCode) === fk);
+        const generici = _emailTemplates.filter(t => !t.fornitoreCode);
+        let html = '';
+        if (personalizzati.length) {
+            html += '<optgroup label="\u2605 Personalizzati">';
+            personalizzati.forEach(t => {
+                const sel = String(t.id) === selectedTid ? ' selected' : '';
+                html += '<option value="' + t.id + '"' + sel + '>' + esc(t.nome) + '</option>';
             });
-            if (articoliFornitore.length > 0) {
-                fornitori.push({ fornitore_codice: fc, articoli: articoliFornitore, nome: articoliFornitore[0].fornitore_nome || fc });
-            }
+            html += '</optgroup>';
+        }
+        html += '<optgroup label="Template">';
+        generici.forEach(t => {
+            const sel = String(t.id) === selectedTid ? ' selected' : '';
+            const badge = t.isSystem ? ' [S]' : '';
+            html += '<option value="' + t.id + '"' + sel + '>' + esc(t.nome) + badge + '</option>';
         });
+        html += '</optgroup>';
+        return html;
+    }
 
-        if (fornitori.length === 0) return;
+    /** Icone per ogni stato */
+    function _statusIcon(status) {
+        switch (status) {
+            case 'waiting':       return '<span class="unified-status" style="color:var(--text-muted);">\u23F3</span>';
+            case 'emitting':      return '<span class="unified-status">\uD83D\uDD04</span>';
+            case 'emitted':       return '<span class="unified-status">\u2705</span>';
+            case 'emit_failed':   return '<span class="unified-status">\u274C</span>';
+            case 'sending_email': return '<span class="unified-status">\u23F3</span>';
+            case 'email_sent':    return '<span class="unified-status">\uD83D\uDCE8</span>';
+            case 'email_failed':  return '<span class="unified-status">\u274C\uFE0F</span>';
+            default:              return '';
+        }
+    }
 
-        const conferma = await modale('question', 'Conferma Emissione Batch',
-            `Stai per emettere <strong>${fornitori.length} ordini</strong> per i seguenti fornitori:<br><br>`
-            + fornitori.map(f => `\u2022 ${esc(f.nome)}`).join('<br>')
-            + '<br><br>Procedere?',
-            [
-                { label: 'Emetti Tutti', value: true, style: 'success' },
-                { label: 'Annulla', value: false, style: 'secondary' }
-            ]);
+    // renderRigaUnificata rimossa — ora le righe sono generate da modaleBatchEmail()
 
-        if (!conferma) return;
+    /** Aggiorna in-place una singola riga senza re-render completo */
+    function aggiornaRigaUnificata(fk) {
+        if (!_batchUnifiedState.modalOpen) return;
+        const f = _batchUnifiedState.fornitori.find(x => String(x.fornitore_codice) === String(fk));
+        if (!f) return;
+        const row = document.getElementById('batchRow_' + fk);
+        if (!row) return;
 
-        // Apri modale progresso
-        const overlay = document.getElementById('modalBatchOverlay');
-        const progressBar = document.getElementById('batchProgressBar');
-        const progressLabel = document.getElementById('batchProgressLabel');
-        const logEl = document.getElementById('batchLog');
-        const risultatoEl = document.getElementById('batchRisultato');
-        const btnChiudi = document.getElementById('btnBatchChiudi');
+        const isReady = f.status === 'emitted' || f.status === 'email_failed';
+        const email = f.emissioneResult ? (f.emissioneResult.fornitore_email || '') : '';
 
-        progressBar.style.width = '0%';
-        logEl.innerHTML = '';
-        risultatoEl.style.display = 'none';
-        btnChiudi.style.display = 'none';
-        overlay.classList.add('open');
+        // CSS class riga
+        row.className = 'unified-row-' + f.status.replace('_', '-');
 
-        let successi = 0, falliti = 0;
+        // Icona status
+        const stCell = document.getElementById('batchSt_' + fk);
+        if (stCell) stCell.innerHTML = _statusIcon(f.status);
 
-        for (let i = 0; i < fornitori.length; i++) {
-            const f = fornitori[i];
-            const perc = Math.round(((i + 1) / fornitori.length) * 100);
-            progressLabel.textContent = `${i + 1}/${fornitori.length} \u2014 ${f.nome}`;
-            progressBar.style.width = perc + '%';
+        // Ordine label
+        const ordCell = document.getElementById('batchOrd_' + fk);
+        if (ordCell && f.emissioneResult) {
+            ordCell.innerHTML = '<strong>' + esc(f.emissioneResult.numord + '/' + f.emissioneResult.serie) + '</strong>';
+        }
+
+        // Email
+        const emailCell = document.getElementById('batchEmail_' + fk);
+        if (emailCell && f.emissioneResult) {
+            emailCell.style.color = email ? 'var(--text-muted)' : 'var(--danger)';
+            emailCell.title = email;
+            emailCell.innerHTML = email ? esc(email) : '<em>mancante</em>';
+        }
+
+        // Checkbox
+        const chk = document.getElementById('batchChk_' + fk);
+        if (chk) {
+            chk.disabled = !isReady || !email;
+            if (isReady && email && f.status === 'emitted') chk.checked = true;
+            if (f.status === 'email_sent' || f.status === 'sending_email') chk.disabled = true;
+        }
+
+        // Template select + edit button
+        const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
+        const editBtn = document.getElementById('batchEdit_' + fk);
+        if (tplSel) tplSel.disabled = !isReady;
+        if (editBtn) editBtn.disabled = !isReady;
+
+        // Aggiorna conteggio selezionate e stato bottone invia
+        const contoEl = document.getElementById('batchConto');
+        const btnInviaEl = document.getElementById('unifiedBtnInvia');
+        if (contoEl) {
+            const n = document.querySelectorAll('.batch-chk:checked').length;
+            contoEl.textContent = n + ' selezionate';
+            if (btnInviaEl && btnInviaEl.textContent !== 'Invio in corso...') {
+                btnInviaEl.disabled = n === 0;
+                btnInviaEl.style.opacity = n === 0 ? '0.5' : '1';
+            }
+        }
+    }
+
+    /** Aggiorna barra avanzamento emissione */
+    function aggiornaProgressoEmissione() {
+        if (!_batchUnifiedState.modalOpen) return;
+        const p = _batchUnifiedState.emissioneProgress;
+        const bar = document.getElementById('unifiedProgressBar');
+        const label = document.getElementById('unifiedProgressLabel');
+        if (!bar || !label) return;
+
+        const perc = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+        bar.style.width = perc + '%';
+
+        if (p.done >= p.total) {
+            label.innerHTML = '<strong>Emissione completata</strong> \u2014 ' +
+                '<span style="color:var(--success);">' + p.successi + ' emess' + (p.successi > 1 ? 'i' : 'o') + '</span>' +
+                (p.falliti > 0 ? ' \u2014 <span style="color:var(--danger);">' + p.falliti + ' fallit' + (p.falliti > 1 ? 'i' : 'o') + '</span>' : '');
+        } else {
+            const current = _batchUnifiedState.fornitori.find(f => f.status === 'emitting');
+            label.textContent = 'Emissione: ' + p.done + '/' + p.total + (current ? ' \u2014 ' + current.nome : '');
+        }
+    }
+
+    // _aggiornaContoUnificato e apriModaleUnificato rimossi — ora usa modaleBatchEmail(pendenti, {emissioneMode: true})
+
+    /** Loop emissione batch — gira in background, indipendente dalla modale */
+    async function eseguiEmissioneBatch() {
+        const st = _batchUnifiedState;
+
+        for (let i = 0; i < st.fornitori.length; i++) {
+            const f = st.fornitori[i];
+            if (f.status !== 'waiting') continue;
+
+            f.status = 'emitting';
+            aggiornaRigaUnificata(f.fornitore_codice);
+            aggiornaProgressoEmissione();
 
             const body = {
                 fornitore_codice: parseInt(f.fornitore_codice, 10),
@@ -1725,43 +2939,307 @@ const MrpProposta = (() => {
                     quantita: a.quantita_confermata,
                     data_consegna: a.data_consegna,
                     prezzo: a.prezzo,
+                    perqta: Number(a.perqta) || 1,
                     unmis: a.ol_unmis || 'PZ',
                     ol_progr: parseInt(a.ol_progr, 10) || 0
                 }))
             };
 
-            const data = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
+            try {
+                const data = await chiamaConAutoDeploySP(`${MrpApp.API_BASE}/emetti-ordine`, body);
 
-            if (data.success) {
-                successi++;
-                // Salva PDF in cache per download immediato
-                pdfCache.set(String(f.fornitore_codice), {
-                    pdf_base64: data.pdf_base64,
-                    pdf_filename: data.pdf_filename
-                });
-                logEl.innerHTML += `<div style="color:var(--success);">\u2713 ${esc(f.nome)} \u2014 Ordine ${data.ordine.numord}/${data.ordine.serie}</div>`;
-            } else {
-                falliti++;
-                logEl.innerHTML += `<div style="color:var(--danger);">\u2717 ${esc(f.nome)} \u2014 ${esc(data.error || 'Errore')}</div>`;
+                if (data.success) {
+                    f.status = 'emitted';
+                    f.emissioneResult = {
+                        anno: data.ordine.anno,
+                        serie: data.ordine.serie,
+                        numord: data.ordine.numord,
+                        fornitore_codice: f.fornitore_codice,
+                        fornitore_nome: f.nome,
+                        fornitore_email: data.ordine.fornitore_email || '',
+                        pdf_base64: data.pdf_base64,
+                        pdf_filename: data.pdf_filename,
+                        totale_documento: data.ordine.totale_documento
+                    };
+                    pdfCache.set(pdfCacheKey(data.ordine.anno, data.ordine.serie, data.ordine.numord), { pdf_base64: data.pdf_base64, pdf_filename: data.pdf_filename });
+                    st.emissioneProgress.successi++;
+
+                    // Auto-send se richiesto
+                    if ((st.autoSendAll || st.autoSendSet.has(String(f.fornitore_codice))) && f.emissioneResult.fornitore_email) {
+                        _inviaEmailPerFornitore(String(f.fornitore_codice)); // fire-and-forget
+                    }
+                } else {
+                    f.status = 'emit_failed';
+                    f.emailError = data.error || 'Errore emissione';
+                    st.emissioneProgress.falliti++;
+                }
+            } catch (err) {
+                f.status = 'emit_failed';
+                f.emailError = err.message;
+                st.emissioneProgress.falliti++;
             }
 
-            logEl.scrollTop = logEl.scrollHeight;
+            st.emissioneProgress.done++;
+            aggiornaRigaUnificata(f.fornitore_codice);
+            aggiornaProgressoEmissione();
         }
 
-        // Ricarica proposta dal DB — l'UI riflette lo stato reale
-        await caricaProposta();
+        // Emissione completata — ricarica proposte in background
+        caricaProposta().catch(() => {});
 
-        progressLabel.textContent = 'Completato';
-        progressBar.style.width = '100%';
-        risultatoEl.style.display = 'block';
-        risultatoEl.innerHTML = `
-            <div style="text-align:center; margin-top:12px; font-size:0.95rem;">
-                <strong style="color:var(--success);">${successi} emess${successi > 1 ? 'i' : 'o'}</strong>
-                ${falliti > 0 ? ` &mdash; <strong style="color:var(--danger);">${falliti} fallit${falliti > 1 ? 'i' : 'o'}</strong>` : ''}
-            </div>
-        `;
-        btnChiudi.style.display = '';
-        btnChiudi.onclick = () => overlay.classList.remove('open');
+        // Se la modale e chiusa e tutte le email sono state inviate (o non richieste), riapri
+        _checkCompletamentoUnificato();
+    }
+
+    /** Gestisce click su "Invia Selezionate" */
+    function gestisciInviaSelezionate() {
+        const st = _batchUnifiedState;
+
+        // Raccogli righe checked
+        document.querySelectorAll('.unified-chk:checked').forEach(cb => {
+            const fk = cb.dataset.forn;
+            const f = st.fornitori.find(x => String(x.fornitore_codice) === fk);
+            if (!f) return;
+
+            // Salva template selezionato nello stato
+            const tplSel = document.getElementById('unified_tpl_' + fk);
+            if (tplSel) f.selectedTemplateId = tplSel.value;
+
+            if (f.status === 'emitted') {
+                // Gia emesso: invia subito
+                _inviaEmailPerFornitore(fk);
+            } else if (f.status === 'waiting' || f.status === 'emitting') {
+                // Non ancora emesso: metti in coda
+                st.autoSendSet.add(fk);
+            }
+        });
+
+        // Se select-all e checked, marca autoSendAll
+        const chkAll = document.getElementById('unifiedChkAll');
+        if (chkAll && chkAll.checked) st.autoSendAll = true;
+
+        // Feedback visuale
+        const btnInvia = document.getElementById('unifiedBtnInvia');
+        if (btnInvia) {
+            btnInvia.textContent = 'Invio in corso...';
+            btnInvia.disabled = true;
+            btnInvia.style.opacity = '0.5';
+        }
+    }
+
+    /** Invia email per un singolo fornitore (usa _inviaEmailDirect esistente) */
+    async function _inviaEmailPerFornitore(fk) {
+        const st = _batchUnifiedState;
+        const f = st.fornitori.find(x => String(x.fornitore_codice) === String(fk));
+        if (!f || !f.emissioneResult) return;
+
+        f.status = 'sending_email';
+        aggiornaRigaUnificata(fk);
+
+        const override = _batchCustomOverrides.get(String(fk)) || {};
+        const tplSel = document.getElementById('unified_tpl_' + fk);
+        const tid = f.selectedTemplateId || (tplSel ? tplSel.value : null);
+        const sendOpts = { template_id: tid ? parseInt(tid, 10) : null };
+        if (override.oggetto_custom) {
+            sendOpts.oggetto_custom = override.oggetto_custom;
+            sendOpts.corpo_custom = override.corpo_custom;
+        }
+
+        const emesso = f.emissioneResult;
+        const result = await _inviaEmailDirect(emesso, sendOpts);
+
+        if (result.success) {
+            f.status = 'email_sent';
+            st.emailProgress.successi++;
+            if (_templateMode === 'ultima_scelta' && tid) {
+                onTemplateSelectChange(String(fk), parseInt(tid, 10));
+            }
+        } else {
+            f.status = 'email_failed';
+            f.emailError = result.error || 'Errore invio';
+            st.emailProgress.falliti++;
+        }
+
+        st.emailProgress.done++;
+        aggiornaRigaUnificata(fk);
+        aggiornaBarraEmettiTutti();
+        _checkCompletamentoUnificato();
+    }
+
+    /** Verifica se tutto e completato e gestisce riapertura modale */
+    function _checkCompletamentoUnificato() {
+        const st = _batchUnifiedState;
+        const emissioneFinita = st.emissioneProgress.done >= st.emissioneProgress.total;
+        if (!emissioneFinita) return;
+
+        // Controlla se ci sono ancora email in volo
+        const emailInVolo = st.fornitori.some(f => f.status === 'sending_email');
+        if (emailInVolo) return;
+
+        // Ci sono ancora email da inviare? (righe emesse ma non ancora inviate)
+        const emailDaInviare = st.fornitori.some(f => f.status === 'emitted');
+        if (emailDaInviare) return; // l'utente non ha ancora inviato — lascia i bottoni
+
+        // Tutto completato (emissione + email inviate o nessuna email richiesta)
+        if (!st.modalOpen) {
+            riaperiModaleUnificato();
+        } else {
+            _mostraRiepilogoFinale();
+        }
+    }
+
+    /** Riapre la modale dallo stato corrente (dopo close durante operazioni) */
+    function riaperiModaleUnificato() {
+        // Riapre "Invia Tutte le Email" — raccogliera pendenti + stato emissione
+        inviaTutteEmailHandler();
+    }
+
+    /** Mostra riepilogo finale nel footer della modale */
+    function _mostraRiepilogoFinale() {
+        const st = _batchUnifiedState;
+        const elAzioni = document.getElementById('modalGenericAzioni');
+        if (!elAzioni) return;
+
+        elAzioni.innerHTML = '';
+
+        let msgR = '';
+        const ep = st.emissioneProgress;
+        const mp = st.emailProgress;
+        if (ep.successi > 0) msgR += '<span style="color:var(--success);font-weight:600;">' + ep.successi + ' emess' + (ep.successi > 1 ? 'i' : 'o') + '</span>';
+        if (mp.successi > 0) msgR += ' \u2014 <span style="color:#7c3aed;font-weight:600;">' + mp.successi + ' email inviat' + (mp.successi > 1 ? 'e' : 'a') + '</span>';
+        if (ep.falliti > 0) msgR += ' \u2014 <span style="color:var(--danger);font-weight:600;">' + ep.falliti + ' errori emissione</span>';
+        if (mp.falliti > 0) msgR += ' \u2014 <span style="color:var(--danger);font-weight:600;">' + mp.falliti + ' errori email</span>';
+
+        const rSpan = document.createElement('span');
+        rSpan.style.cssText = 'font-size:0.85rem;margin-right:auto;';
+        rSpan.innerHTML = msgR;
+        elAzioni.appendChild(rSpan);
+
+        const btnChiudi = document.createElement('button');
+        btnChiudi.textContent = 'Chiudi';
+        btnChiudi.className = 'mrp-btn mrp-btn-primary';
+        btnChiudi.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+        btnChiudi.addEventListener('click', () => {
+            _batchUnifiedState.modalOpen = false;
+            document.getElementById('modalGenericOverlay').classList.remove('open');
+            _resetBatchState();
+            aggiornaBarraEmettiTutti();
+        });
+        elAzioni.appendChild(btnChiudi);
+    }
+
+    /** Chiude la modale ma le operazioni continuano in background */
+    function chiudiModaleUnificato() {
+        _batchUnifiedState.modalOpen = false;
+        const overlay = document.getElementById('modalGenericOverlay');
+        if (overlay) overlay.classList.remove('open');
+
+        // Se l'emissione e finita, resetta SEMPRE lo stato quando l'utente chiude.
+        // Le email non inviate restano in ordiniEmessi e si possono inviare
+        // con il bottone "Invia Tutte le Email" che legge da ordiniEmessi (dati freschi).
+        const emissioneFinita = _batchUnifiedState.emissioneProgress.done >= _batchUnifiedState.emissioneProgress.total;
+        const emailInVolo = _batchUnifiedState.fornitori.some(f => f.status === 'sending_email');
+        if (emissioneFinita && !emailInVolo) {
+            _resetBatchState();
+        }
+        // Se emissione ancora in corso, le operazioni continuano in background.
+        // _checkCompletamentoUnificato() riaprira la modale al completamento.
+        aggiornaBarraEmettiTutti();
+    }
+
+    // ============================================================
+    // EMETTI TUTTI (batch) — flusso unificato emissione + email
+    // ============================================================
+    async function emettiTuttiHandler() {
+        if (_batchUnifiedState.active) return; // gia in corso
+
+        if (!await assicuraSPEsiste()) return;
+
+        const completati = document.querySelectorAll('.proposta-fornitore-header.fornitore-completato');
+        const fornitori = [];
+        const skippedEmailPending = []; // richiedono merge dialog manuale
+
+        completati.forEach(h => {
+            const fc = h.dataset.forn;
+            const confermati = MrpApp.state.ordiniConfermati;
+            const articoliFornitore = [];
+            confermati.forEach((ordine, key) => {
+                if (String(ordine.fornitore_codice) === String(fc)) {
+                    articoliFornitore.push(ordine);
+                }
+            });
+            if (articoliFornitore.length === 0) return;
+
+            const nome = articoliFornitore[0].fornitore_nome || fc;
+
+            // Se esiste un ordine email-pending per questo fornitore, richiede una
+            // decisione manuale (merge vs separato) — lo escludiamo dal batch automatico.
+            if (ordiniEmessi.has(fc)) {
+                skippedEmailPending.push({ fornitore_codice: fc, nome });
+                return;
+            }
+
+            // Raggruppa per data: date diverse → ordini separati
+            const gruppi = raggruppaPerData(articoliFornitore);
+            for (const gruppo of gruppi) {
+                const dataLabel = gruppo.data !== 'no-date'
+                    ? new Date(gruppo.data).toLocaleDateString('it-IT')
+                    : '';
+                const nomeGruppo = gruppi.length > 1 && dataLabel
+                    ? nome + ' (cons. ' + dataLabel + ')'
+                    : nome;
+                fornitori.push({ fornitore_codice: fc, articoli: gruppo.articoli, nome: nomeGruppo });
+            }
+        });
+
+        if (fornitori.length === 0 && skippedEmailPending.length === 0) return;
+
+        if (fornitori.length === 0 && skippedEmailPending.length > 0) {
+            await modale('warning', 'Nessun ordine processabile in batch',
+                'Tutti i fornitori con articoli confermati hanno già un ordine con email da inviare.<br>' +
+                'Usa il pulsante <strong>Emetti</strong> del singolo fornitore per decidere se unire o creare un ordine separato.<br><br>' +
+                skippedEmailPending.map(f => '\u2022 ' + esc(f.nome)).join('<br>'));
+            return;
+        }
+
+        let msgSkip = '';
+        if (skippedEmailPending.length > 0) {
+            msgSkip = '<br><br><strong style="color:var(--warning);">Esclusi dal batch (richiedono scelta manuale unisci/separato):</strong><br>'
+                + skippedEmailPending.map(f => '\u2022 ' + esc(f.nome)).join('<br>');
+        }
+
+        const conferma = await modale('question', 'Conferma Emissione Batch',
+            `Stai per emettere <strong>${fornitori.length} ordini</strong> per i seguenti fornitori:<br><br>`
+            + fornitori.map(f => `\u2022 ${esc(f.nome)}`).join('<br>')
+            + msgSkip
+            + '<br><br>Procedere?',
+            [
+                { label: 'Emetti Tutti', value: true, style: 'success' },
+                { label: 'Annulla', value: false, style: 'secondary' }
+            ]);
+
+        if (!conferma) return;
+
+        // Inizializza stato unificato per tracciare emissione
+        _resetBatchState();
+        _batchUnifiedState.active = true;
+        _batchUnifiedState.emissioneProgress.total = fornitori.length;
+        _batchUnifiedState.fornitori = fornitori.map(f => ({
+            fornitore_codice: f.fornitore_codice,
+            nome: f.nome,
+            articoli: f.articoli,
+            status: 'waiting',
+            emissioneResult: null,
+            selectedTemplateId: String(getTemplateIdPerFornitore(f.fornitore_codice) || ''),
+            emailError: null
+        }));
+
+        // Lancia emissione in background
+        eseguiEmissioneBatch();
+
+        // Apri il modale "Invia Tutte le Email" — mostrera le email gia pendenti
+        // + le nuove che si aggiungono man mano dall'emissione
+        inviaTutteEmailHandler();
     }
 
     // ============================================================
@@ -1773,7 +3251,7 @@ const MrpProposta = (() => {
             const data = await res.json();
             if (res.ok && data.success) {
                 // Cache il PDF per download futuro
-                pdfCache.set(String(data.ordine.fornitore_codice), {
+                pdfCache.set(pdfCacheKey(data.ordine.anno, data.ordine.serie, data.ordine.numord), {
                     pdf_base64: data.pdf_base64,
                     pdf_filename: data.pdf_filename
                 });
@@ -1793,14 +3271,217 @@ const MrpProposta = (() => {
         const overlay = document.getElementById('modalStoricoOverlay');
         if (!overlay) return;
         overlay.classList.add('open');
-        // Applica filtro checkbox corrente (solo se elaborazione è un ID server, non timestamp client)
-        const chk = document.getElementById('storicoFiltroElab');
-        const filtri = {};
-        const elab = MrpApp.state.elaborazione;
-        if (chk && chk.checked && elab && elab.id) {
-            filtri.elaborazione_id = String(elab.id);
+        // Default: elaborazione corrente selezionata
+        const currentElabId = MrpApp.state.elaborazione ? String(MrpApp.state.elaborazione.id) : null;
+        _storicoFiltri.elaborazioneId = currentElabId;
+        await caricaStorico();
+    }
+
+    // ── Stato filtri storico ──
+    const _storicoFiltri = {
+        elaborazioneId: null,
+        categorie: new Set(['accettata', 'modificata', 'misto', 'indipendente']),
+        elabCollapsed: new Set()
+    };
+    let _storicoData = null; // cache dati per filtri client-side
+
+    const _catConfig = {
+        accettata:     { label: 'P.O.F. Accettate',  cssVar: '--storico-accettata',     tip: 'Ordini emessi verso fornitori proposti, con quantit\u00E0 identiche alla proposta MRP' },
+        modificata:    { label: 'P.O.F. Modificate',  cssVar: '--storico-modificata',    tip: 'Ordini verso fornitori proposti, ma con quantit\u00E0 diverse dalla proposta MRP' },
+        misto:         { label: 'Misti',              cssVar: '--storico-misto',          tip: 'Ordini con sia articoli dalla proposta MRP che articoli aggiunti manualmente' },
+        indipendente:  { label: 'Indipendenti',       cssVar: '--storico-indipendente',  tip: 'Ordini verso fornitori non presenti nelle proposte MRP' }
+    };
+
+    function _renderOrdineRow(o) {
+        const dataStr = o.data_emissione ? new Date(o.data_emissione).toLocaleDateString('it-IT', {
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }) : '';
+        const totale = Number(o.totale_documento || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const emailIcon = o.email_inviata
+            ? '<span class="storico-email-ok" title="Email inviata">\u2714</span>'
+            : '<span class="storico-email-no" title="Email non inviata">\u2716</span>';
+        const origBadge = o.origine === 'bcube' ? '<span style="font-size:0.65rem;background:#dbeafe;color:#7c3aed;padding:1px 5px;border-radius:4px;margin-left:4px;">BCube</span>' : '';
+        const cat = o.categoria || 'indipendente';
+        const catCfg = _catConfig[cat] || _catConfig.indipendente;
+        const catBadge = '<span class="storico-cat-badge cat-' + cat + '" title="' + escAttr(catCfg.tip) + '">' + esc(catCfg.label) + '</span>';
+
+        return '<tr class="storico-row-' + cat + ' storico-elab-rows" data-cat="' + cat + '" data-elab="' + escAttr(o.elaborazione_id || '') + '">' +
+            '<td>' + dataStr + '</td>' +
+            '<td><strong>' + o.ord_numord + '/' + o.ord_serie + '</strong>' + origBadge + catBadge + '</td>' +
+            '<td>' + esc(o.fornitore_nome || '') + ' <small>(' + o.fornitore_codice + ')</small></td>' +
+            '<td class="num">' + o.num_righe + '</td>' +
+            '<td class="num">\u20ac ' + totale + '</td>' +
+            '<td class="center">' + emailIcon + '</td>' +
+            '<td>' +
+                '<button class="btn-storico-visualizza" data-anno="' + o.ord_anno + '" data-serie="' + escAttr(o.ord_serie) + '" data-numord="' + o.ord_numord + '" title="Visualizza ordine">\uD83D\uDD0D</button>' +
+                '<button class="btn-storico-pdf" data-anno="' + o.ord_anno + '" data-serie="' + escAttr(o.ord_serie) + '" data-numord="' + o.ord_numord + '" title="Scarica PDF">\u2B07</button>' +
+            '</td></tr>';
+    }
+
+    function _renderElabHeader(e) {
+        const fpDate = e.Fingerprint ? new Date(e.Fingerprint).toLocaleDateString('it-IT', {
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }) : '?';
+        const ordini = e.num_ordini || 0;
+        const accettati = e.num_accettati || 0;
+        const modificati = e.num_modificati || 0;
+        const indipendenti = e.num_indipendenti || 0;
+        const misti = e.num_misti || 0;
+        const pofIgnorate = e.num_pof_ignorate || 0;
+
+        let stats = e.TotaleProposte + ' proposte \u00B7 <strong>' + ordini + '</strong> ordini';
+        const detOrd = [];
+        if (accettati > 0) detOrd.push('<span title="' + escAttr(_catConfig.accettata.tip) + '" style="cursor:help;">' + accettati + ' P.O.F. accettate</span>');
+        if (modificati > 0) detOrd.push('<span title="' + escAttr(_catConfig.modificata.tip) + '" style="color:var(--warning);cursor:help;">' + modificati + ' P.O.F. modificate</span>');
+        if (misti > 0) detOrd.push('<span title="' + escAttr(_catConfig.misto.tip) + '" style="color:#7c3aed;cursor:help;">' + misti + ' misti</span>');
+        if (indipendenti > 0) detOrd.push('<span title="' + escAttr(_catConfig.indipendente.tip) + '" style="cursor:help;">' + indipendenti + ' indipendenti</span>');
+        if (detOrd.length > 0) stats += ' (' + detOrd.join(', ') + ')';
+        stats += ' \u00B7 <span title="Proposte MRP non evase" style="cursor:help;">' + pofIgnorate + ' ignorate</span>';
+
+        const isCollapsed = _storicoFiltri.elabCollapsed.has(String(e.ID));
+        const toggleClass = isCollapsed ? ' collapsed' : '';
+
+        return '<tr class="storico-elab-header" data-elab-id="' + e.ID + '">' +
+            '<td colspan="7" style="background:var(--bg);padding:10px 8px;border-bottom:2px solid var(--primary);">' +
+                '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                    '<span class="storico-elab-toggle' + toggleClass + '">\u25BC</span>' +
+                    '<strong style="font-size:0.9rem;">Elaborazione del ' + fpDate + '</strong>' +
+                    '<span style="font-size:0.78rem;color:var(--text-muted);">' + stats + '</span>' +
+                    '<button class="btn-storico-dettaglio-elab" data-elab-id="' + e.ID + '" style="margin-left:auto;font-size:0.73rem;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Dettaglio elaborazione">\uD83D\uDCC4 Dettaglio</button>' +
+                '</div>' +
+            '</td></tr>';
+    }
+
+    function _renderStoricoKPI(ordini) {
+        const kpi = document.getElementById('storicoKPI');
+        if (!kpi) return;
+        // Filtra ordini visibili in base a elaborazione e categorie selezionate
+        const filtrati = ordini.filter(o => {
+            const catOk = _storicoFiltri.categorie.has(o.categoria || 'indipendente');
+            const elabOk = !_storicoFiltri.elaborazioneId || String(o.elaborazione_id) === _storicoFiltri.elaborazioneId;
+            return catOk && elabOk;
+        });
+        const totOrdini = filtrati.length;
+        const totValore = filtrati.reduce((s, o) => s + Number(o.totale_documento || 0), 0);
+        const totFornitori = new Set(filtrati.map(o => o.fornitore_codice)).size;
+        kpi.innerHTML =
+            '<div class="storico-kpi-item"><span class="storico-kpi-value">' + totOrdini + '</span> ordini</div>' +
+            '<div class="storico-kpi-item">\u20ac <span class="storico-kpi-value">' + totValore.toLocaleString('it-IT', { minimumFractionDigits: 2 }) + '</span></div>' +
+            '<div class="storico-kpi-item"><span class="storico-kpi-value">' + totFornitori + '</span> fornitori</div>';
+    }
+
+    function _renderStoricoChips(ordini) {
+        const container = document.getElementById('storicoChips');
+        if (!container) return;
+        const filtrati = ordini.filter(o =>
+            !_storicoFiltri.elaborazioneId || String(o.elaborazione_id) === _storicoFiltri.elaborazioneId
+        );
+        const counts = { accettata: 0, modificata: 0, misto: 0, indipendente: 0 };
+        filtrati.forEach(o => { counts[o.categoria || 'indipendente']++; });
+
+        container.innerHTML = '';
+        for (const [cat, cfg] of Object.entries(_catConfig)) {
+            const isActive = _storicoFiltri.categorie.has(cat);
+            const currentColor = getComputedStyle(document.documentElement).getPropertyValue(cfg.cssVar).trim();
+
+            const chip = document.createElement('span');
+            chip.className = 'storico-chip' + (isActive ? ' active' : '');
+            chip.dataset.cat = cat;
+            chip.title = cfg.tip;
+
+            // Testo del chip
+            const textSpan = document.createElement('span');
+            textSpan.innerHTML = '<strong>' + counts[cat] + '</strong> ' + cfg.label;
+            chip.appendChild(textSpan);
+
+            // Color picker inline
+            const picker = document.createElement('input');
+            picker.type = 'color';
+            picker.className = 'storico-chip-color';
+            picker.value = currentColor || '#000000';
+            picker.title = 'Cambia colore: ' + cfg.label;
+            picker.addEventListener('input', (e) => {
+                e.stopPropagation();
+                if (typeof MrpTheme !== 'undefined' && MrpTheme.setColor) {
+                    MrpTheme.setColor(cfg.cssVar, e.target.value);
+                } else {
+                    document.documentElement.style.setProperty(cfg.cssVar, e.target.value);
+                }
+            });
+            picker.addEventListener('click', (e) => e.stopPropagation()); // non toggle il chip
+            chip.appendChild(picker);
+
+            // Click sul chip (non sul picker) → toggle filtro
+            textSpan.addEventListener('click', () => {
+                if (_storicoFiltri.categorie.has(cat)) {
+                    _storicoFiltri.categorie.delete(cat);
+                    chip.classList.remove('active');
+                } else {
+                    _storicoFiltri.categorie.add(cat);
+                    chip.classList.add('active');
+                }
+                _applicaFiltriStorico();
+            });
+
+            container.appendChild(chip);
         }
-        await caricaStorico(filtri);
+    }
+
+    function _renderStoricoElabDropdown(elaborazioni) {
+        const sel = document.getElementById('storicoFiltroElab');
+        if (!sel) return;
+        const currentElabId = MrpApp.state.elaborazione ? String(MrpApp.state.elaborazione.id) : null;
+        sel.innerHTML = '<option value="">Tutte le elaborazioni</option>';
+        elaborazioni.forEach(e => {
+            const fpDate = e.Fingerprint ? new Date(e.Fingerprint).toLocaleDateString('it-IT', {
+                day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : '?';
+            const isCurrent = currentElabId && String(e.ID) === currentElabId;
+            const star = isCurrent ? '\u2B50 ' : '';
+            sel.innerHTML += '<option value="' + e.ID + '">' + star + fpDate + ' (' + (e.num_ordini || 0) + ' ordini)</option>';
+        });
+        sel.value = _storicoFiltri.elaborazioneId || '';
+        sel.addEventListener('change', () => {
+            _storicoFiltri.elaborazioneId = sel.value || null;
+            _applicaFiltriStorico();
+            if (_storicoData) _renderStoricoKPI(_storicoData.ordini || []);
+        });
+    }
+
+    function _applicaFiltriStorico() {
+        const rows = document.querySelectorAll('.storico-elab-rows');
+        const headers = document.querySelectorAll('.storico-elab-header');
+
+        rows.forEach(row => {
+            const cat = row.dataset.cat;
+            const elab = row.dataset.elab;
+            const catOk = _storicoFiltri.categorie.has(cat);
+            const elabOk = !_storicoFiltri.elaborazioneId || elab === _storicoFiltri.elaborazioneId;
+            const collapsed = _storicoFiltri.elabCollapsed.has(elab);
+            row.style.display = (catOk && elabOk && !collapsed) ? '' : 'none';
+        });
+
+        headers.forEach(h => {
+            const eid = h.dataset.elabId;
+            const elabOk = !_storicoFiltri.elaborazioneId || eid === _storicoFiltri.elaborazioneId;
+            h.style.display = elabOk ? '' : 'none';
+        });
+
+        // Aggiorna KPI e conteggi chip in base ai filtri
+        if (_storicoData) {
+            _renderStoricoKPI(_storicoData.ordini || []);
+            // Ricalcola conteggi chip per l'elaborazione selezionata
+            const ordiniPerConteggio = (_storicoData.ordini || []).filter(o =>
+                !_storicoFiltri.elaborazioneId || String(o.elaborazione_id) === _storicoFiltri.elaborazioneId
+            );
+            const counts = { accettata: 0, modificata: 0, misto: 0, indipendente: 0 };
+            ordiniPerConteggio.forEach(o => { counts[o.categoria || 'indipendente']++; });
+            document.querySelectorAll('.storico-chip').forEach(chip => {
+                const cat = chip.dataset.cat;
+                const strong = chip.querySelector('strong');
+                if (strong) strong.textContent = counts[cat] || 0;
+            });
+        }
     }
 
     async function caricaStorico(filtri = {}) {
@@ -1813,7 +3494,6 @@ const MrpProposta = (() => {
 
         try {
             const params = new URLSearchParams();
-            if (filtri.elaborazione_id) params.set('elaborazione_id', filtri.elaborazione_id);
             if (filtri.fornitore) params.set('fornitore', filtri.fornitore);
             if (filtri.da) params.set('da', filtri.da);
             if (filtri.a) params.set('a', filtri.a);
@@ -1822,65 +3502,70 @@ const MrpProposta = (() => {
             const data = await res.json();
             if (loading) loading.style.display = 'none';
 
-            if (!data.ordini || data.ordini.length === 0) {
+            const ordini = data.ordini || [];
+            const elaborazioni = data.elaborazioni || [];
+            _storicoData = data;
+
+            if (ordini.length === 0 && elaborazioni.length === 0) {
                 body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">Nessun ordine emesso</td></tr>';
+                document.getElementById('storicoKPI').innerHTML = '';
+                document.getElementById('storicoChips').innerHTML = '';
                 return;
             }
 
-            body.innerHTML = data.ordini.map(o => {
-                const dataStr = o.data_emissione ? new Date(o.data_emissione).toLocaleDateString('it-IT', {
-                    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
-                }) : '';
-                const totale = Number(o.totale_documento || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                const emailIcon = o.email_inviata
-                    ? '<span class="storico-email-ok" title="Email inviata">\u2714</span>'
-                    : '<span class="storico-email-no" title="Email non inviata">\u2716</span>';
+            // KPI, Chips, Dropdown
+            _renderStoricoKPI(ordini);
+            _renderStoricoChips(ordini);
+            _renderStoricoElabDropdown(elaborazioni);
 
-                return `<tr>
-                    <td>${dataStr}</td>
-                    <td><strong>${o.ord_numord}/${o.ord_serie}</strong></td>
-                    <td>${esc(o.fornitore_nome || '')} <small>(${o.fornitore_codice})</small></td>
-                    <td class="num">${o.num_righe}</td>
-                    <td class="num">\u20ac ${totale}</td>
-                    <td class="center">${emailIcon}</td>
-                    <td>
-                        <button class="btn-storico-visualizza" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Visualizza ordine">\uD83D\uDD0D</button>
-                        <button class="btn-storico-pdf" data-anno="${o.ord_anno}" data-serie="${escAttr(o.ord_serie)}" data-numord="${o.ord_numord}" title="Scarica PDF">\u2B07</button>
-                    </td>
-                </tr>`;
-            }).join('');
+            // Raggruppamento per elaborazione
+            const ordiniPerElab = {};
+            const ordiniSenzaElab = [];
+            ordini.forEach(o => {
+                const eid = o.elaborazione_id;
+                if (eid && eid !== '' && eid !== '0') {
+                    if (!ordiniPerElab[eid]) ordiniPerElab[eid] = [];
+                    ordiniPerElab[eid].push(o);
+                } else {
+                    ordiniSenzaElab.push(o);
+                }
+            });
+
+            let html = '';
+            for (const e of elaborazioni) {
+                const eid = String(e.ID);
+                const ordiniElab = ordiniPerElab[eid] || [];
+                if (ordiniElab.length === 0) continue;
+                html += _renderElabHeader(e);
+                html += ordiniElab.map(o => _renderOrdineRow(o)).join('');
+            }
+            if (ordiniSenzaElab.length > 0) {
+                html += '<tr class="storico-elab-header" data-elab-id="none"><td colspan="7" style="background:var(--bg);padding:10px 8px;border-bottom:2px solid var(--text-muted);"><strong style="font-size:0.9rem;color:var(--text-muted);">Ordini senza elaborazione</strong></td></tr>';
+                html += ordiniSenzaElab.map(o => _renderOrdineRow(o)).join('');
+            }
+            body.innerHTML = html;
+
+            // Applica filtri correnti (collapse, categorie)
+            _applicaFiltriStorico();
         } catch (err) {
             if (loading) loading.style.display = 'none';
-            body.innerHTML = `<tr><td colspan="7" style="color:var(--danger); padding:12px;">Errore: ${esc(err.message)}</td></tr>`;
+            body.innerHTML = '<tr><td colspan="7" style="color:var(--danger); padding:12px;">Errore: ' + esc(err.message) + '</td></tr>';
         }
     }
 
     function initStorico() {
-        // Close button
         const closeBtn = document.getElementById('modalStoricoClose');
         if (closeBtn) closeBtn.addEventListener('click', () => {
             document.getElementById('modalStoricoOverlay').classList.remove('open');
         });
 
-        // Click su overlay
         const overlay = document.getElementById('modalStoricoOverlay');
         if (overlay) overlay.addEventListener('click', (e) => {
             if (e.target === overlay) overlay.classList.remove('open');
         });
 
-        // Bottone apri storico
         const btnApri = document.getElementById('btnApriStorico');
         if (btnApri) btnApri.addEventListener('click', apriStorico);
-
-        // Filtro solo elaborazione corrente
-        const chkElab = document.getElementById('storicoFiltroElab');
-        if (chkElab) chkElab.addEventListener('change', () => {
-            const filtri = {};
-            if (chkElab.checked && MrpApp.state.elaborazioneId) {
-                filtri.elaborazione_id = MrpApp.state.elaborazioneId;
-            }
-            caricaStorico(filtri);
-        });
 
         // Delegazione click sulla tabella storico
         const tbody = document.getElementById('storicoBody');
@@ -1894,10 +3579,153 @@ const MrpProposta = (() => {
             const btnPdf = e.target.closest('.btn-storico-pdf');
             if (btnPdf) {
                 e.stopPropagation();
-                // Scarica PDF via endpoint diretto
                 window.open(`${MrpApp.API_BASE}/ordine-pdf/${btnPdf.dataset.anno}/${btnPdf.dataset.serie}/${btnPdf.dataset.numord}`, '_blank');
+                return;
+            }
+            const btnDetElab = e.target.closest('.btn-storico-dettaglio-elab');
+            if (btnDetElab) {
+                e.stopPropagation();
+                await apriDettaglioElaborazione(parseInt(btnDetElab.dataset.elabId, 10));
+                return;
+            }
+            // Click su testata elaborazione → collassa/espande
+            const elabHeader = e.target.closest('.storico-elab-header');
+            if (elabHeader && !e.target.closest('button')) {
+                const eid = elabHeader.dataset.elabId;
+                if (!eid) return;
+                const toggle = elabHeader.querySelector('.storico-elab-toggle');
+                if (_storicoFiltri.elabCollapsed.has(eid)) {
+                    _storicoFiltri.elabCollapsed.delete(eid);
+                    if (toggle) toggle.classList.remove('collapsed');
+                } else {
+                    _storicoFiltri.elabCollapsed.add(eid);
+                    if (toggle) toggle.classList.add('collapsed');
+                }
+                _applicaFiltriStorico();
             }
         });
+    }
+
+    // ============================================================
+    // DETTAGLIO ELABORAZIONE (modale con proposte raggruppate per fornitore)
+    // ============================================================
+    async function apriDettaglioElaborazione(elabId) {
+        const overlay = document.getElementById('modalGenericOverlay');
+        const elTitolo = document.getElementById('modalGenericTitolo');
+        const elIcona = document.getElementById('modalGenericIcona');
+        const elMsg = document.getElementById('modalGenericMessaggio');
+        const elAzioni = document.getElementById('modalGenericAzioni');
+        if (!overlay) return;
+
+        elTitolo.textContent = 'Dettaglio Elaborazione';
+        elIcona.textContent = '\uD83D\uDCCB';
+
+        // Aggancia close sulla croce
+        const closeBtn = document.getElementById('modalGenericClose');
+        if (closeBtn) {
+            const handler = () => { overlay.classList.remove('open'); closeBtn.removeEventListener('click', handler); };
+            closeBtn.addEventListener('click', handler);
+        }
+        elMsg.innerHTML = '<div style="text-align:center;padding:24px;"><span style="animation:unifiedPulse 1.2s infinite;">Caricamento...</span></div>';
+        elAzioni.innerHTML = '';
+        overlay.classList.add('open');
+
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/elaborazione-dettaglio/${elabId}`, { credentials: 'include' });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            const e = data.elaborazione;
+            const fornitori = data.fornitori || [];
+            const fpDate = e.fingerprint ? new Date(e.fingerprint).toLocaleDateString('it-IT', {
+                day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : '';
+
+            // Testata
+            let html = '<div style="text-align:left;">';
+            html += '<div style="margin-bottom:12px;padding:8px 12px;background:var(--bg);border-radius:6px;border:1px solid var(--border);">';
+            html += '<strong>Elaborazione MRP del ' + esc(fpDate) + '</strong><br>';
+            html += '<span style="font-size:0.82rem;color:var(--text-muted);">';
+            html += e.totaleProposte + ' proposte \u00B7 <strong>' + e.numOrdini + '</strong> ordini emessi \u00B7 ';
+            html += e.totaleGestite + ' gestite \u00B7 ' + e.numIgnorate + ' ignorate';
+            if (e.numModificate > 0) html += ' \u00B7 <span style="color:var(--warning);">' + e.numModificate + ' modificate</span>';
+            html += '</span></div>';
+
+            // Lista fornitori con proposte
+            html += '<div style="max-height:450px;overflow-y:auto;">';
+            for (const f of fornitori) {
+                const gestiteF = f.proposte.filter(p => p.Gestita);
+                const ignorateF = f.proposte.filter(p => !p.Gestita);
+                const badge = gestiteF.length > 0
+                    ? '<span style="font-size:0.7rem;background:#dcfce7;color:#16a34a;padding:1px 6px;border-radius:4px;">' + gestiteF.length + ' ordinate</span>'
+                    : '<span style="font-size:0.7rem;background:#fee2e2;color:var(--danger);padding:1px 6px;border-radius:4px;">ignorate</span>';
+
+                html += '<div style="margin-bottom:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;">';
+                html += '<div style="padding:6px 10px;background:var(--bg);font-weight:600;font-size:0.85rem;display:flex;align-items:center;gap:6px;">';
+                html += esc(f.nome) + ' <small style="color:var(--text-muted);">(' + f.codice + ')</small> ' + badge;
+                html += '</div>';
+
+                // Righe proposte
+                html += '<table style="width:100%;font-size:0.78rem;border-collapse:collapse;">';
+                for (const p of f.proposte) {
+                    let statusIcon, rowBg;
+                    if (p.Gestita && p.quantita_ordinata && p.ol_quant !== p.quantita_ordinata) {
+                        statusIcon = '\u26A0\uFE0F'; // modificata
+                        rowBg = '#fffbeb';
+                    } else if (p.Gestita) {
+                        statusIcon = '\u2705';
+                        rowBg = '#f0fdf4';
+                    } else {
+                        statusIcon = '\u274C';
+                        rowBg = '#fef2f2';
+                    }
+
+                    const dataCons = p.ol_datcons ? new Date(p.ol_datcons).toLocaleDateString('it-IT') : '';
+                    const qta = Number(p.ol_quant || 0).toLocaleString('it-IT', { minimumFractionDigits: 0 });
+
+                    html += '<tr style="background:' + rowBg + ';border-top:1px solid #f0f0f0;">';
+                    html += '<td style="padding:4px 8px;width:24px;">' + statusIcon + '</td>';
+                    html += '<td style="padding:4px 4px;font-family:monospace;">' + esc(p.ol_codart) + '</td>';
+                    html += '<td style="padding:4px 4px;">' + esc(p.articolo_descr || '') + '</td>';
+                    html += '<td style="padding:4px 4px;text-align:right;white-space:nowrap;">' + qta + ' ' + esc(p.ol_unmis || '') + '</td>';
+                    html += '<td style="padding:4px 4px;text-align:center;">' + dataCons + '</td>';
+
+                    if (p.Gestita && p.ord_numord) {
+                        let ordInfo = '\u2192 <strong>' + p.ord_numord + '/' + esc(p.ord_serie || '') + '</strong>';
+                        if (p.quantita_ordinata && p.ol_quant !== p.quantita_ordinata) {
+                            const qtaOrd = Number(p.quantita_ordinata).toLocaleString('it-IT', { minimumFractionDigits: 0 });
+                            ordInfo += ' <span style="color:var(--warning);font-size:0.72rem;">(ordinato: ' + qtaOrd + ')</span>';
+                        }
+                        const origBadge = p.origine === 'bcube' ? ' <span style="font-size:0.6rem;background:#dbeafe;color:#7c3aed;padding:0 4px;border-radius:3px;">BCube</span>' : '';
+                        html += '<td style="padding:4px 8px;font-size:0.75rem;">' + ordInfo + origBadge + '</td>';
+                    } else {
+                        html += '<td style="padding:4px 8px;color:var(--text-muted);font-size:0.72rem;">non ordinata</td>';
+                    }
+                    html += '</tr>';
+                }
+                html += '</table></div>';
+            }
+            html += '</div></div>';
+
+            elMsg.innerHTML = html;
+
+            // Bottone chiudi
+            const btnChiudi = document.createElement('button');
+            btnChiudi.textContent = 'Chiudi';
+            btnChiudi.className = 'mrp-btn mrp-btn-primary';
+            btnChiudi.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+            btnChiudi.addEventListener('click', () => overlay.classList.remove('open'));
+            elAzioni.appendChild(btnChiudi);
+
+        } catch (err) {
+            elMsg.innerHTML = '<div style="color:var(--danger);padding:12px;">Errore: ' + esc(err.message) + '</div>';
+            const btnChiudi = document.createElement('button');
+            btnChiudi.textContent = 'Chiudi';
+            btnChiudi.className = 'mrp-btn mrp-btn-primary';
+            btnChiudi.style.cssText = 'padding:8px 20px;border-radius:6px;border:none;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;';
+            btnChiudi.addEventListener('click', () => overlay.classList.remove('open'));
+            elAzioni.appendChild(btnChiudi);
+        }
     }
 
     // ============================================================
@@ -1973,12 +3801,30 @@ const MrpProposta = (() => {
     function buildTemplateSelect(fornCode) {
         if (!_emailTemplates.length) return '';
         const selectedId = getTemplateIdPerFornitore(fornCode);
-        const options = _emailTemplates.map(t => {
+        const fk = String(fornCode);
+
+        // Separa template generici da messaggi personalizzati per questo fornitore
+        const generici = _emailTemplates.filter(t => !t.fornitoreCode);
+        const personalizzati = _emailTemplates.filter(t => String(t.fornitoreCode) === fk);
+
+        let html = '';
+        if (personalizzati.length) {
+            html += '<optgroup label="\u2605 Personalizzati">';
+            personalizzati.forEach(t => {
+                const sel = t.id === selectedId ? ' selected' : '';
+                html += `<option value="${t.id}"${sel}>${esc(t.nome)}</option>`;
+            });
+            html += '</optgroup>';
+        }
+        html += '<optgroup label="Template">';
+        generici.forEach(t => {
             const sel = t.id === selectedId ? ' selected' : '';
             const badge = t.isSystem ? ' [S]' : '';
-            return `<option value="${t.id}"${sel}>${esc(t.nome)}${badge}</option>`;
-        }).join('');
-        return `<select class="select-template-forn" data-forn="${escAttr(fornCode)}" title="Template email">${options}</select>`;
+            html += `<option value="${t.id}"${sel}>${esc(t.nome)}${badge}</option>`;
+        });
+        html += '</optgroup>';
+
+        return `<select class="select-template-forn" data-forn="${escAttr(fornCode)}" title="Template email">${html}</select>`;
     }
 
     return { init, aggiornaStatoVisivo, apriStorico, apriDettaglioOrdine };

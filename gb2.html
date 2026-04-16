@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="gb2/css/gb2-parametri.css" />
     <link rel="stylesheet" href="gb2/css/gb2-progressivi.css" />
     <link rel="stylesheet" href="gb2/css/gb2-modali.css" />
+    <link rel="stylesheet" href="gb2/css/gb2-qlikview.css" />
     <link rel="stylesheet" href="gb2/css/gb2-proposta.css" />
     <link rel="stylesheet" href="gb2/css/gb2-dbconfig.css" />
     <link rel="stylesheet" href="gb2/css/gb2-decisione.css" />
@@ -19,26 +20,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-
-    <!-- SIDEBAR (stile Captain) -->
-    <div class="menu-drawer-backdrop" id="menuDrawerBackdrop" aria-hidden="true"></div>
-    <aside class="gb2-sidebar" id="menuDrawer" aria-label="Menu">
-        <div class="gb2-sidebar-header">GB2 Gabriele</div>
-        <nav class="gb2-sidebar-nav">
-            <div id="dynamicMenuApps"></div>
-            <div class="gb2-nav-item is-hidden" id="menuOpenCaptain" data-menu-action="open-captain">
-                <span class="gb2-nav-icon">🛡️</span><span>Captain Console</span>
-            </div>
-            <div class="gb2-nav-item" data-menu-action="open-profile">
-                <span class="gb2-nav-icon">👤</span><span>Il Mio Profilo</span>
-            </div>
-        </nav>
-        <div class="gb2-sidebar-footer">
-            <div class="gb2-nav-item gb2-nav-logout" id="logoutBtn">
-                <span class="gb2-nav-icon">🚪</span><span>Esci</span>
-            </div>
-        </div>
-    </aside>
 
     <!-- HEADER -->
     <header class="mrp-header">
@@ -56,6 +37,10 @@
             <span class="mrp-subtitle mrp-context-label" id="headerContextLabel" style="display:none;"> / Pianificazione Fabbisogni Materiali</span>
         </div>
         <div class="mrp-header-right">
+            <span id="pendingSyncIndicator" class="psi psi-ok" style="display:none;" title="">
+                <span class="psi-dot"></span>
+                <span class="psi-label">✓</span>
+            </span>
             <button type="button" class="btn-theme-open" id="btnOpenTheme">🎨</button>
         </div>
     </header>
@@ -68,7 +53,8 @@
         <!-- VIEW: PARAMETRI (frmParRMP) -->
         <section id="view-parametri" class="mrp-view active">
             <div class="mrp-parametri-layout">
-                <div class="mrp-parametri-col-left">
+                <div class="selezione-overlay" id="selezioneOverlay"></div>
+                <div class="mrp-parametri-col-left collapsed" id="panelSelezione">
                     <div class="mrp-card mrp-parametri-card">
                 <h2 class="mrp-card-title">Selezione Articolo</h2>
 
@@ -158,12 +144,38 @@
                         <div class="proposta-header">
                             <h2 class="mrp-card-title">Gestione Lista Ordini</h2>
                             <span class="proposta-subtitle">Ordini Fornitori</span>
-                            <button type="button" id="btnApriStorico" class="mrp-btn-secondary" style="margin-left:auto;font-size:0.8rem;padding:4px 10px;">📋 Storico</button>
+                            <button type="button" id="btnToggleSelezione" class="mrp-btn-secondary" style="margin-left:auto;font-size:0.8rem;padding:4px 10px;">🔍 Selezione Articolo</button>
+                            <button type="button" id="btnApriStorico" class="mrp-btn-secondary" style="font-size:0.8rem;padding:4px 10px;">📋 Storico</button>
                             <button type="button" id="btnRefreshProposta" class="mrp-btn-secondary" style="font-size:0.8rem;padding:4px 10px;">↻ Aggiorna</button>
                         </div>
                         <div class="proposta-stats" id="propostaStats"></div>
                         <div class="proposta-body" id="propostaBody">
-                            <div class="proposta-loading" id="propostaLoading">Caricamento proposte ordine...</div>
+                            <div class="proposta-loading proposta-skeleton" id="propostaLoading">
+                                <div class="skeleton-stats">
+                                    <div class="skeleton-bar" style="width:120px;"></div>
+                                    <div class="skeleton-bar" style="width:90px;"></div>
+                                    <div class="skeleton-bar" style="width:100px;"></div>
+                                    <div class="skeleton-bar" style="width:160px;"></div>
+                                </div>
+                                <div class="skeleton-fornitore">
+                                    <div class="skeleton-header"></div>
+                                    <div class="skeleton-row"></div>
+                                    <div class="skeleton-row" style="width:85%;"></div>
+                                    <div class="skeleton-row" style="width:70%;"></div>
+                                </div>
+                                <div class="skeleton-fornitore">
+                                    <div class="skeleton-header"></div>
+                                    <div class="skeleton-row"></div>
+                                    <div class="skeleton-row" style="width:90%;"></div>
+                                </div>
+                                <div class="skeleton-fornitore">
+                                    <div class="skeleton-header"></div>
+                                    <div class="skeleton-row"></div>
+                                    <div class="skeleton-row" style="width:75%;"></div>
+                                    <div class="skeleton-row" style="width:60%;"></div>
+                                    <div class="skeleton-row" style="width:80%;"></div>
+                                </div>
+                            </div>
                             <div id="propostaList"></div>
                         </div>
                     </div>
@@ -188,6 +200,8 @@
 
                     <span id="progressiviTitle" class="mrp-progressivi-title"></span>
                     <button type="button" id="btnRefresh" class="mrp-btn-secondary">⟳ Refresh</button>
+                </div>
+                <div id="progressiviBreadcrumb" class="progressivi-breadcrumb" style="display:none;">
                     <button id="btn-copy-tree" class="btn" style="margin-left: 15px; background-color: var(--primary); color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
                         📋 Copia Albero (Debug)
                     </button>
@@ -199,22 +213,22 @@
                         <table class="mrp-table" id="tblProgressivi">
                             <thead>
                                 <tr>
-                                    <th class="col-row">#</th>
-                                    <th class="col-parte">Parte</th>
-                                    <th class="col-mag">Mag</th>
-                                    <th class="col-fase">Fase</th>
-                                    <th class="col-pol">Politica Riordino</th>
-                                    <th class="col-um">UM</th>
-                                    <th class="col-num">Utilizzo<br>Esistenza</th>
-                                    <th class="col-num">Ordin.</th>
-                                    <th class="col-num">Impegn.</th>
-                                    <th class="col-num">Dispon.</th>
-                                    <th class="col-date">Data Cons</th>
-                                    <th class="col-num">Or.P/F.Co</th>
-                                    <th class="col-num">Or.P/F.Ge</th>
-                                    <th class="col-num">Ip.Pr.Co</th>
-                                    <th class="col-num">Ip.Pr.Ge</th>
-                                    <th class="col-num">Disp.Netta</th>
+                                    <th class="col-row" data-col="_row" data-table="progressivi">#</th>
+                                    <th class="col-parte" data-col="parte" data-table="progressivi">Parte</th>
+                                    <th class="col-mag" data-col="magaz" data-table="progressivi">Mag</th>
+                                    <th class="col-fase" data-col="fase" data-table="progressivi">Fase</th>
+                                    <th class="col-pol" data-col="politica" data-table="progressivi">Politica Riordino</th>
+                                    <th class="col-um" data-col="um" data-table="progressivi">UM</th>
+                                    <th class="col-num" data-col="esistenza" data-table="progressivi">Utilizzo<br>Esistenza</th>
+                                    <th class="col-num" data-col="ordinato" data-table="progressivi">Ordin.</th>
+                                    <th class="col-num" data-col="impegnato" data-table="progressivi">Impegn.</th>
+                                    <th class="col-num" data-col="disponibilita" data-table="progressivi">Dispon.</th>
+                                    <th class="col-date" data-col="dataCons" data-table="progressivi">Data Cons</th>
+                                    <th class="col-num" data-col="opc" data-table="progressivi">Or.P/F.Co</th>
+                                    <th class="col-num" data-col="op" data-table="progressivi">Or.P/F.Ge</th>
+                                    <th class="col-num" data-col="ipc" data-table="progressivi">Ip.Pr.Co</th>
+                                    <th class="col-num" data-col="ip" data-table="progressivi">Ip.Pr.Ge</th>
+                                    <th class="col-num" data-col="dispNetta" data-table="progressivi">Disp.Netta</th>
                                 </tr>
                             </thead>
                             <tbody id="tblProgressiviBody">
@@ -261,9 +275,9 @@
                             </div>
                             <div id="splitOrdiniContent">
                                 <div class="split-ordini-legenda">
-                                    <span class="legenda-item legenda-ordforn">Ord.Forn</span>
-                                    <span class="legenda-item legenda-ordprod">Ord.Prod</span>
-                                    <span class="legenda-item legenda-impprod">Imp.Prod</span>
+                                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--bg-content" title="Colore Ord. Fornitore"> Ord.Forn</label>
+                                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--row-totale" title="Colore Ord. Produzione"> Ord.Prod</label>
+                                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--row-esaurito" title="Colore Imp. Produzione"> Imp.Prod</label>
                                 </div>
                                 <table class="matrioska-table" id="tblSplitOrdini" style="min-width: 750px;">
                                     <thead>
@@ -291,44 +305,8 @@
                 </div>
 
                 <!-- PANNELLO DECISIONALE ORDINE (visibile solo se si arriva dalla proposta) -->
-                <div id="panelDecisione" class="mrp-decisione-panel" style="display: none;">
-                    <div class="decisione-header">
-                        <span class="decisione-badge">DECISIONE ORDINE</span>
-                        <span class="decisione-fornitore" id="decisioneFornitore"></span>
-                        <span class="decisione-articolo" id="decisioneArticolo"></span>
-                    </div>
-                    <div class="decisione-body">
-                        <div class="decisione-campo">
-                            <label>Qt&agrave; proposta</label>
-                            <span id="decisioneQtaProposta" class="decisione-readonly">-</span>
-                        </div>
-                        <div class="decisione-campo">
-                            <label for="decisioneQta">Qt&agrave; da ordinare</label>
-                            <input type="number" id="decisioneQta" class="mrp-control" min="0" step="1" />
-                        </div>
-                        <div class="decisione-campo">
-                            <label for="decisioneData">Data consegna</label>
-                            <input type="date" id="decisioneData" class="mrp-control" />
-                        </div>
-                        <div class="decisione-campo">
-                            <label>UM</label>
-                            <span id="decisioneUM" class="decisione-readonly">-</span>
-                        </div>
-                        <div class="decisione-campo">
-                            <label>Prezzo unit.</label>
-                            <span id="decisionePrezzo" class="decisione-readonly">-</span>
-                        </div>
-                        <div class="decisione-campo">
-                            <label>Valore</label>
-                            <span id="decisioneValore" class="decisione-readonly">-</span>
-                        </div>
-                        <div class="decisione-azioni">
-                            <button type="button" id="btnConfermaOrdine" class="mrp-btn-conferma">&#x2713; Conferma per ordine</button>
-                            <button type="button" id="btnEscludiOrdine" class="mrp-btn-escludi">&#x2717; Escludi</button>
-                            <button type="button" id="btnSkipOrdine" class="mrp-btn-secondary">Torna al foglio &#x2192;</button>
-                        </div>
-                    </div>
-                </div>
+                <!-- Pannello decisionale ordine — contenuto generato dinamicamente da gb2-progressivi.js -->
+                <div id="panelDecisione" class="mrp-decisione-panel" style="display: none;"></div>
 
             </div>
         </section>
@@ -348,17 +326,19 @@
                     <input type="checkbox" id="modalFiltroMagToggle" style="accent-color:var(--primary);">
                     <span id="modalFiltroMagText">Solo questo magazzino</span>
                 </label>
+                <button type="button" class="btn-hidden-cols" id="btnHiddenColsOrdini" style="display:none;" title="Colonne nascoste">👁</button>
+                <button type="button" class="btn-theme-open" onclick="if(typeof MrpTheme!=='undefined')MrpTheme.openPanel();" title="Personalizzazione Tema">🎨</button>
                 <button type="button" id="modalOrdiniClose" class="mrp-modal-close">✕</button>
             </div>
             <div class="modal-ordini-toolbar">
                 <div class="modal-ordini-tabs">
                     <button type="button" id="modalTabOrdini" class="modal-tab active">Ordini/Impegni</button>
-                    <button type="button" id="modalTabRmp" class="modal-tab">RMP (Generati/Confermati)</button>
+                    <button type="button" id="modalTabRmp" class="modal-tab">MRP (Generati/Confermati)</button>
                 </div>
                 <div class="modal-ordini-legenda">
-                    <span class="legenda-item legenda-ordforn">Ord. Fornitore</span>
-                    <span class="legenda-item legenda-ordprod">Ord. Produzione</span>
-                    <span class="legenda-item legenda-impprod">Imp. Produzione</span>
+                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--bg-content" title="Colore Ord. Fornitore"> Ord. Fornitore</label>
+                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--row-totale" title="Colore Ord. Produzione"> Ord. Produzione</label>
+                    <label class="legenda-item legenda-interactive"><input type="color" class="legenda-color-picker" data-var="--row-esaurito" title="Colore Imp. Produzione"> Imp. Produzione</label>
                 </div>
             </div>
             <div class="mrp-modal-body">
@@ -368,18 +348,18 @@
                         <thead>
                             <tr>
                                 <th style="width:30px;"></th>
-                                <th>Operazione</th>
-                                <th>Anno</th>
-                                <th>Ser</th>
-                                <th>Num.Doc</th>
-                                <th>Riga</th>
-                                <th>Mag</th>
-                                <th>Fase</th>
-                                <th>Data Cons.</th>
-                                <th>Q.tà Ordinata</th>
-                                <th>Q.tà Evasa</th>
-                                <th>Stato</th>
-                                <th>Fornitore</th>
+                                <th data-sort="desc_tipo" style="cursor:pointer;">Operazione ⇅</th>
+                                <th data-sort="mo_anno" style="cursor:pointer;">Anno ⇅</th>
+                                <th data-sort="mo_serie" style="cursor:pointer;">Ser ⇅</th>
+                                <th data-sort="mo_numord" style="cursor:pointer;">Num.Doc ⇅</th>
+                                <th data-sort="mo_riga" style="cursor:pointer;">Riga ⇅</th>
+                                <th data-sort="mo_magaz" style="cursor:pointer;">Mag ⇅</th>
+                                <th data-sort="mo_fase" style="cursor:pointer;">Fase ⇅</th>
+                                <th data-sort="mo_datcons" style="cursor:pointer;">Data Cons. ⇅</th>
+                                <th data-sort="mo_quant" style="cursor:pointer;">Q.tà Ordinata ⇅</th>
+                                <th data-sort="mo_quaeva" style="cursor:pointer;">Q.tà Evasa ⇅</th>
+                                <th data-sort="mo_flevas" style="cursor:pointer;">Stato ⇅</th>
+                                <th data-sort="fornitore" style="cursor:pointer;">Fornitore ⇅</th>
                             </tr>
                         </thead>
                         <tbody id="modalOrdiniBody"></tbody>
@@ -473,6 +453,7 @@
                 <button type="button" class="cfg-tab" data-tab="tabSmtp">Email SMTP</button>
                 <button type="button" class="cfg-tab" data-tab="tabTemplates">Template Email</button>
                 <button type="button" class="cfg-tab" data-tab="tabAssegnazioni">Fornitori</button>
+                <button type="button" class="cfg-tab" data-tab="tabStampaPdf">Stampa PDF</button>
             </div>
 
             <div class="mrp-modal-body" style="padding: 20px;">
@@ -622,9 +603,9 @@
                             </div>
                             <div style="margin-top: 10px;">
                                 <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Corpo</label>
-                                <textarea id="tplCorpo" class="mrp-control" rows="10" style="resize: vertical; font-size: 0.85rem; font-family: inherit;" placeholder="Gentile {fornitore},&#10;&#10;in allegato l'ordine..."></textarea>
+                                <div id="tplCorpo" class="mrp-control tpl-corpo-editor" contenteditable="true" style="min-height:180px; max-height:400px; overflow-y:auto; resize:vertical; font-size:0.85rem; font-family:inherit; line-height:1.5; white-space:pre-wrap; padding:8px 10px;" data-placeholder="Gentile {fornitore},&#10;&#10;in allegato l'ordine..."></div>
                             </div>
-                            <div class="tpl-variabili">
+                            <div id="tplVariabiliBar" class="tpl-variabili">
                                 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">Variabili:</span>
                                 <button type="button" class="tpl-var-btn" data-var="{fornitore}">{fornitore}</button>
                                 <button type="button" class="tpl-var-btn" data-var="{numord}">{numord}</button>
@@ -672,18 +653,73 @@
                         </div>
                     </div>
 
+                    <!-- Dashboard avvisi (popolata dinamicamente) -->
+                    <div id="assegnDashboard" class="assegn-dashboard" style="display:none;"></div>
+
                     <!-- Ricerca -->
                     <div style="margin: 12px 0;">
                         <input type="text" id="assegnFiltro" class="mrp-control" placeholder="Cerca fornitore..." style="font-size: 0.82rem;" />
                     </div>
 
-                    <!-- Info conteggio -->
-                    <div id="assegnInfo" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;"></div>
+                    <!-- Info conteggio + filtri -->
+                    <div id="assegnInfo" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;"></div>
+
+                    <!-- Toolbar ordinamento -->
+                    <div id="assegnToolbar" class="assegn-toolbar">
+                        <span class="assegn-toolbar-label">Ordina:</span>
+                        <button class="assegn-sort-btn active" data-sort="nome">Nome</button>
+                        <button class="assegn-sort-btn" data-sort="codice">Codice</button>
+                        <button class="assegn-sort-btn" data-sort="tipo">Tipo</button>
+                    </div>
 
                     <!-- Lista fornitori -->
-                    <div id="assegnFornitoriList" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;"></div>
+                    <div id="assegnFornitoriList" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;"></div>
 
                     <div id="assegnStatus" style="margin-top: 6px; font-size: 0.78rem;"></div>
+                </div>
+
+                <!-- ===================== TAB 5: STAMPA PDF (test) ===================== -->
+                <div id="tabStampaPdf" class="cfg-tab-panel">
+                    <div style="padding: 8px 4px;">
+                        <h3 style="margin: 0 0 10px; font-size: 0.95rem; color: var(--text);">Stampa PDF ordine (test)</h3>
+                        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 14px;">
+                            Strumento di verifica PDF: seleziona un ordine dalla lista degli ultimi 50 emessi,
+                            oppure inserisci manualmente un numero ordine. Il sistema genera il PDF e lo apre in una nuova scheda.
+                        </p>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px;">
+                            <!-- Colonna sinistra: dropdown ultimi 50 -->
+                            <div>
+                                <label style="display:block; font-size:0.78rem; font-weight:600; color:var(--text); margin-bottom:4px;">
+                                    Ultimi 50 ordini emessi
+                                </label>
+                                <select id="pdfTestSelectOrdine" class="mrp-control" style="width:100%; font-size:0.8rem;">
+                                    <option value="">— caricamento… —</option>
+                                </select>
+                                <button type="button" id="pdfTestBtnReload" class="mrp-btn-secondary" style="margin-top:6px; font-size:0.75rem;">
+                                    Ricarica lista
+                                </button>
+                            </div>
+
+                            <!-- Colonna destra: input manuale -->
+                            <div>
+                                <label style="display:block; font-size:0.78rem; font-weight:600; color:var(--text); margin-bottom:4px;">
+                                    Numero ordine fornitore (manuale)
+                                </label>
+                                <input type="number" id="pdfTestInputNumord" class="mrp-control" placeholder="es. 299" style="width:100%; font-size:0.85rem;" />
+                                <div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">
+                                    Se presente, ha priorità sul menu a tendina.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <button type="button" id="pdfTestBtnCrea" class="mrp-btn-conferma" style="padding:8px 22px; font-size:0.88rem;">
+                                📄 Crea PDF
+                            </button>
+                            <div id="pdfTestStatus" style="font-size:0.8rem;"></div>
+                        </div>
+                    </div>
                 </div>
 
             </div>
@@ -695,6 +731,7 @@
         <div class="mrp-modal mrp-modal-generic">
             <div class="mrp-modal-header">
                 <h3 id="modalGenericTitolo">Messaggio</h3>
+                <button type="button" class="btn-theme-open" onclick="if(typeof MrpTheme!=='undefined')MrpTheme.openPanel();" title="Personalizzazione Tema">🎨</button>
                 <button type="button" id="modalGenericClose" class="mrp-modal-close">&times;</button>
             </div>
             <div class="mrp-modal-body" style="padding: 20px;">
@@ -744,6 +781,7 @@
         <div class="mrp-modal" style="max-width:550px;">
             <div class="mrp-modal-header" style="background:var(--primary); color:white;">
                 <h3 id="modalRisultatoTitolo" style="margin:0; color:white;">Ordine Emesso</h3>
+                <button type="button" class="btn-theme-open" onclick="if(typeof MrpTheme!=='undefined')MrpTheme.openPanel();" title="Personalizzazione Tema" style="color:white;">🎨</button>
                 <button type="button" id="modalRisultatoClose" class="mrp-modal-close" style="color:white;">&times;</button>
             </div>
             <div class="mrp-modal-body" style="padding:20px;">
@@ -777,17 +815,19 @@
 
     <!-- MODALE STORICO ORDINI EMESSI -->
     <div id="modalStoricoOverlay" class="mrp-modal-overlay">
-        <div class="mrp-modal" style="max-width:920px; max-height:85vh;">
+        <div class="mrp-modal" style="max-width:960px; max-height:85vh;">
             <div class="mrp-modal-header">
                 <h3 style="margin:0;">Storico Ordini Emessi</h3>
+                <button type="button" class="btn-theme-open" onclick="if(typeof MrpTheme!=='undefined')MrpTheme.openPanel();" title="Personalizzazione Tema">🎨</button>
                 <button type="button" id="modalStoricoClose" class="mrp-modal-close">&times;</button>
             </div>
             <div class="mrp-modal-body" style="padding:16px; overflow-y:auto;">
-                <div class="storico-filtri" id="storicoFiltri">
-                    <label class="storico-filtro-check">
-                        <input type="checkbox" id="storicoFiltroElab" checked>
-                        Solo elaborazione corrente
-                    </label>
+                <div id="storicoKPI" class="storico-kpi-bar"></div>
+                <div class="storico-filtri-bar" id="storicoFiltriBarra">
+                    <select id="storicoFiltroElab" class="storico-select-elab">
+                        <option value="">Tutte le elaborazioni</option>
+                    </select>
+                    <div class="storico-chip-group" id="storicoChips"></div>
                 </div>
                 <div id="storicoLoading" style="display:none; text-align:center; padding:20px; color:var(--text-muted);">Caricamento...</div>
                 <table class="storico-tabella">
@@ -808,13 +848,24 @@
         </div>
     </div>
 
+    <!-- MODALE QLIKVIEW — Analisi per articolo -->
+    <div id="qvOverlay" class="qv-overlay">
+        <div class="qv-modal">
+            <div class="qv-time-bar" id="qvTimeBar"></div>
+            <div id="qvContent"></div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="gb2/js/gb2-dbconfig.js"></script>
     <script src="gb2/js/gb2-theme.js"></script>
     <script src="gb2/js/gb2-app.js"></script>
+    <script src="gb2/js/gb2-pending-sync.js"></script>
     <script src="gb2/js/gb2-parametri.js"></script>
+    <script src="gb2/js/gb2-column-manager.js"></script>
+    <script src="gb2/js/gb2-qlikview.js"></script>
     <script src="gb2/js/gb2-progressivi.js"></script>
     <script src="gb2/js/gb2-proposta.js"></script>
-    <script src="gb2/js/gb2-bootstrap.js"></script>
+    <script src="/assets/js/portal-sidebar.js"></script>
 </body>
 </html>

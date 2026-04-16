@@ -32,6 +32,7 @@ html {
   display: flex;
   height: 100dvh; /* Usiamo dvh per sicurezza mobile */
   overflow: hidden;
+  overflow-x: hidden;
   margin: 0;
 }
 
@@ -61,7 +62,7 @@ html {
   overflow-y: auto;
 }
 
-.captain-body .nav-item {
+.captain-body .sidebar .nav-item {
   padding: 12px 24px;
   color: rgba(255, 255, 255, 0.8);
   text-decoration: none;
@@ -70,8 +71,8 @@ html {
   transition: 0.2s;
 }
 
-.captain-body .nav-item:hover,
-.captain-body .nav-item.active {
+.captain-body .sidebar .nav-item:hover,
+.captain-body .sidebar .nav-item.active {
   background-color: rgba(255, 255, 255, 0.1);
   color: white;
   border-left: 4px solid var(--success);
@@ -86,7 +87,7 @@ html {
 
 .captain-body .topbar-console {
   height: 64px;
-  background: white;
+  background: var(--primary);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -98,6 +99,7 @@ html {
   flex: 1;
   padding: 32px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Griglia Dati */
@@ -145,7 +147,7 @@ html {
     justify-content: space-around;
   }
 
-  .captain-body .nav-item {
+  .captain-body .sidebar .nav-item {
     flex: 1;
     padding: 10px 4px;
     font-size: 0.75rem;
@@ -162,8 +164,8 @@ html {
     text-align: center;
   }
 
-  .captain-body .nav-item:hover,
-  .captain-body .nav-item.active {
+  .captain-body .sidebar .nav-item:hover,
+  .captain-body .sidebar .nav-item.active {
     background-color: transparent;
     color: var(--primary);
     border-top: 3px solid var(--primary);

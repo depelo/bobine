@@ -46,6 +46,17 @@
     --mrp-blocco-combinato: #ad1457;
     --mrp-row-totale-cross: #e53935;
     --mrp-row-generale-totale: #1e293b;
+
+    /* Classificazione fornitori */
+    --forn-it: #2e7d32;
+    --forn-ue: #1565c0;
+    --forn-extra-ue: #e65100;
+
+    /* Storico ordini — categorie */
+    --storico-accettata: #16a34a;
+    --storico-modificata: #d97706;
+    --storico-misto: #7c3aed;
+    --storico-indipendente: #2563eb;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -88,6 +99,26 @@ body {
 .mrp-subtitle { font-size: 0.8rem; color: rgba(255,255,255,0.75); font-weight: 500; white-space: nowrap; }
 /* Zona destra: tema */
 .mrp-header-right { display: flex; align-items: center; gap: 8px; justify-self: end; }
+
+/* PendingSync indicator — safety-net "Conferma per ordine"
+   psi-ok: tutto in DB | psi-pending: flush in corso | psi-error: retry, warning */
+.psi {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 14px;
+    font-size: 0.78rem; font-weight: 600; user-select: none;
+    transition: background 0.2s, color 0.2s;
+    border: 1px solid transparent; cursor: default;
+}
+.psi .psi-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
+.psi-ok      { color: #1f9d55; background: rgba(31,157,85,0.15); border-color: rgba(31,157,85,0.4); }
+.psi-pending { color: #b45309; background: rgba(180,83,9,0.18); border-color: rgba(180,83,9,0.4); }
+.psi-pending .psi-dot { animation: psiPulse 1s infinite ease-in-out; }
+.psi-error   { color: #dc2626; background: rgba(220,38,38,0.18); border-color: rgba(220,38,38,0.5); cursor: help; }
+.psi-error .psi-dot { animation: psiPulse 0.6s infinite ease-in-out; }
+@keyframes psiPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.45; transform: scale(0.8); }
+}
 .mrp-header .gb2-menu-btn {
     display: flex; align-items: center; justify-content: center;
     width: 40px; height: 40px; border: 0; background: transparent;

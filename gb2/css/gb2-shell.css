@@ -95,6 +95,12 @@
     border-left-color: rgba(255, 255, 255, 0.4);
 }
 
+.gb2-nav-item.is-active {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    border-left-color: #fff;
+}
+
 .gb2-nav-icon {
     font-size: 1.2rem;
     width: 24px;
@@ -146,6 +152,25 @@
 }
 
 .gb2-topbar .gb2-menu-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.gb2-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    font-size: 1.35rem;
+    cursor: pointer;
+    border-radius: var(--shell-radius);
+    line-height: 1;
+}
+
+.gb2-menu-btn:hover {
     background: rgba(255, 255, 255, 0.2);
 }
 

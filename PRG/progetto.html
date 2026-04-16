@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PortalUjet - Workspace Progetto</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/sicurezza.js"></script>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+    crossorigin="anonymous"
+  >
+  <link rel="stylesheet" href="/gb2/css/gb2-shell.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    .text-bg-orange { background-color: #fd7e14 !important; color: #fff !important; }
+    .kanban-column { min-height: 420px; min-width: 300px; max-width: 300px; }
+    .kanban-task-list { min-height: 320px; }
+    .task-card { cursor: grab; }
+    .kanban-drop-target { background-color: rgba(13, 110, 253, 0.08); border-radius: 0.5rem; }
+    .col-kanban-todo { background-color: #f8f9fa; border-radius: 8px; }
+    .col-kanban-progress { background-color: #f0f7ff; border-radius: 8px; }
+    .col-kanban-review { background-color: #fff8e6; border-radius: 8px; }
+    .col-kanban-done { background-color: #f0fdf4; border-radius: 8px; }
+    .edit-task-icon { cursor: pointer; color: #6c757d; font-size: 0.9rem; float: right; transition: color 0.2s; }
+    .edit-task-icon:hover { color: #0d6efd; }
+    .subtask-row { margin-left: 2rem; }
+    .task-barrato { text-decoration: line-through; color: #6c757d; }
+    .fiamma-icon {
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+      user-select: none;
+    }
+    .fiamma-spenta {
+      filter: grayscale(100%) opacity(30%);
+    }
+    .fiamma-accesa {
+      filter: grayscale(0%) opacity(100%);
+      transform: scale(1.1);
+    }
+    .task-inline-input { border: none; background: transparent; width: 100%; }
+    .task-inline-input:focus { outline: 1px solid rgba(13, 110, 253, 0.35); border-radius: 4px; background: #fff; }
+    .task-desc-area { resize: vertical; min-height: 90px; }
+    .task-action-btn { cursor: pointer; border: none; background: transparent; padding: 0 0.25rem; }
+    .border-dashed { border: 2px dashed #ced4da !important; }
+    .kanban-board-scroll {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      padding-bottom: 1rem;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .kanban-column-item { flex: 0 0 auto; width: 300px; }
+    .kanban-column-item.dragging { opacity: 0.6; }
+    .kanban-grip { cursor: grab; color: #6c757d; }
+    .kanban-color-choice {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid #dee2e6;
+      cursor: pointer;
+    }
+    .kanban-color-choice.active { border-color: #0d6efd; box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2); }
+  </style>
+</head>
+<body class="bg-light">
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+    <div class="container-fluid">
+      <button type="button" class="gb2-menu-btn me-2" id="menuBtn" aria-label="Apri menu">&#9776;</button>
+      <a class="navbar-brand fw-semibold d-flex align-items-center" href="prg.html">
+        <img src="/assets/logo-ujet.jpeg" alt="Logo" style="height: 30px; margin-right: 10px; object-fit: contain;">
+        <span>Ujet Progetti</span>
+      </a>
+      <div class="d-flex align-items-center gap-2 ms-auto">
+        <a class="btn btn-sm btn-light" href="prg.html">Progetti</a>
+        <a class="btn btn-sm btn-outline-light" href="persone.html">Persone</a>
+        <a class="btn btn-sm btn-outline-light" href="aree.html">Aree</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container-fluid py-4">
+    <div id="appAlert" class="alert alert-danger d-none" role="alert"></div>
+
+    <section class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-white">
+          <div class="mb-3">
+            <a href="prg.html" class="text-decoration-none text-secondary">
+              &larr; Torna ai Progetti
+            </a>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h3 class="m-0" id="titoloPaginaProgetto">Dettagli Progetto</h3>
+          </div>
+          <div class="d-flex justify-content-between align-items-end border-bottom mb-3">
+            <ul class="nav nav-tabs border-bottom-0 mb-0" id="progettoTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="tab-info" data-bs-toggle="tab" data-bs-target="#pane-info" type="button" role="tab" aria-controls="pane-info" aria-selected="true">Info</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-piano-operativo" data-bs-toggle="tab" data-bs-target="#pane-piano-operativo" type="button" role="tab" aria-controls="pane-piano-operativo" aria-selected="false">Piano Operativo</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-elenco-task" data-bs-toggle="tab" data-bs-target="#pane-elenco-task" type="button" role="tab" aria-controls="pane-elenco-task" aria-selected="false">Elenco Task</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-team" data-bs-toggle="tab" data-bs-target="#pane-team" type="button" role="tab" aria-controls="pane-team" aria-selected="false">Team</button>
+              </li>
+            </ul>
+            <div id="contextualActionBar" class="pb-2 d-flex gap-2">
+              <button id="btnContextModifica" class="btn btn-outline-primary btn-sm">Modifica Progetto</button>
+              <button id="btnContextNuovoTask" class="btn btn-primary btn-sm d-none">Nuovo Task</button>
+              <button id="btnContextAssegna" class="btn btn-primary btn-sm d-none">Assegna Persona</button>
+            </div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="tab-content">
+            <div class="tab-pane fade show active" id="pane-info" role="tabpanel" aria-labelledby="tab-info">
+              <div class="row g-3 mb-4">
+                <div class="col-12 col-md-4">
+                  <label class="form-label text-muted mb-1">Data</label>
+                  <div id="dettaglioData" class="fw-semibold">--/--/----</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label text-muted mb-1">Stato</label>
+                  <div id="dettaglioStato"><span class="badge text-bg-secondary">Non definito</span></div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label text-muted mb-1">Priorita</label>
+                  <div id="dettaglioPriorita"><span class="badge text-bg-secondary">Non impostata</span></div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label text-muted mb-1">Budget</label>
+                  <div id="dettaglioBudget" class="fw-semibold">-</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label text-muted mb-1">Data Fine</label>
+                  <div id="dettaglioDataFine" class="fw-semibold">--/--/----</div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label text-muted mb-1">Descrizione</label>
+                  <div id="dettaglioDescrizione">Nessuna descrizione disponibile.</div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label text-muted mb-1">Obbiettivi</label>
+                  <div id="dettaglioObbiettivi">Nessun obbiettivo specificato.</div>
+                </div>
+              </div>
+            </div>
+            <div class="tab-pane fade" id="pane-piano-operativo" role="tabpanel" aria-labelledby="tab-piano-operativo">
+              <div class="kanban-board-scroll" id="kanbanBoard">
+                <div class="kanban-column-item">
+                  <div class="text-muted small">Caricamento board...</div>
+                </div>
+              </div>
+            </div>
+            <div class="tab-pane fade" id="pane-elenco-task" role="tabpanel" aria-labelledby="tab-elenco-task">
+              <div id="contenitoreElencoTask" class="mb-3"></div>
+            </div>
+            <div class="tab-pane fade" id="pane-team" role="tabpanel" aria-labelledby="tab-team">
+              <div class="card shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                  <h5 class="mb-0">Team</h5>
+                </div>
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                      <thead class="table-light">
+                        <tr>
+                          <th scope="col">Nome</th>
+                          <th scope="col">Cognome</th>
+                          <th scope="col">Ruolo</th>
+                          <th scope="col" class="text-end">Azioni</th>
+                        </tr>
+                      </thead>
+                      <tbody id="teamProgetto">
+                        <tr>
+                          <td colspan="4" class="text-muted">Nessuna persona assegnata</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal fade" id="modalAssegnaPersona" tabindex="-1" aria-labelledby="modalAssegnaPersonaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalAssegnaPersonaLabel">Assegna Persona al Progetto</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formAssegnaPersona">
+            <div class="mb-3">
+              <label for="selectPersona" class="form-label">Persona</label>
+              <select class="form-select" id="selectPersona" required>
+                <option value="">Seleziona una persona</option>
+              </select>
+            </div>
+            <div class="mb-0">
+              <label for="ruoloNelProgetto" class="form-label">Ruolo nel progetto</label>
+              <input type="text" class="form-control" id="ruoloNelProgetto" placeholder="Es. Sviluppatore, PM, QA" required>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+          <button type="submit" class="btn btn-primary" form="formAssegnaPersona">Assegna</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalGestioneTask" tabindex="-1" aria-labelledby="modalGestioneTaskLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalGestioneTaskLabel">Nuovo Task</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formGestioneTask">
+            <input type="hidden" id="taskIdCorrente">
+            <div class="mb-3">
+              <label for="taskTitolo" class="form-label">Titolo</label>
+              <input type="text" class="form-control" id="taskTitolo" required>
+            </div>
+            <div class="mb-3">
+              <label for="taskAssegnato" class="form-label">Assegnato</label>
+              <select id="taskAssegnato" class="form-select" required>
+                <option value="">Seleziona persona</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label for="taskPriorita" class="form-label">Priorita</label>
+              <select id="taskPriorita" class="form-select" required>
+                <option value="Bassa">Bassa</option>
+                <option value="Media" selected>Media</option>
+                <option value="Alta">Alta</option>
+                <option value="Critica">Critica</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label for="taskScadenza" class="form-label">Scadenza</label>
+              <input type="date" class="form-control" id="taskScadenza">
+            </div>
+            <div class="mb-3">
+              <label for="taskDescrizione" class="form-label">Descrizione</label>
+              <textarea class="form-control" id="taskDescrizione" rows="3"></textarea>
+            </div>
+            <div class="mb-0">
+              <label for="taskDipendenza" class="form-label">Dipendenza</label>
+              <select id="taskDipendenza" class="form-select">
+                <option value="">Nessuna dipendenza</option>
+              </select>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <button type="button" class="btn btn-danger d-none" id="btnEliminaTask">Elimina Task</button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            <button type="submit" class="btn btn-primary" id="btnSalvaTask" form="formGestioneTask">Salva Task</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalGestisciMembro" tabindex="-1" aria-labelledby="modalGestisciMembroLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalGestisciMembroLabel">Gestisci Membro Team</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formGestisciMembro">
+            <div class="mb-3">
+              <label for="gestisciMembroPersona" class="form-label">Persona</label>
+              <input type="text" class="form-control" id="gestisciMembroPersona" disabled>
+            </div>
+            <div class="mb-0">
+              <label for="gestisciMembroRuolo" class="form-label">Ruolo</label>
+              <input type="text" class="form-control" id="gestisciMembroRuolo" placeholder="Inserisci ruolo nel progetto">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <button type="button" class="btn btn-danger" id="btnRimuoviMembroProgetto">Rimuovi dal Progetto</button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            <button type="submit" class="btn btn-primary" form="formGestisciMembro">Salva Ruolo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalModificaColonna" tabindex="-1" aria-labelledby="modalModificaColonnaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalModificaColonnaLabel">Modifica Colonna</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formModificaColonna">
+            <input type="hidden" id="colonnaIdCorrente">
+            <div class="mb-3">
+              <label for="colonnaNomeInput" class="form-label">Nome Colonna</label>
+              <input type="text" class="form-control" id="colonnaNomeInput" required>
+            </div>
+            <div class="mb-0">
+              <label class="form-label d-block">Sfondo Colonna</label>
+              <div class="d-flex gap-2" id="colonnaPalette">
+                <button type="button" class="kanban-color-choice" data-colore="#f8f9fa" style="background-color:#f8f9fa;" title="Grigio"></button>
+                <button type="button" class="kanban-color-choice" data-colore="#e0f2fe" style="background-color:#e0f2fe;" title="Azzurro"></button>
+                <button type="button" class="kanban-color-choice" data-colore="#fef08a" style="background-color:#fef08a;" title="Giallo"></button>
+                <button type="button" class="kanban-color-choice" data-colore="#dcfce3" style="background-color:#dcfce3;" title="Verde"></button>
+                <button type="button" class="kanban-color-choice" data-colore="#f3e8ff" style="background-color:#f3e8ff;" title="Viola"></button>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+          <button type="submit" class="btn btn-primary" form="formModificaColonna">Salva Colonna</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalModificaProgetto" tabindex="-1" aria-labelledby="modalModificaProgettoLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="modalModificaProgettoLabel">Modifica Progetto</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formModificaProgetto">
+            <div class="row g-3">
+              <div class="col-12 col-md-6">
+                <label for="editNomeProgetto" class="form-label">Nome</label>
+                <input type="text" class="form-control" id="editNomeProgetto" required>
+              </div>
+              <div class="col-12 col-md-6">
+                <label for="statoProgetto" class="form-label">Stato</label>
+                <select id="statoProgetto" class="form-select">
+                  <option value="Bozza">Bozza</option>
+                  <option value="Attivo">Attivo</option>
+                  <option value="In Pausa">In Pausa</option>
+                  <option value="Completato">Completato</option>
+                </select>
+              </div>
+              <div class="col-12">
+                <label for="editDescrizioneProgetto" class="form-label">Descrizione</label>
+                <textarea class="form-control" id="editDescrizioneProgetto" rows="3"></textarea>
+              </div>
+              <div class="col-12">
+                <label for="editObbiettiviProgetto" class="form-label">Obbiettivi</label>
+                <textarea class="form-control" id="editObbiettiviProgetto" rows="3"></textarea>
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="editDataInizioProgetto" class="form-label">Data Inizio</label>
+                <input type="date" class="form-control" id="editDataInizioProgetto">
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="editDataFineProgetto" class="form-label">Data Fine</label>
+                <input type="date" class="form-control" id="editDataFineProgetto">
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="prioritaProgetto" class="form-label">Priorita</label>
+                <select class="form-select" id="prioritaProgetto">
+                  <option value="">Seleziona priorità...</option>
+                  <option value="Bassa">Bassa</option>
+                  <option value="Media">Media</option>
+                  <option value="Alta">Alta</option>
+                  <option value="Critica">Critica</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="editBudgetProgetto" class="form-label">Budget</label>
+                <input type="number" class="form-control" id="editBudgetProgetto" step="0.01" min="0">
+              </div>
+              <div class="col-12 col-md-4">
+                <label for="id_area" class="form-label">Area</label>
+                <select class="form-select" id="id_area">
+                  <option value="">Senza Area</option>
+                </select>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <button type="button" id="btnEliminaProgetto" class="btn btn-danger">Elimina Progetto</button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            <button type="submit" class="btn btn-primary" form="formModificaProgetto">Salva Modifiche</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+    crossorigin="anonymous"
+  ></script>
+  <script src="/assets/js/portal-sidebar.js"></script>
+  <script src="progetto.js"></script>
+</body>
+</html>

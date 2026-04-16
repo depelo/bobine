@@ -89,6 +89,7 @@ const MrpParametri = (() => {
         // Salva nello stato
         MrpApp.state.articoloSelezionato = art;
         MrpApp.state.parametri.codart = art.ar_codart;
+        MrpApp.state.parametri._lastDescr = art.ar_descr || '';
 
         // Carica le fasi
         await caricaFasi(art.ar_codart);
@@ -131,8 +132,28 @@ const MrpParametri = (() => {
         // Aggiorna stato
         MrpApp.state.parametri = { codart, magaz, fase, modo, sintetico };
 
-        setStatus('Caricamento in corso...');
         document.getElementById('btnEsegui').disabled = true;
+
+        // Switch IMMEDIATO alla vista progressivi con skeleton
+        const descr = MrpApp.state.parametri._lastDescr || codart;
+        document.getElementById('progressiviTitle').textContent = descr + ' (' + codart + ')';
+        const tbody = document.getElementById('tblProgressiviBody');
+        if (tbody) {
+            tbody.innerHTML =
+                '<tr><td colspan="16" style="padding:0;border:none;">' +
+                '<div class="progressivi-skeleton">' +
+                    '<div class="skeleton-bar" style="width:60%;height:20px;margin-bottom:8px;"></div>' +
+                    '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                    '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                    '<div class="skeleton-bar" style="width:90%;height:16px;"></div>' +
+                    '<div class="skeleton-bar" style="width:100%;height:20px;margin-top:6px;margin-bottom:8px;"></div>' +
+                    '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                    '<div class="skeleton-bar" style="width:85%;height:16px;"></div>' +
+                    '<div class="skeleton-bar" style="width:95%;height:16px;"></div>' +
+                '</div>' +
+                '</td></tr>';
+        }
+        MrpApp.switchView('progressivi');
 
         try {
             const params = new URLSearchParams({ codart, magaz, fase, modo, sintetico });
@@ -143,16 +164,66 @@ const MrpParametri = (() => {
 
             MrpApp.state.ultimoRisultato = data;
 
-            // Passa alla vista progressivi
+            // Dati arrivati — sostituisci skeleton con griglia reale
             MrpProgressivi.render(data);
-            MrpApp.switchView('progressivi');
 
             setStatus('');
         } catch (err) {
             setStatus('Errore: ' + err.message, true);
             console.error('[Parametri] Errore esegui:', err);
+            // Torna alla home in caso di errore
+            MrpApp.switchView('parametri');
         } finally {
             document.getElementById('btnEsegui').disabled = false;
+        }
+    }
+
+    /**
+     * Esecuzione diretta dei progressivi senza passare dal form DOM.
+     * Usato dal click su codart nella proposta — evita fetch ridondante,
+     * scritture DOM inutili e simulazione click.
+     *
+     * opts: { codart, magaz, fase, modo, sintetico, descr }
+     */
+    async function eseguiDiretto(opts) {
+        const codart = opts.codart;
+        if (!codart) return;
+
+        const magaz = opts.magaz || '';
+        const fase = opts.fase || '';
+        const modo = opts.modo || '2';
+        const sintetico = opts.sintetico || '0';
+
+        MrpApp.state.parametri = { codart, magaz, fase, modo, sintetico };
+
+        // Switch immediato alla vista progressivi con skeleton
+        const descr = opts.descr || codart;
+        document.getElementById('progressiviTitle').textContent = descr + ' (' + codart + ')';
+        const tbody = document.getElementById('tblProgressiviBody');
+        if (tbody) {
+            tbody.innerHTML =
+                '<tr><td colspan="16" style="padding:0;border:none;">' +
+                '<div class="progressivi-skeleton">' +
+                    '<div class="skeleton-bar" style="width:60%;height:20px;margin-bottom:8px;"></div>' +
+                    '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                    '<div class="skeleton-bar" style="width:100%;height:16px;"></div>' +
+                    '<div class="skeleton-bar" style="width:90%;height:16px;"></div>' +
+                '</div>' +
+                '</td></tr>';
+        }
+        MrpApp.switchView('progressivi');
+
+        try {
+            const params = new URLSearchParams({ codart, magaz, fase, modo, sintetico });
+            const res = await fetch(`${MrpApp.API_BASE}/progressivi?${params}`, { credentials: 'include' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Errore server');
+
+            MrpApp.state.ultimoRisultato = data;
+            MrpProgressivi.render(data);
+        } catch (err) {
+            console.error('[Parametri] Errore eseguiDiretto:', err);
+            MrpApp.switchView('parametri');
         }
     }
 
@@ -162,5 +233,5 @@ const MrpParametri = (() => {
         el.className = 'mrp-status' + (isError ? ' error' : '');
     }
 
-    return { init, caricaFasi };
+    return { init, caricaFasi, eseguiDiretto };
 })();

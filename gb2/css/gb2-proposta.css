@@ -5,13 +5,31 @@
 
 .mrp-parametri-layout {
     display: flex;
-    gap: 20px;
+    gap: 0;
     align-items: flex-start;
+    position: relative;
 }
 
 .mrp-parametri-col-left {
-    flex: 0 0 420px;
-    min-width: 380px;
+    position: fixed;
+    top: 70px;
+    left: 0;
+    z-index: 900;
+    width: 420px;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    background: var(--bg-content, #fff);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+    transition: transform 0.25s ease, opacity 0.2s ease;
+    transform: translateX(0);
+    opacity: 1;
+    padding: 10px;
+}
+
+.mrp-parametri-col-left.collapsed {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
 }
 
 .mrp-parametri-col-right {
@@ -19,8 +37,21 @@
     min-width: 0;
 }
 
+/* Overlay scuro dietro il pannello selezione quando aperto */
+.selezione-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 899;
+}
+.selezione-overlay.open {
+    display: block;
+}
+
 .mrp-proposta-card {
     max-height: calc(100vh - 120px);
+    max-width: 1400px;
     display: flex;
     flex-direction: column;
 }
@@ -83,6 +114,48 @@
     color: var(--text-muted);
 }
 
+/* Skeleton screen — placeholder animato durante il caricamento */
+.proposta-skeleton {
+    text-align: left !important;
+    padding: 16px 20px !important;
+}
+.skeleton-stats {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.skeleton-bar {
+    height: 14px;
+    background: linear-gradient(90deg, #e8e8e8 25%, #f4f4f4 50%, #e8e8e8 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite ease-in-out;
+    border-radius: 4px;
+}
+.skeleton-fornitore {
+    margin-bottom: 14px;
+}
+.skeleton-header {
+    height: 32px;
+    background: linear-gradient(90deg, #d4d4d4 25%, #e8e8e8 50%, #d4d4d4 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite ease-in-out;
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+}
+.skeleton-row {
+    height: 18px;
+    width: 100%;
+    background: linear-gradient(90deg, #ececec 25%, #f6f6f6 50%, #ececec 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite ease-in-out;
+    border-radius: 3px;
+    margin-bottom: 4px;
+}
+@keyframes skeletonShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
 #propostaList {
     flex: 1;
     overflow-y: auto;
@@ -94,6 +167,14 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
+}
+
+/* Divider tra i tier del sort al refresh (email-pending / confermati / congelati / niente) */
+.proposta-tier-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--border), transparent);
+    margin: 12px 0 20px 0;
+    opacity: 0.6;
 }
 
 .proposta-fornitore-header {
@@ -164,7 +245,7 @@
 }
 
 .proposta-flag-esaur {
-    background: #ff9800;
+    background: var(--warning, #f59e0b);
     color: white;
     font-size: 0.6rem;
     padding: 1px 4px;
@@ -200,18 +281,18 @@
 }
 
 .proposta-righe-table th {
-    background: #f8f9fa;
+    background: var(--bg, #f0f2f5);
     padding: 3px 6px;
     text-align: left;
     font-weight: 600;
     color: var(--text-muted);
     font-size: 0.7rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border, #cbd5e1);
 }
 
 .proposta-righe-table td {
     padding: 3px 6px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border, #cbd5e1);
 }
 
 .proposta-righe-table .num {
@@ -222,8 +303,8 @@
     font-weight: bold;
     font-size: 0.75rem;
     padding: 3px 6px;
-    background: #f8f9fa;
-    border-top: 1px solid #ddd;
+    background: var(--bg, #f0f2f5);
+    border-top: 1px solid var(--border, #cbd5e1);
 }
 
 .proposta-forn-totale {
@@ -231,7 +312,7 @@
     padding: 8px 12px;
     font-weight: bold;
     font-size: 0.82rem;
-    background: #f0f7ff;
+    background: var(--primary-light, #e3eef8);
     border-top: 2px solid var(--primary);
 }
 
@@ -264,18 +345,6 @@
     border-left: 4px solid var(--success) !important;
 }
 
-.proposta-art-escluso {
-    background: #fef2f2 !important;
-    border-left: 4px solid var(--danger) !important;
-    opacity: 0.6;
-}
-
-.proposta-art-escluso .proposta-art-header,
-.proposta-art-escluso .proposta-righe-table {
-    text-decoration: line-through;
-    color: var(--text-muted);
-}
-
 /* Badge conferma nell'articolo */
 .proposta-conferma-badge {
     display: flex;
@@ -289,15 +358,93 @@
 }
 
 .proposta-badge-confermato {
-    background: #dcfce7;
-    color: #166534;
-    border: 1px solid #86efac;
+    background: color-mix(in srgb, var(--success, #16a34a) 12%, white);
+    color: var(--success, #16a34a);
+    border: 1px solid color-mix(in srgb, var(--success, #16a34a) 30%, white);
 }
 
-.proposta-badge-escluso {
-    background: #fef2f2;
-    color: var(--danger);
-    border: 1px solid #fecaca;
+/* ── Blocco ordine confermato (raggruppato per data consegna) ── */
+.proposta-scorporo {
+    border-left: 4px solid var(--success, #16a34a);
+    background: color-mix(in srgb, var(--success, #16a34a) 4%, var(--bg-content, #fff));
+}
+
+.proposta-scorporo-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--success, #16a34a) 10%, white);
+    font-size: 0.82rem;
+    color: var(--text, #1e293b);
+    border-bottom: 1px solid color-mix(in srgb, var(--success, #16a34a) 20%, white);
+}
+
+.proposta-scorporo-header .conferma-icon {
+    color: var(--success, #16a34a);
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.proposta-scorporo-count {
+    margin-left: auto;
+    font-size: 0.78rem;
+    color: var(--text-muted, #64748b);
+}
+
+.proposta-scorporo-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.proposta-scorporo-table th {
+    background: var(--bg, #f0f2f5);
+    padding: 4px 8px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.7rem;
+    color: var(--text-muted, #64748b);
+    border-bottom: 1px solid var(--border, #cbd5e1);
+}
+
+.proposta-scorporo-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border, #cbd5e1);
+}
+
+.proposta-scorporo-table .num {
+    text-align: right;
+}
+
+/* Bottone "Emetti →" nel blocco ordine confermato */
+.btn-emetti-card {
+    background: var(--success, #16a34a);
+    color: white;
+    border: none;
+    padding: 5px 16px;
+    border-radius: var(--radius-sm, 4px);
+    font-weight: 700;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.btn-emetti-card:hover {
+    background: #15803d;
+}
+
+/* Badge informativo "ordine già emesso e email inviata" sul header fornitore */
+.fornitore-congelato-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 4px 10px;
+    background: var(--primary-light, #e3eef8);
+    color: var(--primary-dark, #1a4d82);
+    border: 1px solid var(--border, #cbd5e1);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
 }
 
 .conferma-icon {
@@ -380,6 +527,13 @@
     gap: 4px;
 }
 
+/* Badge per ordini extra (2° e successivi pending per stesso fornitore).
+   Stesso stile del primario ma con bordo lieve per distinguerli visivamente. */
+.fornitore-emesso-badge.fornitore-emesso-extra {
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px dashed rgba(255, 255, 255, 0.5);
+}
+
 .fornitore-email-pending {
     background: #f59e0b !important;
 }
@@ -432,37 +586,41 @@
     50%      { box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.35); }
 }
 
-.btn-invia-email-forn {
-    background: white;
-    color: var(--primary);
-    border: none;
-    padding: 2px 10px;
-    border-radius: 10px;
-    font-weight: 600;
-    font-size: 0.68rem;
-    cursor: pointer;
-    margin-left: 6px;
-    transition: all 0.15s;
-}
-
-.btn-invia-email-forn:hover {
-    background: #dbeafe;
-}
-
+/* Pulsanti ordine (PDF / Email) — usati nei sub-blocchi ordine (sfondo chiaro) */
 .btn-scarica-pdf-forn {
-    background: rgba(255,255,255,0.3);
+    background: var(--primary, #2563a8);
     color: white;
     border: none;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.68rem;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm, 4px);
+    font-size: 0.72rem;
+    font-weight: 600;
     cursor: pointer;
-    margin-left: 4px;
     transition: all 0.15s;
 }
-
 .btn-scarica-pdf-forn:hover {
-    background: rgba(255,255,255,0.5);
+    background: var(--primary-dark, #1a4d82);
+}
+
+.btn-invia-email-forn {
+    background: var(--success, #16a34a);
+    color: white;
+    border: none;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm, 4px);
+    font-weight: 600;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.btn-invia-email-forn:hover {
+    background: #15803d;
+}
+.btn-invia-email-forn.email-gia-inviata {
+    background: var(--text-muted, #64748b);
+}
+.btn-invia-email-forn.email-gia-inviata:hover {
+    background: #475569;
 }
 
 /* --- Stato "Ordinato" nelle righe articolo --- */
@@ -473,8 +631,38 @@
 }
 
 .proposta-riga-emessa {
-    background: #eff6ff;
-    color: #64748b;
+    background: var(--primary-light, #e3eef8);
+    color: var(--text-muted, #64748b);
+}
+
+/* Pulsante annulla ordine */
+.btn-annulla-ordine {
+    font-size: 0.72rem;
+    color: white;
+    border: none;
+    background: var(--danger, #e11d48);
+    padding: 3px 10px;
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 600;
+}
+.btn-annulla-ordine:hover {
+    background: #be123c;
+}
+
+/* Badge "BCube" per ordini emessi da BCube */
+.proposta-badge-bcube {
+    display: inline-block;
+    background: color-mix(in srgb, var(--primary, #2563a8) 12%, white);
+    color: var(--primary, #2563a8);
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-weight: 700;
+    margin-left: 4px;
+    vertical-align: middle;
+    letter-spacing: 0.3px;
 }
 
 .proposta-riga-emessa td {
@@ -487,7 +675,7 @@
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
-    background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+    background: color-mix(in srgb, var(--success, #16a34a) 8%, white);
     border: 2px solid var(--success);
     border-radius: var(--radius);
     margin-bottom: 12px;
@@ -496,7 +684,7 @@
 .proposta-emetti-tutti-bar .emetti-tutti-info {
     flex: 1;
     font-size: 0.82rem;
-    color: #166534;
+    color: var(--success, #16a34a);
     font-weight: 600;
 }
 
@@ -792,4 +980,325 @@
     background: var(--primary);
     color: white;
     border-color: var(--primary);
+}
+
+/* ============================================
+   MODALE UNIFICATA — Emetti Tutti + Invia Email
+   Stati per riga fornitore nella tabella batch
+   ============================================ */
+.unified-row-waiting { opacity: 0.5; }
+.unified-row-waiting td { color: var(--text-muted); }
+.unified-row-emitting { opacity: 1; }
+.unified-row-emitting .unified-status { animation: unifiedPulse 1.2s infinite; }
+.unified-row-emitted { opacity: 1; }
+.unified-row-emitted .unified-status { color: var(--success); font-weight: 900; }
+.unified-row-emit-failed { opacity: 1; }
+.unified-row-emit-failed td { background: #fef2f2; }
+.unified-row-emit-failed .unified-status { color: var(--danger); font-weight: 900; }
+.unified-row-sending-email { opacity: 1; }
+.unified-row-sending-email .unified-status { color: var(--warning); animation: unifiedPulse 1.2s infinite; }
+.unified-row-email-sent { opacity: 1; }
+.unified-row-email-sent td { background: #f5f3ff; }
+.unified-row-email-sent .unified-status { color: #7c3aed; font-weight: 900; }
+.unified-row-email-failed .unified-status { color: var(--danger); }
+
+@keyframes unifiedPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.unified-progress-section {
+    margin-bottom: 14px;
+}
+.unified-progress-label {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.unified-progress-track {
+    background: #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    height: 20px;
+}
+.unified-progress-bar {
+    height: 100%;
+    background: var(--success);
+    width: 0%;
+    transition: width 0.3s;
+    border-radius: 8px;
+}
+.unified-warning-box {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #92400e;
+    text-align: center;
+}
+
+/* ============================================
+   STORICO ORDINI — Redesign con filtri e colori
+   ============================================ */
+
+/* KPI Bar */
+.storico-kpi-bar {
+    display: flex;
+    gap: 16px;
+    padding: 10px 14px;
+    background: var(--bg);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 12px;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+}
+.storico-kpi-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.storico-kpi-value {
+    font-weight: 900;
+    font-size: 1rem;
+}
+
+/* Filtri Bar */
+.storico-filtri-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.storico-select-elab {
+    font-size: 0.82rem;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: white;
+}
+
+/* Chip filtro categoria */
+.storico-chip-group {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.storico-chip {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: white;
+    transition: all 0.15s;
+    user-select: none;
+}
+.storico-chip:hover {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.storico-chip.active {
+    color: white;
+    border-color: transparent;
+}
+.storico-chip[data-cat="accettata"].active {
+    background: var(--storico-accettata);
+}
+.storico-chip[data-cat="modificata"].active {
+    background: var(--storico-modificata);
+}
+.storico-chip[data-cat="misto"].active {
+    background: var(--storico-misto);
+}
+.storico-chip[data-cat="indipendente"].active {
+    background: var(--storico-indipendente);
+}
+/* Conteggio colorato quando chip non attivo */
+.storico-chip[data-cat="accettata"]:not(.active) strong { color: var(--storico-accettata); }
+.storico-chip[data-cat="modificata"]:not(.active) strong { color: var(--storico-modificata); }
+.storico-chip[data-cat="misto"]:not(.active) strong { color: var(--storico-misto); }
+.storico-chip[data-cat="indipendente"]:not(.active) strong { color: var(--storico-indipendente); }
+
+/* Riga ordine con border-left colorato */
+.storico-tabella tr.storico-row-accettata td:first-child {
+    border-left: 3px solid var(--storico-accettata);
+}
+.storico-tabella tr.storico-row-modificata td:first-child {
+    border-left: 3px solid var(--storico-modificata);
+}
+.storico-tabella tr.storico-row-misto td:first-child {
+    border-left: 3px solid var(--storico-misto);
+}
+.storico-tabella tr.storico-row-indipendente td:first-child {
+    border-left: 3px solid var(--storico-indipendente);
+}
+
+/* Badge categoria */
+.storico-cat-badge {
+    font-size: 0.6rem;
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 4px;
+    font-weight: 600;
+}
+.storico-cat-badge.cat-accettata { background: color-mix(in srgb, var(--storico-accettata) 15%, white); color: var(--storico-accettata); }
+.storico-cat-badge.cat-modificata { background: color-mix(in srgb, var(--storico-modificata) 15%, white); color: var(--storico-modificata); }
+.storico-cat-badge.cat-misto { background: color-mix(in srgb, var(--storico-misto) 15%, white); color: var(--storico-misto); }
+.storico-cat-badge.cat-indipendente { background: color-mix(in srgb, var(--storico-indipendente) 15%, white); color: var(--storico-indipendente); }
+
+/* Color picker inline nei chip */
+.storico-chip-color {
+    width: 14px;
+    height: 14px;
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+
+/* Testata elaborazione collassabile */
+.storico-elab-header {
+    cursor: pointer;
+}
+.storico-elab-header:hover td {
+    background: #f8fafc !important;
+}
+.storico-elab-toggle {
+    transition: transform 0.2s;
+    display: inline-block;
+    font-size: 0.8rem;
+}
+.storico-elab-toggle.collapsed {
+    transform: rotate(-90deg);
+}
+
+/* Pannello multi-data rimosso — ora unificato in gb2-decisione.css */
+
+/* Avviso multi-ordine nel riepilogo emissione */
+.emetti-multiordine-avviso {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-left: 3px solid #f97316;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    color: #9a3412;
+    margin: 8px 0;
+}
+
+.emetti-gruppo-data-header {
+    background: #e0f2fe;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    margin-top: 10px;
+    margin-bottom: 4px;
+    border-left: 3px solid var(--primary, #2563eb);
+}
+
+.emetti-gruppo-data-totale {
+    text-align: right;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    color: #1e40af;
+    margin-bottom: 6px;
+}
+
+/* ============================================================
+   BLOCCHI ORDINI EXTRA (Phase 6) — sub-card dentro il fornitore padre
+   ============================================================ */
+
+.proposta-ordine-extra {
+    background: var(--bg-content, #fff);
+    border: 1px solid var(--border, #cbd5e1);
+    border-left: 4px solid var(--primary, #2563a8);
+    border-radius: var(--radius-sm, 4px);
+    margin: 8px 0;
+    overflow: hidden;
+}
+
+.proposta-extra-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--primary-light, #e3eef8);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--primary-dark, #1a4d82);
+}
+
+.proposta-extra-header .extra-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.proposta-extra-header .extra-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* Template select dentro il sub-blocco ordine */
+.proposta-extra-header .select-template-forn {
+    font-size: 0.72rem;
+    padding: 2px 4px;
+    border: 1px solid var(--border, #cbd5e1);
+    border-radius: var(--radius-sm, 4px);
+    background: white;
+    cursor: pointer;
+}
+
+.proposta-extra-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.proposta-extra-table th {
+    background: var(--primary-light, #e3eef8);
+    padding: 4px 8px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: var(--text-muted, #64748b);
+    border-bottom: 1px solid var(--border, #cbd5e1);
+}
+
+.proposta-extra-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border, #cbd5e1);
+}
+
+.proposta-extra-table .num {
+    text-align: right;
+}
+
+.extra-totale {
+    text-align: right;
+    padding: 4px 12px 6px;
+    font-size: 0.78rem;
+    color: var(--primary-dark, #1a4d82);
+}
+
+/* Badge "N date" sull'header articolo multi-data */
+.proposta-multidate-badge {
+    display: inline-block;
+    background: color-mix(in srgb, var(--primary, #2563a8) 15%, white);
+    color: var(--primary-dark, #1a4d82);
+    border: 1px solid color-mix(in srgb, var(--primary, #2563a8) 30%, white);
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: 4px;
+    vertical-align: middle;
 }

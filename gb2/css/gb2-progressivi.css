@@ -3,6 +3,25 @@
    split view, scaduti, daltonismo, blocchi MRP
    ============================================ */
 
+/* Skeleton durante caricamento progressivi */
+.progressivi-skeleton {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.progressivi-skeleton .skeleton-bar {
+    height: 16px;
+    background: linear-gradient(90deg, #e8e8e8 25%, #f4f4f4 50%, #e8e8e8 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite ease-in-out;
+    border-radius: 3px;
+}
+@keyframes skeletonShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
 .mrp-progressivi-card { padding: 16px; }
 
 .mrp-progressivi-toolbar {
@@ -411,4 +430,45 @@ body:not(.show-scaduti) .mrp-table tr.row-scaduto + tr.matrioska-nested-row {
     font-size: 0.72rem;
 }
 #splitOrdiniContent { max-height: 500px; overflow-y: auto; }
+
+/* Breadcrumb navigazione articoli */
+.progressivi-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 4px 16px 6px;
+    font-size: 0.78rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+.breadcrumb-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: var(--primary);
+    transition: background 0.1s;
+    white-space: nowrap;
+}
+.breadcrumb-item:hover {
+    background: rgba(37, 99, 235, 0.08);
+    text-decoration: underline;
+}
+.breadcrumb-item.current {
+    color: var(--text);
+    font-weight: 700;
+    cursor: default;
+}
+.breadcrumb-item.current:hover {
+    background: none;
+    text-decoration: none;
+}
+.breadcrumb-separator {
+    color: var(--text-muted);
+    margin: 0 2px;
+    font-size: 0.7rem;
+}
 

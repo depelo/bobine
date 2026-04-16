@@ -66,7 +66,55 @@ const MrpTheme = (() => {
                 { name: '--mrp-row-totale-cross', label: 'Totale cross-fase', default: '#e53935' },
                 { name: '--mrp-row-generale-totale', label: 'Totale generale', default: '#1e293b' }
             ]
+        },
+        {
+            id: 'fornitori',
+            label: 'Classificazione Fornitori',
+            vars: [
+                { name: '--forn-it', label: 'Italia', default: '#2e7d32' },
+                { name: '--forn-ue', label: 'Unione Europea', default: '#1565c0' },
+                { name: '--forn-extra-ue', label: 'Extra UE', default: '#e65100' }
+            ]
+        },
+        {
+            id: 'storico',
+            label: 'Storico Ordini',
+            vars: [
+                { name: '--storico-accettata', label: 'P.O.F. Accettata', default: '#16a34a' },
+                { name: '--storico-modificata', label: 'P.O.F. Modificata', default: '#d97706' },
+                { name: '--storico-misto', label: 'Ordine Misto', default: '#7c3aed' },
+                { name: '--storico-indipendente', label: 'Ordine Indipendente', default: '#2563eb' }
+            ]
+        },
+        {
+            id: 'typography',
+            label: 'Tipografia',
+            vars: [
+                { name: '--font', label: 'Font principale', default: '"Segoe UI", system-ui, -apple-system, sans-serif', type: 'font' }
+            ]
+        },
+        {
+            id: 'layout',
+            label: 'Layout',
+            vars: [
+                { name: '--radius', label: 'Arrotondamento card', default: '8px', type: 'radius' },
+                { name: '--radius-sm', label: 'Arrotondamento piccolo', default: '4px', type: 'radius' }
+            ]
         }
+    ];
+
+    // Lista font disponibili per il selettore
+    const FONT_OPTIONS = [
+        { label: 'Segoe UI', value: '"Segoe UI", system-ui, -apple-system, sans-serif' },
+        { label: 'Inter', value: '"Inter", system-ui, sans-serif' },
+        { label: 'Roboto', value: '"Roboto", system-ui, sans-serif' },
+        { label: 'Open Sans', value: '"Open Sans", system-ui, sans-serif' },
+        { label: 'Lato', value: '"Lato", system-ui, sans-serif' },
+        { label: 'Source Sans Pro', value: '"Source Sans Pro", system-ui, sans-serif' },
+        { label: 'Montserrat', value: '"Montserrat", system-ui, sans-serif' },
+        { label: 'Poppins', value: '"Poppins", system-ui, sans-serif' },
+        { label: 'System UI', value: 'system-ui, -apple-system, sans-serif' },
+        { label: 'Monospace', value: '"Cascadia Code", "Fira Code", monospace' }
     ];
 
     // --------------------------------------------------------
@@ -109,31 +157,262 @@ const MrpTheme = (() => {
             '--table-border-color': '#000000',
             '--mrp-blocco-esaurimento': '#cc6600', '--mrp-blocco-sostitutivo': '#0000cc',
             '--mrp-blocco-combinato': '#660066', '--mrp-row-totale-cross': '#cc0000',
-            '--mrp-row-generale-totale': '#000000'
+            '--mrp-row-generale-totale': '#000000',
+            '--radius': '4px', '--radius-sm': '2px'
         }
     };
 
     // --------------------------------------------------------
-    // CLASS → CSS VARIABLE mapping (per click contestuale)
+    // ELEMENT → CSS VARIABLE mapping (per click contestuale)
+    // Ordinato per specificita: i piu specifici prima, i fallback globali alla fine.
     // --------------------------------------------------------
 
-    const CLASS_TO_VAR = {
-        'row-padre': '--row-padre',
-        'row-magazzino': '--row-magazzino',
-        'mrp-row-totale': '--row-totale',
-        'row-figlio': '--row-figlio',
-        'row-figlio-alt': '--row-figlio-alt',
-        'row-esaurito': '--row-esaurito',
-        'mrp-row-totale-cross': '--mrp-row-totale-cross',
-        'mrp-row-generale-totale': '--mrp-row-generale-totale',
-        'mrp-blocco-esaurimento': '--mrp-blocco-esaurimento',
-        'mrp-blocco-sostitutivo': '--mrp-blocco-sostitutivo',
-        'mrp-blocco-combinato': '--mrp-blocco-combinato',
+    const ELEMENT_VAR_MAP = [
+        // === RIGHE GRIGLIA (alta specificita) ===
+        { selector: '.row-padre', label: 'Riga padre', vars: [
+            { varName: '--row-padre', controlType: 'color-pair', label: 'Sfondo / Testo' }
+        ]},
+        { selector: '.row-magazzino', label: 'Riga magazzino', vars: [
+            { varName: '--row-magazzino', controlType: 'color-pair', label: 'Sfondo / Testo' }
+        ]},
+        { selector: '.mrp-row-totale', label: 'Riga totale', vars: [
+            { varName: '--row-totale', controlType: 'color-pair', label: 'Sfondo / Testo' }
+        ]},
+        { selector: '.row-figlio', label: 'Riga figlio', vars: [
+            { varName: '--row-figlio', controlType: 'color-pair', label: 'Sfondo / Testo' }
+        ]},
+        { selector: '.row-figlio-alt', label: 'Riga figlio alternata', vars: [
+            { varName: '--row-figlio-alt', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.row-esaurito', label: 'Riga esaurito', vars: [
+            { varName: '--row-esaurito', controlType: 'color-pair', label: 'Sfondo / Testo' }
+        ]},
+        // Blocchi MRP
+        { selector: '.mrp-row-totale-cross', label: 'Totale cross-fase', vars: [
+            { varName: '--mrp-row-totale-cross', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.mrp-row-generale-totale', label: 'Totale generale', vars: [
+            { varName: '--mrp-row-generale-totale', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.mrp-blocco-esaurimento', label: 'Blocco esaurimento', vars: [
+            { varName: '--mrp-blocco-esaurimento', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.mrp-blocco-sostitutivo', label: 'Blocco sostitutivo', vars: [
+            { varName: '--mrp-blocco-sostitutivo', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.mrp-blocco-combinato', label: 'Blocco combinato', vars: [
+            { varName: '--mrp-blocco-combinato', controlType: 'color', label: 'Sfondo' }
+        ]},
         // Righe modali
-        'modal-row-impprod': '--row-esaurito',
-        'modal-row-ordprod': '--row-totale',
-        'modal-row-ordforn': '--bg-content'
-    };
+        { selector: '.modal-row-impprod', label: 'Modale: imp. produzione', vars: [
+            { varName: '--row-esaurito', controlType: 'color-pair', label: 'Sfondo / Testo' }
+        ]},
+        { selector: '.modal-row-ordprod', label: 'Modale: ord. produzione', vars: [
+            { varName: '--row-totale', controlType: 'color-pair', label: 'Sfondo / Testo' }
+        ]},
+        { selector: '.modal-row-ordforn', label: 'Modale: ord. fornitore', vars: [
+            { varName: '--bg-content', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === HOME (view-parametri) ===
+        { selector: '.mrp-control', label: 'Input / Select', vars: [
+            { varName: '--input-bg', controlType: 'color', label: 'Sfondo' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' },
+            { varName: '--text', controlType: 'color', label: 'Testo' },
+            { varName: '--radius-sm', controlType: 'radius', label: 'Arrotondamento' },
+            { varName: '--font', controlType: 'font', label: 'Font' }
+        ]},
+        { selector: '.mrp-btn-primary', label: 'Pulsante primario', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Sfondo' },
+            { varName: '--primary-dark', controlType: 'color', label: 'Sfondo hover' },
+            { varName: '--font', controlType: 'font', label: 'Font' }
+        ]},
+        { selector: '.mrp-btn-secondary', label: 'Pulsante secondario', vars: [
+            { varName: '--bg', controlType: 'color', label: 'Sfondo' },
+            { varName: '--text', controlType: 'color', label: 'Testo' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' },
+            { varName: '--radius-sm', controlType: 'radius', label: 'Arrotondamento' }
+        ]},
+        { selector: '.mrp-dropdown', label: 'Dropdown autocomplete', vars: [
+            { varName: '--bg-content', controlType: 'color', label: 'Sfondo' },
+            { varName: '--primary', controlType: 'color', label: 'Evidenziazione' },
+            { varName: '--radius-sm', controlType: 'radius', label: 'Arrotondamento' }
+        ]},
+        { selector: '.mrp-opzioni-fieldset', label: 'Fieldset opzioni', vars: [
+            { varName: '--border', controlType: 'color', label: 'Bordo' },
+            { varName: '--radius-sm', controlType: 'radius', label: 'Arrotondamento' }
+        ]},
+        { selector: '.mrp-label', label: 'Etichetta', vars: [
+            { varName: '--text', controlType: 'color', label: 'Colore testo' }
+        ]},
+        { selector: '.mrp-status', label: 'Stato', vars: [
+            { varName: '--text-muted', controlType: 'color', label: 'Colore testo' }
+        ]},
+
+        // === PROGRESSIVI ===
+        { selector: '.mrp-table th', label: 'Testata tabella', vars: [
+            { varName: '--table-header-bg', controlType: 'color', label: 'Sfondo' },
+            { varName: '--table-header-border', controlType: 'color', label: 'Bordo' }
+        ]},
+        { selector: '.mrp-table td', label: 'Cella tabella', vars: [
+            { varName: '--table-border-color', controlType: 'color', label: 'Bordi celle' }
+        ]},
+        { selector: '.btn-matrioska', label: 'Pulsante matrioska', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Sfondo' },
+            { varName: '--primary-dark', controlType: 'color', label: 'Hover' }
+        ]},
+        { selector: '.mrp-table-wrapper', label: 'Wrapper tabella', vars: [
+            { varName: '--border', controlType: 'color', label: 'Bordo' },
+            { varName: '--radius-sm', controlType: 'radius', label: 'Arrotondamento' }
+        ]},
+        { selector: '.mrp-progressivi-title', label: 'Titolo progressivi', vars: [
+            { varName: '--text', controlType: 'color', label: 'Colore testo' }
+        ]},
+
+        // === MODALI ===
+        { selector: '.mrp-modal-header', label: 'Testata modale', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' },
+            { varName: '--primary-dark', controlType: 'color', label: 'Testo titolo' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+        { selector: '.mrp-modal', label: 'Finestra modale', vars: [
+            { varName: '--bg-content', controlType: 'color', label: 'Sfondo' },
+            { varName: '--radius', controlType: 'radius', label: 'Arrotondamento' }
+        ]},
+
+        // === PROPOSTA — LAYOUT ===
+        { selector: '.proposta-fornitore-header', label: 'Header fornitore', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.proposta-fornitore', label: 'Card fornitore', vars: [
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+        { selector: '.proposta-stats', label: 'Statistiche proposta', vars: [
+            { varName: '--text-muted', controlType: 'color', label: 'Testo' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+        { selector: '.proposta-forn-totale', label: 'Totale fornitore', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Bordo superiore' },
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === PROPOSTA — TABELLA RIGHE ===
+        { selector: '.proposta-righe-table th', label: 'Testata tabella proposta', vars: [
+            { varName: '--bg', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.proposta-righe-table td', label: 'Celle tabella proposta', vars: [
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+        { selector: '.proposta-art-totale', label: 'Riga totale articolo', vars: [
+            { varName: '--bg', controlType: 'color', label: 'Sfondo' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+
+        // === PROPOSTA — STATI ARTICOLO ===
+        { selector: '.proposta-art-confermato', label: 'Riga articolo confermato', vars: [
+            { varName: '--success', controlType: 'color', label: 'Sfondo (tinta)' }
+        ]},
+        { selector: '.proposta-riga-emessa', label: 'Riga articolo ordinato', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' },
+            { varName: '--text-muted', controlType: 'color', label: 'Testo' }
+        ]},
+
+        // === PROPOSTA — BADGE ===
+        { selector: '.proposta-badge-confermato', label: 'Badge confermato', vars: [
+            { varName: '--success', controlType: 'color', label: 'Colore' }
+        ]},
+        { selector: '.fornitore-congelato-badge', label: 'Badge ordine congelato', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' },
+            { varName: '--primary-dark', controlType: 'color', label: 'Testo' }
+        ]},
+        { selector: '.proposta-badge-bcube', label: 'Badge BCube', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Colore' }
+        ]},
+        { selector: '.proposta-multidate-badge', label: 'Badge multi-data', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Colore' }
+        ]},
+        { selector: '.proposta-flag-esaur', label: 'Badge articolo in esaurimento', vars: [
+            { varName: '--warning', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === PROPOSTA — ORDINI EMESSI ===
+        { selector: '.proposta-ordine-extra', label: 'Sub-blocco ordine emesso', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Bordo sinistro' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' },
+            { varName: '--bg-content', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.proposta-extra-header', label: 'Header ordine emesso', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' },
+            { varName: '--primary-dark', controlType: 'color', label: 'Testo' }
+        ]},
+        { selector: '.proposta-extra-table th', label: 'Testata tabella ordine', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === PROPOSTA — PULSANTI ORDINE ===
+        { selector: '.btn-emetti-ordine', label: 'Pulsante emetti ordine', vars: [
+            { varName: '--success', controlType: 'color', label: 'Colore' }
+        ]},
+        { selector: '.btn-scarica-pdf-forn', label: 'Pulsante PDF', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.btn-invia-email-forn', label: 'Pulsante Invia Email', vars: [
+            { varName: '--success', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.btn-annulla-ordine', label: 'Pulsante Annulla ordine', vars: [
+            { varName: '--danger', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === PROPOSTA — BARRA EMETTI TUTTI ===
+        { selector: '.proposta-emetti-tutti-bar', label: 'Barra email/emetti tutti', vars: [
+            { varName: '--success', controlType: 'color', label: 'Sfondo e bordo' },
+            { varName: '--text', controlType: 'color', label: 'Testo' }
+        ]},
+
+        // === STORICO ===
+        { selector: '.storico-tabella th', label: 'Testata storico', vars: [
+            { varName: '--table-header-bg', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === DECISIONE ===
+        { selector: '.mrp-btn-conferma', label: 'Pulsante conferma', vars: [
+            { varName: '--success', controlType: 'color', label: 'Sfondo' },
+            { varName: '--font', controlType: 'font', label: 'Font' }
+        ]},
+        { selector: '.decisione-header', label: 'Header decisione', vars: [
+            { varName: '--success', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.mrp-decisione-panel', label: 'Pannello decisione', vars: [
+            { varName: '--success', controlType: 'color', label: 'Bordo' },
+            { varName: '--radius', controlType: 'radius', label: 'Arrotondamento' }
+        ]},
+
+        // === DBCONFIG ===
+        { selector: '.mrp-db-badge', label: 'Badge database', vars: [
+            { varName: '--bg', controlType: 'color', label: 'Sfondo' },
+            { varName: '--text', controlType: 'color', label: 'Testo' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+        { selector: '.cfg-tab', label: 'Tab configurazione', vars: [
+            { varName: '--text-muted', controlType: 'color', label: 'Testo' },
+            { varName: '--primary', controlType: 'color', label: 'Attivo' }
+        ]},
+
+        // === GLOBALI (bassa specificita — ultima priorita) ===
+        { selector: '.mrp-header', label: 'Barra superiore', vars: [
+            { varName: '--header-bg', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.mrp-card', label: 'Card', vars: [
+            { varName: '--bg-content', controlType: 'color', label: 'Sfondo' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' },
+            { varName: '--radius', controlType: 'radius', label: 'Arrotondamento' }
+        ]},
+        { selector: '.mrp-main', label: 'Area principale', vars: [
+            { varName: '--bg', controlType: 'color', label: 'Sfondo pagina' },
+            { varName: '--text', controlType: 'color', label: 'Testo' },
+            { varName: '--font', controlType: 'font', label: 'Font' }
+        ]}
+    ];
 
     // --------------------------------------------------------
     // PRESET LABELS (per dropdown)
@@ -230,6 +509,8 @@ const MrpTheme = (() => {
     function applyColors(colors) {
         const root = document.documentElement;
         Object.keys(colors).forEach(key => {
+            // Salta chiavi interne (es. _columnPrefs) — non sono variabili CSS
+            if (key.startsWith('_')) return;
             if (colors[key]) {
                 root.style.setProperty(key, colors[key]);
             } else {
@@ -493,17 +774,41 @@ const MrpTheme = (() => {
                 const val = getCurrentValue(v.name);
                 const displayLabel = customLabels[v.name] || v.label;
                 const row = document.createElement('div');
-                row.className = 'mrp-theme-row';
                 row.dataset.varName = v.name;
 
-                row.innerHTML = `
-                    <span class="mrp-theme-label" title="${v.name} — doppio click per rinominare">${displayLabel}</span>
-                    <div class="mrp-theme-swatch-wrap">
-                        <input type="color" class="mrp-theme-swatch" value="${normalizeHex(val)}" data-var="${v.name}">
-                    </div>
-                    <input type="text" class="mrp-theme-hex" value="${normalizeHex(val)}" data-var="${v.name}" maxlength="7" spellcheck="false">
-                    <button class="mrp-theme-row-reset" data-var="${v.name}" title="Ripristina default">&circlearrowright;</button>
-                `;
+                const varType = v.type || 'color';
+
+                if (varType === 'font') {
+                    row.className = 'mrp-theme-row mrp-theme-row-font';
+                    const options = FONT_OPTIONS.map(f => {
+                        const sel = val.includes(f.label) ? ' selected' : '';
+                        return `<option value="${f.value}"${sel}>${f.label}</option>`;
+                    }).join('');
+                    row.innerHTML = `
+                        <span class="mrp-theme-label" title="${v.name} — doppio click per rinominare">${displayLabel}</span>
+                        <select class="mrp-theme-font-select" data-var="${v.name}">${options}</select>
+                        <button class="mrp-theme-row-reset" data-var="${v.name}" title="Ripristina default">&circlearrowright;</button>
+                    `;
+                } else if (varType === 'radius') {
+                    row.className = 'mrp-theme-row mrp-theme-row-radius';
+                    const numVal = parseInt(val) || 0;
+                    row.innerHTML = `
+                        <span class="mrp-theme-label" title="${v.name} — doppio click per rinominare">${displayLabel}</span>
+                        <input type="range" class="mrp-theme-radius-slider" data-var="${v.name}" min="0" max="24" step="1" value="${numVal}">
+                        <span class="mrp-theme-radius-value" data-var="${v.name}">${numVal}px</span>
+                        <button class="mrp-theme-row-reset" data-var="${v.name}" title="Ripristina default">&circlearrowright;</button>
+                    `;
+                } else {
+                    row.className = 'mrp-theme-row';
+                    row.innerHTML = `
+                        <span class="mrp-theme-label" title="${v.name} — doppio click per rinominare">${displayLabel}</span>
+                        <div class="mrp-theme-swatch-wrap">
+                            <input type="color" class="mrp-theme-swatch" value="${normalizeHex(val)}" data-var="${v.name}">
+                        </div>
+                        <input type="text" class="mrp-theme-hex" value="${normalizeHex(val)}" data-var="${v.name}" maxlength="7" spellcheck="false">
+                        <button class="mrp-theme-row-reset" data-var="${v.name}" title="Ripristina default">&circlearrowright;</button>
+                    `;
+                }
 
                 // Label editabile con doppio click
                 const labelSpan = row.querySelector('.mrp-theme-label');
@@ -544,26 +849,46 @@ const MrpTheme = (() => {
                 }
                 attachLabelEdit(labelSpan);
 
-                // Swatch change
-                row.querySelector('.mrp-theme-swatch').addEventListener('input', (e) => {
-                    const color = e.target.value;
-                    setColor(v.name, color);
-                    row.querySelector('.mrp-theme-hex').value = color;
-                    dirty = true;
-                });
-
-                // Hex input
-                const hexInput = row.querySelector('.mrp-theme-hex');
-                hexInput.addEventListener('input', () => {
-                    const raw = hexInput.value.trim();
-                    if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
-                        setColor(v.name, raw);
-                        row.querySelector('.mrp-theme-swatch').value = raw;
+                if (varType === 'font') {
+                    // Font select change
+                    const fontSel = row.querySelector('.mrp-theme-font-select');
+                    fontSel.addEventListener('change', () => {
+                        setColor(v.name, fontSel.value);
                         dirty = true;
-                    }
-                });
+                    });
+                } else if (varType === 'radius') {
+                    // Radius slider change
+                    const slider = row.querySelector('.mrp-theme-radius-slider');
+                    const display = row.querySelector('.mrp-theme-radius-value');
+                    slider.addEventListener('input', () => {
+                        const val = slider.value + 'px';
+                        setColor(v.name, val);
+                        display.textContent = val;
+                        dirty = true;
+                    });
+                } else {
+                    // Swatch change (color)
+                    const swatch = row.querySelector('.mrp-theme-swatch');
+                    swatch.addEventListener('input', (e) => {
+                        const color = e.target.value;
+                        setColor(v.name, color);
+                        row.querySelector('.mrp-theme-hex').value = color;
+                        dirty = true;
+                    });
 
-                // Row reset
+                    // Hex input
+                    const hexInput = row.querySelector('.mrp-theme-hex');
+                    hexInput.addEventListener('input', () => {
+                        const raw = hexInput.value.trim();
+                        if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
+                            setColor(v.name, raw);
+                            swatch.value = raw;
+                            dirty = true;
+                        }
+                    });
+                }
+
+                // Row reset (tutti i tipi)
                 row.querySelector('.mrp-theme-row-reset').addEventListener('click', () => {
                     delete customColors[v.name];
                     document.documentElement.style.removeProperty(v.name);
@@ -571,8 +896,19 @@ const MrpTheme = (() => {
                         document.documentElement.style.setProperty(v.name, PRESETS[currentPreset][v.name]);
                     }
                     const defVal = getResetValue(v.name);
-                    row.querySelector('.mrp-theme-swatch').value = normalizeHex(defVal);
-                    hexInput.value = normalizeHex(defVal);
+                    if (varType === 'font') {
+                        const fontSel = row.querySelector('.mrp-theme-font-select');
+                        FONT_OPTIONS.forEach((f, i) => { fontSel.options[i].selected = defVal.includes(f.label); });
+                    } else if (varType === 'radius') {
+                        const slider = row.querySelector('.mrp-theme-radius-slider');
+                        const display = row.querySelector('.mrp-theme-radius-value');
+                        const numVal = parseInt(defVal) || 0;
+                        slider.value = numVal;
+                        display.textContent = numVal + 'px';
+                    } else {
+                        row.querySelector('.mrp-theme-swatch').value = normalizeHex(defVal);
+                        row.querySelector('.mrp-theme-hex').value = normalizeHex(defVal);
+                    }
                     dirty = true;
                     updateLocalStorage();
                 });
@@ -599,17 +935,24 @@ const MrpTheme = (() => {
     // --------------------------------------------------------
 
     function updatePanelRow(varName, value) {
-        const row = document.querySelector(`.mrp-theme-row[data-var-name="${varName}"]`);
-        if (!row) {
-            // Alternativa: cerca tramite data-var sugli input
-            const swatch = document.querySelector(`.mrp-theme-swatch[data-var="${varName}"]`);
-            const hex = document.querySelector(`.mrp-theme-hex[data-var="${varName}"]`);
-            if (swatch) swatch.value = normalizeHex(value);
-            if (hex) hex.value = normalizeHex(value);
+        // Font select
+        const fontSel = document.querySelector(`.mrp-theme-font-select[data-var="${varName}"]`);
+        if (fontSel) {
+            for (const opt of fontSel.options) { opt.selected = value.includes(opt.text); }
             return;
         }
-        const swatch = row.querySelector('.mrp-theme-swatch');
-        const hex = row.querySelector('.mrp-theme-hex');
+        // Radius slider
+        const slider = document.querySelector(`.mrp-theme-radius-slider[data-var="${varName}"]`);
+        if (slider) {
+            const numVal = parseInt(value) || 0;
+            slider.value = numVal;
+            const display = document.querySelector(`.mrp-theme-radius-value[data-var="${varName}"]`);
+            if (display) display.textContent = numVal + 'px';
+            return;
+        }
+        // Color swatch + hex
+        const swatch = document.querySelector(`.mrp-theme-swatch[data-var="${varName}"]`);
+        const hex = document.querySelector(`.mrp-theme-hex[data-var="${varName}"]`);
         if (swatch) swatch.value = normalizeHex(value);
         if (hex) hex.value = normalizeHex(value);
     }
@@ -622,6 +965,28 @@ const MrpTheme = (() => {
     // --------------------------------------------------------
     // MINI-PICKER (click contestuale in edit mode)
     // --------------------------------------------------------
+
+    function findElementMapping(target) {
+        // Trova il match PIU' SPECIFICO: l'elemento closest più vicino al target.
+        // Se più selettori matchano, vince quello il cui elemento è più vicino
+        // (= ha meno antenati tra se e il target, cioè profondità maggiore nel DOM).
+        let bestMatch = null;
+        let bestDepth = -1;
+        for (const entry of ELEMENT_VAR_MAP) {
+            const el = target.closest(entry.selector);
+            if (!el) continue;
+            // Calcola "profondità": conta quanti .parentElement servono dal target all'el
+            let depth = 0;
+            let node = target;
+            while (node && node !== el) { node = node.parentElement; depth++; }
+            // Profondità minore = elemento più vicino al target = più specifico
+            if (bestMatch === null || depth < bestDepth) {
+                bestMatch = { element: el, mapping: entry };
+                bestDepth = depth;
+            }
+        }
+        return bestMatch;
+    }
 
     function onBodyClick(e) {
         if (!editMode) return;
@@ -637,49 +1002,9 @@ const MrpTheme = (() => {
         const fab = document.getElementById('themeEditFab');
         if (fab && fab.contains(e.target)) return;
 
-        // Cerca tr, th, header, o elementi modale con colore noto
-        const tr = e.target.closest('tr') || e.target.closest('th');
-        const modalRow = e.target.closest('.modal-row-impprod, .modal-row-ordprod, .modal-row-ordforn');
-        const header = e.target.closest('.mrp-header');
-
-        const target = tr || modalRow || header;
-        if (!target) {
-            removeMiniPicker();
-            return;
-        }
-
-        // Header → variabile --header-bg
-        if (header) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            showMiniPicker(header, '--header-bg', 'mrp-header');
-            return;
-        }
-
-        // Cerca match classe → variabile
-        let matchedVar = null;
-        let matchedClass = null;
-        for (const cls of Object.keys(CLASS_TO_VAR)) {
-            if (target.classList.contains(cls)) {
-                matchedVar = CLASS_TO_VAR[cls];
-                matchedClass = cls;
-                break;
-            }
-        }
-
-        if (!matchedVar) {
-            const classList = Array.from(target.classList);
-            for (const cls of Object.keys(CLASS_TO_VAR)) {
-                if (classList.some(c => c.includes(cls))) {
-                    matchedVar = CLASS_TO_VAR[cls];
-                    matchedClass = cls;
-                    break;
-                }
-            }
-        }
-
-        if (!matchedVar) {
-            // In edit mode, blocca comunque la propagazione per evitare azioni indesiderate
+        // Cerca match nell'ELEMENT_VAR_MAP
+        const match = findElementMapping(e.target);
+        if (!match) {
             e.preventDefault();
             e.stopImmediatePropagation();
             removeMiniPicker();
@@ -688,95 +1013,169 @@ const MrpTheme = (() => {
 
         e.preventDefault();
         e.stopImmediatePropagation();
-        showMiniPicker(target, matchedVar, matchedClass);
+        showMiniPicker(match.element, match.mapping);
     }
 
-    function showMiniPicker(element, varName, className) {
-        removeMiniPicker();
+    // Genera una riga color-picker (swatch + hex input)
+    function buildColorControl(varName, label) {
+        const val = getCurrentValue(varName);
+        return `
+            <div class="mrp-mini-section">
+                <span class="mrp-mini-section-label">${label}</span>
+                <div class="mrp-mini-color-row">
+                    <input type="color" class="mrp-mini-swatch" data-var="${varName}" value="${normalizeHex(val)}">
+                    <input type="text" class="mrp-mini-hex" data-var="${varName}" value="${normalizeHex(val)}" maxlength="7" spellcheck="false">
+                </div>
+            </div>
+        `;
+    }
 
-        const varDef = findVarDef(varName);
-        const label = varDef ? varDef.label : varName;
-        const currentVal = getCurrentValue(varName);
-
-        // Controlla se esiste una variabile testo associata (es. --row-padre → --row-padre-text)
+    // Genera una coppia sfondo + testo
+    function buildColorPairControl(varName, label) {
+        const bgVal = getCurrentValue(varName);
         const textVarName = varName + '-text';
-        const textVarDef = findVarDef(textVarName);
-        const hasTextVar = !!textVarDef;
-        const currentTextVal = hasTextVar ? getCurrentValue(textVarName) : null;
+        const textVal = getCurrentValue(textVarName);
+        return `
+            <div class="mrp-mini-section">
+                <span class="mrp-mini-section-label">${label}</span>
+                <div class="mrp-mini-color-row">
+                    <span class="mrp-mini-sublabel">Sfondo</span>
+                    <input type="color" class="mrp-mini-swatch" data-var="${varName}" value="${normalizeHex(bgVal)}">
+                    <input type="text" class="mrp-mini-hex" data-var="${varName}" value="${normalizeHex(bgVal)}" maxlength="7" spellcheck="false">
+                </div>
+                <div class="mrp-mini-color-row">
+                    <span class="mrp-mini-sublabel">Testo</span>
+                    <input type="color" class="mrp-mini-swatch" data-var="${textVarName}" value="${normalizeHex(textVal)}">
+                    <input type="text" class="mrp-mini-hex" data-var="${textVarName}" value="${normalizeHex(textVal)}" maxlength="7" spellcheck="false">
+                </div>
+            </div>
+        `;
+    }
+
+    // Genera un selettore font
+    function buildFontControl(varName, label) {
+        const currentVal = getCurrentValue(varName);
+        const options = FONT_OPTIONS.map(f => {
+            const sel = currentVal.includes(f.label) ? ' selected' : '';
+            return `<option value="${f.value}"${sel} style="font-family:${f.value}">${f.label}</option>`;
+        }).join('');
+        return `
+            <div class="mrp-mini-section">
+                <span class="mrp-mini-section-label">${label}</span>
+                <select class="mrp-mini-font-select" data-var="${varName}">${options}</select>
+            </div>
+        `;
+    }
+
+    // Genera uno slider radius
+    function buildRadiusControl(varName, label) {
+        const currentVal = getCurrentValue(varName);
+        const numVal = parseInt(currentVal) || 0;
+        return `
+            <div class="mrp-mini-section">
+                <span class="mrp-mini-section-label">${label}</span>
+                <div class="mrp-mini-radius-row">
+                    <input type="range" class="mrp-mini-radius-slider" data-var="${varName}" min="0" max="24" step="1" value="${numVal}">
+                    <span class="mrp-mini-radius-value">${numVal}px</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function showMiniPicker(element, mapping) {
+        removeMiniPicker();
 
         miniPicker = document.createElement('div');
         miniPicker.className = 'mrp-mini-picker';
-        miniPicker.dataset.varName = varName;
 
-        let textRowHtml = '';
-        if (hasTextVar) {
-            textRowHtml = `
-                <div class="mrp-mini-picker-body" style="margin-top:6px;">
-                    <span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);min-width:40px;">Testo</span>
-                    <input type="color" class="mrp-mini-swatch mrp-mini-swatch-text" value="${normalizeHex(currentTextVal)}">
-                    <input type="text" class="mrp-mini-hex mrp-mini-hex-text" value="${normalizeHex(currentTextVal)}" maxlength="7" spellcheck="false">
-                </div>
-            `;
+        // Genera i controlli per ogni variabile nella mapping
+        let controlsHtml = '';
+        for (const v of mapping.vars) {
+            switch (v.controlType) {
+                case 'color-pair':
+                    controlsHtml += buildColorPairControl(v.varName, v.label);
+                    break;
+                case 'font':
+                    controlsHtml += buildFontControl(v.varName, v.label);
+                    break;
+                case 'radius':
+                    controlsHtml += buildRadiusControl(v.varName, v.label);
+                    break;
+                default: // 'color'
+                    controlsHtml += buildColorControl(v.varName, v.label);
+                    break;
+            }
         }
 
         miniPicker.innerHTML = `
             <div class="mrp-mini-picker-header">
-                <span>${label}</span>
+                <span>${mapping.label}</span>
                 <button class="mrp-mini-picker-close">&times;</button>
             </div>
-            <div class="mrp-mini-picker-body">
-                ${hasTextVar ? '<span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);min-width:40px;">Sfondo</span>' : ''}
-                <input type="color" class="mrp-mini-swatch" value="${normalizeHex(currentVal)}">
-                <input type="text" class="mrp-mini-hex" value="${normalizeHex(currentVal)}" maxlength="7" spellcheck="false">
+            <div class="mrp-mini-picker-controls">
+                ${controlsHtml}
             </div>
-            ${textRowHtml}
         `;
 
         // Posiziona sotto l'elemento cliccato
         const rect = element.getBoundingClientRect();
         miniPicker.style.position = 'fixed';
-        miniPicker.style.left = Math.min(rect.left, window.innerWidth - 260) + 'px';
-        miniPicker.style.top = (rect.bottom + 4) + 'px';
         miniPicker.style.zIndex = '100001';
+
+        // Posizionamento orizzontale: cerca di non uscire dallo schermo
+        const pickerWidth = 280;
+        let left = rect.left;
+        if (left + pickerWidth > window.innerWidth) left = window.innerWidth - pickerWidth - 8;
+        if (left < 8) left = 8;
+        miniPicker.style.left = left + 'px';
+
+        // Posizionamento verticale: sotto l'elemento, o sopra se non c'e spazio
+        let top = rect.bottom + 4;
+        if (top + 200 > window.innerHeight) top = Math.max(8, rect.top - 200);
+        miniPicker.style.top = top + 'px';
 
         document.body.appendChild(miniPicker);
 
-        // Bind eventi
+        // Bind: close button
         miniPicker.querySelector('.mrp-mini-picker-close').addEventListener('click', removeMiniPicker);
 
-        // Sfondo
-        miniPicker.querySelector('.mrp-mini-swatch').addEventListener('input', (e) => {
-            const color = e.target.value;
-            setColor(varName, color);
-            miniPicker.querySelector('.mrp-mini-hex').value = color;
-        });
-
-        const hexInput = miniPicker.querySelector('.mrp-mini-hex');
-        hexInput.addEventListener('input', () => {
-            const raw = hexInput.value.trim();
-            if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
-                setColor(varName, raw);
-                miniPicker.querySelector('.mrp-mini-swatch').value = raw;
-            }
-        });
-
-        // Testo (se presente)
-        if (hasTextVar) {
-            miniPicker.querySelector('.mrp-mini-swatch-text').addEventListener('input', (e) => {
-                const color = e.target.value;
-                setColor(textVarName, color);
-                miniPicker.querySelector('.mrp-mini-hex-text').value = color;
+        // Bind: tutti i color swatch + hex
+        miniPicker.querySelectorAll('.mrp-mini-swatch').forEach(swatch => {
+            swatch.addEventListener('input', () => {
+                const varN = swatch.dataset.var;
+                setColor(varN, swatch.value);
+                const hex = miniPicker.querySelector(`.mrp-mini-hex[data-var="${varN}"]`);
+                if (hex) hex.value = swatch.value;
             });
-
-            const textHexInput = miniPicker.querySelector('.mrp-mini-hex-text');
-            textHexInput.addEventListener('input', () => {
-                const raw = textHexInput.value.trim();
+        });
+        miniPicker.querySelectorAll('.mrp-mini-hex').forEach(hex => {
+            hex.addEventListener('input', () => {
+                const raw = hex.value.trim();
                 if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
-                    setColor(textVarName, raw);
-                    miniPicker.querySelector('.mrp-mini-swatch-text').value = raw;
+                    const varN = hex.dataset.var;
+                    setColor(varN, raw);
+                    const swatch = miniPicker.querySelector(`.mrp-mini-swatch[data-var="${varN}"]`);
+                    if (swatch) swatch.value = raw;
                 }
             });
-        }
+        });
+
+        // Bind: font selects
+        miniPicker.querySelectorAll('.mrp-mini-font-select').forEach(sel => {
+            sel.addEventListener('change', () => {
+                setColor(sel.dataset.var, sel.value);
+            });
+        });
+
+        // Bind: radius sliders
+        miniPicker.querySelectorAll('.mrp-mini-radius-slider').forEach(slider => {
+            slider.addEventListener('input', () => {
+                const val = slider.value + 'px';
+                setColor(slider.dataset.var, val);
+                const display = slider.closest('.mrp-mini-radius-row').querySelector('.mrp-mini-radius-value');
+                if (display) display.textContent = val;
+            });
+        });
     }
 
     function removeMiniPicker() {
@@ -855,6 +1254,8 @@ const MrpTheme = (() => {
     function normalizeHex(val) {
         if (!val) return '#000000';
         val = val.trim();
+        // Non processare valori non-colore (font strings, px values, ecc.)
+        if (val && !val.startsWith('#') && !val.startsWith('rgb')) return val;
         // Se e' gia' #rrggbb
         if (/^#[0-9a-fA-F]{6}$/.test(val)) return val.toLowerCase();
         // Se e' #rgb → espandi
@@ -886,12 +1287,23 @@ const MrpTheme = (() => {
     // PUBLIC API
     // --------------------------------------------------------
 
+    function getCustomColors() { return customColors; }
+
+    // Salva dati custom (es. _columnPrefs) senza trattarli come variabili CSS
+    function setCustomData(key, value) {
+        customColors[key] = value;
+        dirty = true;
+    }
+
     return {
         init,
         openPanel,
         closePanel,
         save,
-        reset
+        reset,
+        setColor,
+        getCustomColors,
+        setCustomData
     };
 
 })();

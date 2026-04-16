@@ -179,6 +179,18 @@ La **Captain Console** governa l'accesso alle app dipartimentali (Visti, utenti 
   - **`req.user.id`**: identificativo del **Visto locale** nell'app corrente (es. `IDOperator` nel silos di reparto), per log e permessi contestuali.
   - **`req.user.globalId`**: identificativo del **Passaporto** (`IDUser` in `[GA].[dbo].[Users]`), per correlazione cross-app e per parametri verso procedure nei silos (es. **`sp_SalvaEtichetta`** in `[ET]`).
 
+### 6.6 Sidebar condivisa (`assets/components/sidebar.html` + `assets/js/portal-sidebar.js`)
+La sidebar di navigazione tra app è centralizzata nel componente condiviso:
+- **Markup drawer:** `assets/components/sidebar.html` (struttura DOM della sidebar).
+- **Logica runtime:** `assets/js/portal-sidebar.js` (iniezione HTML, eventi, menu dinamico da `window.SecurityData.user.authorizedApps`).
+
+Procedura standard per aggiungere una nuova app alla sidebar:
+1. Registrare il modulo in `[GA].[dbo].[Modules]` e assicurarsi che l'utente abbia il visto (cosi l'app compare in `authorizedApps`).
+2. Aggiornare `APP_CONFIG` in `assets/js/portal-sidebar.js` aggiungendo la mappatura `IDModule -> { url, icon }`.
+3. Se la nuova app usa path annidati (es. `/APP/...`), estendere `isAppActive()` con una regola `startsWith` per evidenziare correttamente la voce attiva.
+4. In ogni nuova pagina Layer 2 includere lo script condiviso `assets/js/portal-sidebar.js` e il bottone `#menuBtn` nella topbar; la sidebar viene iniettata automaticamente via fetch di `assets/components/sidebar.html`.
+5. Evitare duplicazioni locali della sidebar dentro le singole app: la manutenzione deve restare centralizzata nel componente condiviso.
+
 ---
 
 ## 7. Architettura Primary Keys e Database

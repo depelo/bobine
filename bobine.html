@@ -10,25 +10,12 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <title>UJet - Rotoli</title>
     <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="/gb2/css/gb2-shell.css" />
     <link rel="stylesheet" href="bobine.css" />
     <script src="/socket.io/socket.io.js"></script>
     <script src="sicurezza.js"></script>
   </head>
   <body>
-    <div class="menu-drawer-backdrop" id="menuDrawerBackdrop" aria-hidden="true"></div>
-    <aside class="menu-drawer" id="menuDrawer" aria-label="Menu" aria-hidden="true">
-      <div class="menu-drawer-header">
-        <span class="menu-drawer-title">Menu</span>
-        <button type="button" class="menu-drawer-close" id="menuDrawerClose" aria-label="Chiudi menu">×</button>
-      </div>
-      <div class="menu-drawer-actions">
-        <div id="dynamicMenuApps"></div>
-        <button type="button" class="menu-drawer-btn is-hidden" id="menuOpenCaptain" data-menu-action="open-captain">🛠️ Captain Console</button>
-        <button type="button" class="menu-drawer-btn" data-menu-action="open-profile">👤 Il Mio Profilo</button>
-        <button type="button" class="menu-drawer-btn menu-drawer-btn-primary" id="menuAddToHome" data-menu-action="add-to-home">Aggiungi a Home</button>
-      </div>
-    </aside>
-
     <div class="app-shell">
       <nav class="app-nav" aria-label="Navigazione principale">
         <button type="button" class="menu-btn" id="menuBtn" aria-label="Apri menu">☰</button>
@@ -58,7 +45,7 @@
         <form class="form-grid" id="logForm">
             
             <div class="control" style="display: flex; gap: 8px;">
-              <button type="button" class="icon-btn" id="logoutBtn" title="Cambia utente / Logout" style="background-color: #fee2e2; border-color: var(--danger); color: var(--danger); border-radius: var(--radius); flex-shrink: 0;">
+              <button type="button" class="icon-btn" id="operatorBadgeBtn" title="Cambia utente / Logout" style="background-color: #fee2e2; border-color: var(--danger); color: var(--danger); border-radius: var(--radius); flex-shrink: 0;">
                 <svg class="icon-logout" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 1.45rem; height: 1.45rem;">
                   <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
                   <line x1="12" y1="2" x2="12" y2="12"></line>
@@ -268,6 +255,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="bobine.js"></script>
+    <script src="/assets/js/portal-sidebar.js"></script>
   </body>
 </html>
 

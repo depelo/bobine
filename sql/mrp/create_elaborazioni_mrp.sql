@@ -71,7 +71,6 @@ BEGIN
         ALTER TABLE [GB2].[dbo].[ElaborazioniMRP]
         ADD Ambiente VARCHAR(20) NOT NULL DEFAULT 'produzione';
 
-        -- Ricreare indice univoco con Ambiente
         IF EXISTS (SELECT 1 FROM [GB2].sys.indexes WHERE name = 'UX_ElaborazioniMRP_Fingerprint' AND object_id = OBJECT_ID('[GB2].[dbo].[ElaborazioniMRP]'))
             DROP INDEX UX_ElaborazioniMRP_Fingerprint ON [GB2].[dbo].[ElaborazioniMRP];
 
@@ -80,5 +79,31 @@ BEGIN
 
         PRINT 'Colonna Ambiente aggiunta a ElaborazioniMRP.';
     END
+
+    -- Aggiunta colonna NumeroElab se non esiste (v3: contatore per-ambiente)
+    IF NOT EXISTS (
+        SELECT 1 FROM [GB2].sys.columns
+        WHERE object_id = OBJECT_ID('[GB2].[dbo].[ElaborazioniMRP]')
+          AND name = 'NumeroElab'
+    )
+    BEGIN
+        ALTER TABLE [GB2].[dbo].[ElaborazioniMRP]
+        ADD NumeroElab INT NULL;
+        PRINT 'Colonna NumeroElab aggiunta.';
+    END
+END
+GO
+
+-- Backfill NumeroElab per righe che non ce l'hanno (batch separato per compatibilita SQL Server)
+IF EXISTS (
+    SELECT 1 FROM [GB2].[dbo].[ElaborazioniMRP] WHERE NumeroElab IS NULL
+)
+BEGIN
+    ;WITH cte AS (
+        SELECT ID, NumeroElab, ROW_NUMBER() OVER (PARTITION BY Ambiente ORDER BY ID) AS rn
+        FROM [GB2].[dbo].[ElaborazioniMRP]
+    )
+    UPDATE cte SET NumeroElab = rn WHERE NumeroElab IS NULL;
+    PRINT 'NumeroElab popolato retroattivamente.';
 END
 GO

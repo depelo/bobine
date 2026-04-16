@@ -28,19 +28,23 @@ async function initSecurity() {
       // Escludiamo il root e il gateway dal controllo
       if (currentPath !== '/' && currentPath !== '/index.html') {
         if (user && !user.isSuperuser) {
-          // Se tenta di accedere alla captain console
+          // Se tenta di accedere alla captain console (IDModule 2)
           if (currentPath.includes('captain')) {
-            alert('Accesso negato alla Captain Console.');
-            window.location.href = '/';
-            return false;
+            const hasCaptainAccess =
+              Array.isArray(user.authorizedApps) &&
+              user.authorizedApps.some((app) => Number(app.id) === 2);
+            if (!hasCaptainAccess) {
+              alert('Accesso negato alla Captain Console.');
+              window.location.href = '/';
+              return false;
+            }
           }
 
           // Se tenta di accedere a bobine
           if (currentPath.includes('bobine')) {
-            // Cerca se ha l'autorizzazione per la TargetTable 'Operators'
             const hasBobineAccess =
               Array.isArray(user.authorizedApps) &&
-              user.authorizedApps.some((app) => app.target === 'Operators');
+              user.authorizedApps.some((app) => Number(app.id) === 1);
             if (!hasBobineAccess) {
               alert('Non sei autorizzato ad accedere al modulo Bobine.');
               window.location.href = '/';
@@ -65,6 +69,28 @@ async function initSecurity() {
               user.authorizedApps.some((app) => Number(app.id) === 4);
             if (!hasGb2Access) {
               alert('Non sei autorizzato ad accedere al modulo Gabriele 2.0.');
+              window.location.href = '/';
+              return false;
+            }
+          }
+
+          if (currentPath.includes('/itt/')) {
+            const hasIttAccess =
+              Array.isArray(user.authorizedApps) &&
+              user.authorizedApps.some((app) => Number(app.id) === 5);
+            if (!hasIttAccess) {
+              alert('Non sei autorizzato ad accedere al modulo Classificazione ITT.');
+              window.location.href = '/';
+              return false;
+            }
+          }
+
+          if (currentPath.includes('/prg/')) {
+            const hasPrgAccess =
+              Array.isArray(user.authorizedApps) &&
+              user.authorizedApps.some((app) => Number(app.id) === 6);
+            if (!hasPrgAccess) {
+              alert('Non sei autorizzato ad accedere al modulo Ujet Progetti.');
               window.location.href = '/';
               return false;
             }

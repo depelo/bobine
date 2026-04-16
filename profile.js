@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
             container.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.05)'; // Ombra delicata come le altre card
             container.style.margin = '0'; // Allineato a sinistra
             container.style.padding = '32px'; // Ripristina il respiro interno
-            container.style.maxWidth = '750px'; // Largo, ma non infinito
+            container.style.maxWidth = '100%'; // In embedded occupa tutta la larghezza utile
             container.style.width = '100%';
             container.style.border = '1px solid var(--border)'; // Bordo standard Captain
             container.style.borderRadius = 'var(--radius)';
@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.style.background = 'transparent';
         document.body.style.padding = '0';
         document.body.style.margin = '0';
+
     }
 });
 // --------------------------------
