@@ -363,6 +363,18 @@
     border: 1px solid color-mix(in srgb, var(--success, #16a34a) 30%, white);
 }
 
+/* Card scorporata — riga confermata estratta da card multi-data */
+.proposta-scorporo {
+    border-left: 4px solid var(--success, #16a34a);
+}
+
+.proposta-scorporo-label {
+    font-size: 0.72rem;
+    color: var(--text-muted, #64748b);
+    margin-left: 8px;
+    font-style: italic;
+}
+
 /* Badge informativo "ordine già emesso e email inviata" sul header fornitore */
 .fornitore-congelato-badge {
     display: inline-block;

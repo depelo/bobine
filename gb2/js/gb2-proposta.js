@@ -437,7 +437,7 @@ const MrpProposta = (() => {
                         statoClass = '';
                     }
 
-                    htmlRighe += `<tr class="${r.emesso ? 'proposta-riga-emessa' : ''}">
+                    htmlRighe += `<tr class="${r.emesso ? 'proposta-riga-emessa' : ''}" data-progr="${escAttr(String(r.ol_progr || 0))}">
                         <td>${fmtDate(r.ol_datcons)}</td>
                         <td>${esc(r.ol_unmis)}</td>
                         <td class="num">${fmtNum(r.ol_colli, 3)}</td>
@@ -655,6 +655,9 @@ const MrpProposta = (() => {
     function aggiornaStatoVisivo() {
         const confermati = MrpApp.state.ordiniConfermati;
 
+        // Rimuovi card scorporate dal ciclo precedente
+        document.querySelectorAll('.proposta-scorporo').forEach(el => el.remove());
+
         document.querySelectorAll('.proposta-articolo').forEach(artEl => {
             const codartEl = artEl.querySelector('.proposta-art-codart');
             if (!codartEl) return;
@@ -662,22 +665,49 @@ const MrpProposta = (() => {
             artEl.classList.remove('proposta-art-confermato');
             artEl.querySelectorAll('.proposta-conferma-badge').forEach(b => b.remove());
 
-            // Trova TUTTI gli ol_progr confermati per questo card (possono essere
-            // più di uno nel caso multi-data: ogni riga ha il suo ol_progr).
+            // Ripristina righe nascoste dal ciclo precedente
+            artEl.querySelectorAll('tr[data-progr]').forEach(tr => { tr.style.display = ''; });
+            // Ripristina badge "N date" originale
+            const mdBadge = artEl.querySelector('.proposta-multidate-badge');
+
             const progrList = (codartEl.dataset.olprogrlist || '').split(',').filter(Boolean);
             const ordiniCard = [];
             for (const p of progrList) {
                 const ordine = confermati.get(p);
                 if (ordine) ordiniCard.push({ key: p, ordine });
             }
-            // Fallback per card singola (vecchio data-olprogr)
+            // Fallback card singola
             if (progrList.length === 0) {
                 const singleProgr = codartEl.dataset.olprogr || '0';
                 const ordine = confermati.get(singleProgr);
                 if (ordine) ordiniCard.push({ key: singleProgr, ordine });
             }
 
-            if (ordiniCard.length > 0) {
+            const isMulti = progrList.length > 1;
+            const tuttiConfermati = isMulti && ordiniCard.length === progrList.length;
+            const parziale = isMulti && ordiniCard.length > 0 && !tuttiConfermati;
+
+            if (parziale) {
+                // ── SCORPORO: conferme parziali su card multi-data ──
+                // Nascondi le righe confermate nella tabella originale
+                for (const { key } of ordiniCard) {
+                    const tr = artEl.querySelector(`tr[data-progr="${key}"]`);
+                    if (tr) tr.style.display = 'none';
+                }
+                // Aggiorna badge "N date" con il conteggio residuo
+                const residue = progrList.length - ordiniCard.length;
+                if (mdBadge) mdBadge.textContent = residue + ' date';
+
+                // Ricalcola totale articolo visibile (solo righe non nascoste)
+                _ricalcolaTotaleArticolo(artEl);
+
+                // Crea mini-card scorporate per le righe confermate, inserite PRIMA della card
+                for (const { key, ordine } of ordiniCard) {
+                    const scorporo = _buildScorporoCard(ordine, key, codartEl);
+                    artEl.parentElement.insertBefore(scorporo, artEl);
+                }
+            } else if (ordiniCard.length > 0) {
+                // ── TUTTO CONFERMATO o SINGOLA ──
                 artEl.classList.add('proposta-art-confermato');
                 for (const { key, ordine } of ordiniCard) {
                     const badge = document.createElement('div');
@@ -698,6 +728,77 @@ const MrpProposta = (() => {
         });
 
         aggiornaBarreFornitori();
+    }
+
+    /**
+     * Costruisce una mini-card "scorporata" per una riga confermata estratta
+     * da una card multi-data. Stile coerente con le card articolo.
+     */
+    function _buildScorporoCard(ordine, key, codartEl) {
+        const div = document.createElement('div');
+        div.className = 'proposta-articolo proposta-scorporo proposta-art-confermato';
+
+        const dataFmt = ordine.data_consegna
+            ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
+        const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
+
+        div.innerHTML = `
+            <div class="proposta-art-header">
+                <span class="proposta-art-codart"
+                    data-codart="${escAttr(ordine.ol_codart)}"
+                    data-fornitore="${escAttr(ordine.fornitore_codice)}"
+                    data-fornitorenome="${escAttr(ordine.fornitore_nome || '')}"
+                    data-fase="${escAttr(String(ordine.ol_fase || '0'))}"
+                    data-magaz="${escAttr(String(ordine.ol_magaz || '1'))}"
+                    data-unmis="${escAttr(ordine.ol_unmis || 'PZ')}"
+                    data-olprogr="${escAttr(String(ordine.ol_progr || 0))}"
+                    data-olprogrlist="${escAttr(String(ordine.ol_progr || 0))}"
+                    data-multidate="0"
+                    data-quant="${escAttr(String(ordine.quantita_confermata))}"
+                    data-prezzo="${escAttr(String(ordine.prezzo || 0))}"
+                    data-perqta="${escAttr(String(ordine.perqta || 1))}"
+                    data-datcons="${escAttr(ordine.data_consegna || '')}"
+                    data-descr="${escAttr(ordine.ar_descr || '')}"
+                    data-codalt="${escAttr(ordine.ar_codalt || '')}"
+                    title="Clicca per aprire i Progressivi">${esc(ordine.ol_codart)}</span>
+                <span class="proposta-art-descr">${esc(ordine.ar_descr || '')}</span>
+                <span class="proposta-scorporo-label">consegna ${esc(dataFmt)}</span>
+            </div>
+            <div class="proposta-conferma-badge proposta-badge-confermato">
+                <span class="conferma-icon">&#x2713;</span>
+                <strong>${Number(ordine.quantita_confermata).toLocaleString('it-IT')} ${esc(ordine.ol_unmis || 'PZ')}</strong>
+                entro ${esc(dataFmt)}
+                ${valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+                <button class="btn-modifica-conferma" data-key="${escAttr(key)}" title="Modifica">&#9998;</button>
+                <button class="btn-rimuovi-conferma" data-key="${escAttr(key)}" title="Rimuovi conferma">&#128465;</button>
+            </div>
+        `;
+
+        return div;
+    }
+
+    /**
+     * Ricalcola il totale articolo nella card dopo aver nascosto righe scorporate.
+     */
+    function _ricalcolaTotaleArticolo(artEl) {
+        const tfoot = artEl.querySelector('.proposta-art-totale');
+        if (!tfoot) return;
+        let totColli = 0, totQuant = 0;
+        artEl.querySelectorAll('tbody tr[data-progr]').forEach(tr => {
+            if (tr.style.display === 'none') return;
+            const cells = tr.querySelectorAll('td');
+            if (cells.length >= 5) {
+                const colli = parseFloat((cells[2].textContent || '0').replace(/\./g, '').replace(',', '.')) || 0;
+                const quant = parseFloat((cells[4].textContent || '0').replace(/\./g, '').replace(',', '.')) || 0;
+                totColli += colli;
+                totQuant += quant;
+            }
+        });
+        const tds = tfoot.querySelectorAll('td');
+        if (tds.length >= 5) {
+            tds[2].textContent = fmtNum(totColli, 2);
+            tds[4].textContent = fmtNum(totQuant, 2);
+        }
     }
 
     function aggiornaBarreFornitori() {
