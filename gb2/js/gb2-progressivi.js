@@ -801,10 +801,10 @@ const MrpProgressivi = (() => {
         const inputData = document.getElementById('decisioneData');
 
         // Se già confermato, mostra i valori confermati; altrimenti precompila dalla proposta
-        const key = MrpApp.getKeyOrdine(proposta.fornitore_codice, proposta.ol_codart, proposta.ol_fase, proposta.ol_magaz);
+        const key = MrpApp.getKeyByProgr(proposta.ol_progr);
         const esistente = MrpApp.state.ordiniConfermati.get(key);
 
-        if (esistente && !esistente.escluso) {
+        if (esistente) {
             inputQta.value = esistente.quantita_confermata;
             inputData.value = esistente.data_consegna;
         } else {
@@ -842,7 +842,7 @@ const MrpProgressivi = (() => {
         if (!qta || qta <= 0) { alert('Inserire una quantità valida'); return; }
         if (!data) { alert('Inserire una data di consegna'); return; }
 
-        const key = MrpApp.getKeyOrdine(proposta.fornitore_codice, proposta.ol_codart, proposta.ol_fase, proposta.ol_magaz);
+        const key = MrpApp.getKeyByProgr(proposta.ol_progr);
 
         MrpApp.confermaOrdine(key, {
             fornitore_codice: proposta.fornitore_codice,

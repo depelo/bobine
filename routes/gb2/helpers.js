@@ -40,7 +40,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
     }
 
     // Versione deploy — incrementare quando si modificano le SP o le tabelle
-    const DEPLOY_VERSION = '2.8';
+    const DEPLOY_VERSION = '2.9';
 
     /**
      * Deploy SP e tabelle nel DB [GB2_SP] del server di destinazione.
@@ -150,7 +150,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         const results = [];
 
         // Tabelle app su MRP@163
-        for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql', 'create_email_templates.sql', 'create_email_template_assegnazioni.sql', 'create_ordini_confermati_pending.sql']) {
+        for (const file of ['create_test_profiles.sql', 'create_user_preferences.sql', 'create_elaborazioni_mrp.sql', 'create_snapshot_proposte.sql', 'create_email_templates.sql', 'create_email_template_assegnazioni.sql', 'create_ordini_confermati_pending.sql', 'migrate_ocp_ol_progr.sql']) {
             const filePath = path.join(sqlDir, file);
             if (!fs.existsSync(filePath)) { results.push({ file, status: 'skip' }); continue; }
             try {
@@ -281,12 +281,142 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         return descr;
     }
 
+    /**
+     * Fetch completo ordine + righe dal DB con tutte le JOIN necessarie al PDF:
+     * banca, porto, valuta, destinazione, codarfo, note articolo.
+     * Usato da /emetti-ordine, /modifica-ordine, /ordine-pdf, /invia-ordine-email.
+     */
+    async function fetchOrdineCompleto(pool, anno, serie, numord) {
+        let testata;
+        try {
+            testata = await pool.request()
+                .input('anno', sql.SmallInt, anno)
+                .input('serie', sql.VarChar(3), serie)
+                .input('numord', sql.Int, numord)
+                .query(`
+                    SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
+                           t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
+                           t.td_codpaga AS pagamento_codice,
+                           t.td_banc1 AS banca_appoggio_1, t.td_banc2 AS banca_appoggio_2,
+                           t.td_porto AS porto_codice, t.td_valuta AS valuta_codice,
+                           t.td_riferim AS riferimento,
+                           CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
+                           t.td_vettor AS vettore_codice,
+                           t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                           t.td_acuradi AS acuradi,
+                           t.td_coddest AS coddest, t.td_contodest AS contodest,
+                           a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
+                           a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
+                           a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
+                           a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
+                           a.an_categ AS fornitore_categ,
+                           a.HH_TipoReport AS fornitore_tipo,
+                           a.an_banc1 AS fornitore_banca_1, a.an_banc2 AS fornitore_banca_2,
+                           CAST(a.an_note AS VARCHAR(MAX)) AS fornitore_note,
+                           CAST(a.an_note2 AS VARCHAR(MAX)) AS fornitore_note2,
+                           p.tb_despaga AS pagamento_descr,
+                           pt.tb_desport AS porto_descr,
+                           v.tb_desvalu AS valuta_sigla, v.tb_nomvalu AS valuta_nome,
+                           d.dd_nomdest AS dest_nome, d.dd_inddest AS dest_indirizzo,
+                           d.dd_capdest AS dest_cap, d.dd_locdest AS dest_citta,
+                           d.dd_prodest AS dest_prov
+                    FROM dbo.testord t
+                    LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                    LEFT JOIN dbo.tabpaga p ON t.td_codpaga = p.tb_codpaga
+                    LEFT JOIN dbo.tabport pt ON t.codditt = pt.codditt AND t.td_porto = pt.tb_codport
+                    LEFT JOIN dbo.tabvalu v ON t.td_valuta = v.tb_codvalu
+                    LEFT JOIN dbo.destdiv d ON t.codditt = d.codditt
+                                             AND t.td_contodest = d.dd_conto
+                                             AND t.td_coddest = d.dd_coddest
+                    WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+                      AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
+                `);
+        } catch (colErr) {
+            if (colErr.message.includes('HH_TipoReport')) {
+                testata = await pool.request()
+                    .input('anno', sql.SmallInt, anno)
+                    .input('serie', sql.VarChar(3), serie)
+                    .input('numord', sql.Int, numord)
+                    .query(`
+                        SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
+                               t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
+                               t.td_codpaga AS pagamento_codice,
+                               t.td_banc1 AS banca_appoggio_1, t.td_banc2 AS banca_appoggio_2,
+                               t.td_porto AS porto_codice, t.td_valuta AS valuta_codice,
+                               t.td_riferim AS riferimento,
+                               CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
+                               t.td_vettor AS vettore_codice,
+                               t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                               t.td_acuradi AS acuradi,
+                               t.td_coddest AS coddest, t.td_contodest AS contodest,
+                               a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
+                               a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
+                               a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
+                               a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
+                               a.an_categ AS fornitore_categ,
+                               'IT' AS fornitore_tipo,
+                               a.an_banc1 AS fornitore_banca_1, a.an_banc2 AS fornitore_banca_2,
+                               CAST(a.an_note AS VARCHAR(MAX)) AS fornitore_note,
+                               CAST(a.an_note2 AS VARCHAR(MAX)) AS fornitore_note2,
+                               p.tb_despaga AS pagamento_descr,
+                               pt.tb_desport AS porto_descr,
+                               v.tb_desvalu AS valuta_sigla, v.tb_nomvalu AS valuta_nome,
+                               d.dd_nomdest AS dest_nome, d.dd_inddest AS dest_indirizzo,
+                               d.dd_capdest AS dest_cap, d.dd_locdest AS dest_citta,
+                               d.dd_prodest AS dest_prov
+                        FROM dbo.testord t
+                        LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
+                        LEFT JOIN dbo.tabpaga p ON t.td_codpaga = p.tb_codpaga
+                        LEFT JOIN dbo.tabport pt ON t.codditt = pt.codditt AND t.td_porto = pt.tb_codport
+                        LEFT JOIN dbo.tabvalu v ON t.td_valuta = v.tb_codvalu
+                        LEFT JOIN dbo.destdiv d ON t.codditt = d.codditt
+                                                 AND t.td_contodest = d.dd_conto
+                                                 AND t.td_coddest = d.dd_coddest
+                        WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
+                          AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
+                    `);
+            } else throw colErr;
+        }
+
+        if (!testata.recordset.length) return null;
+        const ordine = testata.recordset[0];
+
+        const righeRes = await pool.request()
+            .input('anno', sql.SmallInt, anno)
+            .input('serie', sql.VarChar(3), serie)
+            .input('numord', sql.Int, numord)
+            .input('fornitore', sql.Int, ordine.fornitore_codice)
+            .query(`
+                SELECT m.mo_riga, m.mo_codart, m.mo_descr, m.mo_desint,
+                       m.mo_unmis, m.mo_ump, m.mo_quant, m.mo_colli,
+                       m.mo_prezzo, m.mo_valore, m.mo_datcons,
+                       m.mo_fase, m.mo_magaz, m.mo_lotto,
+                       m.mo_scont1, m.mo_scont2, m.mo_scont3,
+                       m.mo_perqta,
+                       CAST(m.mo_note AS VARCHAR(MAX)) AS mo_note,
+                       c.caf_codarfo AS rif_fornitore,
+                       c.caf_desnote AS rif_note,
+                       CAST(ar.ar_note AS VARCHAR(MAX)) AS ar_note,
+                       ar.ar_conver, ar.ar_codalt, ar.ar_unmis AS ar_un
+                FROM dbo.movord m
+                LEFT JOIN dbo.codarfo c ON c.codditt = 'UJET11'
+                    AND c.caf_conto = @fornitore AND c.caf_codart = m.mo_codart
+                LEFT JOIN dbo.artico ar ON ar.codditt = 'UJET11' AND ar.ar_codart = m.mo_codart
+                WHERE m.codditt = 'UJET11' AND m.mo_tipork = 'O'
+                  AND m.mo_anno = @anno AND m.mo_serie = @serie AND m.mo_numord = @numord
+                  AND m.mo_stasino <> 'N'
+                ORDER BY m.mo_riga
+            `);
+
+        return { ordine, righe: righeRes.recordset };
+    }
+
     return {
         getSpSuffix, getSpName,
         executeSqlFile, compilaTemplate,
         deployProductionObjects, deployTestObjects, dropTestSPs, cleanupStaleConfermatiPending,
         checkSpExists, getUserId, getPoolRiep, getPoliticaRiordino,
-        getServerDest
+        getServerDest, fetchOrdineCompleto
     };
 }
 

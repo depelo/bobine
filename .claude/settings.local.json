@@ -116,7 +116,16 @@
       "Bash(node _sp_source2.js)",
       "Bash(node _redeploy_sp.js)",
       "Bash(node --check C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-proposta.js)",
-      "Bash(node _bench_proposta.js)"
+      "Bash(node _bench_proposta.js)",
+      "Bash(node -r dotenv/config -e ':*)",
+      "Bash(node --check gb2/js/gb2-pending-sync.js)",
+      "Bash(node --check gb2/js/gb2-app.js)",
+      "Bash(node --check gb2/js/gb2-progressivi.js)",
+      "Bash(node --check routes/gb2/conferma-pending.js)",
+      "Bash(node --check routes/gb2/ordini.js)",
+      "Bash(node --check routes/gb2/mrp-proposte.js)",
+      "Bash(node --check routes/gb2/email.js)",
+      "Bash(node --check routes/gb2/helpers.js)"
     ]
   }
 }

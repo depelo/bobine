@@ -322,8 +322,8 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                         .input('uid', sql.Int, userId)
                         .input('amb', sql.VarChar(20), serverDest)
                         .query(`
-                            SELECT fornitore_codice, codart, fase, magaz,
-                                   quantita_confermata, prezzo_override, updated_at
+                            SELECT ol_progr, fornitore_codice, codart, fase, magaz,
+                                   data_consegna, quantita_confermata, prezzo_override, updated_at
                             FROM [GB2].[dbo].[ordini_confermati_pending]
                             WHERE user_id = @uid
                               AND elaborazione_id = (

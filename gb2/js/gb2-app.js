@@ -73,12 +73,22 @@ const MrpApp = (() => {
         if (ctxLabel) ctxLabel.style.display = (viewName === 'progressivi') ? '' : 'none';
     }
 
+    /**
+     * Conferma un ordine per una specifica riga proposta (ol_progr).
+     * La chiave della Map è String(ol_progr) — univoca per elaborazione.
+     */
     function confermaOrdine(key, datiOrdine) {
         state.ordiniConfermati.set(key, datiOrdine);
         // Safety-net: persisti su DB via PendingSync (localStorage-first + debounce).
         try {
             if (window.PendingSync && datiOrdine) {
                 PendingSync.upsert(key, {
+                    ol_progr: datiOrdine.ol_progr,
+                    fornitore_codice: datiOrdine.fornitore_codice,
+                    codart: datiOrdine.ol_codart,
+                    fase: datiOrdine.ol_fase,
+                    magaz: datiOrdine.ol_magaz,
+                    data_consegna: datiOrdine.data_consegna,
                     quantita_confermata: datiOrdine.quantita_confermata,
                     prezzo: datiOrdine.prezzo,
                     prezzo_override: datiOrdine.prezzo_override
@@ -100,11 +110,22 @@ const MrpApp = (() => {
         return state.ordiniConfermati.has(key);
     }
 
+    /**
+     * Chiave legacy per raggruppamento visivo (NON per Map ordiniConfermati).
+     * Usata solo per verificare se un fornitore+codart ha conferme attive.
+     */
     function getKeyOrdine(fornitore_codice, ol_codart, ol_fase, ol_magaz) {
         return `${fornitore_codice}|${ol_codart}|${ol_fase}|${ol_magaz}`;
     }
 
-    return { init, switchView, state, API_BASE, confermaOrdine, rimuoviOrdine, getOrdiniConfermati, isArticoloConfermato, getKeyOrdine };
+    /**
+     * Chiave primaria per ordiniConfermati: ol_progr come stringa.
+     */
+    function getKeyByProgr(ol_progr) {
+        return String(ol_progr);
+    }
+
+    return { init, switchView, state, API_BASE, confermaOrdine, rimuoviOrdine, getOrdiniConfermati, isArticoloConfermato, getKeyOrdine, getKeyByProgr };
 })();
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -4,6 +4,10 @@
 const MrpProposta = (() => {
     let data = [];
 
+    // Multi-date support: mappa codart|fornitore → array righe originali
+    // Popolata da renderProposta, usata dal pannello decisionale multi-data.
+    const cardRowsData = new Map();
+
     async function waitForDB() {
         // Check singolo + 1 retry — il pool DB si connette durante il caricamento della pagina,
         // quindi e quasi sempre pronto. Max 1s di attesa invece dei precedenti 5s.
@@ -120,6 +124,16 @@ const MrpProposta = (() => {
 
         const codartRaw = codartEl.getAttribute('data-codart');
         if (!codartRaw) return;
+
+        // Multi-date: apri il pannello decisionale inline anziché navigare ai progressivi
+        if (codartEl.dataset.multidate === '1') {
+            const cardKey = (codartEl.dataset.codart || '') + '|' + (codartEl.dataset.fornitore || '');
+            const rows = cardRowsData.get(cardKey);
+            if (rows && rows.length > 1) {
+                apriPannelloMultiData(codartEl.closest('.proposta-articolo'), rows, codartEl);
+                return;
+            }
+        }
 
         // Salva il contesto della riga proposta prima di navigare ai progressivi
         MrpApp.state.propostaCorrente = {
@@ -241,37 +255,35 @@ const MrpProposta = (() => {
                         ? payload.ordini_confermati_pending : [];
                     // Popola Map RAM a partire da SnapshotProposte + pendingRows.
                     // Per ogni row pending trovo la riga corrispondente nella proposta
-                    // e ricostruisco il dato dell'ordine confermato (descrizioni, date,
-                    // prezzo attuale se non override). Usiamo data (= payload.righe) come sorgente.
-                    const byKey = new Map();
+                    // (usando ol_progr come chiave univoca) e ricostruisco il dato
+                    // dell'ordine confermato.
+                    const byProgr = new Map();
                     for (const r of data) {
-                        const k = MrpApp.getKeyOrdine(r.fornitore_codice, r.ol_codart, r.ol_fase || 0, r.ol_magaz || 1);
-                        // Solo la prima occorrenza (stessa chiave può avere più date di consegna)
-                        if (!byKey.has(k)) byKey.set(k, r);
+                        if (r.ol_progr) byProgr.set(String(r.ol_progr), r);
                     }
                     for (const p of pendingRows) {
-                        const k = `${p.fornitore_codice}|${p.codart}|${p.fase || 0}|${p.magaz || 1}`;
-                        const riga = byKey.get(k);
+                        const key = String(p.ol_progr);
+                        const riga = byProgr.get(key);
                         if (!riga) continue; // orfana → la cleanup al boot se ne occuperà
                         const prezzo = (p.prezzo_override != null) ? Number(p.prezzo_override) : Number(riga.ol_prezzo || 0);
-                        MrpApp.state.ordiniConfermati.set(k, {
+                        MrpApp.state.ordiniConfermati.set(key, {
+                            ol_progr: p.ol_progr,
                             fornitore_codice: riga.fornitore_codice,
                             fornitore_nome: riga.fornitore_nome,
                             fornitore_email: riga.fornitore_email,
                             ol_codart: riga.ol_codart,
+                            ar_codalt: riga.ar_codalt,
                             ar_descr: riga.ar_descr,
                             ol_fase: riga.ol_fase || 0,
                             ol_magaz: riga.ol_magaz || 1,
                             quantita_confermata: Number(p.quantita_confermata),
-                            data_consegna: riga.ol_datcons,
+                            data_consegna: p.data_consegna || riga.ol_datcons,
                             prezzo: prezzo,
                             perqta: Number(riga.ol_perqta || 1),
                             ol_unmis: riga.ol_unmis,
                             _fromPending: true
                         });
                     }
-                    // Sincronizza anche la cache LS col DB: DB wins per le entry
-                    // già syncate, LS wins per quelle ancora synced=false.
                     PendingSync.hydrateFromDB(pendingRows, { mergeIntoMap: null });
                 }
             } catch (psErr) {
@@ -291,6 +303,7 @@ const MrpProposta = (() => {
     }
 
     function renderProposta(righe, listEl, statsEl) {
+        cardRowsData.clear();
         const fornitori = new Map();
 
         for (const r of righe) {
@@ -346,20 +359,20 @@ const MrpProposta = (() => {
         }
 
         // ─── Sort 4-tier (applicato solo al refresh della pagina) ───
-        //   Tier 0: fornitori con ordini emessi ed email ancora da inviare (azione imminente)
-        //   Tier 1: fornitori con almeno un articolo confermato (lavoro in corso)
-        //   Tier 2: fornitori con ordini congelati (email già inviata, solo informazione)
-        //   Tier 3: fornitori senza attività
-        // Dentro ogni tier: ordine per codice fornitore (come prima).
+        //   Tier 0: fornitori con almeno un articolo confermato (verdi, ordine da emettere)
+        //   Tier 1: fornitori con ordini emessi ed email ancora da inviare
+        //   Tier 2: fornitori con ordini congelati (email gia inviata, solo informazione)
+        //   Tier 3: fornitori senza attivita
+        // Dentro ogni tier: ordine per codice fornitore.
         function tierForForn(fk) {
-            if (ordiniEmessi.has(fk)) return 0;
-            const extras = ordiniEmessiExtra.get(fk);
-            if (extras && extras.length > 0) return 0;
-            // Confermati pending su questo fornitore?
+            // Confermati pending hanno priorita: sono lavoro attivo da emettere.
             const confermati = MrpApp.state.ordiniConfermati;
             for (const [k, v] of confermati) {
-                if (String(v && v.fornitore_codice) === fk) return 1;
+                if (String(v && v.fornitore_codice) === fk) return 0;
             }
+            if (ordiniEmessi.has(fk)) return 1;
+            const extras = ordiniEmessiExtra.get(fk);
+            if (extras && extras.length > 0) return 1;
             if (ordiniCongelati.has(fk)) return 2;
             return 3;
         }
@@ -392,6 +405,9 @@ const MrpProposta = (() => {
 
             for (const [codart, rows] of forn.articoli) {
                 const first = rows[0];
+                // Salva righe originali per il pannello multi-data
+                const cardKey = codart + '|' + forn.codice;
+                cardRowsData.set(cardKey, rows);
                 const flags = [];
                 if (first.ar_inesaur === 'S') flags.push('<span class="proposta-flag-esaur">IN ESAUR.</span>');
                 if (first.ar_blocco && first.ar_blocco !== 'N') flags.push('<span class="proposta-flag-blocco">BLOCCO</span>');
@@ -444,6 +460,9 @@ const MrpProposta = (() => {
 
                 const tutteEmesse = rows.every(r => r.emesso);
                 const gestitaInElab = tutteEmesse && rows.some(r => r.elaborazione_id === MrpApp.state.elaborazioneId);
+                // Raccolta di tutti gli ol_progr per questa card (multi-data support)
+                const progrList = rows.map(r => String(r.ol_progr || 0)).filter(p => p !== '0');
+
                 htmlArticoli += `
                 <div class="proposta-articolo${gestitaInElab ? ' proposta-art-gestita' : ''}">
                     <div class="proposta-art-header">
@@ -455,6 +474,8 @@ const MrpProposta = (() => {
                     data-magaz="${escAttr(String(first.ol_magaz ?? '1'))}"
                     data-unmis="${escAttr(first.ol_unmis || '')}"
                     data-olprogr="${escAttr(String(first.ol_progr ?? '0'))}"
+                    data-olprogrlist="${escAttr(progrList.join(','))}"
+                    data-multidate="${rows.length > 1 ? '1' : '0'}"
                     data-quant="${escAttr(String(first.ol_quant ?? '0'))}"
                     data-prezzo="${escAttr(String(first.ol_prezzo ?? '0'))}"
                     data-perqta="${escAttr(String(first.ol_perqta ?? '1'))}"
@@ -465,9 +486,10 @@ const MrpProposta = (() => {
                     data-descr="${escAttr(first.ar_descr || '')}"
                     data-codalt="${escAttr(first.ar_codalt || '')}"
                     data-fasedescr="${escAttr(first.fase_descr || '')}"
-                    title="Clicca per aprire i Progressivi">${esc(String(codart))}</span>
+                    title="${rows.length > 1 ? 'Clicca per decisione multi-data (' + rows.length + ' date)' : 'Clicca per aprire i Progressivi'}">${esc(String(codart))}</span>
                         ${codaltStr}
                         <span class="proposta-art-descr">${esc(first.ar_descr)}</span>
+                        ${rows.length > 1 ? '<span class="proposta-multidate-badge">' + rows.length + ' date</span>' : ''}
                         <span class="proposta-art-flags">${flags.join('')}</span>
                         ${faseStr}
                         ${polStr}
@@ -520,10 +542,87 @@ const MrpProposta = (() => {
             `;
 
             listEl.appendChild(div);
+
+            // Phase 6: Blocchi separati per ordini extra (2°+ ordine per lo stesso fornitore).
+            // Inseriti PRIMA del blocco principale.
+            const extras = ordiniEmessiExtra.get(fkIter);
+            if (extras && extras.length > 0) {
+                for (const extra of extras) {
+                    const extraDiv = buildBloccoOrdineExtra(forn, extra);
+                    if (extraDiv) listEl.insertBefore(extraDiv, div);
+                }
+            }
         }
 
         // Ripristina gli stati visivi degli ordini già confermati
         aggiornaStatoVisivo();
+    }
+
+    /**
+     * Phase 6: Costruisce un blocco DOM per un ordine extra (2°+ ordine per lo stesso fornitore).
+     * Il blocco ha una testata blu con le info dell'ordine e le righe ordinate.
+     */
+    function buildBloccoOrdineExtra(forn, extra) {
+        const righe = extra.righe || [];
+        if (righe.length === 0) return null;
+
+        const div = document.createElement('div');
+        div.className = 'proposta-fornitore proposta-ordine-extra';
+        div.dataset.tier = '1';
+
+        const emailIcon = extra.email_inviata ? ' \u2709' : '';
+        const bcubeLabel = extra.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
+
+        let htmlRighe = '';
+        let totaleValore = 0;
+        for (const r of righe) {
+            const valore = (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
+            totaleValore += valore;
+            htmlRighe += `<tr class="proposta-riga-emessa">
+                <td>${esc(r.ol_codart)}</td>
+                <td>${esc(r.ar_descr || '')}</td>
+                <td>${fmtDate(r.ol_datcons)}</td>
+                <td>${esc(r.ol_unmis || 'PZ')}</td>
+                <td class="num">${fmtNum(r.ol_quant, 3)}</td>
+                <td class="num">${fmtNum(r.ol_prezzo, 4)}</td>
+                <td class="num">\u20ac ${fmtNum(valore, 2)}</td>
+            </tr>`;
+        }
+
+        const fornLabel = forn.nome
+            ? `${esc(forn.codice)} — ${esc(forn.nome)}`
+            : `Fornitore: ${esc(forn.codice)}`;
+
+        div.innerHTML = `
+            <div class="proposta-fornitore-header proposta-extra-header" data-forn="${escAttr(forn.codice)}"
+                 data-extra-anno="${escAttr(String(extra.anno))}"
+                 data-extra-serie="${escAttr(extra.serie)}"
+                 data-extra-numord="${escAttr(String(extra.numord))}">
+                <span>\uD83D\uDCC4 Ordine ${esc(String(extra.numord))}/${esc(extra.serie)}${emailIcon}${bcubeLabel} — ${fornLabel}</span>
+                <span class="forn-toggle">\u25BC</span>
+            </div>
+            <div class="proposta-fornitore-body proposta-extra-body">
+                <table class="proposta-righe-table proposta-extra-table">
+                    <thead>
+                        <tr>
+                            <th>Cod. Articolo</th>
+                            <th>Descrizione</th>
+                            <th>Dt.Cons.</th>
+                            <th>UM</th>
+                            <th class="num">Quantit\u00e0</th>
+                            <th class="num">Prezzo</th>
+                            <th class="num">Valore</th>
+                        </tr>
+                    </thead>
+                    <tbody>${htmlRighe}</tbody>
+                </table>
+                <div class="proposta-forn-totale">
+                    Totale ordine \u2192 <span class="valore">\u20ac ${fmtNum(totaleValore, 2)}</span>
+                </div>
+            </div>
+        `;
+
+        return div;
     }
 
     function fmtNum(n, decimals) {
@@ -561,6 +660,196 @@ const MrpProposta = (() => {
             .replace(/>/g, '&gt;');
     }
 
+    // ============================================================
+    // PANNELLO DECISIONALE MULTI-DATA (Phase 5)
+    // Mostra tutte le righe data-consegna per un articolo multi-data.
+    // L'operatore può confermare selettivamente ogni riga.
+    // ============================================================
+
+    function apriPannelloMultiData(artEl, rows, codartEl) {
+        // Chiudi pannelli precedenti
+        document.querySelectorAll('.multidata-panel').forEach(p => p.remove());
+
+        const confermati = MrpApp.state.ordiniConfermati;
+        const fornitore_codice = codartEl.dataset.fornitore || '';
+        const fornitore_nome = codartEl.dataset.fornitorenome || '';
+        const codart = codartEl.dataset.codart || '';
+        const codalt = codartEl.dataset.codalt || '';
+        const descr = codartEl.dataset.descr || '';
+
+        let htmlRighe = '';
+        for (const r of rows) {
+            const progr = String(r.ol_progr || 0);
+            const isConfermato = confermati.has(progr);
+            const conf = isConfermato ? confermati.get(progr) : null;
+            const emesso = r.emesso;
+
+            const datcons = r.ol_datcons ? new Date(r.ol_datcons).toISOString().split('T')[0] : '';
+            const qta = Math.round(Number(r.ol_quant) || 0);
+            const prezzo = Number(r.ol_prezzo) || 0;
+            const perqta = Number(r.ol_perqta) || 1;
+            const valore = qta * prezzo / perqta;
+
+            const confQta = conf ? conf.quantita_confermata : qta;
+            const confData = conf ? conf.data_consegna : datcons;
+
+            htmlRighe += `
+            <tr class="multidata-row ${isConfermato ? 'multidata-confermato' : ''} ${emesso ? 'multidata-emesso' : ''}"
+                data-progr="${esc(progr)}">
+                <td class="multidata-check-cell">
+                    ${emesso ? '<span title="Già ordinato">\u2709</span>'
+                    : `<input type="checkbox" class="multidata-chk" data-progr="${esc(progr)}"
+                        ${isConfermato ? 'checked' : ''}>`}
+                </td>
+                <td>${fmtDate(r.ol_datcons)}</td>
+                <td>
+                    <input type="number" class="multidata-qta" data-progr="${esc(progr)}"
+                        value="${confQta}" min="0" step="1"
+                        style="width:80px" ${emesso ? 'disabled' : ''}>
+                </td>
+                <td>${esc(r.ol_unmis || 'PZ')}</td>
+                <td>
+                    <input type="date" class="multidata-data" data-progr="${esc(progr)}"
+                        value="${confData}" ${emesso ? 'disabled' : ''}>
+                </td>
+                <td class="num">${fmtNum(prezzo, 4)}</td>
+                <td class="num multidata-valore" data-progr="${esc(progr)}">${fmtNum(valore, 2)}</td>
+                <td class="num">${r.ol_magaz != null ? esc(String(r.ol_magaz)) : ''}</td>
+                <td>${emesso
+                    ? '<span class="proposta-stato-ordinato">Ordinato ' + esc(r.ord_numord || '') + '/' + esc(r.ord_serie || 'F') + '</span>'
+                    : (isConfermato ? '<span class="multidata-status-conf">\u2713 Confermato</span>' : '')}</td>
+            </tr>`;
+        }
+
+        const panel = document.createElement('div');
+        panel.className = 'multidata-panel';
+        panel.innerHTML = `
+            <div class="multidata-header">
+                <strong>Decisione multi-data: ${esc(codart)}</strong>
+                ${descr ? ' — ' + esc(descr) : ''}
+                <button class="multidata-close" title="Chiudi">&times;</button>
+            </div>
+            <div class="multidata-info">
+                BCube propone <strong>${rows.length} date di consegna</strong> per questo articolo.
+                Seleziona le righe da confermare — ogni data produce un ordine separato.
+            </div>
+            <table class="multidata-table">
+                <thead>
+                    <tr>
+                        <th style="width:30px"></th>
+                        <th>Dt.Cons. Proposta</th>
+                        <th>Quantità</th>
+                        <th>UM</th>
+                        <th>Data Consegna</th>
+                        <th class="num">Prezzo</th>
+                        <th class="num">Valore</th>
+                        <th class="num">Mag.</th>
+                        <th>Stato</th>
+                    </tr>
+                </thead>
+                <tbody>${htmlRighe}</tbody>
+            </table>
+            <div class="multidata-actions">
+                <button class="mrp-btn mrp-btn-success multidata-btn-conferma">Conferma Selezionate</button>
+                <button class="mrp-btn mrp-btn-secondary multidata-btn-seleziona-tutte">Seleziona Tutte</button>
+                <button class="mrp-btn mrp-btn-secondary multidata-btn-deseleziona">Deseleziona Tutte</button>
+                <button class="mrp-btn mrp-btn-secondary multidata-btn-chiudi">Chiudi</button>
+            </div>
+        `;
+
+        artEl.appendChild(panel);
+
+        // Event handlers
+        panel.querySelector('.multidata-close').addEventListener('click', () => panel.remove());
+        panel.querySelector('.multidata-btn-chiudi').addEventListener('click', () => panel.remove());
+
+        panel.querySelector('.multidata-btn-seleziona-tutte').addEventListener('click', () => {
+            panel.querySelectorAll('.multidata-chk:not(:disabled)').forEach(cb => { cb.checked = true; });
+        });
+        panel.querySelector('.multidata-btn-deseleziona').addEventListener('click', () => {
+            panel.querySelectorAll('.multidata-chk').forEach(cb => { cb.checked = false; });
+        });
+
+        // Aggiorna valore calcolato quando la quantità cambia
+        panel.querySelectorAll('.multidata-qta').forEach(input => {
+            input.addEventListener('input', () => {
+                const progr = input.dataset.progr;
+                const row = rows.find(r => String(r.ol_progr) === progr);
+                if (!row) return;
+                const q = Number(input.value) || 0;
+                const prezzo = Number(row.ol_prezzo) || 0;
+                const perqta = Number(row.ol_perqta) || 1;
+                const valEl = panel.querySelector(`.multidata-valore[data-progr="${progr}"]`);
+                if (valEl) valEl.textContent = fmtNum(q * prezzo / perqta, 2);
+            });
+        });
+
+        panel.querySelector('.multidata-btn-conferma').addEventListener('click', () => {
+            confermaMultiData(panel, rows, {
+                fornitore_codice, fornitore_nome, codart, codalt, descr
+            });
+        });
+
+        // Scroll panel into view
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function confermaMultiData(panel, rows, context) {
+        const checked = panel.querySelectorAll('.multidata-chk:checked');
+        if (checked.length === 0) {
+            modale('warning', 'Nessuna riga selezionata',
+                'Seleziona almeno una riga da confermare.');
+            return;
+        }
+
+        let confermate = 0;
+        checked.forEach(cb => {
+            const progr = cb.dataset.progr;
+            const row = rows.find(r => String(r.ol_progr) === progr);
+            if (!row) return;
+
+            const qtaInput = panel.querySelector(`.multidata-qta[data-progr="${progr}"]`);
+            const dataInput = panel.querySelector(`.multidata-data[data-progr="${progr}"]`);
+            const qta = qtaInput ? Number(qtaInput.value) : Number(row.ol_quant);
+            const data = dataInput ? dataInput.value : '';
+
+            if (!qta || qta <= 0) return;
+            if (!data) return;
+
+            const key = MrpApp.getKeyByProgr(row.ol_progr);
+            MrpApp.confermaOrdine(key, {
+                fornitore_codice: context.fornitore_codice,
+                fornitore_nome: context.fornitore_nome,
+                ol_codart: context.codart,
+                ar_codalt: context.codalt,
+                ar_descr: context.descr,
+                ol_fase: row.ol_fase,
+                ol_magaz: row.ol_magaz,
+                ol_unmis: row.ol_unmis || 'PZ',
+                ol_progr: row.ol_progr,
+                quantita_confermata: qta,
+                data_consegna: data,
+                quantita_proposta: Number(row.ol_quant) || 0,
+                prezzo: Number(row.ol_prezzo) || 0,
+                perqta: Number(row.ol_perqta) || 1,
+                timestamp_conferma: new Date().toISOString()
+            });
+            confermate++;
+        });
+
+        // Rimuovi conferme per righe deselezionate che erano confermate
+        const unchecked = panel.querySelectorAll('.multidata-chk:not(:checked)');
+        unchecked.forEach(cb => {
+            const progr = cb.dataset.progr;
+            if (MrpApp.state.ordiniConfermati.has(progr)) {
+                MrpApp.rimuoviOrdine(progr);
+            }
+        });
+
+        panel.remove();
+        aggiornaStatoVisivo();
+    }
+
     function aggiornaStatoVisivo() {
         const confermati = MrpApp.state.ordiniConfermati;
 
@@ -568,34 +857,41 @@ const MrpProposta = (() => {
             const codartEl = artEl.querySelector('.proposta-art-codart');
             if (!codartEl) return;
 
-            const key = MrpApp.getKeyOrdine(
-                codartEl.dataset.fornitore,
-                codartEl.dataset.codart,
-                codartEl.dataset.fase || '0',
-                codartEl.dataset.magaz || '1'
-            );
-            const ordine = confermati.get(key);
+            artEl.classList.remove('proposta-art-confermato');
+            artEl.querySelectorAll('.proposta-conferma-badge').forEach(b => b.remove());
 
-            artEl.classList.remove('proposta-art-confermato', 'proposta-art-escluso');
-            const oldBadge = artEl.querySelector('.proposta-conferma-badge');
-            if (oldBadge) oldBadge.remove();
+            // Trova TUTTI gli ol_progr confermati per questo card (possono essere
+            // più di uno nel caso multi-data: ogni riga ha il suo ol_progr).
+            const progrList = (codartEl.dataset.olprogrlist || '').split(',').filter(Boolean);
+            const ordiniCard = [];
+            for (const p of progrList) {
+                const ordine = confermati.get(p);
+                if (ordine) ordiniCard.push({ key: p, ordine });
+            }
+            // Fallback per card singola (vecchio data-olprogr)
+            if (progrList.length === 0) {
+                const singleProgr = codartEl.dataset.olprogr || '0';
+                const ordine = confermati.get(singleProgr);
+                if (ordine) ordiniCard.push({ key: singleProgr, ordine });
+            }
 
-            if (ordine && !ordine.escluso) {
-                const badge = document.createElement('div');
-                badge.className = 'proposta-conferma-badge';
+            if (ordiniCard.length > 0) {
                 artEl.classList.add('proposta-art-confermato');
-                badge.classList.add('proposta-badge-confermato');
-                const dataFmt = ordine.data_consegna
-                    ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
-                const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
-                badge.innerHTML =
-                    '<span class="conferma-icon">&#x2713;</span> '
-                    + '<strong>' + Number(ordine.quantita_confermata).toLocaleString('it-IT') + ' ' + esc(ordine.ol_unmis || 'PZ') + '</strong>'
-                    + ' entro ' + esc(dataFmt)
-                    + (valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')
-                    + ' <button class="btn-modifica-conferma" data-key="' + escAttr(key) + '" title="Modifica">&#9998;</button>'
-                    + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi conferma">&#128465;</button>';
-                artEl.appendChild(badge);
+                for (const { key, ordine } of ordiniCard) {
+                    const badge = document.createElement('div');
+                    badge.className = 'proposta-conferma-badge proposta-badge-confermato';
+                    const dataFmt = ordine.data_consegna
+                        ? new Date(ordine.data_consegna).toLocaleDateString('it-IT') : '';
+                    const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
+                    badge.innerHTML =
+                        '<span class="conferma-icon">&#x2713;</span> '
+                        + '<strong>' + Number(ordine.quantita_confermata).toLocaleString('it-IT') + ' ' + esc(ordine.ol_unmis || 'PZ') + '</strong>'
+                        + ' entro ' + esc(dataFmt)
+                        + (valore > 0 ? ' &mdash; &euro; ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')
+                        + ' <button class="btn-modifica-conferma" data-key="' + escAttr(key) + '" title="Modifica">&#9998;</button>'
+                        + ' <button class="btn-rimuovi-conferma" data-key="' + escAttr(key) + '" title="Rimuovi conferma">&#128465;</button>';
+                    artEl.appendChild(badge);
+                }
             }
         });
 
@@ -614,17 +910,9 @@ const MrpProposta = (() => {
             let conteggioConfermati = 0;
             let totaleValore = 0;
 
-            articoli.forEach(artEl => {
-                const codartEl = artEl.querySelector('.proposta-art-codart');
-                if (!codartEl) return;
-                const key = MrpApp.getKeyOrdine(
-                    codartEl.dataset.fornitore,
-                    codartEl.dataset.codart,
-                    codartEl.dataset.fase || '0',
-                    codartEl.dataset.magaz || '1'
-                );
-                const ordine = confermati.get(key);
-                if (ordine && !ordine.escluso) {
+            // Conta conferme per fornitore scorrendo tutti gli ol_progr confermati
+            confermati.forEach((ordine, key) => {
+                if (String(ordine.fornitore_codice) === String(fornCode)) {
                     conteggioConfermati++;
                     totaleValore += ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
                 }
@@ -738,12 +1026,12 @@ const MrpProposta = (() => {
                 header.appendChild(buildEmessoBadge(emesso, { isExtra: false }));
             }
 
-            // Ordini extra (2° e successivi pending per lo stesso fornitore)
+            // Phase 6: Ordini extra (2°+ pending) hanno il proprio blocco separato.
+            // Aggiungiamo i pulsanti PDF/Email/Annulla ai loro header.
             const extras = ordiniEmessiExtra.get(fornCode);
             if (extras && extras.length > 0) {
-                header.classList.add('fornitore-emesso');
                 for (const ex of extras) {
-                    header.appendChild(buildEmessoBadge(ex, { isExtra: true }));
+                    aggiornaHeaderOrdineExtra(fornCode, ex);
                 }
             }
 
@@ -842,9 +1130,11 @@ const MrpProposta = (() => {
                         fornitore_nome: r.fornitore_nome || '',
                         fornitore_codice: fk,
                         fornitore_email: r.fornitore_email || '',
-                        origine: r.origine || 'gb2'
+                        origine: r.origine || 'gb2',
+                        righe: []
                     });
                 }
+                pendingByForn.get(fk).get(ordKey).righe.push(r);
             }
         }
 
@@ -866,7 +1156,8 @@ const MrpProposta = (() => {
                 fornitore_nome: primo.fornitore_nome,
                 fornitore_codice: fk,
                 fornitore_email: primo.fornitore_email,
-                origine: primo.origine
+                origine: primo.origine,
+                righe: primo.righe || []
             });
             if (entries.length > 1) {
                 const extras = entries.slice(1).map(e => ({
@@ -881,7 +1172,8 @@ const MrpProposta = (() => {
                     fornitore_nome: e.fornitore_nome,
                     fornitore_codice: fk,
                     fornitore_email: e.fornitore_email,
-                    origine: e.origine
+                    origine: e.origine,
+                    righe: e.righe || []
                 }));
                 ordiniEmessiExtra.set(fk, extras);
             }
@@ -893,6 +1185,47 @@ const MrpProposta = (() => {
         }
 
         return righeFiltrate;
+    }
+
+    /**
+     * Phase 6: Aggiunge pulsanti PDF/Email/Annulla all'header di un blocco ordine extra.
+     */
+    function aggiornaHeaderOrdineExtra(fornCode, extra) {
+        const sel = `.proposta-extra-header[data-forn="${fornCode}"][data-extra-numord="${extra.numord}"][data-extra-serie="${extra.serie}"]`;
+        const headerEl = document.querySelector(sel);
+        if (!headerEl) return;
+
+        // Rimuovi vecchi pulsanti
+        headerEl.querySelectorAll('.btn-scarica-pdf-forn, .btn-email-forn, .btn-annulla-ordine-forn').forEach(b => b.remove());
+
+        const btnPdf = document.createElement('button');
+        btnPdf.className = 'btn-scarica-pdf-forn';
+        btnPdf.textContent = '\u2B07 PDF';
+        btnPdf.title = 'Scarica PDF ordine';
+        btnPdf.addEventListener('click', (e) => { e.stopPropagation(); scaricaPdf(extra); });
+        headerEl.appendChild(btnPdf);
+
+        if (!extra.email_inviata) {
+            const btnEmail = document.createElement('button');
+            btnEmail.className = 'btn-email-forn';
+            btnEmail.textContent = '\u2709 Email';
+            btnEmail.title = 'Invia email ordine';
+            btnEmail.addEventListener('click', (e) => {
+                e.stopPropagation();
+                inviaEmailOrdine(extra, {});
+            });
+            headerEl.appendChild(btnEmail);
+
+            const btnAnnulla = document.createElement('button');
+            btnAnnulla.className = 'btn-annulla-ordine-forn';
+            btnAnnulla.textContent = '\u2716 Annulla';
+            btnAnnulla.title = 'Annulla ordine';
+            btnAnnulla.addEventListener('click', (e) => {
+                e.stopPropagation();
+                apriModaleAnnullaOrdine(extra);
+            });
+            headerEl.appendChild(btnAnnulla);
+        }
     }
 
     // ============================================================
@@ -1261,22 +1594,75 @@ const MrpProposta = (() => {
     // ============================================================
     async function apriDialogMergeDecision(fornitore_codice, ordinePendente, articoliNuovi) {
         const ordLabel = ordinePendente.numord + '/' + ordinePendente.serie;
+
+        // Verifica conflitto codart: se un articolo nuovo ha lo stesso (codart, fase, magaz)
+        // di una riga nell'ordine pendente, la SP usp_AggiungiRigheOrdineFornitore fallirebbe.
+        // In tal caso il merge è disabilitato.
+        const righeOrdine = ordinePendente.righe || [];
+        const keySetOrdine = new Set(righeOrdine.map(r =>
+            `${r.ol_codart}|${r.ol_fase || 0}|${r.ol_magaz || 1}`
+        ));
+        const conflitti = articoliNuovi.filter(a =>
+            keySetOrdine.has(`${a.ol_codart}|${a.ol_fase || 0}|${a.ol_magaz || 1}`)
+        );
+        const mergeDisabled = conflitti.length > 0;
+
+        let msgConflitto = '';
+        if (mergeDisabled) {
+            const artList = conflitti.map(a => '\u2022 ' + esc(a.ol_codart)).join('<br>');
+            msgConflitto =
+                '<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:4px; padding:8px; margin:8px 0; font-size:0.82rem;">' +
+                '<strong style="color:#991b1b;">\u26A0 Merge non disponibile</strong><br>' +
+                'L\'ordine ' + esc(ordLabel) + ' contiene già gli stessi articoli (codart+fase+magaz):<br>' +
+                artList + '<br>' +
+                'La stored procedure non ammette duplicati nello stesso ordine. ' +
+                'Per date diverse, emetti un ordine separato.' +
+                '</div>';
+        }
+
         const msg =
             'Esiste già un ordine <strong>' + esc(ordLabel) + '</strong> per questo fornitore, ' +
             'emesso ma con email non ancora inviata.<br><br>' +
             'Hai confermato <strong>' + articoliNuovi.length + '</strong> nuov' +
-            (articoliNuovi.length === 1 ? 'o articolo' : 'i articoli') + '. Cosa vuoi fare?<br><br>' +
-            '<div style="text-align:left; font-size:0.82rem; color:var(--text-muted);">' +
+            (articoliNuovi.length === 1 ? 'o articolo' : 'i articoli') + '. Cosa vuoi fare?' +
+            msgConflitto +
+            '<br><div style="text-align:left; font-size:0.82rem; color:var(--text-muted);">' +
             '\u2022 <strong>Unisci</strong>: aggiunge i nuovi articoli all\'ordine ' + esc(ordLabel) + ' esistente. ' +
             'L\'ordine viene modificato in-place: stesso numero, totali ricalcolati, PDF aggiornato.<br>' +
             '\u2022 <strong>Separato</strong>: crea un secondo ordine solo con i nuovi articoli. ' +
             'L\'ordine esistente rimane invariato.<br>' +
             '</div>';
-        return await modale('question', 'Ordine pendente per questo fornitore', msg, [
-            { label: '\uD83D\uDD04 Unisci all\'ordine ' + ordLabel, value: 'merge', style: 'primary' },
+
+        const pulsanti = [
+            { label: '\uD83D\uDD04 Unisci all\'ordine ' + ordLabel, value: 'merge', style: mergeDisabled ? 'disabled' : 'primary' },
             { label: '\u2795 Emetti ordine separato', value: 'separate', style: 'secondary' },
             { label: 'Annulla', value: null, style: 'secondary' }
-        ]);
+        ];
+
+        // Se merge è disabilitato, impediamo la selezione
+        if (mergeDisabled) {
+            return await modale('question', 'Ordine pendente per questo fornitore', msg, [
+                { label: '\u2795 Emetti ordine separato', value: 'separate', style: 'primary' },
+                { label: 'Annulla', value: null, style: 'secondary' }
+            ]);
+        }
+
+        return await modale('question', 'Ordine pendente per questo fornitore', msg, pulsanti);
+    }
+
+    /**
+     * Raggruppa articoli confermati per data_consegna.
+     * Articoli con la stessa data vanno nello stesso ordine.
+     * Date diverse → ordini separati (PDF + email distinti).
+     */
+    function raggruppaPerData(articoli) {
+        const gruppi = new Map();
+        for (const a of articoli) {
+            const dt = a.data_consegna || 'no-date';
+            if (!gruppi.has(dt)) gruppi.set(dt, []);
+            gruppi.get(dt).push(a);
+        }
+        return Array.from(gruppi.entries()).map(([data, arts]) => ({ data, articoli: arts }));
     }
 
     async function apriModaleEmettiOrdine(fornitore_codice) {
@@ -1286,7 +1672,7 @@ const MrpProposta = (() => {
         let fornitore_nome = '';
 
         confermati.forEach((ordine, key) => {
-            if (String(ordine.fornitore_codice) === String(fornitore_codice) && !ordine.escluso) {
+            if (String(ordine.fornitore_codice) === String(fornitore_codice)) {
                 articoliFornitore.push(ordine);
                 if (!fornitore_nome) fornitore_nome = ordine.fornitore_nome || '';
             }
@@ -1294,18 +1680,22 @@ const MrpProposta = (() => {
 
         if (articoliFornitore.length === 0) return;
 
+        // Raggruppa per data consegna: date diverse → ordini separati
+        const gruppiData = raggruppaPerData(articoliFornitore);
+        const multiOrdine = gruppiData.length > 1;
+
         // Branch merge: se esiste un ordine email-pending per questo fornitore,
         // chiedi all'operatore se unire o emettere separato.
+        // NOTA: merge è disabilitato quando ci sono date multiple (ordini separati obbligatori)
         const ordinePendente = ordiniEmessi.get(String(fornitore_codice));
         let mergeMode = null; // null | 'merge' | 'separate'
-        if (ordinePendente && !ordinePendente.email_inviata) {
+        if (ordinePendente && !ordinePendente.email_inviata && !multiOrdine) {
             const scelta = await apriDialogMergeDecision(fornitore_codice, ordinePendente, articoliFornitore);
             if (scelta === null) return;
             mergeMode = scelta;
         }
 
-        // Check duplicati pre-emissione (skip in modalità merge — stiamo deliberatamente
-        // unendo con un ordine esistente)
+        // Check duplicati pre-emissione (skip in modalità merge)
         if (MrpApp.state.elaborazioneId && mergeMode !== 'merge') {
             try {
                 const dupRes = await fetch(`${MrpApp.API_BASE}/controlla-duplicato`, {
@@ -1339,13 +1729,31 @@ const MrpProposta = (() => {
 
         const totale = articoliFornitore.reduce((s, a) => s + a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1), 0);
 
-        const riepilogoEl = document.getElementById('emettiRiepilogo');
-        riepilogoEl.innerHTML = `
-            <div class="emetti-riepilogo-fornitore">${esc(fornitore_nome)} (${esc(String(fornitore_codice))})</div>
+        // Riepilogo — mostra raggruppamento per data se multi-ordine
+        let riepilogoHtml = `<div class="emetti-riepilogo-fornitore">${esc(fornitore_nome)} (${esc(String(fornitore_codice))})</div>`;
+
+        if (multiOrdine) {
+            riepilogoHtml += `<div class="emetti-multiordine-avviso">
+                Date di consegna diverse &rarr; verranno emessi <strong>${gruppiData.length} ordini separati</strong>,
+                ciascuno con il proprio PDF e la propria email.
+            </div>`;
+        }
+
+        for (const gruppo of gruppiData) {
+            const dataLabel = gruppo.data !== 'no-date'
+                ? new Date(gruppo.data).toLocaleDateString('it-IT')
+                : 'Senza data';
+            const totGruppo = gruppo.articoli.reduce((s, a) => s + a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1), 0);
+
+            if (multiOrdine) {
+                riepilogoHtml += `<div class="emetti-gruppo-data-header">Ordine per consegna: <strong>${esc(dataLabel)}</strong></div>`;
+            }
+
+            riepilogoHtml += `
             <table class="emetti-riepilogo-table">
                 <thead><tr><th>Cod. Articolo</th><th>Descrizione</th><th class="num">Qt\u00e0</th><th>UM</th><th class="num">Prezzo</th><th class="num">Valore</th><th>Data Cons.</th></tr></thead>
                 <tbody>
-                ${articoliFornitore.map(a => `<tr>
+                ${gruppo.articoli.map(a => `<tr>
                     <td>${esc(a.ol_codart)}</td>
                     <td>${esc(a.ar_descr || '')}</td>
                     <td class="num">${Number(a.quantita_confermata).toLocaleString('it-IT')}</td>
@@ -1355,9 +1763,17 @@ const MrpProposta = (() => {
                     <td>${a.data_consegna ? new Date(a.data_consegna).toLocaleDateString('it-IT') : ''}</td>
                 </tr>`).join('')}
                 </tbody>
-            </table>
-            <div class="emetti-riepilogo-totale">Totale ordine: \u20ac ${totale.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-        `;
+            </table>`;
+
+            if (multiOrdine) {
+                riepilogoHtml += `<div class="emetti-gruppo-data-totale">Totale ordine: \u20ac ${totGruppo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
+            }
+        }
+
+        riepilogoHtml += `<div class="emetti-riepilogo-totale">Totale complessivo: \u20ac ${totale.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
+
+        const riepilogoEl = document.getElementById('emettiRiepilogo');
+        riepilogoEl.innerHTML = riepilogoHtml;
 
         const overlay = document.getElementById('modalEmettiOverlay');
         overlay.classList.add('open');
@@ -1369,16 +1785,52 @@ const MrpProposta = (() => {
 
         document.getElementById('btnEmettiConferma').onclick = () => {
             overlay.classList.remove('open');
-            const opts = {};
-            if (mergeMode === 'merge' && ordinePendente) {
-                opts.mergeWith = {
-                    anno: ordinePendente.anno,
-                    serie: ordinePendente.serie,
-                    numord: ordinePendente.numord
-                };
+            if (multiOrdine) {
+                // Emetti N ordini separati, uno per gruppo data
+                emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData);
+            } else {
+                const opts = {};
+                if (mergeMode === 'merge' && ordinePendente) {
+                    opts.mergeWith = {
+                        anno: ordinePendente.anno,
+                        serie: ordinePendente.serie,
+                        numord: ordinePendente.numord
+                    };
+                }
+                eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts);
             }
-            eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts);
         };
+    }
+
+    /**
+     * Emette N ordini separati per lo stesso fornitore, uno per ogni data di consegna.
+     * Ogni ordine genera un proprio PDF e una propria email.
+     */
+    async function emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData) {
+        const risultati = [];
+        for (const gruppo of gruppiData) {
+            try {
+                const dataLabel = gruppo.data !== 'no-date'
+                    ? new Date(gruppo.data).toLocaleDateString('it-IT')
+                    : 'senza data';
+                console.log(`[Proposta] Emissione ordine per ${fornitore_codice} — consegna ${dataLabel} (${gruppo.articoli.length} art.)`);
+                await eseguiEmissioneOrdine(fornitore_codice, gruppo.articoli, fornitore_nome, {});
+                risultati.push({ data: gruppo.data, ok: true });
+            } catch (err) {
+                risultati.push({ data: gruppo.data, ok: false, error: err.message });
+            }
+        }
+
+        // Riepilogo finale se ci sono stati errori
+        const falliti = risultati.filter(r => !r.ok);
+        if (falliti.length > 0) {
+            const msg = falliti.map(f => {
+                const dl = f.data !== 'no-date' ? new Date(f.data).toLocaleDateString('it-IT') : 'senza data';
+                return `\u2022 Consegna ${dl}: ${f.error}`;
+            }).join('<br>');
+            await modale('warning', 'Emissione Parziale',
+                `${risultati.length - falliti.length} di ${risultati.length} ordini emessi con successo.<br><br>Errori:<br>${msg}`);
+        }
     }
 
     // ============================================================
@@ -1434,13 +1886,8 @@ const MrpProposta = (() => {
             // Rimuovi dalle conferme gli articoli appena emessi — così il loro badge
             // "Confermato" non ricompare sulla riga ora marcata "Ordinato".
             for (const a of articoliFinali) {
-                const k = MrpApp.getKeyOrdine(
-                    fornitore_codice,
-                    a.ol_codart,
-                    String(a.ol_fase != null ? a.ol_fase : '0'),
-                    String(a.ol_magaz != null ? a.ol_magaz : '1')
-                );
-                MrpApp.rimuoviOrdine(k);
+                const k = String(a.ol_progr || 0);
+                if (k !== '0') MrpApp.rimuoviOrdine(k);
             }
 
             // Ricarica proposta dal DB — l'UI riflette lo stato reale
@@ -2782,7 +3229,7 @@ const MrpProposta = (() => {
             const confermati = MrpApp.state.ordiniConfermati;
             const articoliFornitore = [];
             confermati.forEach((ordine, key) => {
-                if (String(ordine.fornitore_codice) === String(fc) && !ordine.escluso) {
+                if (String(ordine.fornitore_codice) === String(fc)) {
                     articoliFornitore.push(ordine);
                 }
             });
@@ -2797,7 +3244,17 @@ const MrpProposta = (() => {
                 return;
             }
 
-            fornitori.push({ fornitore_codice: fc, articoli: articoliFornitore, nome });
+            // Raggruppa per data: date diverse → ordini separati
+            const gruppi = raggruppaPerData(articoliFornitore);
+            for (const gruppo of gruppi) {
+                const dataLabel = gruppo.data !== 'no-date'
+                    ? new Date(gruppo.data).toLocaleDateString('it-IT')
+                    : '';
+                const nomeGruppo = gruppi.length > 1 && dataLabel
+                    ? nome + ' (cons. ' + dataLabel + ')'
+                    : nome;
+                fornitori.push({ fornitore_codice: fc, articoli: gruppo.articoli, nome: nomeGruppo });
+            }
         });
 
         if (fornitori.length === 0 && skippedEmailPending.length === 0) return;

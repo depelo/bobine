@@ -6,7 +6,8 @@
  * (persistenza cross-device / cross-browser).
  *
  * Tabella: [GB2].[dbo].[ordini_confermati_pending] su pool163.
- * PK logica: (elaborazione_id, user_id, fornitore_codice, codart, fase, magaz)
+ * PK logica: (elaborazione_id, user_id, ol_progr)
+ *   ol_progr identifica univocamente una riga ordlist/SnapshotProposte.
  *
  * Contratto verso il client:
  *   - Ogni endpoint valida che l'elaborazione_id indicato sia "corrente" per
@@ -22,7 +23,6 @@ module.exports = function(router, deps) {
 
     /**
      * Check se @eid e l'elaborazione corrente per l'ambiente dell'utente.
-     * Ritorna true/false.
      */
     async function isElaborazioneCorrente(pool, eid, serverDest) {
         const r = await pool.request()
@@ -37,32 +37,25 @@ module.exports = function(router, deps) {
     }
 
     /**
-     * Validazione riga: verifica che (fornitore, codart, fase, magaz) sia una
-     * proposta effettiva di questa elaborazione (SnapshotProposte). Previene
-     * injection di chiavi spurie via client manomesso.
+     * Validazione riga: verifica che ol_progr esista in SnapshotProposte per
+     * questa elaborazione. Previene injection di chiavi spurie.
      */
-    async function chiaveValidaInSnapshot(pool, eid, forn, codart, fase, magaz) {
+    async function progrValidoInSnapshot(pool, eid, olProgr) {
         const r = await pool.request()
             .input('eid', sql.Int, eid)
-            .input('forn', sql.Int, parseInt(forn, 10))
-            .input('codart', sql.VarChar(50), codart)
-            .input('fase', sql.SmallInt, fase)
-            .input('magaz', sql.SmallInt, magaz)
+            .input('progr', sql.Int, olProgr)
             .query(`
                 SELECT TOP 1 1 AS ok
                 FROM [GB2].[dbo].[SnapshotProposte]
-                WHERE ElaborazioneID = @eid
-                  AND ol_conto = @forn
-                  AND ol_codart = @codart
-                  AND ol_fase = @fase
-                  AND ol_magaz = @magaz
+                WHERE ElaborazioneID = @eid AND ol_progr = @progr
             `);
         return r.recordset.length > 0;
     }
 
     // ─────────────────────────────────────────────────────────────
     // POST /conferma-pending/upsert — upsert singolo
-    // Body: { elaborazione_id, fornitore_codice, codart, fase, magaz,
+    // Body: { elaborazione_id, ol_progr, fornitore_codice, codart,
+    //         fase, magaz, data_consegna,
     //         quantita_confermata, prezzo_override }
     // ─────────────────────────────────────────────────────────────
     router.post('/conferma-pending/upsert', authMiddleware, async (req, res) => {
@@ -74,15 +67,11 @@ module.exports = function(router, deps) {
 
             const b = req.body || {};
             const eid = parseInt(b.elaborazione_id, 10);
+            const olProgr = parseInt(b.ol_progr, 10);
             if (!eid) return res.status(400).json({ error: 'elaborazione_id obbligatorio' });
-            if (!b.fornitore_codice) return res.status(400).json({ error: 'fornitore_codice obbligatorio' });
-            if (!b.codart) return res.status(400).json({ error: 'codart obbligatorio' });
+            if (!olProgr) return res.status(400).json({ error: 'ol_progr obbligatorio' });
             if (b.quantita_confermata == null) return res.status(400).json({ error: 'quantita_confermata obbligatorio' });
 
-            const fase = parseInt(b.fase || 0, 10);
-            const magaz = parseInt(b.magaz || 1, 10);
-
-            // Guard-rail 1: elaborazione corrente
             if (!(await isElaborazioneCorrente(pool, eid, serverDest))) {
                 return res.status(409).json({
                     error: 'ELABORAZIONE_CHANGED',
@@ -90,43 +79,46 @@ module.exports = function(router, deps) {
                 });
             }
 
-            // Guard-rail 2: chiave esiste nello snapshot (previene dati spuri)
-            if (!(await chiaveValidaInSnapshot(pool, eid, b.fornitore_codice, b.codart, fase, magaz))) {
+            if (!(await progrValidoInSnapshot(pool, eid, olProgr))) {
                 return res.status(409).json({
                     error: 'CHIAVE_NON_VALIDA',
-                    message: 'La chiave non corrisponde ad alcuna proposta di questa elaborazione.'
+                    message: 'ol_progr non corrisponde ad alcuna proposta di questa elaborazione.'
                 });
             }
 
-            // MERGE atomico: una sola roundtrip, zero race con altri tab dello stesso utente.
             await pool.request()
                 .input('eid', sql.Int, eid)
                 .input('uid', sql.Int, uid)
-                .input('forn', sql.VarChar(20), String(b.fornitore_codice))
-                .input('codart', sql.VarChar(50), b.codart)
-                .input('fase', sql.SmallInt, fase)
-                .input('magaz', sql.SmallInt, magaz)
+                .input('progr', sql.Int, olProgr)
+                .input('forn', sql.VarChar(20), String(b.fornitore_codice || ''))
+                .input('codart', sql.VarChar(50), b.codart || '')
+                .input('fase', sql.SmallInt, parseInt(b.fase || 0, 10))
+                .input('magaz', sql.SmallInt, parseInt(b.magaz || 1, 10))
+                .input('datcons', sql.Date, b.data_consegna || null)
                 .input('quant', sql.Decimal(18, 3), b.quantita_confermata)
                 .input('prezzo', sql.Decimal(18, 5), b.prezzo_override == null ? null : b.prezzo_override)
                 .query(`
                     MERGE [GB2].[dbo].[ordini_confermati_pending] WITH (HOLDLOCK) AS t
                     USING (SELECT @eid AS elaborazione_id, @uid AS user_id,
-                                  @forn AS fornitore_codice, @codart AS codart,
-                                  @fase AS fase, @magaz AS magaz) AS s
+                                  @progr AS ol_progr) AS s
                       ON t.elaborazione_id = s.elaborazione_id
                      AND t.user_id = s.user_id
-                     AND t.fornitore_codice = s.fornitore_codice
-                     AND t.codart = s.codart
-                     AND t.fase = s.fase
-                     AND t.magaz = s.magaz
+                     AND t.ol_progr = s.ol_progr
                     WHEN MATCHED THEN
                       UPDATE SET quantita_confermata = @quant,
                                  prezzo_override = @prezzo,
+                                 fornitore_codice = @forn,
+                                 codart = @codart,
+                                 fase = @fase,
+                                 magaz = @magaz,
+                                 data_consegna = @datcons,
                                  updated_at = GETDATE()
                     WHEN NOT MATCHED THEN
-                      INSERT (elaborazione_id, user_id, fornitore_codice, codart, fase, magaz,
+                      INSERT (elaborazione_id, user_id, ol_progr,
+                              fornitore_codice, codart, fase, magaz, data_consegna,
                               quantita_confermata, prezzo_override, updated_at)
-                      VALUES (@eid, @uid, @forn, @codart, @fase, @magaz,
+                      VALUES (@eid, @uid, @progr,
+                              @forn, @codart, @fase, @magaz, @datcons,
                               @quant, @prezzo, GETDATE());
                 `);
 
@@ -139,7 +131,7 @@ module.exports = function(router, deps) {
 
     // ─────────────────────────────────────────────────────────────
     // POST /conferma-pending/delete — delete singolo
-    // Body: { elaborazione_id, fornitore_codice, codart, fase, magaz }
+    // Body: { elaborazione_id, ol_progr }
     // ─────────────────────────────────────────────────────────────
     router.post('/conferma-pending/delete', authMiddleware, async (req, res) => {
         try {
@@ -150,9 +142,9 @@ module.exports = function(router, deps) {
 
             const b = req.body || {};
             const eid = parseInt(b.elaborazione_id, 10);
+            const olProgr = parseInt(b.ol_progr, 10);
             if (!eid) return res.status(400).json({ error: 'elaborazione_id obbligatorio' });
-            if (!b.fornitore_codice) return res.status(400).json({ error: 'fornitore_codice obbligatorio' });
-            if (!b.codart) return res.status(400).json({ error: 'codart obbligatorio' });
+            if (!olProgr) return res.status(400).json({ error: 'ol_progr obbligatorio' });
 
             if (!(await isElaborazioneCorrente(pool, eid, serverDest))) {
                 return res.status(409).json({ error: 'ELABORAZIONE_CHANGED' });
@@ -161,15 +153,10 @@ module.exports = function(router, deps) {
             await pool.request()
                 .input('eid', sql.Int, eid)
                 .input('uid', sql.Int, uid)
-                .input('forn', sql.VarChar(20), String(b.fornitore_codice))
-                .input('codart', sql.VarChar(50), b.codart)
-                .input('fase', sql.SmallInt, parseInt(b.fase || 0, 10))
-                .input('magaz', sql.SmallInt, parseInt(b.magaz || 1, 10))
+                .input('progr', sql.Int, olProgr)
                 .query(`
                     DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
-                    WHERE elaborazione_id=@eid AND user_id=@uid
-                      AND fornitore_codice=@forn AND codart=@codart
-                      AND fase=@fase AND magaz=@magaz
+                    WHERE elaborazione_id=@eid AND user_id=@uid AND ol_progr=@progr
                 `);
 
             res.json({ success: true });
@@ -184,11 +171,10 @@ module.exports = function(router, deps) {
     // Usato da sendBeacon() su pagehide come last-chance flush.
     // Body: {
     //   elaborazione_id,
-    //   ops: [{ action: 'upsert'|'delete', fornitore_codice, codart, fase, magaz,
+    //   ops: [{ action: 'upsert'|'delete', ol_progr,
+    //           fornitore_codice?, codart?, fase?, magaz?, data_consegna?,
     //           quantita_confermata?, prezzo_override? }, ...]
     // }
-    // Risposta: 200 con { success, applied, skipped, errors }.
-    // Errori parziali NON fallano il batch — il client gestisce via indicatore.
     // ─────────────────────────────────────────────────────────────
     router.post('/conferma-pending/flush-batch', authMiddleware, async (req, res) => {
         try {
@@ -211,62 +197,58 @@ module.exports = function(router, deps) {
             let skipped = 0;
             const errors = [];
 
-            // Batch sequenziale su singolo pool — nessuna transazione esplicita
-            // perche l'errore di una riga non deve rollbackare le altre
-            // (le ops sono idempotenti per chiave).
             for (const op of ops) {
                 try {
-                    const fase = parseInt(op.fase || 0, 10);
-                    const magaz = parseInt(op.magaz || 1, 10);
+                    const olProgr = parseInt(op.ol_progr, 10);
+                    if (!olProgr) { skipped++; continue; }
 
                     if (op.action === 'delete') {
                         await pool.request()
                             .input('eid', sql.Int, eid)
                             .input('uid', sql.Int, uid)
-                            .input('forn', sql.VarChar(20), String(op.fornitore_codice))
-                            .input('codart', sql.VarChar(50), op.codart)
-                            .input('fase', sql.SmallInt, fase)
-                            .input('magaz', sql.SmallInt, magaz)
+                            .input('progr', sql.Int, olProgr)
                             .query(`
                                 DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
-                                WHERE elaborazione_id=@eid AND user_id=@uid
-                                  AND fornitore_codice=@forn AND codart=@codart
-                                  AND fase=@fase AND magaz=@magaz
+                                WHERE elaborazione_id=@eid AND user_id=@uid AND ol_progr=@progr
                             `);
                         applied++;
                     } else if (op.action === 'upsert') {
-                        // Validazione chiave in snapshot per upsert
-                        const ok = await chiaveValidaInSnapshot(pool, eid, op.fornitore_codice, op.codart, fase, magaz);
+                        const ok = await progrValidoInSnapshot(pool, eid, olProgr);
                         if (!ok) { skipped++; continue; }
 
                         await pool.request()
                             .input('eid', sql.Int, eid)
                             .input('uid', sql.Int, uid)
-                            .input('forn', sql.VarChar(20), String(op.fornitore_codice))
-                            .input('codart', sql.VarChar(50), op.codart)
-                            .input('fase', sql.SmallInt, fase)
-                            .input('magaz', sql.SmallInt, magaz)
+                            .input('progr', sql.Int, olProgr)
+                            .input('forn', sql.VarChar(20), String(op.fornitore_codice || ''))
+                            .input('codart', sql.VarChar(50), op.codart || '')
+                            .input('fase', sql.SmallInt, parseInt(op.fase || 0, 10))
+                            .input('magaz', sql.SmallInt, parseInt(op.magaz || 1, 10))
+                            .input('datcons', sql.Date, op.data_consegna || null)
                             .input('quant', sql.Decimal(18, 3), op.quantita_confermata)
                             .input('prezzo', sql.Decimal(18, 5), op.prezzo_override == null ? null : op.prezzo_override)
                             .query(`
                                 MERGE [GB2].[dbo].[ordini_confermati_pending] WITH (HOLDLOCK) AS t
                                 USING (SELECT @eid AS elaborazione_id, @uid AS user_id,
-                                              @forn AS fornitore_codice, @codart AS codart,
-                                              @fase AS fase, @magaz AS magaz) AS s
+                                              @progr AS ol_progr) AS s
                                   ON t.elaborazione_id = s.elaborazione_id
                                  AND t.user_id = s.user_id
-                                 AND t.fornitore_codice = s.fornitore_codice
-                                 AND t.codart = s.codart
-                                 AND t.fase = s.fase
-                                 AND t.magaz = s.magaz
+                                 AND t.ol_progr = s.ol_progr
                                 WHEN MATCHED THEN
                                   UPDATE SET quantita_confermata = @quant,
                                              prezzo_override = @prezzo,
+                                             fornitore_codice = @forn,
+                                             codart = @codart,
+                                             fase = @fase,
+                                             magaz = @magaz,
+                                             data_consegna = @datcons,
                                              updated_at = GETDATE()
                                 WHEN NOT MATCHED THEN
-                                  INSERT (elaborazione_id, user_id, fornitore_codice, codart, fase, magaz,
+                                  INSERT (elaborazione_id, user_id, ol_progr,
+                                          fornitore_codice, codart, fase, magaz, data_consegna,
                                           quantita_confermata, prezzo_override, updated_at)
-                                  VALUES (@eid, @uid, @forn, @codart, @fase, @magaz,
+                                  VALUES (@eid, @uid, @progr,
+                                          @forn, @codart, @fase, @magaz, @datcons,
                                           @quant, @prezzo, GETDATE());
                             `);
                         applied++;

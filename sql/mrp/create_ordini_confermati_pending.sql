@@ -16,7 +16,11 @@
 --   - Ripulita al boot del server dal cleanup fire-and-forget
 --     (entry legate a elaborazioni non piu correnti).
 --
--- Chiave logica: (elaborazione_id, user_id, fornitore, codart, fase, magaz)
+-- Chiave logica: (elaborazione_id, user_id, ol_progr)
+--   ol_progr identifica univocamente una riga ordlist/SnapshotProposte.
+--   Colonne fornitore_codice/codart/fase/magaz/data_consegna sono
+--   denormalizzate per comodita di filtro/display ma non fanno parte della PK.
+--
 -- Database: GB2 su pool163 (stesso del SnapshotProposte / ElaborazioniMRP)
 -- ============================================================
 
@@ -28,10 +32,14 @@ BEGIN
     CREATE TABLE [GB2].[dbo].[ordini_confermati_pending] (
         elaborazione_id     INT           NOT NULL,
         user_id             INT           NOT NULL,
+        ol_progr            INT           NOT NULL,
+
+        -- Colonne denormalizzate per filtro/display
         fornitore_codice    VARCHAR(20)   NOT NULL,
         codart              VARCHAR(50)   NOT NULL,
         fase                SMALLINT      NOT NULL DEFAULT 0,
         magaz               SMALLINT      NOT NULL DEFAULT 1,
+        data_consegna       DATE          NULL,
 
         -- Dati editati dall'operatore nel pannello decisione
         quantita_confermata DECIMAL(18,3) NOT NULL,
@@ -40,7 +48,7 @@ BEGIN
         updated_at          DATETIME      NOT NULL DEFAULT GETDATE(),
 
         CONSTRAINT PK_ordini_confermati_pending
-            PRIMARY KEY (elaborazione_id, user_id, fornitore_codice, codart, fase, magaz),
+            PRIMARY KEY (elaborazione_id, user_id, ol_progr),
 
         CONSTRAINT FK_ocp_Elaborazione
             FOREIGN KEY (elaborazione_id)
@@ -53,6 +61,9 @@ BEGIN
 
     CREATE INDEX IX_ocp_user_elab
         ON [GB2].[dbo].[ordini_confermati_pending] (user_id, elaborazione_id);
+
+    CREATE INDEX IX_ocp_forn
+        ON [GB2].[dbo].[ordini_confermati_pending] (fornitore_codice);
 
     PRINT 'Tabella [GB2].[dbo].[ordini_confermati_pending] creata.';
 END

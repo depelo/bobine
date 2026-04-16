@@ -11,6 +11,7 @@ module.exports = function(router, deps) {
     const getUserId = helpers.getUserId;
     const compilaTemplate = helpers.compilaTemplate;
     const getSpName = helpers.getSpName;
+    const fetchOrdineCompleto = helpers.fetchOrdineCompleto;
 
 router.get('/smtp/config', authMiddleware, async (req, res) => {
     try {
@@ -380,42 +381,12 @@ router.post('/invia-ordine-email', authMiddleware, async (req, res) => {
         if (pdf_base64) {
             pdfBuf = Buffer.from(pdf_base64, 'base64');
         } else {
-            // Genera al volo
-            const righeRes = await pool.request()
-                .input('anno', sql.SmallInt, parseInt(anno, 10))
-                .input('serie', sql.VarChar(3), serie)
-                .input('numord', sql.Int, parseInt(numord, 10))
-                .query(`
-                    SELECT mo_riga, mo_codart, mo_descr, mo_desint, mo_unmis,
-                           mo_quant, mo_prezzo, mo_valore, mo_datcons, mo_fase, mo_magaz
-                    FROM dbo.movord
-                    WHERE codditt = 'UJET11' AND mo_tipork = 'O'
-                      AND mo_anno = @anno AND mo_serie = @serie AND mo_numord = @numord
-                    ORDER BY mo_riga
-                `);
-
-            // Necessita dati testata completi per il PDF
-            const testataFull = await pool.request()
-                .input('anno', sql.SmallInt, parseInt(anno, 10))
-                .input('serie', sql.VarChar(3), serie)
-                .input('numord', sql.Int, parseInt(numord, 10))
-                .query(`
-                    SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
-                           t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
-                           t.td_porto AS porto, t.td_totmerce AS totale_merce,
-                           t.td_totdoc AS totale_documento,
-                           t.td_totdoc - t.td_totmerce AS totale_imposta,
-                           a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
-                           a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
-                           a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
-                           a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax
-                    FROM dbo.testord t
-                    LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
-                    WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
-                      AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
-                `);
-
-            pdfBuf = await generaPdfOrdine(testataFull.recordset[0], righeRes.recordset, { ambiente });
+            // Genera al volo con fetch completo (banca, porto, valuta, codarfo, ecc.)
+            const completo = await fetchOrdineCompleto(pool, parseInt(anno, 10), serie, parseInt(numord, 10));
+            if (!completo) {
+                return res.status(404).json({ error: 'Ordine non trovato per generazione PDF' });
+            }
+            pdfBuf = await generaPdfOrdine(completo.ordine, completo.righe, { ambiente });
         }
 
         const nomeFile = pdf_filename || `OrdineForn${anno}${serie}${String(numord).padStart(6,'0')}.pdf`;

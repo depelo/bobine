@@ -11,6 +11,7 @@ module.exports = function(router, deps) {
     const checkSpExists = helpers.checkSpExists;
     const deployProductionObjects = helpers.deployProductionObjects;
     const deployTestObjects = helpers.deployTestObjects;
+    const fetchOrdineCompleto = helpers.fetchOrdineCompleto;
 
 router.get('/health', authMiddleware, async (req, res) => {
     try {
@@ -104,11 +105,26 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
         const ordine = result.recordsets[0][0];
         const righeOrdine = result.recordsets[1] || [];
 
-        // Genera PDF (con label PROVA se non in server default)
+        // Genera PDF ri-leggendo l'ordine appena creato con le JOIN complete
+        // (banca, porto, valuta, destinazione, codarfo, note articolo).
+        // La SP restituisce solo dati minimali; il PDF richiede il fetch arricchito.
         const dbProfile = getActiveProfile(getUserId(req));
         const serverDest = (dbProfile.server || 'BCUBE2').trim();
         const isProva = !!(dbProfile._testDbId);
-        const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProva ? 'prova' : 'produzione' });
+        let pdfBuffer;
+        try {
+            const completo = await fetchOrdineCompleto(poolSP, ordine.anno, ordine.serie, ordine.numord);
+            if (completo) {
+                pdfBuffer = await generaPdfOrdine(completo.ordine, completo.righe, { ambiente: isProva ? 'prova' : 'produzione' });
+            } else {
+                // Fallback: usa i dati minimali della SP (non dovrebbe succedere)
+                console.warn('[Emetti Ordine] fetchOrdineCompleto ha restituito null, uso dati SP');
+                pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProva ? 'prova' : 'produzione' });
+            }
+        } catch (pdfErr) {
+            console.warn('[Emetti Ordine] fetchOrdineCompleto fallito, uso dati SP:', pdfErr.message);
+            pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProva ? 'prova' : 'produzione' });
+        }
 
         // Aggiornamento saldi BCube (keyord+artpro) avviene DENTRO la SP stessa
         // (EXEC [UJET11].[dbo].bussp_bsorgsor9_faggiorn2 — locale, zero MSDTC)
@@ -179,25 +195,22 @@ router.post('/emetti-ordine', authMiddleware, async (req, res) => {
             }
         }
 
-        // ── Cleanup ordini_confermati_pending per le chiavi appena emesse ──
+        // ── Cleanup ordini_confermati_pending per le righe appena emesse ──
         // Le entry vivevano come "safety-net" finche l'operatore non cliccava Emetti.
         // Ora sono diventate ordini reali: vanno rimosse per non resuscitare al refresh.
         if (elaborazione_id) {
             try {
                 const eid = parseInt(elaborazione_id, 10);
-                const fcode = String(fornitore_codice);
-                for (const riga of righeOrdine) {
+                const progrList = righeOrdine
+                    .filter(r => r.ol_progr && r.ol_progr > 0)
+                    .map(r => String(r.ol_progr));
+                if (progrList.length > 0) {
                     await poolOE.request()
                         .input('eid', sql.Int, eid)
                         .input('uid', sql.Int, uid)
-                        .input('forn', sql.VarChar(20), fcode)
-                        .input('codart', sql.VarChar(50), riga.mo_codart)
-                        .input('fase', sql.SmallInt, riga.mo_fase || 0)
-                        .input('magaz', sql.SmallInt, riga.mo_magaz || 1)
                         .query(`DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
                                 WHERE elaborazione_id=@eid AND user_id=@uid
-                                  AND fornitore_codice=@forn AND codart=@codart
-                                  AND fase=@fase AND magaz=@magaz`);
+                                  AND ol_progr IN (${progrList.join(',')})`);
                 }
             } catch (cpErr) {
                 console.warn('[Emetti Ordine] Cleanup pending fallito (continuo):', cpErr.message);
@@ -261,7 +274,15 @@ router.post('/emetti-ordini-batch', authMiddleware, async (req, res) => {
                 const dbProf = getActiveProfile(getUserId(req));
                 const serverDestBatch = (dbProf.server || 'BCUBE2').trim();
                 const isProvaBatch = !!(dbProf._testDbId);
-                const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProvaBatch ? 'prova' : 'produzione' });
+                let pdfBuffer;
+                try {
+                    const completo = await fetchOrdineCompleto(poolSP, ordine.anno, ordine.serie, ordine.numord);
+                    pdfBuffer = completo
+                        ? await generaPdfOrdine(completo.ordine, completo.righe, { ambiente: isProvaBatch ? 'prova' : 'produzione' })
+                        : await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProvaBatch ? 'prova' : 'produzione' });
+                } catch (_pfErr) {
+                    pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProvaBatch ? 'prova' : 'produzione' });
+                }
 
                 // Marca ambiente
                 try {
@@ -416,11 +437,19 @@ router.post('/modifica-ordine', authMiddleware, async (req, res) => {
         const righeOrdine = result.recordsets[1] || [];
         const righeNuove = righeOrdine.filter(r => r.is_new === 1 || r.is_new === true);
 
-        // PDF rigenerato con TUTTE le righe (vecchie + nuove)
+        // PDF rigenerato con fetch completo (JOIN banca, porto, valuta, codarfo, ecc.)
         const dbProfile = getActiveProfile(uid);
         const serverDest = (dbProfile.server || 'BCUBE2').trim();
         const isProva = !!(dbProfile._testDbId);
-        const pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProva ? 'prova' : 'produzione' });
+        let pdfBuffer;
+        try {
+            const completo = await fetchOrdineCompleto(poolSP, ordine.anno, ordine.serie, ordine.numord);
+            pdfBuffer = completo
+                ? await generaPdfOrdine(completo.ordine, completo.righe, { ambiente: isProva ? 'prova' : 'produzione' })
+                : await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProva ? 'prova' : 'produzione' });
+        } catch (_pfErr) {
+            pdfBuffer = await generaPdfOrdine(ordine, righeOrdine, { ambiente: isProva ? 'prova' : 'produzione' });
+        }
 
         // ── Registrazione SOLO delle nuove righe in ordini_emessi@163 ──
         const oeIds = [];
@@ -487,19 +516,16 @@ router.post('/modifica-ordine', authMiddleware, async (req, res) => {
         if (elaborazione_id && righeNuove.length > 0) {
             try {
                 const eid = parseInt(elaborazione_id, 10);
-                const fcode = String(fornitore_codice);
-                for (const riga of righeNuove) {
+                const progrList = righeNuove
+                    .filter(r => r.ol_progr && r.ol_progr > 0)
+                    .map(r => String(r.ol_progr));
+                if (progrList.length > 0) {
                     await poolOE.request()
                         .input('eid', sql.Int, eid)
                         .input('uid', sql.Int, uid)
-                        .input('forn', sql.VarChar(20), fcode)
-                        .input('codart', sql.VarChar(50), riga.mo_codart)
-                        .input('fase', sql.SmallInt, riga.mo_fase || 0)
-                        .input('magaz', sql.SmallInt, riga.mo_magaz || 1)
                         .query(`DELETE FROM [GB2].[dbo].[ordini_confermati_pending]
                                 WHERE elaborazione_id=@eid AND user_id=@uid
-                                  AND fornitore_codice=@forn AND codart=@codart
-                                  AND fase=@fase AND magaz=@magaz`);
+                                  AND ol_progr IN (${progrList.join(',')})`);
                 }
             } catch (cpErr) {
                 console.warn('[Modifica Ordine] Cleanup pending fallito (continuo):', cpErr.message);
@@ -678,142 +704,15 @@ router.get('/ordine-pdf/:anno/:serie/:numord', authMiddleware, async (req, res) 
         const annoInt = parseInt(anno, 10);
         const numordInt = parseInt(numord, 10);
 
-        // Query testata arricchita — tutti i JOIN necessari per il PDF completo.
-        // In prova: tutte le tabelle sono in UJET11 direttamente.
-        // In produzione: le viste MRP devono includere tabport, tabvalu, destdiv
-        // (se mancano, Fabrizio le crea come le altre 21 gia esistenti).
-        // Fallback solo per HH_TipoReport che potrebbe non essere ancora deployata.
-        let testata;
-        try {
-            testata = await pool.request()
-                .input('anno', sql.SmallInt, annoInt)
-                .input('serie', sql.VarChar(3), serie)
-                .input('numord', sql.Int, numordInt)
-                .query(`
-                    SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
-                           t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
-                           t.td_codpaga AS pagamento_codice,
-                           t.td_banc1 AS banca_appoggio_1, t.td_banc2 AS banca_appoggio_2,
-                           t.td_porto AS porto_codice, t.td_valuta AS valuta_codice,
-                           t.td_riferim AS riferimento,
-                           CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
-                           t.td_vettor AS vettore_codice,
-                           t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
-                           t.td_acuradi AS acuradi,
-                           t.td_coddest AS coddest, t.td_contodest AS contodest,
-                           a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
-                           a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
-                           a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
-                           a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
-                           a.an_categ AS fornitore_categ,
-                           a.HH_TipoReport AS fornitore_tipo,
-                           a.an_banc1 AS fornitore_banca_1, a.an_banc2 AS fornitore_banca_2,
-                           CAST(a.an_note AS VARCHAR(MAX)) AS fornitore_note,
-                           CAST(a.an_note2 AS VARCHAR(MAX)) AS fornitore_note2,
-                           p.tb_despaga AS pagamento_descr,
-                           pt.tb_desport AS porto_descr,
-                           v.tb_desvalu AS valuta_sigla, v.tb_nomvalu AS valuta_nome,
-                           d.dd_nomdest AS dest_nome, d.dd_inddest AS dest_indirizzo,
-                           d.dd_capdest AS dest_cap, d.dd_locdest AS dest_citta,
-                           d.dd_prodest AS dest_prov
-                    FROM dbo.testord t
-                    LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
-                    LEFT JOIN dbo.tabpaga p ON t.td_codpaga = p.tb_codpaga
-                    LEFT JOIN dbo.tabport pt ON t.codditt = pt.codditt AND t.td_porto = pt.tb_codport
-                    LEFT JOIN dbo.tabvalu v ON t.td_valuta = v.tb_codvalu
-                    LEFT JOIN dbo.destdiv d ON t.codditt = d.codditt
-                                             AND t.td_contodest = d.dd_conto
-                                             AND t.td_coddest = d.dd_coddest
-                    WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
-                      AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
-                `);
-        } catch (colErr) {
-            // Fallback: se HH_TipoReport non esiste, retry con 'IT' come default
-            if (colErr.message.includes('HH_TipoReport')) {
-                testata = await pool.request()
-                    .input('anno', sql.SmallInt, annoInt)
-                    .input('serie', sql.VarChar(3), serie)
-                    .input('numord', sql.Int, numordInt)
-                    .query(`
-                        SELECT t.td_numord AS numord, t.td_anno AS anno, t.td_serie AS serie,
-                               t.td_conto AS fornitore_codice, t.td_datord AS data_ordine,
-                               t.td_codpaga AS pagamento_codice,
-                               t.td_banc1 AS banca_appoggio_1, t.td_banc2 AS banca_appoggio_2,
-                               t.td_porto AS porto_codice, t.td_valuta AS valuta_codice,
-                               t.td_riferim AS riferimento,
-                               CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
-                               t.td_vettor AS vettore_codice,
-                               t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
-                               t.td_acuradi AS acuradi,
-                               t.td_coddest AS coddest, t.td_contodest AS contodest,
-                               a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
-                               a.an_cap AS fornitore_cap, a.an_citta AS fornitore_citta,
-                               a.an_prov AS fornitore_prov, a.an_pariva AS fornitore_pariva,
-                               a.an_email AS fornitore_email, a.an_faxtlx AS fornitore_fax,
-                               a.an_categ AS fornitore_categ,
-                               'IT' AS fornitore_tipo,
-                               a.an_banc1 AS fornitore_banca_1, a.an_banc2 AS fornitore_banca_2,
-                               CAST(a.an_note AS VARCHAR(MAX)) AS fornitore_note,
-                               CAST(a.an_note2 AS VARCHAR(MAX)) AS fornitore_note2,
-                               p.tb_despaga AS pagamento_descr,
-                               pt.tb_desport AS porto_descr,
-                               v.tb_desvalu AS valuta_sigla, v.tb_nomvalu AS valuta_nome,
-                               d.dd_nomdest AS dest_nome, d.dd_inddest AS dest_indirizzo,
-                               d.dd_capdest AS dest_cap, d.dd_locdest AS dest_citta,
-                               d.dd_prodest AS dest_prov
-                        FROM dbo.testord t
-                        LEFT JOIN dbo.anagra a ON t.td_conto = a.an_conto
-                        LEFT JOIN dbo.tabpaga p ON t.td_codpaga = p.tb_codpaga
-                        LEFT JOIN dbo.tabport pt ON t.codditt = pt.codditt AND t.td_porto = pt.tb_codport
-                        LEFT JOIN dbo.tabvalu v ON t.td_valuta = v.tb_codvalu
-                        LEFT JOIN dbo.destdiv d ON t.codditt = d.codditt
-                                                 AND t.td_contodest = d.dd_conto
-                                                 AND t.td_coddest = d.dd_coddest
-                        WHERE t.codditt = 'UJET11' AND t.td_tipork = 'O'
-                          AND t.td_anno = @anno AND t.td_serie = @serie AND t.td_numord = @numord
-                    `);
-            } else throw colErr;
-        }
-
-        if (!testata.recordset.length) {
+        const completo = await fetchOrdineCompleto(pool, annoInt, serie, numordInt);
+        if (!completo) {
             return res.status(404).json({ error: 'Ordine non trovato' });
         }
 
-        const ordine = testata.recordset[0];
-
-        // Query righe arricchita — con note, lotto, sconti, rif. fornitore, note articolo
-        // In prova: tutte le tabelle sono disponibili direttamente.
-        // In produzione: servono viste per codarfo e artico (Fabrizio le crea se mancano).
-        const righeRes = await pool.request()
-            .input('anno', sql.SmallInt, annoInt)
-            .input('serie', sql.VarChar(3), serie)
-            .input('numord', sql.Int, numordInt)
-            .input('fornitore', sql.Int, ordine.fornitore_codice)
-            .query(`
-                SELECT m.mo_riga, m.mo_codart, m.mo_descr, m.mo_desint,
-                       m.mo_unmis, m.mo_ump, m.mo_quant, m.mo_colli,
-                       m.mo_prezzo, m.mo_valore, m.mo_datcons,
-                       m.mo_fase, m.mo_magaz, m.mo_lotto,
-                       m.mo_scont1, m.mo_scont2, m.mo_scont3,
-                       m.mo_perqta,
-                       CAST(m.mo_note AS VARCHAR(MAX)) AS mo_note,
-                       c.caf_codarfo AS rif_fornitore,
-                       c.caf_desnote AS rif_note,
-                       CAST(ar.ar_note AS VARCHAR(MAX)) AS ar_note,
-                       ar.ar_conver, ar.ar_codalt, ar.ar_unmis AS ar_un
-                FROM dbo.movord m
-                LEFT JOIN dbo.codarfo c ON c.codditt = 'UJET11'
-                    AND c.caf_conto = @fornitore AND c.caf_codart = m.mo_codart
-                LEFT JOIN dbo.artico ar ON ar.codditt = 'UJET11' AND ar.ar_codart = m.mo_codart
-                WHERE m.codditt = 'UJET11' AND m.mo_tipork = 'O'
-                  AND m.mo_anno = @anno AND m.mo_serie = @serie AND m.mo_numord = @numord
-                  AND m.mo_stasino <> 'N'
-                ORDER BY m.mo_riga
-            `);
-
+        const ordine = completo.ordine;
         const dbProfPdf = getActiveProfile(uid);
         const isProvaPdf = !!(dbProfPdf._testDbId);
-        const pdfBuffer = await generaPdfOrdine(ordine, righeRes.recordset, { ambiente: isProvaPdf ? 'prova' : 'produzione' });
+        const pdfBuffer = await generaPdfOrdine(ordine, completo.righe, { ambiente: isProvaPdf ? 'prova' : 'produzione' });
 
         // Nome file formato BCube
         const fornNome = (ordine.fornitore_nome || '').trim().replace(/[\\/:*?"<>|]/g, '_');

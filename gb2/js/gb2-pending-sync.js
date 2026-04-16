@@ -8,26 +8,25 @@
  * Contratto:
  *   - La Map RAM (MrpApp.state.ordiniConfermati) resta fonte di verità per
  *     la reattività UI. PendingSync viaggia in parallelo.
+ *   - La chiave di ogni entry è String(ol_progr) — identifica univocamente
+ *     una riga ordlist/SnapshotProposte per elaborazione.
  *   - localStorage key: ocp_<elaborazione_id>
- *     Valore: { <key>: { quantita, prezzo, deleted, synced, updated_at }, ... }
- *     Dove <key> = `${forn}|${codart}|${fase}|${magaz}`.
- *   - Tombstones: le delete non rimuovono l'entry da LS, ma la marcano
- *     { deleted: true, synced: false }. Solo dopo sync ACK la entry viene
- *     rimossa dal LS definitivamente. Impedisce "resurrezione" al refresh
- *     se il DB non è stato ancora aggiornato.
- *   - Debounce 250ms per chiave: confermi 30 volte in 5 secondi → 1 upsert.
- *   - Backoff esponenziale su errore rete: 1s, 2s, 5s, 15s, 60s, 300s.
+ *     Valore: { <ol_progr>: { quantita, prezzo, forn, codart, fase, magaz,
+ *                              datcons, deleted, synced, updated_at }, ... }
+ *   - Tombstones: le delete marcano { deleted: true, synced: false }.
+ *     Solo dopo sync ACK la entry viene rimossa.
+ *   - Debounce 250ms per chiave. Backoff esponenziale su errore.
  *   - sendBeacon() su pagehide come last-chance flush.
- *   - 409 ELABORAZIONE_CHANGED → wipe LS e hard reload della proposta.
- *   - onStateChange(cb) permette all'indicatore globale di rifletterere lo stato.
+ *   - 409 ELABORAZIONE_CHANGED → wipe LS e hard reload.
  *
  * Uso:
  *   PendingSync.init({ elaborazioneId, userId })
- *   PendingSync.upsert(key, { quantita_confermata, prezzo_override, fornitore_codice, codart, fase, magaz })
- *   PendingSync.remove(key, { fornitore_codice, codart, fase, magaz })
+ *   PendingSync.upsert(key, { ol_progr, fornitore_codice, codart, fase, magaz,
+ *                              data_consegna, quantita_confermata, prezzo, prezzo_override })
+ *   PendingSync.remove(key)
  *   PendingSync.hydrateFromDB(ordini_confermati_pending, { mergeIntoMap })
- *   PendingSync.clearForKeys(keys)  // post-emissione
- *   PendingSync.getState()          // { status: 'ok'|'pending'|'error', pending: N, lastError }
+ *   PendingSync.clearForKeys(keys)
+ *   PendingSync.getState()
  *   PendingSync.onStateChange(cb)
  */
 window.PendingSync = (function() {
@@ -39,14 +38,13 @@ window.PendingSync = (function() {
     let userId = null;
     let lsKey = null;
 
-    // Stato interno
-    const timers = new Map();         // key -> setTimeout id (debounce)
-    const inflight = new Set();       // keys attualmente in fetch
-    const retryAt = new Map();        // key -> timestamp prossimo retry
-    const retryCount = new Map();     // key -> n retry consecutivi
+    const timers = new Map();
+    const inflight = new Set();
+    const retryAt = new Map();
+    const retryCount = new Map();
     let globalRetryTimer = null;
 
-    let status = 'ok';                // 'ok' | 'pending' | 'error'
+    let status = 'ok';
     let lastError = null;
     const listeners = new Set();
 
@@ -115,16 +113,6 @@ window.PendingSync = (function() {
 
     // ───────────────────────── sync core ─────────────────────────
 
-    function parseKey(key) {
-        const [fornitore_codice, codart, fase, magaz] = (key || '').split('|');
-        return {
-            fornitore_codice,
-            codart,
-            fase: parseInt(fase || 0, 10),
-            magaz: parseInt(magaz || 1, 10)
-        };
-    }
-
     async function syncKey(key) {
         if (!elaborazioneId || !lsKey) return;
         if (inflight.has(key)) return;
@@ -133,25 +121,26 @@ window.PendingSync = (function() {
         const entry = s[key];
         if (!entry || entry.synced === true) return;
 
-        // Respect backoff
         const now = Date.now();
         const nextAt = retryAt.get(key) || 0;
         if (now < nextAt) return;
 
         inflight.add(key);
-        const parsed = parseKey(key);
         const isDelete = entry.deleted === true;
+        const olProgr = parseInt(key, 10);
 
         try {
             const url = API + (isDelete ? '/conferma-pending/delete' : '/conferma-pending/upsert');
             const payload = {
                 elaborazione_id: elaborazioneId,
-                fornitore_codice: parsed.fornitore_codice,
-                codart: parsed.codart,
-                fase: parsed.fase,
-                magaz: parsed.magaz
+                ol_progr: olProgr
             };
             if (!isDelete) {
+                payload.fornitore_codice = entry.forn || '';
+                payload.codart = entry.codart || '';
+                payload.fase = entry.fase || 0;
+                payload.magaz = entry.magaz || 1;
+                payload.data_consegna = entry.datcons || null;
                 payload.quantita_confermata = entry.quantita;
                 payload.prezzo_override = entry.prezzo == null ? null : entry.prezzo;
             }
@@ -169,7 +158,6 @@ window.PendingSync = (function() {
                     return;
                 }
                 if (body.error === 'CHIAVE_NON_VALIDA') {
-                    // Chiave non in SnapshotProposte: entry orfana, rimuovi dal LS.
                     removeEntry(key);
                     retryAt.delete(key);
                     retryCount.delete(key);
@@ -180,8 +168,6 @@ window.PendingSync = (function() {
 
             if (!r.ok) throw new Error('HTTP ' + r.status);
 
-            // Successo: se era delete → rimuovi l'entry definitivamente.
-            // Se era upsert → marca synced=true (resta in LS per consistenza con DB).
             if (isDelete) {
                 removeEntry(key);
             } else {
@@ -195,7 +181,6 @@ window.PendingSync = (function() {
             lastError = null;
             recomputeStatus();
         } catch (err) {
-            // Errore → schedula retry con backoff
             const n = (retryCount.get(key) || 0);
             const delay = BACKOFF_SCHEDULE[Math.min(n, BACKOFF_SCHEDULE.length - 1)];
             retryCount.set(key, n + 1);
@@ -211,14 +196,12 @@ window.PendingSync = (function() {
 
     function scheduleGlobalRetry() {
         if (globalRetryTimer) return;
-        // Trova il prossimo retryAt più vicino
         let minAt = Infinity;
         retryAt.forEach(t => { if (t < minAt) minAt = t; });
         if (!isFinite(minAt)) return;
         const delay = Math.max(100, minAt - Date.now());
         globalRetryTimer = setTimeout(() => {
             globalRetryTimer = null;
-            // Retry tutto ciò che è scaduto
             const s = readLS();
             Object.keys(s).forEach(k => {
                 if (s[k] && s[k].synced === false) syncKey(k);
@@ -234,7 +217,6 @@ window.PendingSync = (function() {
         retryCount.clear();
         lastError = 'Elaborazione cambiata: ricarico la proposta...';
         recomputeStatus();
-        // Ricarica la proposta — se MrpApp espone un hook lo chiamo, altrimenti reload.
         try {
             if (window.MrpApp && typeof MrpApp.reloadProposta === 'function') {
                 MrpApp.reloadProposta();
@@ -251,8 +233,6 @@ window.PendingSync = (function() {
         userId = opts && opts.userId;
         lsKey = elaborazioneId ? 'ocp_' + elaborazioneId : null;
 
-        // Invalidazione al cambio elaborazione: pulisci tutte le chiavi
-        // ocp_* che NON corrispondono alla corrente.
         try {
             for (let i = localStorage.length - 1; i >= 0; i--) {
                 const k = localStorage.key(i);
@@ -262,12 +242,9 @@ window.PendingSync = (function() {
             }
         } catch (_) {}
 
-        // Kick iniziale: se ci sono entry non sincronizzate rimaste da una
-        // sessione precedente (crash/reload), prova a flusharle.
         const s = readLS();
         Object.keys(s).forEach(k => {
             if (s[k] && s[k].synced === false) {
-                // Debounce leggero per non stressare al boot
                 setTimeout(() => syncKey(k), 100);
             }
         });
@@ -286,18 +263,18 @@ window.PendingSync = (function() {
         const mergeMap = opts && opts.mergeIntoMap;
 
         for (const row of dbRows) {
-            const key = `${row.fornitore_codice}|${row.codart}|${row.fase || 0}|${row.magaz || 1}`;
+            const key = String(row.ol_progr);
             const lsEntry = s[key];
 
             if (lsEntry && lsEntry.synced === false) {
-                // LS wins: lavoro utente non ancora confermato dal server.
-                // Se è un tombstone, non reinserire in Map.
                 if (!lsEntry.deleted && mergeMap) {
                     mergeMap.set(key, {
+                        ol_progr: row.ol_progr,
                         fornitore_codice: row.fornitore_codice,
                         ol_codart: row.codart,
                         ol_fase: row.fase || 0,
                         ol_magaz: row.magaz || 1,
+                        data_consegna: row.data_consegna,
                         quantita_confermata: lsEntry.quantita,
                         prezzo: lsEntry.prezzo
                     });
@@ -309,16 +286,23 @@ window.PendingSync = (function() {
             s[key] = {
                 quantita: Number(row.quantita_confermata),
                 prezzo: row.prezzo_override == null ? null : Number(row.prezzo_override),
+                forn: row.fornitore_codice,
+                codart: row.codart,
+                fase: row.fase || 0,
+                magaz: row.magaz || 1,
+                datcons: row.data_consegna || null,
                 deleted: false,
                 synced: true,
                 updated_at: row.updated_at
             };
             if (mergeMap) {
                 mergeMap.set(key, {
+                    ol_progr: row.ol_progr,
                     fornitore_codice: row.fornitore_codice,
                     ol_codart: row.codart,
                     ol_fase: row.fase || 0,
                     ol_magaz: row.magaz || 1,
+                    data_consegna: row.data_consegna,
                     quantita_confermata: Number(row.quantita_confermata),
                     prezzo: row.prezzo_override == null ? null : Number(row.prezzo_override)
                 });
@@ -326,9 +310,7 @@ window.PendingSync = (function() {
         }
 
         // Entry in LS non presenti in DB e synced=true → stale: rimuovi.
-        const dbKeySet = new Set(dbRows.map(r =>
-            `${r.fornitore_codice}|${r.codart}|${r.fase || 0}|${r.magaz || 1}`
-        ));
+        const dbKeySet = new Set(dbRows.map(r => String(r.ol_progr)));
         Object.keys(s).forEach(k => {
             if (s[k] && s[k].synced === true && !dbKeySet.has(k)) {
                 delete s[k];
@@ -344,6 +326,11 @@ window.PendingSync = (function() {
         const entry = {
             quantita: Number(dati.quantita_confermata),
             prezzo: dati.prezzo == null ? (dati.prezzo_override == null ? null : Number(dati.prezzo_override)) : Number(dati.prezzo),
+            forn: dati.fornitore_codice || '',
+            codart: dati.codart || '',
+            fase: dati.fase || 0,
+            magaz: dati.magaz || 1,
+            datcons: dati.data_consegna || null,
             deleted: false,
             synced: false,
             updated_at: new Date().toISOString()
@@ -351,11 +338,9 @@ window.PendingSync = (function() {
         writeEntry(key, entry);
         recomputeStatus();
 
-        // Debounce per chiave
         if (timers.has(key)) clearTimeout(timers.get(key));
         timers.set(key, setTimeout(() => {
             timers.delete(key);
-            // Reset backoff su nuova edit esplicita
             retryAt.delete(key);
             retryCount.delete(key);
             syncKey(key);
@@ -367,10 +352,7 @@ window.PendingSync = (function() {
         const s = readLS();
         const cur = s[key];
 
-        // Se l'entry non era mai stata sincronizzata e non esiste in DB
-        // possiamo rimuoverla direttamente senza tombstone.
-        if (!cur || (cur.synced === false && cur.deleted === false && !cur._wasOnServer)) {
-            // Se non è mai stata syncata al server, basta cancellare
+        if (!cur || (cur.synced === false && cur.deleted === false)) {
             if (!cur || !cur.synced) {
                 removeEntry(key);
                 recomputeStatus();
@@ -382,6 +364,11 @@ window.PendingSync = (function() {
         writeEntry(key, {
             quantita: cur ? cur.quantita : 0,
             prezzo: cur ? cur.prezzo : null,
+            forn: cur ? cur.forn : '',
+            codart: cur ? cur.codart : '',
+            fase: cur ? cur.fase : 0,
+            magaz: cur ? cur.magaz : 1,
+            datcons: cur ? cur.datcons : null,
             deleted: true,
             synced: false,
             updated_at: new Date().toISOString()
@@ -397,10 +384,6 @@ window.PendingSync = (function() {
         }, DEBOUNCE_MS));
     }
 
-    /**
-     * Rimuove in blocco un set di chiavi dal LS. Usato post-emissione
-     * (il backend ha già DELETE-ato le righe lato DB).
-     */
     function clearForKeys(keys) {
         if (!Array.isArray(keys) || keys.length === 0) return;
         const s = readLS();
@@ -417,10 +400,6 @@ window.PendingSync = (function() {
         }
     }
 
-    /**
-     * Flush sincrono via sendBeacon su pagehide. Last-chance: se fallisce,
-     * le entry restano in LS con synced=false e verranno retentate al reload.
-     */
     function flushAllBeacon() {
         if (!lsKey || !elaborazioneId) return;
         const s = readLS();
@@ -428,22 +407,19 @@ window.PendingSync = (function() {
         Object.keys(s).forEach(k => {
             const e = s[k];
             if (!e || e.synced === true) return;
-            const parsed = parseKey(k);
+            const olProgr = parseInt(k, 10);
+            if (!olProgr) return;
             if (e.deleted) {
-                ops.push({
-                    action: 'delete',
-                    fornitore_codice: parsed.fornitore_codice,
-                    codart: parsed.codart,
-                    fase: parsed.fase,
-                    magaz: parsed.magaz
-                });
+                ops.push({ action: 'delete', ol_progr: olProgr });
             } else {
                 ops.push({
                     action: 'upsert',
-                    fornitore_codice: parsed.fornitore_codice,
-                    codart: parsed.codart,
-                    fase: parsed.fase,
-                    magaz: parsed.magaz,
+                    ol_progr: olProgr,
+                    fornitore_codice: e.forn || '',
+                    codart: e.codart || '',
+                    fase: e.fase || 0,
+                    magaz: e.magaz || 1,
+                    data_consegna: e.datcons || null,
                     quantita_confermata: e.quantita,
                     prezzo_override: e.prezzo
                 });
@@ -461,9 +437,7 @@ window.PendingSync = (function() {
         }
     }
 
-    // Pagehide handler — registrato una sola volta.
     window.addEventListener('pagehide', flushAllBeacon);
-    // beforeunload come backup (Safari iOS non sempre fa pagehide)
     window.addEventListener('beforeunload', flushAllBeacon);
 
     return {
