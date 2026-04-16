@@ -64,6 +64,14 @@
       cursor: pointer;
     }
     .kanban-color-choice.active { border-color: #0d6efd; box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2); }
+    .task-title-clamp {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word; /* Forza l'andata a capo delle parole infinite */
+      line-height: 1.3em;
+    }
   </style>
 </head>
 <body class="bg-light">
@@ -102,7 +110,7 @@
                 <button class="nav-link active" id="tab-info" data-bs-toggle="tab" data-bs-target="#pane-info" type="button" role="tab" aria-controls="pane-info" aria-selected="true">Info</button>
               </li>
               <li class="nav-item" role="presentation">
-                <button class="nav-link" id="tab-piano-operativo" data-bs-toggle="tab" data-bs-target="#pane-piano-operativo" type="button" role="tab" aria-controls="pane-piano-operativo" aria-selected="false">Piano Operativo</button>
+                <button class="nav-link" id="tab-piano-operativo" data-bs-toggle="tab" data-bs-target="#pane-kanban" type="button" role="tab" aria-controls="pane-kanban" aria-selected="false">Kanban</button>
               </li>
               <li class="nav-item" role="presentation">
                 <button class="nav-link" id="tab-elenco-task" data-bs-toggle="tab" data-bs-target="#pane-elenco-task" type="button" role="tab" aria-controls="pane-elenco-task" aria-selected="false">Elenco Task</button>
@@ -113,6 +121,12 @@
             </ul>
             <div id="contextualActionBar" class="pb-2 d-flex gap-2">
               <button id="btnContextModifica" class="btn btn-outline-primary btn-sm">Modifica Progetto</button>
+              <div class="d-flex align-items-center me-3 d-none" id="containerFocusMode">
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input cursor-pointer" type="checkbox" role="switch" id="toggleFocusMode">
+                  <label class="form-check-label small text-muted user-select-none cursor-pointer ms-1" for="toggleFocusMode">Nascondi completati</label>
+                </div>
+              </div>
               <button id="btnContextNuovoTask" class="btn btn-primary btn-sm d-none">Nuovo Task</button>
               <button id="btnContextAssegna" class="btn btn-primary btn-sm d-none">Assegna Persona</button>
             </div>
@@ -152,7 +166,7 @@
                 </div>
               </div>
             </div>
-            <div class="tab-pane fade" id="pane-piano-operativo" role="tabpanel" aria-labelledby="tab-piano-operativo">
+            <div class="tab-pane fade" id="pane-kanban" role="tabpanel" aria-labelledby="tab-piano-operativo">
               <div class="kanban-board-scroll" id="kanbanBoard">
                 <div class="kanban-column-item">
                   <div class="text-muted small">Caricamento board...</div>
@@ -239,7 +253,7 @@
             </div>
             <div class="mb-3">
               <label for="taskAssegnato" class="form-label">Assegnato</label>
-              <select id="taskAssegnato" class="form-select" required>
+              <select id="taskAssegnato" class="form-select">
                 <option value="">Seleziona persona</option>
               </select>
             </div>

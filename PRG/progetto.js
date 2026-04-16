@@ -8,6 +8,12 @@ let currentTaskStructure = [];
 let currentKanbanColumns = [];
 let currentEditingColumnId = null;
 let selectedColumnColor = '#f8f9fa';
+let hideCompletedSubtasks = false;
+
+function getTodayISODate() {
+  // YYYY-MM-DD in UTC; compatibile con <input type="date">
+  return new Date().toISOString().slice(0, 10);
+}
 
 document.addEventListener('securityReady', initApp);
 
@@ -38,6 +44,7 @@ async function initApp() {
   const btnContextAssegna = document.getElementById('btnContextAssegna');
   const formModificaColonna = document.getElementById('formModificaColonna');
   const paletteButtons = document.querySelectorAll('#colonnaPalette [data-colore]');
+  const toggleFocusMode = document.getElementById('toggleFocusMode');
 
   formAssegnaPersona.addEventListener('submit', onSubmitAssegnaPersona);
   modalAssegnaPersona.addEventListener('show.bs.modal', loadPersoneSelect);
@@ -65,6 +72,13 @@ async function initApp() {
   paletteButtons.forEach((btn) => {
     btn.addEventListener('click', () => setSelectedColumnColor(btn.dataset.colore || '#f8f9fa'));
   });
+  if (toggleFocusMode) {
+    toggleFocusMode.addEventListener('change', (e) => {
+      hideCompletedSubtasks = e.target.checked;
+      renderKanban(currentTasks);
+      renderElencoTask(currentTaskStructure);
+    });
+  }
 
   await loadDettaglioProgetto(currentProjectId);
   await loadTeam(currentProjectId);
@@ -74,7 +88,13 @@ async function initApp() {
 async function requestJson(url, options = {}) {
   const requestOptions = {
     credentials: 'include',
+    cache: 'no-store', // Forza il browser a non usare la cache
     ...options,
+    headers: {
+      'Pragma': 'no-cache',
+      'Cache-Control': 'no-cache',
+      ...(options.headers || {})
+    }
   };
   const response = await fetch(url, requestOptions);
   const payload = await response.json().catch(() => ({}));
@@ -177,9 +197,13 @@ function updateContextualActionBar(activeTabId) {
   const btnContextModifica = document.getElementById('btnContextModifica');
   const btnContextNuovoTask = document.getElementById('btnContextNuovoTask');
   const btnContextAssegna = document.getElementById('btnContextAssegna');
+  const containerFocusMode = document.getElementById('containerFocusMode');
   btnContextModifica.classList.add('d-none');
   btnContextNuovoTask.classList.add('d-none');
   btnContextAssegna.classList.add('d-none');
+  if (containerFocusMode) {
+    containerFocusMode.classList.add('d-none');
+  }
 
   if (activeTabId === 'tab-info') {
     btnContextModifica.classList.remove('d-none');
@@ -187,6 +211,9 @@ function updateContextualActionBar(activeTabId) {
   }
   if (activeTabId === 'tab-piano-operativo' || activeTabId === 'tab-elenco-task') {
     btnContextNuovoTask.classList.remove('d-none');
+    if (containerFocusMode) {
+      containerFocusMode.classList.remove('d-none');
+    }
     return;
   }
   if (activeTabId === 'tab-team') {
@@ -248,22 +275,38 @@ function renderElencoTask(struttura) {
   }
 
   struttura.forEach((task) => {
-    container.appendChild(buildTaskRow(task, false));
-    const subtasks = Array.isArray(task.sub_tasks) ? task.sub_tasks : [];
+    const taskGroup = document.createElement('div');
+    taskGroup.className = 'task-group mb-2';
+
+    const subtaskContainerId = `task-subgroup-${task.id_task}`;
+    taskGroup.appendChild(buildTaskRow(task, false, null, { subtaskContainerId }));
+
+    const subtaskContainer = document.createElement('div');
+    subtaskContainer.id = subtaskContainerId;
+    subtaskContainer.className = 'ms-4 mt-1';
+
+    let subtasks = Array.isArray(task.sub_tasks) ? task.sub_tasks : [];
+    if (hideCompletedSubtasks) {
+      subtasks = subtasks.filter(st => !st.is_completato);
+    }
     subtasks.forEach((subtask) => {
-      container.appendChild(buildTaskRow(subtask, true, task.id_task));
+      subtaskContainer.appendChild(buildTaskRow(subtask, true, task.id_task));
     });
 
     const btnAddSubtask = document.createElement('button');
     btnAddSubtask.type = 'button';
-    btnAddSubtask.className = 'btn btn-link btn-sm text-decoration-none ms-4';
-    btnAddSubtask.textContent = '+ Aggiungi sotto-attivita';
+    btnAddSubtask.className = 'btn btn-link btn-sm text-decoration-none';
+    btnAddSubtask.textContent = '+ Aggiungi sub-task';
     btnAddSubtask.addEventListener('click', () => onAggiungiSubtask(task.id_task));
-    container.appendChild(btnAddSubtask);
+    subtaskContainer.appendChild(btnAddSubtask);
+
+    taskGroup.appendChild(subtaskContainer);
+    container.appendChild(taskGroup);
   });
 }
 
-function buildTaskRow(item, isSubtask, parentTaskId = null) {
+function buildTaskRow(item, isSubtask, parentTaskId = null, options = {}) {
+  const { subtaskContainerId = null } = options;
   const wrapper = document.createElement('div');
   wrapper.className = `border rounded p-2 mb-2 ${isSubtask ? 'subtask-row' : ''}`;
 
@@ -274,7 +317,7 @@ function buildTaskRow(item, isSubtask, parentTaskId = null) {
   const chevron = document.createElement('button');
   chevron.type = 'button';
   chevron.className = 'task-action-btn';
-  chevron.textContent = '▸';
+  chevron.textContent = isSubtask ? '▸' : '▾';
 
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
@@ -284,7 +327,13 @@ function buildTaskRow(item, isSubtask, parentTaskId = null) {
   const titleInput = document.createElement('input');
   titleInput.type = 'text';
   titleInput.className = `task-inline-input fw-semibold ${item.is_completato ? 'task-barrato' : ''}`;
+  titleInput.placeholder = isSubtask ? 'Nuovo sub-task' : 'Nuovo task';
   titleInput.value = item.titolo || '';
+  const descBtn = document.createElement('button');
+  descBtn.type = 'button';
+  descBtn.className = 'task-action-btn text-secondary';
+  descBtn.title = 'Mostra/nascondi descrizione';
+  descBtn.innerHTML = '<i class="bi bi-text-paragraph"></i>';
 
   const prioritaBadge = document.createElement('span');
   prioritaBadge.className = `badge ${getPrioritaBadgeClass(item.priorita || 'Media')}`;
@@ -310,6 +359,7 @@ function buildTaskRow(item, isSubtask, parentTaskId = null) {
   row.appendChild(chevron);
   row.appendChild(checkbox);
   row.appendChild(titleInput);
+  row.appendChild(descBtn);
   if (isSubtask) {
     row.appendChild(fiammaBtn);
   } else {
@@ -326,8 +376,21 @@ function buildTaskRow(item, isSubtask, parentTaskId = null) {
   `;
 
   chevron.addEventListener('click', () => {
+    if (!isSubtask && subtaskContainerId) {
+      const subtaskContainer = document.getElementById(subtaskContainerId);
+      if (!subtaskContainer) return;
+      const isHidden = subtaskContainer.classList.toggle('d-none');
+      chevron.textContent = isHidden ? '▸' : '▾';
+      return;
+    }
     const isHidden = descWrap.classList.toggle('d-none');
     chevron.textContent = isHidden ? '▸' : '▾';
+  });
+
+  descBtn.addEventListener('click', () => {
+    const isHidden = descWrap.classList.toggle('d-none');
+    descBtn.classList.toggle('text-primary', !isHidden);
+    descBtn.classList.toggle('text-secondary', isHidden);
   });
 
   checkbox.addEventListener('change', async () => {
@@ -337,7 +400,24 @@ function buildTaskRow(item, isSubtask, parentTaskId = null) {
       if (isSubtask) {
         await updateSubtaskField(item.id_sub_task, { is_completato: nuovoValore });
       } else {
-        await updateTaskField(item.id_task, { stato: nuovoValore ? 'Completato' : 'Da Fare' });
+        if (nuovoValore === 1) {
+          // Task Completato: cerchiamo la colonna "Completato"
+          const colCompletato = currentKanbanColumns.find(c => isCompletedColumnName(c.nome));
+          const payload = colCompletato 
+            ? { id_colonna: colCompletato.id_colonna } 
+            : { is_completato: 1, stato: 'Completato' };
+          
+          await updateTaskField(item.id_task, payload);
+        } else {
+          // Task Riaperto (Opzione A): lo mandiamo alla primissima colonna della board
+          const colonneOrdinate = [...currentKanbanColumns].sort((a, b) => Number(a.ordine) - Number(b.ordine));
+          const primaColonna = colonneOrdinate[0];
+          const payload = primaColonna 
+            ? { id_colonna: primaColonna.id_colonna } 
+            : { is_completato: 0, stato: 'Da Fare' };
+            
+          await updateTaskField(item.id_task, payload);
+        }
       }
       titleInput.classList.toggle('task-barrato', checkbox.checked);
       await refreshTaskViews();
@@ -445,7 +525,7 @@ async function onAggiungiSubtask(idTask) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id_task: idTask,
-        titolo: 'Nuova sotto-attivita',
+        titolo: '',
         descrizione: '',
       }),
     });
@@ -546,8 +626,13 @@ function createTaskCard(task) {
   const persona = task.nome_assegnato || 'Non assegnato';
   const initials = getInitials(persona);
   const dipendenzaTitolo = task.titolo_dipendenza || '';
-  const subTasks = getSubtasksForTask(task.id_task);
-  const subTasksCompletate = subTasks.filter((item) => Boolean(item.is_completato)).length;
+  const allSubTasks = getSubtasksForTask(task.id_task);
+  let subTasks = allSubTasks;
+  if (hideCompletedSubtasks) {
+    subTasks = subTasks.filter(st => !st.is_completato);
+  }
+  const subTasksCompletate = allSubTasks.filter((item) => Boolean(item.is_completato)).length;
+  const hasActiveCriticalSubtask = allSubTasks.some((item) => Number(item.is_critico) === 1 && !Boolean(item.is_completato));
   const collapseId = `task-subtasks-${task.id_task}`;
   const hasDescrizione = Boolean(task.descrizione && String(task.descrizione).trim());
   const descrizioneId = `task-descrizione-${task.id_task}`;
@@ -566,8 +651,11 @@ function createTaskCard(task) {
   const subtaskToggleHtml = subTasks.length
     ? `
       <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-primary" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false">
-        <span data-subtask-counter>${subTasksCompletate}/${subTasks.length} completati</span>
+        <span data-subtask-counter>${subTasksCompletate}/${allSubTasks.length} completati</span>
       </button>
+      <span data-critical-fire class="${hasActiveCriticalSubtask ? '' : 'd-none'}" title="Sono presenti sub-task critici aperti" aria-label="Sub-task critici aperti">
+        <i class="bi bi-fire text-danger"></i>
+      </span>
     `
     : '';
 
@@ -575,7 +663,9 @@ function createTaskCard(task) {
     <div class="card-body p-2">
       <div class="d-flex justify-content-between align-items-start">
         <div class="fw-semibold d-flex align-items-center gap-1">
-          <span>${escapeHtml(task.titolo || `Task ${task.id_task}`)}</span>
+          <span class="task-title-clamp" title="${escapeHtml(task.titolo || `Task ${task.id_task}`)}">
+            ${escapeHtml(task.titolo || `Task ${task.id_task}`)}
+          </span>
           ${hasDescrizione ? `
             <button
               type="button"
@@ -616,7 +706,9 @@ function createTaskCard(task) {
             ${subTasks.map((subtask) => `
               <label class="d-flex align-items-center gap-2">
                 <input class="form-check-input" type="checkbox" data-subtask-id="${subtask.id_sub_task}" ${subtask.is_completato ? 'checked' : ''}>
-                <span class="${subtask.is_completato ? 'task-barrato' : ''}">${escapeHtml(subtask.titolo || `Sub-task ${subtask.id_sub_task}`)}</span>
+                <span class="${subtask.is_completato ? 'task-barrato' : (subtask.is_critico ? 'text-danger fw-semibold' : '')}">
+                  ${escapeHtml(subtask.titolo || `Sub-task ${subtask.id_sub_task}`)}
+                </span>
               </label>
             `).join('')}
           </div>
@@ -657,6 +749,7 @@ function createTaskCard(task) {
         }
         patchSubtaskCompletionInMemory(task.id_task, idSubTask, checked ? 1 : 0);
         updateCardSubtaskCounter(card, task.id_task);
+        updateCardCriticalFire(card, task.id_task);
       } catch (error) {
         checkbox.checked = !checked;
         showError(error.message || 'Errore durante aggiornamento sub-task.');
@@ -741,6 +834,9 @@ async function onOpenNuovoTaskModal() {
   populateTaskAssigneeSelect();
   populateTaskDependenciesSelect(null);
   resetTaskModalForCreate();
+  // Le scadenze devono restare vuote in creazione
+  const elScadenza = document.getElementById('taskScadenza');
+  if (elScadenza) elScadenza.value = '';
 }
 
 function populateTaskAssigneeSelect() {
@@ -773,16 +869,14 @@ async function onSubmitGestioneTask(event) {
   event.preventDefault();
   const currentTaskId = Number(document.getElementById('taskIdCorrente').value);
 
-  const idPersona = Number(document.getElementById('taskAssegnato').value);
-  if (!idPersona) {
-    showError('Seleziona una persona assegnata al task.');
-    return;
-  }
+  const rawIdPersona = document.getElementById('taskAssegnato').value;
+  const idPersonaParsed = rawIdPersona ? Number(rawIdPersona) : null;
+  const idPersonaFinal = idPersonaParsed && !Number.isNaN(idPersonaParsed) ? idPersonaParsed : null;
 
   const payload = {
     id_progetto: currentProjectId,
     titolo: document.getElementById('taskTitolo').value.trim(),
-    id_persona: idPersona,
+    id_persona: idPersonaFinal,
     priorita: document.getElementById('taskPriorita').value || 'Media',
     scadenza: document.getElementById('taskScadenza').value || null,
     descrizione: document.getElementById('taskDescrizione').value.trim(),
@@ -951,6 +1045,14 @@ function updateCardSubtaskCounter(card, idTask) {
   if (counter) {
     counter.textContent = `${completate}/${subtasks.length} completati`;
   }
+}
+
+function updateCardCriticalFire(card, idTask) {
+  const fireIndicator = card.querySelector('[data-critical-fire]');
+  if (!fireIndicator) return;
+  const subtasks = getSubtasksForTask(idTask);
+  const hasActiveCriticalSubtask = subtasks.some((item) => Number(item.is_critico) === 1 && !Boolean(item.is_completato));
+  fireIndicator.classList.toggle('d-none', !hasActiveCriticalSubtask);
 }
 
 function onAggiungiColonnaKanban() {
@@ -1139,7 +1241,17 @@ async function onSubmitAssegnaPersona(event) {
 }
 
 async function onOpenModificaProgettoModal() {
-  if (!currentProjectData) return;
+  const today = getTodayISODate();
+
+  // Se la modale viene usata anche in una modalità "creazione"
+  // (quindi `currentProjectData` non è valorizzato), precompiliamo solo Data Inizio.
+  if (!currentProjectData) {
+    const elDataInizio = document.getElementById('editDataInizioProgetto');
+    if (elDataInizio) elDataInizio.value = today;
+    const elDataFine = document.getElementById('editDataFineProgetto');
+    if (elDataFine) elDataFine.value = '';
+    return;
+  }
 
   try {
     await loadAreeSelect(currentProjectData.id_area);
@@ -1150,7 +1262,9 @@ async function onOpenModificaProgettoModal() {
   document.getElementById('editNomeProgetto').value = currentProjectData.nome_progetto || '';
   document.getElementById('editDescrizioneProgetto').value = currentProjectData.descrizione || '';
   document.getElementById('editObbiettiviProgetto').value = currentProjectData.obbiettivi || '';
-  document.getElementById('editDataInizioProgetto').value = toDateInputValue(currentProjectData.data_inizio);
+  // Data Inizio: fallback a "oggi" se il valore DB non è presente/vuoto
+  const dataInizio = toDateInputValue(currentProjectData.data_inizio);
+  document.getElementById('editDataInizioProgetto').value = dataInizio || today;
   document.getElementById('editDataFineProgetto').value = toDateInputValue(currentProjectData.data_fine);
   const prioritaSelect = document.getElementById('prioritaProgetto');
   if (prioritaSelect && currentProjectData.priorita) {
@@ -1199,11 +1313,15 @@ async function onSubmitModificaProgetto(event) {
     return;
   }
 
+  const today = getTodayISODate();
+  const dataInizioInput = document.getElementById('editDataInizioProgetto').value;
+  const dataInizioFinal = dataInizioInput ? dataInizioInput : today;
+
   const payload = {
     nome_progetto: document.getElementById('editNomeProgetto').value.trim(),
     descrizione: document.getElementById('editDescrizioneProgetto').value.trim(),
     obbiettivi: document.getElementById('editObbiettiviProgetto').value.trim(),
-    data_inizio: document.getElementById('editDataInizioProgetto').value || null,
+    data_inizio: dataInizioFinal,
     data_fine: document.getElementById('editDataFineProgetto').value || null,
     priorita: document.getElementById('prioritaProgetto').value || null,
     budget: parsedBudget,

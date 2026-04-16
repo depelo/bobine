@@ -12,6 +12,7 @@
     integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
     crossorigin="anonymous"
   >
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/gb2/css/gb2-shell.css">
   <style>
     .text-bg-orange { background-color: #fd7e14 !important; color: #fff !important; }
@@ -54,43 +55,71 @@
             </div>
           </div>
           <div class="card-body">
-            <section class="mb-4">
-              <h6 class="mb-3">Filtri Globali</h6>
-              <div class="d-flex flex-wrap gap-3">
-                <div class="flex-grow-1" style="min-width: 220px;">
-                  <label for="filtroArea" class="form-label">Area</label>
-                  <select id="filtroArea" class="form-select">
-                    <option value="">Tutte le Aree</option>
-                  </select>
-                </div>
-                <div class="flex-grow-1" style="min-width: 220px;">
-                  <label for="filtroPriorita" class="form-label">Priorita</label>
-                  <select id="filtroPriorita" class="form-select">
-                    <option value="">Tutte le Priorita</option>
-                    <option value="Bassa">Bassa</option>
-                    <option value="Media">Media</option>
-                    <option value="Alta">Alta</option>
-                    <option value="Critica">Critica</option>
-                  </select>
-                </div>
-                <div class="flex-grow-1" style="min-width: 220px;">
-                  <label for="filtroStato" class="form-label">Stato</label>
-                  <select id="filtroStato" class="form-select">
-                    <option value="">Tutti gli Stati</option>
-                  </select>
-                </div>
-              </div>
-            </section>
+            <div>
+              <input
+                type="search"
+                id="searchNomeProgetto"
+                class="form-control mb-3 w-25"
+                placeholder="🔍 Cerca per nome..."
+              >
+            </div>
             <div class="table-responsive">
               <table class="table table-hover mb-0">
                 <thead class="table-light">
                   <tr>
-                    <th scope="col">Nome</th>
-                    <th scope="col">Area</th>
-                    <th scope="col">Data Inizio</th>
-                    <th scope="col">Priorita</th>
-                    <th scope="col">Stato</th>
-                    <th scope="col" class="text-end" style="width: 1%; white-space: nowrap;">Apri</th>
+                    <th style="cursor: pointer;" class="align-middle text-nowrap" onclick="onGridSort('nome_progetto')">
+                      <span class="text-body text-decoration-none">Nome</span>
+                      <i class="bi bi-arrow-down-up text-primary ms-1" data-sort-icon="nome_progetto"></i>
+                    </th>
+                    <th class="align-middle text-nowrap">
+                      <div class="d-flex align-items-center">
+                        <div style="cursor: pointer;" onclick="onGridSort('nome_area')">
+                          <span class="text-body text-decoration-none">Area</span>
+                          <i class="bi bi-arrow-down-up text-primary ms-1" data-sort-icon="nome_area"></i>
+                        </div>
+                        <div class="dropdown ms-2">
+                          <button class="btn btn-sm p-0 border-0 text-primary" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                            <i class="bi bi-funnel"></i>
+                          </button>
+                          <div class="dropdown-menu p-2 shadow-sm" id="filterMenuArea" style="min-width: 200px;"></div>
+                        </div>
+                      </div>
+                    </th>
+                    <th style="cursor: pointer;" class="align-middle text-nowrap" onclick="onGridSort('data_inizio')">
+                      <span class="text-body text-decoration-none">Data Inizio</span>
+                      <i class="bi bi-arrow-down-up text-primary ms-1" data-sort-icon="data_inizio"></i>
+                    </th>
+                    <th class="align-middle text-nowrap">
+                      <div class="d-flex align-items-center">
+                        <div style="cursor: pointer;" onclick="onGridSort('priorita')">
+                          <span class="text-body text-decoration-none">Priorita</span>
+                          <i class="bi bi-arrow-down-up text-primary ms-1" data-sort-icon="priorita"></i>
+                        </div>
+                        <div class="dropdown ms-2">
+                          <button class="btn btn-sm p-0 border-0 text-primary" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                            <i class="bi bi-funnel"></i>
+                          </button>
+                          <div class="dropdown-menu p-2 shadow-sm" id="filterMenuPriorita" style="min-width: 200px;"></div>
+                        </div>
+                      </div>
+                    </th>
+                    <th class="align-middle text-nowrap">
+                      <div class="d-flex align-items-center">
+                        <div style="cursor: pointer;" onclick="onGridSort('stato')">
+                          <span class="text-body text-decoration-none">Stato</span>
+                          <i class="bi bi-arrow-down-up text-primary ms-1" data-sort-icon="stato"></i>
+                        </div>
+                        <div class="dropdown ms-2">
+                          <button class="btn btn-sm p-0 border-0 text-primary" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                            <i class="bi bi-funnel"></i>
+                          </button>
+                          <div class="dropdown-menu p-2 shadow-sm" id="filterMenuStato" style="min-width: 200px;"></div>
+                        </div>
+                      </div>
+                    </th>
+                    <th class="align-middle text-nowrap text-end">
+                      <span class="text-body text-decoration-none">Apri</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody id="tabellaProgettiBody">
@@ -125,7 +154,7 @@
             </div>
             <div class="mb-0">
               <label for="dataProgetto" class="form-label">Data</label>
-              <input type="date" class="form-control" id="dataProgetto" required>
+              <input type="date" class="form-control" id="dataProgetto">
             </div>
           </form>
         </div>

@@ -119,6 +119,7 @@ router.get('/components/:padre', async (req, res) => {
                 LTRIM(RTRIM(v.MD_codfigli)) AS MD_codfigli,
                 v.md_riga AS et_layer_nriga,
                 ISNULL(v.DescrFiglio, '') AS figlioDesc,
+                ISNULL(v.DescrPos, '') AS DescrPos,
                 CASE WHEN u.et_kcodart_layer IS NOT NULL THEN 1 ELSE 0 END AS IsConfigurata,
                 u.et_kcodart_form AS Form,
                 u.et_kcodart_form_pos AS FormPos
@@ -136,6 +137,7 @@ router.get('/components/:padre', async (req, res) => {
             MD_codfigli: row.MD_codfigli,
             et_layer_nriga: row.et_layer_nriga,
             figlioDesc: row.figlioDesc,
+            DescrPos: row.DescrPos != null ? String(row.DescrPos) : '',
             IsConfigurata: row.IsConfigurata,
             Form: row.Form != null ? String(row.Form) : '',
             FormPos: row.FormPos != null ? String(row.FormPos) : ''
