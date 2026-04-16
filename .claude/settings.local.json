@@ -126,7 +126,8 @@
       "Bash(node --check routes/gb2/mrp-proposte.js)",
       "Bash(node --check routes/gb2/email.js)",
       "Bash(node --check routes/gb2/helpers.js)",
-      "Bash(node --check gb2/js/gb2-theme.js)"
+      "Bash(node --check gb2/js/gb2-theme.js)",
+      "Bash(node --check gb2/js/gb2-parametri.js)"
     ]
   }
 }

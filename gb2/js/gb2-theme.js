@@ -364,9 +364,9 @@ const MrpTheme = (() => {
         ]},
 
         // === PROPOSTA — BARRA EMETTI TUTTI ===
-        { selector: '.proposta-emetti-tutti-bar', label: 'Barra emetti tutti', vars: [
-            { varName: '--success', controlType: 'color', label: 'Colore accento' },
-            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        { selector: '.proposta-emetti-tutti-bar', label: 'Barra email/emetti tutti', vars: [
+            { varName: '--success', controlType: 'color', label: 'Sfondo e bordo' },
+            { varName: '--text', controlType: 'color', label: 'Testo' }
         ]},
 
         // === STORICO ===
@@ -967,11 +967,25 @@ const MrpTheme = (() => {
     // --------------------------------------------------------
 
     function findElementMapping(target) {
+        // Trova il match PIU' SPECIFICO: l'elemento closest più vicino al target.
+        // Se più selettori matchano, vince quello il cui elemento è più vicino
+        // (= ha meno antenati tra se e il target, cioè profondità maggiore nel DOM).
+        let bestMatch = null;
+        let bestDepth = -1;
         for (const entry of ELEMENT_VAR_MAP) {
             const el = target.closest(entry.selector);
-            if (el) return { element: el, mapping: entry };
+            if (!el) continue;
+            // Calcola "profondità": conta quanti .parentElement servono dal target all'el
+            let depth = 0;
+            let node = target;
+            while (node && node !== el) { node = node.parentElement; depth++; }
+            // Profondità minore = elemento più vicino al target = più specifico
+            if (bestMatch === null || depth < bestDepth) {
+                bestMatch = { element: el, mapping: entry };
+                bestDepth = depth;
+            }
         }
-        return null;
+        return bestMatch;
     }
 
     function onBodyClick(e) {

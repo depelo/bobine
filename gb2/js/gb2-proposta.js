@@ -96,12 +96,12 @@ const MrpProposta = (() => {
                 fase_descr: ''
             };
 
-            togglePanelSelezione(true);
-            document.getElementById('paramCodart').value = ordine.ol_codart;
-            if (typeof MrpParametri !== 'undefined' && MrpParametri.caricaFasi) {
-                MrpParametri.caricaFasi(ordine.ol_codart);
-            }
-            setTimeout(() => document.getElementById('btnEsegui').click(), 100);
+            MrpParametri.eseguiDiretto({
+                codart: ordine.ol_codart,
+                fase: ordine.ol_fase || '',
+                magaz: ordine.ol_magaz || '',
+                descr: ordine.ar_descr || ''
+            });
         }
 
         if (btnRimuovi) {
@@ -148,20 +148,7 @@ const MrpProposta = (() => {
         const codartRaw = codartEl.getAttribute('data-codart');
         if (!codartRaw) return;
 
-        // Multi-date: apri il pannello decisionale inline anziché navigare ai progressivi
-        if (codartEl.dataset.multidate === '1') {
-            const cardKey = (codartEl.dataset.codart || '') + '|' + (codartEl.dataset.fornitore || '');
-            const rows = cardRowsData.get(cardKey);
-            if (rows && rows.length > 1) {
-                apriPannelloMultiData(codartEl.closest('.proposta-articolo'), rows, codartEl);
-                return;
-            }
-        }
-
-        // Apri il drawer Selezione Articolo per mostrare i progressivi
-        togglePanelSelezione(true);
-
-        // Salva il contesto della riga proposta prima di navigare ai progressivi
+        // Salva il contesto della riga proposta (usato dal pannello decisionale progressivi)
         MrpApp.state.propostaCorrente = {
             fornitore_codice: codartEl.dataset.fornitore || '',
             fornitore_nome: codartEl.dataset.fornitorenome || '',
@@ -179,39 +166,18 @@ const MrpProposta = (() => {
             ol_colli: codartEl.dataset.colli || '0',
             ol_ump: codartEl.dataset.ump || '',
             ol_stato: codartEl.dataset.stato || '',
-            fase_descr: codartEl.dataset.fasedescr || ''
+            fase_descr: codartEl.dataset.fasedescr || '',
+            // Tutte le righe dell'articolo (multi-data support per pannello decisionale)
+            righe: cardRowsData.get(codartRaw.trim() + '|' + (codartEl.dataset.fornitore || '')) || []
         };
 
-        const codart = codartRaw.trim();
-        document.getElementById('paramCodart').value = codart;
-
-        try {
-            const res = await fetch(`${MrpApp.API_BASE}/articoli/search?q=${encodeURIComponent(codart)}&field=codart`, { credentials: 'include' });
-            const results = await res.json();
-            if (res.ok && Array.isArray(results) && results.length > 0) {
-                const art = results.find(r => String(r.ar_codart).trim() === codart) || results[0];
-                document.getElementById('paramCodalt').value = art.ar_codalt || '';
-                document.getElementById('paramDescr').value = art.ar_descr || '';
-                MrpApp.state.articoloSelezionato = art;
-                MrpApp.state.parametri.codart = art.ar_codart;
-                await MrpParametri.caricaFasi(art.ar_codart);
-            } else {
-                document.getElementById('paramCodalt').value = '';
-                document.getElementById('paramDescr').value = '';
-                MrpApp.state.articoloSelezionato = null;
-                MrpApp.state.parametri.codart = codart;
-                await MrpParametri.caricaFasi(codart);
-            }
-        } catch (err) {
-            console.error('[Proposta] ricerca articolo:', err);
-            MrpApp.state.articoloSelezionato = null;
-            MrpApp.state.parametri.codart = codart;
-            try {
-                await MrpParametri.caricaFasi(codart);
-            } catch (_) { /* ignore */ }
-        }
-
-        document.getElementById('btnEsegui').click();
+        // Chiamata diretta ai progressivi — nessun ponte via form DOM
+        MrpParametri.eseguiDiretto({
+            codart: codartRaw.trim(),
+            fase: codartEl.dataset.fase || '',
+            magaz: codartEl.dataset.magaz || '',
+            descr: codartEl.dataset.descr || ''
+        });
     }
 
     async function caricaProposta() {
@@ -684,196 +650,6 @@ const MrpProposta = (() => {
             .replace(/"/g, '&quot;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
-    }
-
-    // ============================================================
-    // PANNELLO DECISIONALE MULTI-DATA (Phase 5)
-    // Mostra tutte le righe data-consegna per un articolo multi-data.
-    // L'operatore può confermare selettivamente ogni riga.
-    // ============================================================
-
-    function apriPannelloMultiData(artEl, rows, codartEl) {
-        // Chiudi pannelli precedenti
-        document.querySelectorAll('.multidata-panel').forEach(p => p.remove());
-
-        const confermati = MrpApp.state.ordiniConfermati;
-        const fornitore_codice = codartEl.dataset.fornitore || '';
-        const fornitore_nome = codartEl.dataset.fornitorenome || '';
-        const codart = codartEl.dataset.codart || '';
-        const codalt = codartEl.dataset.codalt || '';
-        const descr = codartEl.dataset.descr || '';
-
-        let htmlRighe = '';
-        for (const r of rows) {
-            const progr = String(r.ol_progr || 0);
-            const isConfermato = confermati.has(progr);
-            const conf = isConfermato ? confermati.get(progr) : null;
-            const emesso = r.emesso;
-
-            const datcons = r.ol_datcons ? new Date(r.ol_datcons).toISOString().split('T')[0] : '';
-            const qta = Math.round(Number(r.ol_quant) || 0);
-            const prezzo = Number(r.ol_prezzo) || 0;
-            const perqta = Number(r.ol_perqta) || 1;
-            const valore = qta * prezzo / perqta;
-
-            const confQta = conf ? conf.quantita_confermata : qta;
-            const confData = conf ? conf.data_consegna : datcons;
-
-            htmlRighe += `
-            <tr class="multidata-row ${isConfermato ? 'multidata-confermato' : ''} ${emesso ? 'multidata-emesso' : ''}"
-                data-progr="${esc(progr)}">
-                <td class="multidata-check-cell">
-                    ${emesso ? '<span title="Già ordinato">\u2709</span>'
-                    : `<input type="checkbox" class="multidata-chk" data-progr="${esc(progr)}"
-                        ${isConfermato ? 'checked' : ''}>`}
-                </td>
-                <td>${fmtDate(r.ol_datcons)}</td>
-                <td>
-                    <input type="number" class="multidata-qta" data-progr="${esc(progr)}"
-                        value="${confQta}" min="0" step="1"
-                        style="width:80px" ${emesso ? 'disabled' : ''}>
-                </td>
-                <td>${esc(r.ol_unmis || 'PZ')}</td>
-                <td>
-                    <input type="date" class="multidata-data" data-progr="${esc(progr)}"
-                        value="${confData}" ${emesso ? 'disabled' : ''}>
-                </td>
-                <td class="num">${fmtNum(prezzo, 4)}</td>
-                <td class="num multidata-valore" data-progr="${esc(progr)}">${fmtNum(valore, 2)}</td>
-                <td class="num">${r.ol_magaz != null ? esc(String(r.ol_magaz)) : ''}</td>
-                <td>${emesso
-                    ? '<span class="proposta-stato-ordinato">Ordinato ' + esc(r.ord_numord || '') + '/' + esc(r.ord_serie || 'F') + '</span>'
-                    : (isConfermato ? '<span class="multidata-status-conf">\u2713 Confermato</span>' : '')}</td>
-            </tr>`;
-        }
-
-        const panel = document.createElement('div');
-        panel.className = 'multidata-panel';
-        panel.innerHTML = `
-            <div class="multidata-header">
-                <strong>Decisione multi-data: ${esc(codart)}</strong>
-                ${descr ? ' — ' + esc(descr) : ''}
-                <button class="multidata-close" title="Chiudi">&times;</button>
-            </div>
-            <div class="multidata-info">
-                BCube propone <strong>${rows.length} date di consegna</strong> per questo articolo.
-                Seleziona le righe da confermare — ogni data produce un ordine separato.
-            </div>
-            <table class="multidata-table">
-                <thead>
-                    <tr>
-                        <th style="width:30px"></th>
-                        <th>Dt.Cons. Proposta</th>
-                        <th>Quantità</th>
-                        <th>UM</th>
-                        <th>Data Consegna</th>
-                        <th class="num">Prezzo</th>
-                        <th class="num">Valore</th>
-                        <th class="num">Mag.</th>
-                        <th>Stato</th>
-                    </tr>
-                </thead>
-                <tbody>${htmlRighe}</tbody>
-            </table>
-            <div class="multidata-actions">
-                <button class="mrp-btn mrp-btn-success multidata-btn-conferma">Conferma Selezionate</button>
-                <button class="mrp-btn mrp-btn-secondary multidata-btn-seleziona-tutte">Seleziona Tutte</button>
-                <button class="mrp-btn mrp-btn-secondary multidata-btn-deseleziona">Deseleziona Tutte</button>
-                <button class="mrp-btn mrp-btn-secondary multidata-btn-chiudi">Chiudi</button>
-            </div>
-        `;
-
-        artEl.appendChild(panel);
-
-        // Event handlers
-        panel.querySelector('.multidata-close').addEventListener('click', () => panel.remove());
-        panel.querySelector('.multidata-btn-chiudi').addEventListener('click', () => panel.remove());
-
-        panel.querySelector('.multidata-btn-seleziona-tutte').addEventListener('click', () => {
-            panel.querySelectorAll('.multidata-chk:not(:disabled)').forEach(cb => { cb.checked = true; });
-        });
-        panel.querySelector('.multidata-btn-deseleziona').addEventListener('click', () => {
-            panel.querySelectorAll('.multidata-chk').forEach(cb => { cb.checked = false; });
-        });
-
-        // Aggiorna valore calcolato quando la quantità cambia
-        panel.querySelectorAll('.multidata-qta').forEach(input => {
-            input.addEventListener('input', () => {
-                const progr = input.dataset.progr;
-                const row = rows.find(r => String(r.ol_progr) === progr);
-                if (!row) return;
-                const q = Number(input.value) || 0;
-                const prezzo = Number(row.ol_prezzo) || 0;
-                const perqta = Number(row.ol_perqta) || 1;
-                const valEl = panel.querySelector(`.multidata-valore[data-progr="${progr}"]`);
-                if (valEl) valEl.textContent = fmtNum(q * prezzo / perqta, 2);
-            });
-        });
-
-        panel.querySelector('.multidata-btn-conferma').addEventListener('click', () => {
-            confermaMultiData(panel, rows, {
-                fornitore_codice, fornitore_nome, codart, codalt, descr
-            });
-        });
-
-        // Scroll panel into view
-        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-
-    function confermaMultiData(panel, rows, context) {
-        const checked = panel.querySelectorAll('.multidata-chk:checked');
-        if (checked.length === 0) {
-            modale('warning', 'Nessuna riga selezionata',
-                'Seleziona almeno una riga da confermare.');
-            return;
-        }
-
-        let confermate = 0;
-        checked.forEach(cb => {
-            const progr = cb.dataset.progr;
-            const row = rows.find(r => String(r.ol_progr) === progr);
-            if (!row) return;
-
-            const qtaInput = panel.querySelector(`.multidata-qta[data-progr="${progr}"]`);
-            const dataInput = panel.querySelector(`.multidata-data[data-progr="${progr}"]`);
-            const qta = qtaInput ? Number(qtaInput.value) : Number(row.ol_quant);
-            const data = dataInput ? dataInput.value : '';
-
-            if (!qta || qta <= 0) return;
-            if (!data) return;
-
-            const key = MrpApp.getKeyByProgr(row.ol_progr);
-            MrpApp.confermaOrdine(key, {
-                fornitore_codice: context.fornitore_codice,
-                fornitore_nome: context.fornitore_nome,
-                ol_codart: context.codart,
-                ar_codalt: context.codalt,
-                ar_descr: context.descr,
-                ol_fase: row.ol_fase,
-                ol_magaz: row.ol_magaz,
-                ol_unmis: row.ol_unmis || 'PZ',
-                ol_progr: row.ol_progr,
-                quantita_confermata: qta,
-                data_consegna: data,
-                quantita_proposta: Number(row.ol_quant) || 0,
-                prezzo: Number(row.ol_prezzo) || 0,
-                perqta: Number(row.ol_perqta) || 1,
-                timestamp_conferma: new Date().toISOString()
-            });
-            confermate++;
-        });
-
-        // Rimuovi conferme per righe deselezionate che erano confermate
-        const unchecked = panel.querySelectorAll('.multidata-chk:not(:checked)');
-        unchecked.forEach(cb => {
-            const progr = cb.dataset.progr;
-            if (MrpApp.state.ordiniConfermati.has(progr)) {
-                MrpApp.rimuoviOrdine(progr);
-            }
-        });
-
-        panel.remove();
-        aggiornaStatoVisivo();
     }
 
     function aggiornaStatoVisivo() {

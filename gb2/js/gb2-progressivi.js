@@ -83,14 +83,8 @@ const MrpProgressivi = (() => {
             MrpApp.switchView('parametri');
         });
 
-        // Pannello decisionale ordine
-        const btnConferma = document.getElementById('btnConfermaOrdine');
-        const btnSkip = document.getElementById('btnSkipOrdine');
-        const inputQtaDec = document.getElementById('decisioneQta');
-
-        if (btnConferma) btnConferma.addEventListener('click', confermaOrdineHandler);
-        if (btnSkip) btnSkip.addEventListener('click', skipOrdineHandler);
-        if (inputQtaDec) inputQtaDec.addEventListener('input', aggiornaValoreDecisione);
+        // Pannello decisionale ordine — i listener sono creati dinamicamente
+        // da mostraPanelDecisione() ad ogni rendering (contenuto rigenerato).
 
         document.getElementById('btnRefresh').addEventListener('click', async () => {
             Object.keys(expandFetched).forEach(k => delete expandFetched[k]);
@@ -774,6 +768,9 @@ const MrpProgressivi = (() => {
         mostraPanelDecisione();
     }
 
+    // ── Contatore per ol_progr temporanei (righe manuali aggiunte con "+") ──
+    let _manualProgrCounter = -1;
+
     function mostraPanelDecisione() {
         const proposta = MrpApp.state.propostaCorrente;
         const panel = document.getElementById('panelDecisione');
@@ -786,81 +783,217 @@ const MrpProgressivi = (() => {
 
         panel.style.display = 'block';
 
-        document.getElementById('decisioneFornitore').textContent =
-            proposta.fornitore_nome + (proposta.fornitore_codice ? ' (' + proposta.fornitore_codice + ')' : '');
-        document.getElementById('decisioneArticolo').textContent =
-            proposta.ol_codart + (proposta.ar_descr ? ' \u2014 ' + proposta.ar_descr : '');
-        document.getElementById('decisioneQtaProposta').textContent =
-            Number(proposta.ol_quant).toLocaleString('it-IT');
-        document.getElementById('decisioneUM').textContent = proposta.ol_unmis || 'PZ';
-        document.getElementById('decisionePrezzo').textContent =
-            proposta.ol_prezzo && Number(proposta.ol_prezzo) > 0
-                ? Number(proposta.ol_prezzo).toFixed(4) : '-';
+        // Costruisci righe: da propostaCorrente.righe (multi-data) o singola riga
+        const righe = (proposta.righe && proposta.righe.length > 0)
+            ? proposta.righe
+            : [proposta]; // Fallback: una sola riga dal proposta stesso
 
-        const inputQta = document.getElementById('decisioneQta');
-        const inputData = document.getElementById('decisioneData');
+        const confermati = MrpApp.state.ordiniConfermati;
+        const isMulti = righe.length > 1;
+        const prezzo = Number(proposta.ol_prezzo) || 0;
+        const perqta = Number(proposta.ol_perqta) || 1;
+        const unmis = proposta.ol_unmis || 'PZ';
 
-        // Se già confermato, mostra i valori confermati; altrimenti precompila dalla proposta
-        const key = MrpApp.getKeyByProgr(proposta.ol_progr);
-        const esistente = MrpApp.state.ordiniConfermati.get(key);
+        let htmlRighe = '';
+        for (const r of righe) {
+            const progr = String(r.ol_progr || proposta.ol_progr || 0);
+            const conf = confermati.get(progr);
+            const emesso = r.emesso;
+            const rPrezzo = Number(r.ol_prezzo || proposta.ol_prezzo) || 0;
+            const rPerqta = Number(r.ol_perqta || proposta.ol_perqta) || 1;
 
-        if (esistente) {
-            inputQta.value = esistente.quantita_confermata;
-            inputData.value = esistente.data_consegna;
-        } else {
-            inputQta.value = Math.round(Number(proposta.ol_quant) || 0);
-            if (proposta.ol_datcons) {
-                const d = new Date(proposta.ol_datcons);
-                if (!isNaN(d.getTime())) {
-                    inputData.value = d.toISOString().split('T')[0];
-                }
-            }
+            const datcons = r.ol_datcons ? new Date(r.ol_datcons).toISOString().split('T')[0]
+                          : (proposta.ol_datcons ? new Date(proposta.ol_datcons).toISOString().split('T')[0] : '');
+            const qta = conf ? conf.quantita_confermata : Math.round(Number(r.ol_quant || proposta.ol_quant) || 0);
+            const dataVal = conf ? conf.data_consegna : datcons;
+            const valore = qta * rPrezzo / rPerqta;
+
+            htmlRighe += `<tr class="decisione-row${conf ? ' decisione-row-confermato' : ''}${emesso ? ' decisione-row-emesso' : ''}"
+                data-progr="${esc(progr)}" data-prezzo="${rPrezzo}" data-perqta="${rPerqta}">
+                <td class="decisione-chk-cell">
+                    ${emesso ? '<span title="Gi\u00e0 ordinato">\u2709</span>'
+                    : '<input type="checkbox" class="decisione-chk" ' + (conf ? 'checked' : '') + '>'}
+                </td>
+                <td>${fmtDate(r.ol_datcons || proposta.ol_datcons)}</td>
+                <td><input type="number" class="decisione-qta" value="${qta}" min="0" step="1" ${emesso ? 'disabled' : ''}></td>
+                <td>${esc(r.ol_unmis || unmis)}</td>
+                <td><input type="date" class="decisione-data" value="${dataVal}" ${emesso ? 'disabled' : ''}></td>
+                <td class="num">${rPrezzo > 0 ? rPrezzo.toFixed(4) : '-'}</td>
+                <td class="num decisione-valore">${valore > 0 ? '\u20ac ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td>${emesso
+                    ? '<span class="decisione-stato-ord">Ordinato ' + esc(r.ord_numord || '') + '/' + esc(r.ord_serie || 'F') + '</span>'
+                    : (conf ? '<span class="decisione-stato-conf">\u2713 Confermato</span>' : '')}</td>
+            </tr>`;
         }
 
-        aggiornaValoreDecisione();
+        const infoHtml = isMulti
+            ? `<div class="decisione-info">BCube propone <strong>${righe.length} date di consegna</strong> per questo articolo. Seleziona le righe da confermare \u2014 ogni data produce un ordine separato.</div>`
+            : '';
+
+        panel.innerHTML = `
+            <div class="decisione-header">
+                <strong>Decisione Ordine: ${esc(proposta.ol_codart)}</strong>
+                ${proposta.ar_descr ? ' \u2014 ' + esc(proposta.ar_descr) : ''}
+                <span class="decisione-fornitore">${esc(proposta.fornitore_nome)} (${esc(proposta.fornitore_codice)})</span>
+            </div>
+            ${infoHtml}
+            <table class="decisione-table">
+                <thead>
+                    <tr>
+                        <th style="width:30px"></th>
+                        <th>Dt.Cons. Proposta</th>
+                        <th>Quantit\u00e0</th>
+                        <th>UM</th>
+                        <th>Data Consegna</th>
+                        <th class="num">Prezzo</th>
+                        <th class="num">Valore</th>
+                        <th>Stato</th>
+                    </tr>
+                </thead>
+                <tbody id="decisioneRighe">${htmlRighe}</tbody>
+            </table>
+            <div class="decisione-actions">
+                <button type="button" class="mrp-btn-conferma" id="btnConfermaOrdine">\u2713 Conferma Selezionate</button>
+                <button type="button" class="mrp-btn-secondary" id="btnAggiungiRiga">+ Aggiungi riga</button>
+                ${isMulti ? '<button type="button" class="mrp-btn-secondary" id="btnSelezionaTutte">Seleziona Tutte</button>' : ''}
+                <button type="button" class="mrp-btn-secondary" id="btnSkipOrdine">Torna al foglio \u2192</button>
+            </div>
+        `;
+
+        // Event: conferma
+        panel.querySelector('#btnConfermaOrdine').addEventListener('click', confermaOrdineHandler);
+        // Event: skip
+        panel.querySelector('#btnSkipOrdine').addEventListener('click', skipOrdineHandler);
+        // Event: aggiungi riga
+        panel.querySelector('#btnAggiungiRiga').addEventListener('click', () => aggiungiRigaManuale(panel));
+        // Event: seleziona tutte
+        const btnSelAll = panel.querySelector('#btnSelezionaTutte');
+        if (btnSelAll) btnSelAll.addEventListener('click', () => {
+            panel.querySelectorAll('.decisione-chk:not(:disabled)').forEach(cb => { cb.checked = true; });
+        });
+        // Event: aggiorna valore quando cambiano le quantità
+        panel.querySelectorAll('.decisione-qta').forEach(input => {
+            input.addEventListener('input', () => aggiornaValoreRiga(input));
+        });
+
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-    function aggiornaValoreDecisione() {
-        const qta = Number(document.getElementById('decisioneQta').value) || 0;
-        const proposta = MrpApp.state.propostaCorrente;
-        const prezzo = proposta ? Number(proposta.ol_prezzo) || 0 : 0;
-        const perqta = proposta ? Number(proposta.ol_perqta) || 1 : 1;
+    function aggiornaValoreRiga(input) {
+        const tr = input.closest('tr');
+        if (!tr) return;
+        const qta = Number(input.value) || 0;
+        const prezzo = Number(tr.dataset.prezzo) || 0;
+        const perqta = Number(tr.dataset.perqta) || 1;
         const valore = qta * prezzo / perqta;
-        document.getElementById('decisioneValore').textContent =
-            valore > 0
+        const valEl = tr.querySelector('.decisione-valore');
+        if (valEl) {
+            valEl.textContent = valore > 0
                 ? '\u20ac ' + valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                 : '-';
+        }
+    }
+
+    function aggiungiRigaManuale(panel) {
+        const proposta = MrpApp.state.propostaCorrente;
+        if (!proposta) return;
+
+        const tbody = panel.querySelector('#decisioneRighe');
+        if (!tbody) return;
+
+        const progr = String(_manualProgrCounter--);
+        const prezzo = Number(proposta.ol_prezzo) || 0;
+        const perqta = Number(proposta.ol_perqta) || 1;
+        const unmis = proposta.ol_unmis || 'PZ';
+
+        const tr = document.createElement('tr');
+        tr.className = 'decisione-row decisione-row-manuale';
+        tr.dataset.progr = progr;
+        tr.dataset.prezzo = String(prezzo);
+        tr.dataset.perqta = String(perqta);
+        tr.innerHTML = `
+            <td class="decisione-chk-cell"><input type="checkbox" class="decisione-chk" checked></td>
+            <td><em>Manuale</em></td>
+            <td><input type="number" class="decisione-qta" value="" min="0" step="1" placeholder="Qt\u00e0"></td>
+            <td>${esc(unmis)}</td>
+            <td><input type="date" class="decisione-data" value=""></td>
+            <td class="num">${prezzo > 0 ? prezzo.toFixed(4) : '-'}</td>
+            <td class="num decisione-valore">-</td>
+            <td><button class="decisione-rimuovi-riga" title="Rimuovi">\u2716</button></td>
+        `;
+        tbody.appendChild(tr);
+
+        tr.querySelector('.decisione-qta').addEventListener('input', function() { aggiornaValoreRiga(this); });
+        tr.querySelector('.decisione-rimuovi-riga').addEventListener('click', () => tr.remove());
+        tr.querySelector('.decisione-qta').focus();
     }
 
     function confermaOrdineHandler() {
         const proposta = MrpApp.state.propostaCorrente;
         if (!proposta) return;
+        const panel = document.getElementById('panelDecisione');
+        if (!panel) return;
 
-        const qta = Number(document.getElementById('decisioneQta').value);
-        const data = document.getElementById('decisioneData').value;
+        const checked = panel.querySelectorAll('.decisione-chk:checked');
+        if (checked.length === 0) {
+            alert('Seleziona almeno una riga da confermare.');
+            return;
+        }
 
-        if (!qta || qta <= 0) { alert('Inserire una quantità valida'); return; }
-        if (!data) { alert('Inserire una data di consegna'); return; }
+        const righeOrigine = (proposta.righe && proposta.righe.length > 0)
+            ? proposta.righe : [proposta];
 
-        const key = MrpApp.getKeyByProgr(proposta.ol_progr);
+        let errori = 0;
+        checked.forEach(cb => {
+            const tr = cb.closest('tr');
+            if (!tr) return;
+            const progr = tr.dataset.progr;
+            const qtaInput = tr.querySelector('.decisione-qta');
+            const dataInput = tr.querySelector('.decisione-data');
+            const qta = qtaInput ? Number(qtaInput.value) : 0;
+            const data = dataInput ? dataInput.value : '';
 
-        MrpApp.confermaOrdine(key, {
-            fornitore_codice: proposta.fornitore_codice,
-            fornitore_nome: proposta.fornitore_nome,
-            ol_codart: proposta.ol_codart,
-            ar_codalt: proposta.ar_codalt,
-            ar_descr: proposta.ar_descr,
-            ol_fase: proposta.ol_fase,
-            ol_magaz: proposta.ol_magaz,
-            ol_unmis: proposta.ol_unmis,
-            ol_progr: proposta.ol_progr || 0,
-            quantita_confermata: qta,
-            data_consegna: data,
-            quantita_proposta: Number(proposta.ol_quant) || 0,
-            prezzo: Number(proposta.ol_prezzo) || 0,
-            perqta: Number(proposta.ol_perqta) || 1,
-            timestamp_conferma: new Date().toISOString()
+            if (!qta || qta <= 0 || !data) { errori++; return; }
+
+            // Trova riga originale per dati anagrafici (fase, magaz, ecc.)
+            const rigaOrig = righeOrigine.find(r => String(r.ol_progr) === progr);
+            const isManuale = Number(progr) < 0;
+
+            const key = isManuale ? MrpApp.getKeyByProgr(0) + '_m' + Math.abs(Number(progr))
+                                  : MrpApp.getKeyByProgr(progr);
+
+            MrpApp.confermaOrdine(key, {
+                fornitore_codice: proposta.fornitore_codice,
+                fornitore_nome: proposta.fornitore_nome,
+                ol_codart: proposta.ol_codart,
+                ar_codalt: proposta.ar_codalt,
+                ar_descr: proposta.ar_descr,
+                ol_fase: rigaOrig ? rigaOrig.ol_fase : proposta.ol_fase,
+                ol_magaz: rigaOrig ? rigaOrig.ol_magaz : proposta.ol_magaz,
+                ol_unmis: rigaOrig ? (rigaOrig.ol_unmis || proposta.ol_unmis) : proposta.ol_unmis,
+                ol_progr: isManuale ? 0 : (rigaOrig ? rigaOrig.ol_progr : proposta.ol_progr || 0),
+                quantita_confermata: qta,
+                data_consegna: data,
+                quantita_proposta: rigaOrig ? (Number(rigaOrig.ol_quant) || 0) : (Number(proposta.ol_quant) || 0),
+                prezzo: Number(tr.dataset.prezzo) || 0,
+                perqta: Number(tr.dataset.perqta) || 1,
+                timestamp_conferma: new Date().toISOString()
+            });
         });
+
+        // Rimuovi conferme per righe de-selezionate (non manuali)
+        panel.querySelectorAll('.decisione-chk:not(:checked)').forEach(cb => {
+            const tr = cb.closest('tr');
+            if (!tr) return;
+            const progr = tr.dataset.progr;
+            if (Number(progr) >= 0 && MrpApp.state.ordiniConfermati.has(progr)) {
+                MrpApp.rimuoviOrdine(progr);
+            }
+        });
+
+        if (errori > 0) {
+            alert(errori + ' riga/e ignorata/e: quantit\u00e0 o data mancante.');
+        }
 
         MrpApp.state.propostaCorrente = null;
         MrpApp.switchView('parametri');
@@ -872,7 +1005,8 @@ const MrpProgressivi = (() => {
 
     function skipOrdineHandler() {
         MrpApp.state.propostaCorrente = null;
-        document.getElementById('panelDecisione').style.display = 'none';
+        const panel = document.getElementById('panelDecisione');
+        if (panel) panel.style.display = 'none';
         MrpApp.switchView('parametri');
     }
 
