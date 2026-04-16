@@ -5,13 +5,31 @@
 
 .mrp-parametri-layout {
     display: flex;
-    gap: 20px;
+    gap: 0;
     align-items: flex-start;
+    position: relative;
 }
 
 .mrp-parametri-col-left {
-    flex: 0 0 420px;
-    min-width: 380px;
+    position: fixed;
+    top: 70px;
+    left: 0;
+    z-index: 900;
+    width: 420px;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    background: var(--bg-content, #fff);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+    transition: transform 0.25s ease, opacity 0.2s ease;
+    transform: translateX(0);
+    opacity: 1;
+    padding: 10px;
+}
+
+.mrp-parametri-col-left.collapsed {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
 }
 
 .mrp-parametri-col-right {
@@ -19,8 +37,21 @@
     min-width: 0;
 }
 
+/* Overlay scuro dietro il pannello selezione quando aperto */
+.selezione-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 899;
+}
+.selezione-overlay.open {
+    display: block;
+}
+
 .mrp-proposta-card {
     max-height: calc(100vh - 120px);
+    max-width: 1400px;
     display: flex;
     flex-direction: column;
 }
@@ -214,7 +245,7 @@
 }
 
 .proposta-flag-esaur {
-    background: #ff9800;
+    background: var(--warning, #f59e0b);
     color: white;
     font-size: 0.6rem;
     padding: 1px 4px;
@@ -250,18 +281,18 @@
 }
 
 .proposta-righe-table th {
-    background: #f8f9fa;
+    background: var(--bg, #f0f2f5);
     padding: 3px 6px;
     text-align: left;
     font-weight: 600;
     color: var(--text-muted);
     font-size: 0.7rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border, #cbd5e1);
 }
 
 .proposta-righe-table td {
     padding: 3px 6px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border, #cbd5e1);
 }
 
 .proposta-righe-table .num {
@@ -272,8 +303,8 @@
     font-weight: bold;
     font-size: 0.75rem;
     padding: 3px 6px;
-    background: #f8f9fa;
-    border-top: 1px solid #ddd;
+    background: var(--bg, #f0f2f5);
+    border-top: 1px solid var(--border, #cbd5e1);
 }
 
 .proposta-forn-totale {
@@ -281,7 +312,7 @@
     padding: 8px 12px;
     font-weight: bold;
     font-size: 0.82rem;
-    background: #f0f7ff;
+    background: var(--primary-light, #e3eef8);
     border-top: 2px solid var(--primary);
 }
 
@@ -327,21 +358,19 @@
 }
 
 .proposta-badge-confermato {
-    background: #dcfce7;
-    color: #166534;
-    border: 1px solid #86efac;
+    background: color-mix(in srgb, var(--success, #16a34a) 12%, white);
+    color: var(--success, #16a34a);
+    border: 1px solid color-mix(in srgb, var(--success, #16a34a) 30%, white);
 }
 
-/* Badge informativo "ordine già emesso e email inviata" sul header fornitore.
-   Gli articoli di questi ordini sono filtrati dalla vista — il badge serve solo
-   come memoria visiva dell'ordine congelato. */
+/* Badge informativo "ordine già emesso e email inviata" sul header fornitore */
 .fornitore-congelato-badge {
     display: inline-block;
     margin-left: 8px;
     padding: 4px 10px;
-    background: #eef2ff;
-    color: #3730a3;
-    border: 1px solid #c7d2fe;
+    background: var(--primary-light, #e3eef8);
+    color: var(--primary-dark, #1a4d82);
+    border: 1px solid var(--border, #cbd5e1);
     border-radius: var(--radius-sm);
     font-size: 0.75rem;
     font-weight: 600;
@@ -486,37 +515,41 @@
     50%      { box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.35); }
 }
 
-.btn-invia-email-forn {
-    background: white;
-    color: var(--primary);
-    border: none;
-    padding: 2px 10px;
-    border-radius: 10px;
-    font-weight: 600;
-    font-size: 0.68rem;
-    cursor: pointer;
-    margin-left: 6px;
-    transition: all 0.15s;
-}
-
-.btn-invia-email-forn:hover {
-    background: #dbeafe;
-}
-
+/* Pulsanti ordine (PDF / Email) — usati nei sub-blocchi ordine (sfondo chiaro) */
 .btn-scarica-pdf-forn {
-    background: rgba(255,255,255,0.3);
+    background: var(--primary, #2563a8);
     color: white;
     border: none;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.68rem;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm, 4px);
+    font-size: 0.72rem;
+    font-weight: 600;
     cursor: pointer;
-    margin-left: 4px;
     transition: all 0.15s;
 }
-
 .btn-scarica-pdf-forn:hover {
-    background: rgba(255,255,255,0.5);
+    background: var(--primary-dark, #1a4d82);
+}
+
+.btn-invia-email-forn {
+    background: var(--success, #16a34a);
+    color: white;
+    border: none;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm, 4px);
+    font-weight: 600;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.btn-invia-email-forn:hover {
+    background: #15803d;
+}
+.btn-invia-email-forn.email-gia-inviata {
+    background: var(--text-muted, #64748b);
+}
+.btn-invia-email-forn.email-gia-inviata:hover {
+    background: #475569;
 }
 
 /* --- Stato "Ordinato" nelle righe articolo --- */
@@ -527,33 +560,31 @@
 }
 
 .proposta-riga-emessa {
-    background: #eff6ff;
-    color: #64748b;
+    background: var(--primary-light, #e3eef8);
+    color: var(--text-muted, #64748b);
 }
 
 /* Pulsante annulla ordine */
 .btn-annulla-ordine {
     font-size: 0.72rem;
-    color: var(--danger);
-    border: 1px solid var(--danger);
-    background: transparent;
-    padding: 2px 8px;
-    border-radius: 4px;
+    color: white;
+    border: none;
+    background: var(--danger, #e11d48);
+    padding: 3px 10px;
+    border-radius: var(--radius-sm, 4px);
     cursor: pointer;
-    margin-left: 6px;
     transition: all 0.15s;
     font-weight: 600;
 }
 .btn-annulla-ordine:hover {
-    background: var(--danger);
-    color: white;
+    background: #be123c;
 }
 
 /* Badge "BCube" per ordini emessi da BCube */
 .proposta-badge-bcube {
     display: inline-block;
-    background: #ede9fe;
-    color: #7c3aed;
+    background: color-mix(in srgb, var(--primary, #2563a8) 12%, white);
+    color: var(--primary, #2563a8);
     font-size: 0.65rem;
     padding: 1px 6px;
     border-radius: 8px;
@@ -573,7 +604,7 @@
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
-    background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+    background: color-mix(in srgb, var(--success, #16a34a) 8%, white);
     border: 2px solid var(--success);
     border-radius: var(--radius);
     margin-bottom: 12px;
@@ -582,7 +613,7 @@
 .proposta-emetti-tutti-bar .emetti-tutti-info {
     flex: 1;
     font-size: 0.82rem;
-    color: #166534;
+    color: var(--success, #16a34a);
     font-weight: 600;
 }
 
@@ -1222,50 +1253,90 @@
 }
 
 /* ============================================================
-   BLOCCHI ORDINI EXTRA (Phase 6) — 2°+ ordine per lo stesso fornitore
+   BLOCCHI ORDINI EXTRA (Phase 6) — sub-card dentro il fornitore padre
    ============================================================ */
 
 .proposta-ordine-extra {
-    border: 2px solid #3b82f6;
-    border-radius: var(--radius-sm, 6px);
-    margin-bottom: 8px;
+    background: var(--bg-content, #fff);
+    border: 1px solid var(--border, #cbd5e1);
+    border-left: 4px solid var(--primary, #2563a8);
+    border-radius: var(--radius-sm, 4px);
+    margin: 8px 0;
+    overflow: hidden;
 }
 
 .proposta-extra-header {
-    background: #2563eb !important;
-    color: white !important;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--primary-light, #e3eef8);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--primary-dark, #1a4d82);
 }
 
-.proposta-extra-header .forn-toggle {
-    color: white;
+.proposta-extra-header .extra-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
-.proposta-extra-body {
-    background: #eff6ff;
-    padding: 8px;
+.proposta-extra-header .extra-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* Template select dentro il sub-blocco ordine */
+.proposta-extra-header .select-template-forn {
+    font-size: 0.72rem;
+    padding: 2px 4px;
+    border: 1px solid var(--border, #cbd5e1);
+    border-radius: var(--radius-sm, 4px);
+    background: white;
+    cursor: pointer;
 }
 
 .proposta-extra-table {
-    font-size: 0.8rem;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
 }
 
 .proposta-extra-table th {
-    background: #dbeafe;
+    background: var(--primary-light, #e3eef8);
     padding: 4px 8px;
-    border-bottom: 1px solid #93c5fd;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: var(--text-muted, #64748b);
+    border-bottom: 1px solid var(--border, #cbd5e1);
 }
 
 .proposta-extra-table td {
     padding: 4px 8px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--border, #cbd5e1);
+}
+
+.proposta-extra-table .num {
+    text-align: right;
+}
+
+.extra-totale {
+    text-align: right;
+    padding: 4px 12px 6px;
+    font-size: 0.78rem;
+    color: var(--primary-dark, #1a4d82);
 }
 
 /* Badge "N date" sull'header articolo multi-data */
 .proposta-multidate-badge {
     display: inline-block;
-    background: #dbeafe;
-    color: #1e40af;
-    border: 1px solid #93c5fd;
+    background: color-mix(in srgb, var(--primary, #2563a8) 15%, white);
+    color: var(--primary-dark, #1a4d82);
+    border: 1px solid color-mix(in srgb, var(--primary, #2563a8) 30%, white);
     border-radius: 10px;
     padding: 1px 8px;
     font-size: 0.7rem;

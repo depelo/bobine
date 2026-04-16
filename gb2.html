@@ -53,7 +53,8 @@
         <!-- VIEW: PARAMETRI (frmParRMP) -->
         <section id="view-parametri" class="mrp-view active">
             <div class="mrp-parametri-layout">
-                <div class="mrp-parametri-col-left">
+                <div class="selezione-overlay" id="selezioneOverlay"></div>
+                <div class="mrp-parametri-col-left collapsed" id="panelSelezione">
                     <div class="mrp-card mrp-parametri-card">
                 <h2 class="mrp-card-title">Selezione Articolo</h2>
 
@@ -143,7 +144,8 @@
                         <div class="proposta-header">
                             <h2 class="mrp-card-title">Gestione Lista Ordini</h2>
                             <span class="proposta-subtitle">Ordini Fornitori</span>
-                            <button type="button" id="btnApriStorico" class="mrp-btn-secondary" style="margin-left:auto;font-size:0.8rem;padding:4px 10px;">📋 Storico</button>
+                            <button type="button" id="btnToggleSelezione" class="mrp-btn-secondary" style="margin-left:auto;font-size:0.8rem;padding:4px 10px;">🔍 Selezione Articolo</button>
+                            <button type="button" id="btnApriStorico" class="mrp-btn-secondary" style="font-size:0.8rem;padding:4px 10px;">📋 Storico</button>
                             <button type="button" id="btnRefreshProposta" class="mrp-btn-secondary" style="font-size:0.8rem;padding:4px 10px;">↻ Aggiorna</button>
                         </div>
                         <div class="proposta-stats" id="propostaStats"></div>

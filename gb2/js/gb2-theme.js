@@ -280,22 +280,98 @@ const MrpTheme = (() => {
             { varName: '--radius', controlType: 'radius', label: 'Arrotondamento' }
         ]},
 
-        // === PROPOSTA ===
+        // === PROPOSTA — LAYOUT ===
         { selector: '.proposta-fornitore-header', label: 'Header fornitore', vars: [
             { varName: '--primary', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.proposta-fornitore', label: 'Card fornitore', vars: [
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
         ]},
         { selector: '.proposta-stats', label: 'Statistiche proposta', vars: [
             { varName: '--text-muted', controlType: 'color', label: 'Testo' },
             { varName: '--border', controlType: 'color', label: 'Bordo' }
         ]},
+        { selector: '.proposta-forn-totale', label: 'Totale fornitore', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Bordo superiore' },
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === PROPOSTA — TABELLA RIGHE ===
+        { selector: '.proposta-righe-table th', label: 'Testata tabella proposta', vars: [
+            { varName: '--bg', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.proposta-righe-table td', label: 'Celle tabella proposta', vars: [
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+        { selector: '.proposta-art-totale', label: 'Riga totale articolo', vars: [
+            { varName: '--bg', controlType: 'color', label: 'Sfondo' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+
+        // === PROPOSTA — STATI ARTICOLO ===
+        { selector: '.proposta-art-confermato', label: 'Riga articolo confermato', vars: [
+            { varName: '--success', controlType: 'color', label: 'Sfondo (tinta)' }
+        ]},
+        { selector: '.proposta-riga-emessa', label: 'Riga articolo ordinato', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' },
+            { varName: '--text-muted', controlType: 'color', label: 'Testo' }
+        ]},
+
+        // === PROPOSTA — BADGE ===
+        { selector: '.proposta-badge-confermato', label: 'Badge confermato', vars: [
+            { varName: '--success', controlType: 'color', label: 'Colore' }
+        ]},
+        { selector: '.fornitore-congelato-badge', label: 'Badge ordine congelato', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' },
+            { varName: '--primary-dark', controlType: 'color', label: 'Testo' }
+        ]},
+        { selector: '.proposta-badge-bcube', label: 'Badge BCube', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Colore' }
+        ]},
+        { selector: '.proposta-multidate-badge', label: 'Badge multi-data', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Colore' }
+        ]},
+        { selector: '.proposta-flag-esaur', label: 'Badge articolo in esaurimento', vars: [
+            { varName: '--warning', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === PROPOSTA — ORDINI EMESSI ===
+        { selector: '.proposta-ordine-extra', label: 'Sub-blocco ordine emesso', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Bordo sinistro' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' },
+            { varName: '--bg-content', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.proposta-extra-header', label: 'Header ordine emesso', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' },
+            { varName: '--primary-dark', controlType: 'color', label: 'Testo' }
+        ]},
+        { selector: '.proposta-extra-table th', label: 'Testata tabella ordine', vars: [
+            { varName: '--primary-light', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === PROPOSTA — PULSANTI ORDINE ===
         { selector: '.btn-emetti-ordine', label: 'Pulsante emetti ordine', vars: [
             { varName: '--success', controlType: 'color', label: 'Colore' }
         ]},
+        { selector: '.btn-scarica-pdf-forn', label: 'Pulsante PDF', vars: [
+            { varName: '--primary', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.btn-invia-email-forn', label: 'Pulsante Invia Email', vars: [
+            { varName: '--success', controlType: 'color', label: 'Sfondo' }
+        ]},
+        { selector: '.btn-annulla-ordine', label: 'Pulsante Annulla ordine', vars: [
+            { varName: '--danger', controlType: 'color', label: 'Sfondo' }
+        ]},
+
+        // === PROPOSTA — BARRA EMETTI TUTTI ===
+        { selector: '.proposta-emetti-tutti-bar', label: 'Barra emetti tutti', vars: [
+            { varName: '--success', controlType: 'color', label: 'Colore accento' },
+            { varName: '--border', controlType: 'color', label: 'Bordo' }
+        ]},
+
+        // === STORICO ===
         { selector: '.storico-tabella th', label: 'Testata storico', vars: [
             { varName: '--table-header-bg', controlType: 'color', label: 'Sfondo' }
-        ]},
-        { selector: '.proposta-fornitore', label: 'Card fornitore', vars: [
-            { varName: '--border', controlType: 'color', label: 'Bordo' }
         ]},
 
         // === DECISIONE ===

@@ -25,6 +25,22 @@ const MrpProposta = (() => {
         } catch (_) {}
     }
 
+    // ── Pannello Selezione Articolo (drawer laterale) ──
+    function togglePanelSelezione(forceOpen) {
+        const panel = document.getElementById('panelSelezione');
+        const overlay = document.getElementById('selezioneOverlay');
+        if (!panel) return;
+        const isOpen = !panel.classList.contains('collapsed');
+        const shouldOpen = forceOpen !== undefined ? forceOpen : !isOpen;
+        if (shouldOpen) {
+            panel.classList.remove('collapsed');
+            if (overlay) overlay.classList.add('open');
+        } else {
+            panel.classList.add('collapsed');
+            if (overlay) overlay.classList.remove('open');
+        }
+    }
+
     async function init() {
         const btnRefresh = document.getElementById('btnRefreshProposta');
         if (btnRefresh) btnRefresh.addEventListener('click', caricaProposta);
@@ -37,6 +53,12 @@ const MrpProposta = (() => {
         if (listEl) {
             listEl.addEventListener('click', onPropostaListBadgeClick);
         }
+
+        // Toggle pannello Selezione Articolo
+        const btnToggle = document.getElementById('btnToggleSelezione');
+        if (btnToggle) btnToggle.addEventListener('click', () => togglePanelSelezione());
+        const overlay = document.getElementById('selezioneOverlay');
+        if (overlay) overlay.addEventListener('click', () => togglePanelSelezione(false));
 
         initStorico();
 
@@ -74,6 +96,7 @@ const MrpProposta = (() => {
                 fase_descr: ''
             };
 
+            togglePanelSelezione(true);
             document.getElementById('paramCodart').value = ordine.ol_codart;
             if (typeof MrpParametri !== 'undefined' && MrpParametri.caricaFasi) {
                 MrpParametri.caricaFasi(ordine.ol_codart);
@@ -134,6 +157,9 @@ const MrpProposta = (() => {
                 return;
             }
         }
+
+        // Apri il drawer Selezione Articolo per mostrare i progressivi
+        togglePanelSelezione(true);
 
         // Salva il contesto della riga proposta prima di navigare ai progressivi
         MrpApp.state.propostaCorrente = {
@@ -543,13 +569,22 @@ const MrpProposta = (() => {
 
             listEl.appendChild(div);
 
-            // Phase 6: Blocchi separati per ordini extra (2°+ ordine per lo stesso fornitore).
-            // Inseriti PRIMA del blocco principale.
-            const extras = ordiniEmessiExtra.get(fkIter);
-            if (extras && extras.length > 0) {
-                for (const extra of extras) {
-                    const extraDiv = buildBloccoOrdineExtra(forn, extra);
-                    if (extraDiv) listEl.insertBefore(extraDiv, div);
+            // Tutti gli ordini emessi (primo + extra) come sub-card dentro il body del padre.
+            // Ogni ordine ha la sua pulsantiera — la barra blu resta pulita.
+            const bodyEl = div.querySelector('.proposta-fornitore-body');
+            if (bodyEl) {
+                const primoEmesso = ordiniEmessi.get(fkIter);
+                const extras = ordiniEmessiExtra.get(fkIter);
+                // Inserisci in ordine inverso (insertBefore firstChild) così il primo resta in cima
+                if (extras && extras.length > 0) {
+                    for (let i = extras.length - 1; i >= 0; i--) {
+                        const extraDiv = buildBloccoOrdineExtra(forn, extras[i]);
+                        if (extraDiv) bodyEl.insertBefore(extraDiv, bodyEl.firstChild);
+                    }
+                }
+                if (primoEmesso && primoEmesso.righe && primoEmesso.righe.length > 0) {
+                    const primoDiv = buildBloccoOrdineExtra(forn, primoEmesso);
+                    if (primoDiv) bodyEl.insertBefore(primoDiv, bodyEl.firstChild);
                 }
             }
         }
@@ -559,18 +594,13 @@ const MrpProposta = (() => {
     }
 
     /**
-     * Phase 6: Costruisce un blocco DOM per un ordine extra (2°+ ordine per lo stesso fornitore).
-     * Il blocco ha una testata blu con le info dell'ordine e le righe ordinate.
+     * Phase 6: Costruisce un sub-blocco per un ordine extra (2°+ ordine per lo stesso fornitore).
+     * Renderizzato come sub-card indentata dentro il body del fornitore padre.
      */
     function buildBloccoOrdineExtra(forn, extra) {
         const righe = extra.righe || [];
         if (righe.length === 0) return null;
 
-        const div = document.createElement('div');
-        div.className = 'proposta-fornitore proposta-ordine-extra';
-        div.dataset.tier = '1';
-
-        const emailIcon = extra.email_inviata ? ' \u2709' : '';
         const bcubeLabel = extra.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
 
         let htmlRighe = '';
@@ -578,7 +608,7 @@ const MrpProposta = (() => {
         for (const r of righe) {
             const valore = (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
             totaleValore += valore;
-            htmlRighe += `<tr class="proposta-riga-emessa">
+            htmlRighe += `<tr>
                 <td>${esc(r.ol_codart)}</td>
                 <td>${esc(r.ar_descr || '')}</td>
                 <td>${fmtDate(r.ol_datcons)}</td>
@@ -589,36 +619,32 @@ const MrpProposta = (() => {
             </tr>`;
         }
 
-        const fornLabel = forn.nome
-            ? `${esc(forn.codice)} — ${esc(forn.nome)}`
-            : `Fornitore: ${esc(forn.codice)}`;
-
+        const div = document.createElement('div');
+        div.className = 'proposta-ordine-extra';
         div.innerHTML = `
-            <div class="proposta-fornitore-header proposta-extra-header" data-forn="${escAttr(forn.codice)}"
+            <div class="proposta-extra-header" data-forn="${escAttr(forn.codice)}"
                  data-extra-anno="${escAttr(String(extra.anno))}"
                  data-extra-serie="${escAttr(extra.serie)}"
                  data-extra-numord="${escAttr(String(extra.numord))}">
-                <span>\uD83D\uDCC4 Ordine ${esc(String(extra.numord))}/${esc(extra.serie)}${emailIcon}${bcubeLabel} — ${fornLabel}</span>
-                <span class="forn-toggle">\u25BC</span>
+                <span class="extra-label">Ordine separato <strong>${esc(String(extra.numord))}/${esc(extra.serie)}</strong>${bcubeLabel}</span>
+                <span class="extra-actions"></span>
             </div>
-            <div class="proposta-fornitore-body proposta-extra-body">
-                <table class="proposta-righe-table proposta-extra-table">
-                    <thead>
-                        <tr>
-                            <th>Cod. Articolo</th>
-                            <th>Descrizione</th>
-                            <th>Dt.Cons.</th>
-                            <th>UM</th>
-                            <th class="num">Quantit\u00e0</th>
-                            <th class="num">Prezzo</th>
-                            <th class="num">Valore</th>
-                        </tr>
-                    </thead>
-                    <tbody>${htmlRighe}</tbody>
-                </table>
-                <div class="proposta-forn-totale">
-                    Totale ordine \u2192 <span class="valore">\u20ac ${fmtNum(totaleValore, 2)}</span>
-                </div>
+            <table class="proposta-extra-table">
+                <thead>
+                    <tr>
+                        <th>Cod. Articolo</th>
+                        <th>Descrizione</th>
+                        <th>Dt.Cons.</th>
+                        <th>UM</th>
+                        <th class="num">Quantit\u00e0</th>
+                        <th class="num">Prezzo</th>
+                        <th class="num">Valore</th>
+                    </tr>
+                </thead>
+                <tbody>${htmlRighe}</tbody>
+            </table>
+            <div class="extra-totale">
+                Totale ordine \u2192 <strong>\u20ac ${fmtNum(totaleValore, 2)}</strong>
             </div>
         `;
 
@@ -950,84 +976,14 @@ const MrpProposta = (() => {
                 header.appendChild(congBadge);
             }
 
-            // Ordine emesso con email pendente — badge + pulsanti email/annulla.
-            // NOTA: non usiamo più `return` — il fornitore può avere anche articoli
-            // proposti ancora da confermare/emettere sotto lo stesso badge.
-            // Builder condiviso fra ordine principale ed eventuali ordini extra
-            // (caso raro: operatore ha volontariamente creato più ordini separati
-            // per lo stesso fornitore — ognuno ha i propri controlli PDF/Email/Annulla).
-            const buildEmessoBadge = (emesso, { isExtra }) => {
-                const emessoBadge = document.createElement('span');
-                emessoBadge.className = 'fornitore-emesso-badge';
-                if (isExtra) emessoBadge.classList.add('fornitore-emesso-extra');
-
-                const emailIcon = emesso.email_inviata ? ' \u2709' : '';
-                const bcubeLabel = emesso.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
-                emessoBadge.innerHTML = '&#x1F4C4; Ordine ' + emesso.numord + '/' + emesso.serie + emailIcon + bcubeLabel;
-
-                const btnPdf = document.createElement('button');
-                btnPdf.className = 'btn-scarica-pdf-forn';
-                btnPdf.textContent = '\u2B07 PDF';
-                btnPdf.title = 'Scarica PDF ordine';
-                btnPdf.addEventListener('click', (e) => { e.stopPropagation(); scaricaPdf(emesso); });
-                emessoBadge.appendChild(btnPdf);
-
-                // Dropdown template email — solo sul badge principale (il select è condiviso,
-                // non ha senso duplicarlo per ordini extra: riusano lo stesso template)
-                if (!isExtra) {
-                    const tplSelectHtml = buildTemplateSelect(fornCode);
-                    if (tplSelectHtml) {
-                        const tplWrapper = document.createElement('span');
-                        tplWrapper.innerHTML = tplSelectHtml;
-                        const selectEl = tplWrapper.firstElementChild;
-                        selectEl.addEventListener('click', (e) => e.stopPropagation());
-                        selectEl.addEventListener('change', (e) => {
-                            e.stopPropagation();
-                            onTemplateSelectChange(fornCode, parseInt(selectEl.value, 10));
-                        });
-                        emessoBadge.appendChild(selectEl);
-                    }
-                }
-
-                const btnEmail = document.createElement('button');
-                btnEmail.className = 'btn-invia-email-forn';
-                if (emesso.email_inviata) {
-                    btnEmail.textContent = '\u2709 Re-invia Email';
-                    btnEmail.classList.add('email-gia-inviata');
-                } else {
-                    btnEmail.textContent = '\u2709 Invia Email';
-                    btnEmail.classList.add('email-non-inviata');
-                }
-                btnEmail.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const sel = header.querySelector('.select-template-forn');
-                    const templateId = sel ? parseInt(sel.value, 10) : null;
-                    inviaEmailOrdine(emesso, { template_id: templateId });
-                });
-                emessoBadge.appendChild(btnEmail);
-
-                // Pulsante Annulla ordine (gb2 e BCube)
-                const btnAnnulla = document.createElement('button');
-                btnAnnulla.className = 'btn-annulla-ordine';
-                btnAnnulla.textContent = '\u274C Annulla';
-                btnAnnulla.title = 'Annulla ordine ' + emesso.numord + '/' + emesso.serie;
-                btnAnnulla.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    apriModaleAnnullaOrdine(emesso);
-                });
-                emessoBadge.appendChild(btnAnnulla);
-
-                return emessoBadge;
-            };
-
+            // Ordini emessi: i pulsanti PDF/Email/Annulla sono nei sub-blocchi dentro il body,
+            // non nella barra blu. Qui aggiorniamo solo le pulsantiere dei sub-blocchi.
             const emesso = ordiniEmessi.get(fornCode);
             if (emesso) {
                 header.classList.add('fornitore-emesso');
-                header.appendChild(buildEmessoBadge(emesso, { isExtra: false }));
+                aggiornaHeaderOrdineExtra(fornCode, emesso);
             }
 
-            // Phase 6: Ordini extra (2°+ pending) hanno il proprio blocco separato.
-            // Aggiungiamo i pulsanti PDF/Email/Annulla ai loro header.
             const extras = ordiniEmessiExtra.get(fornCode);
             if (extras && extras.length > 0) {
                 for (const ex of extras) {
@@ -1079,7 +1035,11 @@ const MrpProposta = (() => {
     const ordiniCongelati = new Map(); // key = fornitore_codice, value = [ { anno, serie, numord, email_inviata_il, fornitore_nome } ]
 
     // Cache PDF in memoria per la sessione (i PDF non sono nel DB, solo nel response dell'emissione)
-    const pdfCache = new Map(); // key = fornitore_codice, value = { pdf_base64, pdf_filename }
+    const pdfCache = new Map(); // key = "anno|serie|numord", value = { pdf_base64, pdf_filename }
+
+    function pdfCacheKey(anno, serie, numord) {
+        return `${anno}|${serie}|${numord}`;
+    }
 
     /**
      * Ripristina ordiniEmessi + ordiniCongelati dalla risposta del server.
@@ -1138,12 +1098,30 @@ const MrpProposta = (() => {
             }
         }
 
+        // Filtra da righeFiltrate TUTTE le righe emesse pending (primo + extra).
+        // Ogni ordine emesso ha il proprio sub-blocco nel body del fornitore,
+        // quindi le righe non devono apparire anche nella lista proposte.
+        const emesseRigheSet = new Set();
+        for (const [fk, ordMap] of pendingByForn) {
+            for (const [ordKey, entry] of ordMap) {
+                for (const r of entry.righe) {
+                    emesseRigheSet.add(fk + '|' + String(r.ol_progr || r.ol_codart + '|' + (r.ol_fase || 0) + '|' + (r.ol_magaz || 1)));
+                }
+            }
+        }
+        const righeFiltrateFinal = righeFiltrate.filter(r => {
+            if (!r.emesso) return true;
+            const fk = String(r.fornitore_codice);
+            const rKey = fk + '|' + String(r.ol_progr || r.ol_codart + '|' + (r.ol_fase || 0) + '|' + (r.ol_magaz || 1));
+            return !emesseRigheSet.has(rKey);
+        });
+
         // Popola ordiniEmessi con il primo ordine pending per fornitore e ordiniEmessiExtra
         // con eventuali successivi (caso raro: operatore ha creato più ordini separati).
         for (const [fk, ordMap] of pendingByForn) {
             const entries = Array.from(ordMap.values());
             const primo = entries[0];
-            const cached = pdfCache.get(fk) || {};
+            const cached = pdfCache.get(pdfCacheKey(primo.anno, primo.serie, primo.numord)) || {};
             ordiniEmessi.set(fk, {
                 anno: primo.anno,
                 serie: primo.serie,
@@ -1184,47 +1162,77 @@ const MrpProposta = (() => {
             ordiniCongelati.set(fk, Array.from(ordMap.values()));
         }
 
-        return righeFiltrate;
+        return righeFiltrateFinal;
     }
 
     /**
-     * Phase 6: Aggiunge pulsanti PDF/Email/Annulla all'header di un blocco ordine extra.
+     * Phase 6: Aggiunge pulsanti PDF/Email/Annulla al blocco ordine extra.
+     * I pulsanti usano le stesse classi del badge ordine principale per coerenza visiva.
      */
-    function aggiornaHeaderOrdineExtra(fornCode, extra) {
-        const sel = `.proposta-extra-header[data-forn="${fornCode}"][data-extra-numord="${extra.numord}"][data-extra-serie="${extra.serie}"]`;
+    /**
+     * Aggiunge pulsanti PDF / Template / Email / Annulla al sub-blocco ordine.
+     * Usato sia per il primo ordine che per gli extra — stessa pulsantiera per tutti.
+     */
+    function aggiornaHeaderOrdineExtra(fornCode, emesso) {
+        const sel = `.proposta-extra-header[data-forn="${fornCode}"][data-extra-numord="${emesso.numord}"][data-extra-serie="${emesso.serie}"]`;
         const headerEl = document.querySelector(sel);
         if (!headerEl) return;
 
-        // Rimuovi vecchi pulsanti
-        headerEl.querySelectorAll('.btn-scarica-pdf-forn, .btn-email-forn, .btn-annulla-ordine-forn').forEach(b => b.remove());
+        const actionsEl = headerEl.querySelector('.extra-actions');
+        if (!actionsEl) return;
+        actionsEl.innerHTML = '';
 
+        // PDF
         const btnPdf = document.createElement('button');
         btnPdf.className = 'btn-scarica-pdf-forn';
         btnPdf.textContent = '\u2B07 PDF';
         btnPdf.title = 'Scarica PDF ordine';
-        btnPdf.addEventListener('click', (e) => { e.stopPropagation(); scaricaPdf(extra); });
-        headerEl.appendChild(btnPdf);
+        btnPdf.addEventListener('click', (e) => { e.stopPropagation(); scaricaPdf(emesso); });
+        actionsEl.appendChild(btnPdf);
 
-        if (!extra.email_inviata) {
-            const btnEmail = document.createElement('button');
-            btnEmail.className = 'btn-email-forn';
-            btnEmail.textContent = '\u2709 Email';
-            btnEmail.title = 'Invia email ordine';
-            btnEmail.addEventListener('click', (e) => {
+        // Template select
+        const tplSelectHtml = buildTemplateSelect(fornCode);
+        if (tplSelectHtml) {
+            const tplWrapper = document.createElement('span');
+            tplWrapper.innerHTML = tplSelectHtml;
+            const selectEl = tplWrapper.firstElementChild;
+            selectEl.addEventListener('click', (e) => e.stopPropagation());
+            selectEl.addEventListener('change', (e) => {
                 e.stopPropagation();
-                inviaEmailOrdine(extra, {});
+                onTemplateSelectChange(fornCode, parseInt(selectEl.value, 10));
             });
-            headerEl.appendChild(btnEmail);
+            actionsEl.appendChild(selectEl);
+        }
 
+        // Email
+        const btnEmail = document.createElement('button');
+        btnEmail.className = 'btn-invia-email-forn';
+        if (emesso.email_inviata) {
+            btnEmail.textContent = '\u2709 Re-invia Email';
+            btnEmail.classList.add('email-gia-inviata');
+        } else {
+            btnEmail.textContent = '\u2709 Invia Email';
+            btnEmail.classList.add('email-non-inviata');
+        }
+        btnEmail.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const tplSel = actionsEl.querySelector('.select-template-forn');
+            const templateId = tplSel ? parseInt(tplSel.value, 10) : null;
+            inviaEmailOrdine(emesso, { template_id: templateId });
+        });
+        actionsEl.appendChild(btnEmail);
+
+        // Annulla (solo se email non ancora inviata)
+        if (!emesso.email_inviata) {
             const btnAnnulla = document.createElement('button');
-            btnAnnulla.className = 'btn-annulla-ordine-forn';
-            btnAnnulla.textContent = '\u2716 Annulla';
-            btnAnnulla.title = 'Annulla ordine';
+            btnAnnulla.className = 'btn-annulla-ordine';
+            btnAnnulla.textContent = '\u274C Annulla';
+            btnAnnulla.title = 'Annulla ordine ' + emesso.numord + '/' + emesso.serie;
             btnAnnulla.addEventListener('click', (e) => {
                 e.stopPropagation();
-                apriModaleAnnullaOrdine(extra);
+                apriModaleAnnullaOrdine(emesso);
             });
-            headerEl.appendChild(btnAnnulla);
+            actionsEl.appendChild(btnAnnulla);
         }
     }
 
@@ -1878,7 +1886,7 @@ const MrpProposta = (() => {
 
         if (resp.success) {
             // Salva PDF in memoria per download immediato (non disponibile dal server dopo)
-            pdfCache.set(String(fornitore_codice), {
+            pdfCache.set(pdfCacheKey(resp.ordine.anno, resp.ordine.serie, resp.ordine.numord), {
                 pdf_base64: resp.pdf_base64,
                 pdf_filename: resp.pdf_filename
             });
@@ -1997,7 +2005,12 @@ const MrpProposta = (() => {
     }
 
     function scaricaPdf(emesso) {
-        if (emesso.pdf_base64) {
+        // Cerca prima nella cache per chiave ordine (non per fornitore)
+        const ck = pdfCacheKey(emesso.anno, emesso.serie, emesso.numord);
+        const cached = pdfCache.get(ck);
+        if (cached && cached.pdf_base64) {
+            scaricaPdfBase64(cached.pdf_base64, cached.pdf_filename);
+        } else if (emesso.pdf_base64) {
             scaricaPdfBase64(emesso.pdf_base64, emesso.pdf_filename);
         } else {
             window.open(`${MrpApp.API_BASE}/ordine-pdf/${emesso.anno}/${emesso.serie}/${emesso.numord}`, '_blank');
@@ -3026,7 +3039,7 @@ const MrpProposta = (() => {
                         pdf_filename: data.pdf_filename,
                         totale_documento: data.ordine.totale_documento
                     };
-                    pdfCache.set(String(f.fornitore_codice), { pdf_base64: data.pdf_base64, pdf_filename: data.pdf_filename });
+                    pdfCache.set(pdfCacheKey(data.ordine.anno, data.ordine.serie, data.ordine.numord), { pdf_base64: data.pdf_base64, pdf_filename: data.pdf_filename });
                     st.emissioneProgress.successi++;
 
                     // Auto-send se richiesto
@@ -3316,7 +3329,7 @@ const MrpProposta = (() => {
             const data = await res.json();
             if (res.ok && data.success) {
                 // Cache il PDF per download futuro
-                pdfCache.set(String(data.ordine.fornitore_codice), {
+                pdfCache.set(pdfCacheKey(data.ordine.anno, data.ordine.serie, data.ordine.numord), {
                     pdf_base64: data.pdf_base64,
                     pdf_filename: data.pdf_filename
                 });
