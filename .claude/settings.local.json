@@ -136,7 +136,14 @@
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-parametri.js\")",
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/routes/gb2/articoli.js\")",
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-app.js\")",
-      "Bash(grep -n \"\\\\\\\\.progressivi-breadcrumb\" \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/css/gb2-progressivi.css\")"
+      "Bash(grep -n \"\\\\\\\\.progressivi-breadcrumb\" \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/css/gb2-progressivi.css\")",
+      "Bash(node diag-note.js)",
+      "Bash(node check_cols.js)",
+      "Bash(node diag-sp.js)",
+      "Bash(node diag-user42.js)",
+      "Bash(node fix-sp-gabriel.js)",
+      "Bash(node diag-ordini-gabriel.js)",
+      "Bash(node diag-mrp.js)"
     ]
   }
 }

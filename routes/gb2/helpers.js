@@ -126,7 +126,34 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
             try { await poolSPTarget.close(); } catch (_) {}
         }
 
-        // 5. Aggiorna versione SOLO se tutti i file sono OK (niente errori).
+        // 5. Verifica POST-DEPLOY: le 4 SP attese devono esistere davvero in
+        //    [GB2_SP].sys.objects con il suffix corretto. Bug storico (apr 2026):
+        //    deploy "OK" senza errori ma SP mancanti perche la batch trasformava
+        //    nome non previsto → DeployVersion marcata e Gabriel piantato col
+        //    messaggio "usp_CreaOrdineFornitore non esiste". Mai piu.
+        const expectedSPs = [
+            'usp_CreaOrdineFornitore' + (suffix || ''),
+            'usp_AggiungiRigheOrdineFornitore' + (suffix || ''),
+            'usp_AggiornaStatoInvioOrdine' + (suffix || ''),
+            'usp_RimuoviRigaOrdineFornitore' + (suffix || '')
+        ];
+        let missingSPs = [];
+        try {
+            const verifyRes = await poolTarget.request().query(
+                "SELECT name FROM [GB2_SP].sys.objects WHERE type='P' AND name IN ('"
+                + expectedSPs.join("','") + "')"
+            );
+            const presentNames = new Set(verifyRes.recordset.map(r => r.name));
+            missingSPs = expectedSPs.filter(n => !presentNames.has(n));
+            if (missingSPs.length) {
+                results.push({ file: 'verify', status: 'error',
+                    error: 'SP mancanti dopo deploy: ' + missingSPs.join(', ') });
+            }
+        } catch (vErr) {
+            results.push({ file: 'verify', status: 'error', error: 'verifica fallita: ' + vErr.message });
+        }
+
+        // 6. Aggiorna versione SOLO se tutti i file sono OK E le 4 SP esistono.
         //    Altrimenti un errore transitorio (es. SP che non compila) resta congelato
         //    con version=OK finche qualcuno non bumpa manualmente DEPLOY_VERSION.
         const hasErrors = results.some(r => r.status === 'error');
@@ -139,6 +166,9 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         } else {
             console.warn('[Deploy] Errori nel deploy SP — DeployVersion NON aggiornata:',
                 results.filter(r => r.status === 'error').map(r => r.file + ': ' + r.error).join('; '));
+            if (missingSPs.length) {
+                console.warn('[Deploy] SP attese non presenti in [GB2_SP] dopo deploy:', missingSPs.join(', '));
+            }
         }
 
         return { skipped: false, version: versionKey, results };
@@ -190,6 +220,13 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
      * - SP suffissate nel [GB2_SP] del server prova
      */
     async function deployTestObjects(pool163, poolTest, testProfile) {
+        // Guard esplicito: senza _testDbId il suffix diventerebbe '_Tundefined'
+        // e creeremmo SP fantasma (bug aprile 2026 — Gabriel in produzione).
+        // Se il chiamante non ha un profilo di prova valido, deve usare
+        // deployProductionObjects (SP senza suffix), non questa funzione.
+        if (!testProfile || !testProfile._testDbId) {
+            throw new Error('deployTestObjects richiede un profilo di prova con _testDbId valorizzato — usa deployProductionObjects per la produzione');
+        }
         const suffix = '_T' + testProfile._testDbId;
         const spDeploy = await deploySPToTarget(poolTest, suffix);
 

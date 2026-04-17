@@ -2312,5 +2312,151 @@ annulla+riemetti.
 
 
 ================================================================================
+[34] CONOSCENZA DISTRIBUITA: ar_note / an_note / an_note2
+================================================================================
+
+Confermato dall'ufficio acquisti (aprile 2026) e verificato sul DB produzione
+(BCUBE2/UJET11) con script diag-note.js.
+
+PROBLEMA DI BASE
+----------------
+Le informazioni operative critiche per emettere un ordine corretto (MOQ, lotti
+multipli, vincoli logistici, contatti diretti, password portali B2B, sconti
+contrattuali, parametri macchina, attenzioni reparto...) NON sono contenute in
+campi strutturati. L'operatore le ha distribuite storicamente in TRE luoghi:
+
+  1. Campi anagrafici strutturati  (ar_minord, ar_scomin, ar_rrfence, ...)
+  2. artico.ar_note  riga 6 e oltre  (le prime 5 righe vanno al fornitore via PDF)
+  3. anagra.an_note  +  anagra.an_note2  (mai pubblicate al fornitore)
+
+REGOLA "5 RIGHE PUBBLICHE / RESTO INTERNE" su ar_note
+-----------------------------------------------------
+Convenzione adottata storicamente dall'operatore acquisti (riconfermata aprile 2026).
+Le righe sono delimitate da \r\n nel DB. Il PDF replica questa regola in
+utils/pdfOrdine.js:
+
+  if (r.ar_note) {
+      const arNoteRaw = r.ar_note.toString().replace(/\r/g, '').replace(/\u00d0/g, '');
+      const arNoteLines = arNoteRaw.split('\n').slice(0, 5).join('\n').trim();
+      if (arNoteLines) parts.push({ text: arNoteLines, fontSize: 6.5, color: '#555' });
+  }
+
+Da notare:
+  - NIENTE .trim() prima dello split (un articolo che inizia con righe vuote
+    e ha info reali dalla riga 8 NON deve "scalare" — deve restare nascosto)
+  - Si pulisce \r e il glifo Ð (\u00d0) — quest'ultimo appare in alcune note
+    per residui di caratteri di controllo legacy
+  - .slice(0, 5) = solo le prime 5 righe logiche al fornitore
+
+DATI DI POPOLAMENTO (DB produzione, snapshot aprile 2026)
+---------------------------------------------------------
+ar_note (artico):
+  - Articoli "vivi" (ar_forn>0 OPPURE ordinati ultimi 18 mesi): 3.726
+  - Di cui con ar_note popolato: 2.574  (69,1%)
+  - Di cui con CONTENUTO REALE alla riga 6+:  833  (35,4% dei vivi con note)
+  - Lunghezza media 194 char, max 1.926 char
+  - Distribuzione righe: 1=29%, 2-3=29%, 4-5=7%, 6-10=21%, 11-20=11%, 21+=4%
+  - >>> ~1 articolo vivo su 3 con note ha info interne sotto la riga 5 <<<
+
+an_note (anagra) — note brevi fornitore:
+  - Fornitori vivi: 340
+  - Con an_note popolato: 45  (13,2%)
+  - Lunghezza media 23 char, max 30 char  → CAMPO BREVE
+  - Uso tipico: ISTRUZIONE OPERATIVA SECCA
+      "CONSEGNA 9.00-12.30"
+      "INVIARE COPIA DDT X EMAIL"
+      "TELEFONARE AL PRONTO"
+
+an_note2 (anagra) — rubrica relazioni fornitore:
+  - Fornitori vivi: 340
+  - Con an_note2 popolato: 263  (77,4%)  → QUASI TUTTI
+  - Lunghezza media 117 char, max 4.632 char  → CAMPO LUNGO
+  - Uso tipico: RUBRICA + CONOSCENZA RELAZIONALE
+
+CONTENUTO TIPICO DI ar_note RIGHE 1-5 (PUBBLICHE)
+-------------------------------------------------
+Pattern ricorrente (dominio tessile/medicale interno):
+  1. ISTRUZIONI: CICLO 1 (I100) - CICLO 2 - CICLO 3
+  2. DIMENSIONI DEL PRODOTTO FINITO: Lunghezza cm. X - Larghezza cm. Y
+  3. DIMENSIONI DEL PRODOTTO PIEGATO: cm. AxB
+  4. TOLLERANZE DIMENSIONALI: piu o meno N cm
+  5. CONTROLLI: CICLO 1 v/Procedura 205 - CICLO 2 v/Procedura 202
+
+CONTENUTO TIPICO DI ar_note RIGHE 6+ (INTERNE — MAI AL FORNITORE)
+------------------------------------------------------------------
+  - RIF. TECNICI: Mod.201 (Modulo Aziendale) - cm. (Valori Dimensionali)
+  - PARAMETRI IMPOSTAZIONE GFM (settaggi macchina di taglio)
+  - "CODICE 0010100 - SETTAGGIO n. ..."
+  - "LAVORO IN LINEA SINGOLA"
+  - "PIEGA 15x20 - Aggraffatore PICCOLO"
+  - "ATTENZIONE: ARTICOLO NON RIGIRATO PER AVVOLGIMENTI"
+  - "CAMPO STERILE: NO"
+  - "ETICHETTA LATO OPERATORE: NO"
+  - Riferimenti a disegni/specifiche fornitore esterno
+    ("ARCROYAL: Ref. AR-0700, rif. specifiche tecniche del 29/06/2010")
+
+CONTENUTO TIPICO DI an_note2 (FORNITORE)
+-----------------------------------------
+263 fornitori vivi su 340 hanno an_note2 = la rubrica operativa "vera":
+  - Contatti diretti dei referenti (cellulari, email personali, interni)
+  - Sconti contrattuali ("FARE SCONTO 60% - MARCO")
+  - Codici cliente presso vettori ("COD BRT 1660217")
+  - Email PEC, email per fatture, email ufficio gare
+  - Credenziali portali B2B fornitore (es. 3M bcom user/pwd)
+  - Riferimenti agenti (telefono, fax, email)
+  - Istruzioni speciali per consegne ("METTERE ANGOLARI SUI 4 ANGOLI DEL BANCALE")
+  - Note storiche / cambi referente / "OBSOLETO!!! Usare l'altro contatto"
+  - Per fornitori esteri: contatti logistica + ricezione merci con email/tel
+
+PERCHE' an_note2 NON VA AL PDF
+------------------------------
+Contiene materiale fortemente sensibile:
+  - Password e credenziali ("Password: Ujetsrl@1983")
+  - Sconti privati che rivelano la posizione negoziale
+  - Note interne "OBSOLETO!!!", "FARE SCONTO X% (NOMEUTENTE)"
+  - Contatti personali dei dipendenti del fornitore stesso
+
+L'operatore si fida di scriverli qui PERCHE' sa che restano nostri.
+Se mai mostrassimo questi campi nel PDF, perderemmo questa fiducia e il
+campo verrebbe rapidamente svuotato → perderemmo conoscenza preziosa.
+
+IMPLICAZIONI PER GB2
+--------------------
+1. Nella UI di GB2 (interno, mai esposto al fornitore) DOBBIAMO mostrare:
+   - ar_note INTEGRO (incluse righe 6+)  → toolbar articolo o popover/drawer
+   - an_note (breve istruzione operativa)  → badge prominente vicino al fornitore
+   - an_note2 (rubrica)  → popover/popup quando l'operatore esplora il fornitore
+   Marcando visivamente la frontiera "riga 5" su ar_note per ricordare
+   all'operatore quale parte arriva al fornitore e quale resta interna.
+
+2. Quando si genera il PDF (utils/pdfOrdine.js) la regola .slice(0,5) e' SACRA.
+   NON aggiungere ne' ar_note dopo riga 5, ne' an_note, ne' an_note2.
+   La regola e' gia' implementata correttamente al 17/04/2026.
+
+3. Per la maintenance dei dati: NON pulire / "normalizzare" / "togliere righe
+   vuote" da ar_note. Le righe vuote in cima sono parte dello schema di
+   visibilita' (es. articolo con info reali solo dalla riga 8 in giu' = info
+   ESCLUSIVAMENTE interna, deliberatamente nascosta al fornitore).
+
+4. Quando si presentano questi campi all'operatore, conservare la formattazione
+   monospace (white-space: pre) per non perdere allineamenti tipo
+   "*********************************" che l'operatore usa come separatori
+   visivi.
+
+SCRIPT DI DIAGNOSI: diag-note.js (root progetto)
+------------------------------------------------
+Esegue le query di copertura sopra riportate. Da rieseguire periodicamente
+(es. ogni 6 mesi) per verificare che la conoscenza distribuita resti ricca
+e che nuove convenzioni dell'operatore non emergano.
+
+RIFERIMENTI INCROCIATI
+----------------------
+  - utils/pdfOrdine.js (riga ~330): logica .slice(0, 5) su ar_note
+  - routes/gb2/articoli.js: endpoint /toolbar-info — punto naturale dove
+    aggiungere ar_note / an_note / an_note2 quando vorremo esporli in UI
+  - routes/gb2/fornitori.js: endpoint fornitore — punto naturale per an_note*
+
+
+================================================================================
 FINE DOCUMENTO
 ================================================================================

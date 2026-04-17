@@ -36,8 +36,19 @@ router.post('/deploy-sp', authMiddleware, async (req, res) => {
         const uid = getUserId(req);
         const profile = getActiveProfile(uid);
         const poolTarget = await getPoolDest(uid);
-        const deploy = await deployTestObjects(poolProd, poolTarget, profile);
-        res.json({ success: true, results: deploy.results, hasRiep: deploy.hasRiep });
+
+        // Se il profilo attivo e' un profilo di prova ha _testDbId valorizzato →
+        // deployTestObjects (SP suffissate _T<id>). Altrimenti → produzione,
+        // SP senza suffisso via deployProductionObjects (stesso percorso del boot).
+        // Bug storico (aprile 2026): qui veniva chiamato sempre deployTestObjects,
+        // che con profile produzione produceva suffix '_Tundefined' → SP fantasma.
+        if (profile && profile._testDbId) {
+            const deploy = await deployTestObjects(poolProd, poolTarget, profile);
+            return res.json({ success: true, mode: 'test', results: deploy.results, hasRiep: deploy.hasRiep });
+        } else {
+            const results = await deployProductionObjects(poolProd, poolTarget);
+            return res.json({ success: true, mode: 'production', results });
+        }
     } catch (err) {
         res.status(500).json({ error: err.message, detail: 'Errore durante il deploy delle stored procedure' });
     }
