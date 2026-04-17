@@ -1207,6 +1207,13 @@ const MrpProgressivi = (() => {
 
             const key = MrpApp.getKeyByProgr(progr);
 
+            // Valuta riga: se la riga origine ha ol_codvalu != 0, l'articolo e in valuta
+            // estera. Memorizziamo prezvalc/codvalu/cambio per popolare correttamente
+            // movord.mo_prezvalc + testord.td_valuta/td_cambio quando l'ordine viene emesso.
+            const olCodvalu = rigaOrig ? (Number(rigaOrig.ol_codvalu) || 0) : 0;
+            const olCambio  = rigaOrig ? (Number(rigaOrig.ol_cambio) || 0) : 0;
+            const olPrezvalc = rigaOrig ? (Number(rigaOrig.ol_prezvalc) || 0) : 0;
+
             MrpApp.confermaOrdine(key, {
                 fornitore_codice: proposta.fornitore_codice,
                 fornitore_nome: proposta.fornitore_nome,
@@ -1222,6 +1229,9 @@ const MrpProgressivi = (() => {
                 quantita_proposta: rigaOrig ? (Number(rigaOrig.ol_quant) || 0) : (Number(proposta.ol_quant) || 0),
                 prezzo: Number(tr.dataset.prezzo) || 0,
                 perqta: Number(tr.dataset.perqta) || 1,
+                ol_codvalu: olCodvalu,
+                ol_cambio: olCambio,
+                ol_prezvalc: olPrezvalc,
                 timestamp_conferma: new Date().toISOString()
             });
             confermateOra++;

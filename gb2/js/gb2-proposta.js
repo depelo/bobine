@@ -406,6 +406,24 @@ const MrpProposta = (() => {
             forn.articoli.get(ak).push(r);
         }
 
+        // Aggiungi fornitori che hanno SOLO ordini email-pending ma nessuna riga
+        // visibile (= tutte le proposte sono state gestite e attendono solo l'invio email).
+        // Senza questo, la card sparisce e l'operatore non puo' inviare l'email,
+        // ne' vedere/correggere l'email del fornitore.
+        const aggiungiFornitoreSeMancante = (fk, nome) => {
+            if (!fornitori.has(fk)) {
+                fornitori.set(fk, { codice: fk, nome: nome || '', articoli: new Map() });
+            } else if (!fornitori.get(fk).nome && nome) {
+                fornitori.get(fk).nome = nome;
+            }
+        };
+        ordiniEmessi.forEach((emesso, fk) => {
+            aggiungiFornitoreSeMancante(fk, emesso.fornitore_nome);
+        });
+        ordiniEmessiExtra.forEach((arr, fk) => {
+            if (arr && arr.length > 0) aggiungiFornitoreSeMancante(fk, arr[0].fornitore_nome);
+        });
+
         let totaleValore = 0;
         let totArticoli = 0;
         fornitori.forEach(f => {
@@ -485,6 +503,20 @@ const MrpProposta = (() => {
 
             let valoreFornitore = 0;
             let htmlArticoli = '';
+
+            // Per fornitori senza piu righe in proposta ma con ordini email-pending,
+            // aggiungiamo al totale anche il valore di quegli ordini (altrimenti
+            // mostrerebbe "Totale valore fornitore → € 0,00").
+            const sumValoreOrdine = (ord) => {
+                if (!ord || !ord.righe) return 0;
+                return ord.righe.reduce((s, r) => s + (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1), 0);
+            };
+            const fkLocal = String(forn.codice);
+            if (forn.articoli.size === 0) {
+                valoreFornitore += sumValoreOrdine(ordiniEmessi.get(fkLocal));
+                const extras = ordiniEmessiExtra.get(fkLocal);
+                if (extras) extras.forEach(e => { valoreFornitore += sumValoreOrdine(e); });
+            }
 
             for (const [codart, rows] of forn.articoli) {
                 const first = rows[0];
@@ -611,6 +643,17 @@ const MrpProposta = (() => {
                 : `Fornitore: ${esc(forn.codice)} (Senza ragione sociale)`;
 
             const isRelevant = String(forn.codice).startsWith('200');
+            // Sigla valuta dominante per il totale fornitore: prendi la prima riga
+            // di un eventuale ordine emesso non-EUR (le righe di ordlist normali
+            // sono in EUR aziendale).
+            const sigleFornitore = (() => {
+                const primoEm = ordiniEmessi.get(fkLocal);
+                if (primoEm && primoEm.righe) {
+                    const cv = primoEm.righe.find(r => Number(r.ol_codvalu) > 0);
+                    if (cv) return simboloValuta(cv.ol_codvalu);
+                }
+                return '\u20ac';
+            })();
             div.innerHTML = `
                 <div class="proposta-fornitore-header" data-forn="${escAttr(forn.codice)}" data-fornnome="${escAttr(forn.nome || '')}">
                     <button class="btn-aggiungi-articolo" data-forn="${escAttr(forn.codice)}" title="Aggiungi articolo da catalogo fornitore">+</button>
@@ -620,7 +663,7 @@ const MrpProposta = (() => {
                 <div class="proposta-fornitore-body" style="${isRelevant ? '' : 'display:none'}">
                     ${htmlArticoli}
                     <div class="proposta-forn-totale">
-                        Totale valore fornitore → <span class="valore">€ ${fmtNum(valoreFornitore, 2)}</span>
+                        Totale valore fornitore → <span class="valore">${sigleFornitore} ${fmtNum(valoreFornitore, 2)}</span>
                     </div>
                 </div>
             `;
@@ -661,11 +704,20 @@ const MrpProposta = (() => {
 
         const bcubeLabel = extra.origine === 'bcube' ? ' <span class="proposta-badge-bcube">BCube</span>' : '';
 
+        // Determina valuta dell'ordine: se almeno una riga ha ol_codvalu != 0,
+        // l'ordine e' in valuta estera. Mostra ol_prezvalc + sigla valuta.
+        // Replica la stessa logica del PDF (Ujetorfv.rpt usa mo_prezvalc + tb_desvalu).
+        const codvaluOrd = righe.find(r => Number(r.ol_codvalu) > 0);
+        const isEsteroExtra = !!codvaluOrd;
+        const valutaSigla = isEsteroExtra ? simboloValuta(codvaluOrd.ol_codvalu) : '\u20ac';
+
         let htmlRighe = '';
         let totaleValore = 0;
         const extraMultiRiga = righe.length > 1 && !extra.email_inviata;
         for (const r of righe) {
-            const valore = (Number(r.ol_quant) || 0) * (Number(r.ol_prezzo) || 0) / (Number(r.ol_perqta) || 1);
+            // Per ordini esteri usa ol_prezvalc (= prezzo in valuta originale)
+            const prezzoMostrato = isEsteroExtra ? (Number(r.ol_prezvalc) || Number(r.ol_prezzo) || 0) : (Number(r.ol_prezzo) || 0);
+            const valore = (Number(r.ol_quant) || 0) * prezzoMostrato / (Number(r.ol_perqta) || 1);
             totaleValore += valore;
             const rigaNum = r.ord_riga || r.mo_riga || 0;
             htmlRighe += `<tr>
@@ -674,8 +726,8 @@ const MrpProposta = (() => {
                 <td>${fmtDate(r.ol_datcons)}</td>
                 <td>${esc(r.ol_unmis || 'PZ')}</td>
                 <td class="num">${fmtNum(r.ol_quant, 3)}</td>
-                <td class="num">${fmtNum(r.ol_prezzo, 4)}</td>
-                <td class="num">\u20ac ${fmtNum(valore, 2)}</td>
+                <td class="num">${fmtNum(prezzoMostrato, 4)}</td>
+                <td class="num">${valutaSigla} ${fmtNum(valore, 2)}</td>
             </tr>`;
         }
 
@@ -704,7 +756,7 @@ const MrpProposta = (() => {
                 <tbody>${htmlRighe}</tbody>
             </table>
             <div class="extra-totale">
-                Totale ordine \u2192 <strong>\u20ac ${fmtNum(totaleValore, 2)}</strong>
+                Totale ordine \u2192 <strong>${valutaSigla} ${fmtNum(totaleValore, 2)}</strong>
             </div>
         `;
 
@@ -719,6 +771,24 @@ const MrpProposta = (() => {
             minimumFractionDigits: decimals || 0,
             maximumFractionDigits: decimals || 0
         });
+    }
+
+    // Sigla valuta per UI: mappa codvalu BCube → sigla ISO. Sigle confermate
+    // dalla tabella tabvalu del DB UJET11. Default: codice grezzo se sconosciuto.
+    const _SIMBOLI_VALUTA = {
+        0: '\u20ac',   // EUR (aziendale)
+        1: 'GBP',      // Sterlina inglese
+        2: 'FRF',      // Franco Francese (legacy)
+        3: 'SEK',      // Corona Svedese
+        6: 'DEM',      // Marco Tedesco (legacy)
+        10: 'NLG',     // Fiorino Olandese (legacy)
+        20: 'USD',     // Dollaro USA
+        21: 'CHF',     // Franco svizzero
+        99: '\u20ac'   // Euro (legacy mapping pre-eurozona)
+    };
+    function simboloValuta(codvalu) {
+        const cv = Number(codvalu) || 0;
+        return _SIMBOLI_VALUTA[cv] || ('cv' + cv);
     }
 
     function fmtDate(d) {
@@ -1067,7 +1137,11 @@ const MrpProposta = (() => {
         document.querySelectorAll('.proposta-fornitore').forEach(fornEl => {
             const header = fornEl.querySelector('.proposta-fornitore-header');
             const articoli = fornEl.querySelectorAll('.proposta-articolo');
-            if (!header || articoli.length === 0) return;
+            // Includi anche le card "vuote di articoli" che hanno solo sub-blocchi
+            // ordine pending (es. fornitore con tutte le proposte gia gestite ma
+            // email da inviare): vanno processate per aggiungere pulsanti PDF/Email.
+            const subBlocchi = fornEl.querySelectorAll('.proposta-ordine-extra');
+            if (!header || (articoli.length === 0 && subBlocchi.length === 0)) return;
 
             const fornCode = header.dataset.forn;
             const bodyEl = header.nextElementSibling;
@@ -1869,7 +1943,18 @@ const MrpProposta = (() => {
             }
         }
 
-        const totale = articoliFornitore.reduce((s, a) => s + a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1), 0);
+        // Determina valuta dominante per il modale: se almeno una riga e' in valuta
+        // estera, mostra prezzi/valori/totale nella valuta originale (= ol_prezvalc).
+        const codvaluConferma = articoliFornitore.find(a => Number(a.ol_codvalu) > 0);
+        const isEsteroConferma = !!codvaluConferma;
+        const sigConferma = isEsteroConferma ? simboloValuta(codvaluConferma.ol_codvalu) : '\u20ac';
+
+        const prezzoUI = (a) => isEsteroConferma
+            ? (Number(a.ol_prezvalc) || Number(a.prezzo) || 0)
+            : (Number(a.prezzo) || 0);
+
+        const totale = articoliFornitore.reduce((s, a) =>
+            s + a.quantita_confermata * prezzoUI(a) / (Number(a.perqta) || 1), 0);
 
         // Riepilogo unico — tutte le righe del fornitore in un solo ordine
         // (le diverse date di consegna convivono come righe separate in movord)
@@ -1886,19 +1971,23 @@ const MrpProposta = (() => {
         <table class="emetti-riepilogo-table">
             <thead><tr><th>Cod. Articolo</th><th>Descrizione</th><th class="num">Qt\u00e0</th><th>UM</th><th class="num">Prezzo</th><th class="num">Valore</th><th>Data Cons.</th></tr></thead>
             <tbody>
-            ${articoliOrdinati.map(a => `<tr>
+            ${articoliOrdinati.map(a => {
+                const p = prezzoUI(a);
+                const v = a.quantita_confermata * p / (Number(a.perqta) || 1);
+                return `<tr>
                 <td>${esc(a.ol_codart)}</td>
                 <td>${esc(a.ar_descr || '')}</td>
                 <td class="num">${Number(a.quantita_confermata).toLocaleString('it-IT')}</td>
                 <td>${esc(a.ol_unmis || 'PZ')}</td>
-                <td class="num">${Number(a.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 4 })}</td>
-                <td class="num">\u20ac ${(a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td class="num">${Number(p).toLocaleString('it-IT', { minimumFractionDigits: 4 })}</td>
+                <td class="num">${sigConferma} ${v.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td>${a.data_consegna ? new Date(a.data_consegna).toLocaleDateString('it-IT') : ''}</td>
-            </tr>`).join('')}
+            </tr>`;
+            }).join('')}
             </tbody>
         </table>`;
 
-        riepilogoHtml += `<div class="emetti-riepilogo-totale">Totale ordine: \u20ac ${totale.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
+        riepilogoHtml += `<div class="emetti-riepilogo-totale">Totale ordine: ${sigConferma} ${totale.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
 
         const riepilogoEl = document.getElementById('emettiRiepilogo');
         riepilogoEl.innerHTML = riepilogoHtml;
@@ -1935,6 +2024,9 @@ const MrpProposta = (() => {
         const articoliFinali = articoliFornitore.slice();
 
         // Mappa articoli → payload SP (formato comune a /emetti-ordine e /modifica-ordine)
+        // Per ordini in valuta estera passa anche prezvalc/codvalu/cambio cosi la SP
+        // popola correttamente movord.mo_prezvalc + testord.td_valuta/td_cambio/td_totmercev.
+        // Se la riga e' EUR (codvalu=0), prezvalc = prezzo.
         const mapArticoloToApi = (a) => ({
             codart: a.ol_codart,
             fase: parseInt(a.ol_fase, 10) || 0,
@@ -1942,6 +2034,9 @@ const MrpProposta = (() => {
             quantita: a.quantita_confermata,
             data_consegna: a.data_consegna,
             prezzo: a.prezzo,
+            prezvalc: (a.ol_prezvalc != null && Number(a.ol_prezvalc) > 0) ? Number(a.ol_prezvalc) : a.prezzo,
+            codvalu: parseInt(a.ol_codvalu, 10) || 0,
+            cambio: Number(a.ol_cambio) || 0,
             perqta: Number(a.perqta) || 1,
             unmis: a.ol_unmis || 'PZ',
             ol_progr: parseInt(a.ol_progr, 10) || 0
@@ -2533,13 +2628,23 @@ const MrpProposta = (() => {
     async function inviaTutteEmailHandler() {
         const pendenti = [];
         // Email gia pendenti (ordini emessi in precedenza, email non ancora inviata).
-        // NOTA: gli ordini extra (2°+ ordine pending per lo stesso fornitore) sono gestiti
-        // solo tramite i loro bottoni Invia Email individuali nella header. Il flusso batch
-        // usa fornitore_codice come id DOM/riga ed è incompatibile con più righe per fk
-        // senza un refactor più grosso del modaleBatchEmail. Caso raro, limitazione nota.
+        // Includiamo SIA il "primo" ordine per fornitore (ordiniEmessi) SIA gli ulteriori
+        // ordini pending dello stesso fornitore (ordiniEmessiExtra). Con il modello
+        // "1 ordine = 1 fornitore" gli extras nascono ogni volta che l'operatore
+        // conferma due volte righe diverse dello stesso fornitore, quindi sono comuni.
+        // _rowKey = id univoco DOM (fornitore_codice + numord) per supportare piu
+        // ordini per stesso fornitore senza collisioni.
+        const buildRowKey = (fk, ord) => String(fk) + '_' + String(ord.numord || '0');
         ordiniEmessi.forEach((emesso, fk) => {
             if (!emesso.email_inviata) {
-                pendenti.push({ ...emesso, fornitore_codice: fk });
+                pendenti.push({ ...emesso, fornitore_codice: fk, _rowKey: buildRowKey(fk, emesso) });
+            }
+        });
+        ordiniEmessiExtra.forEach((arr, fk) => {
+            for (const ex of arr) {
+                if (!ex.email_inviata) {
+                    pendenti.push({ ...ex, fornitore_codice: fk, _rowKey: buildRowKey(fk, ex) });
+                }
             }
         });
 
@@ -2579,10 +2684,11 @@ const MrpProposta = (() => {
         let successi = 0, falliti = 0;
 
         for (const riga of righeSelezionate) {
-            const statusCell = document.getElementById('batchSt_' + riga.fornitore_codice);
+            const rkRiga = String(riga._rowKey || riga.fornitore_codice);
+            const statusCell = document.getElementById('batchSt_' + rkRiga);
             if (statusCell) statusCell.innerHTML = '<span style="color:var(--warning);">\u23F3</span>';
 
-            const override = _batchCustomOverrides.get(String(riga.fornitore_codice)) || {};
+            const override = _batchCustomOverrides.get(rkRiga) || {};
             const sendOpts = { template_id: riga.templateId };
             if (override.oggetto_custom) {
                 sendOpts.oggetto_custom = override.oggetto_custom;
@@ -2603,7 +2709,8 @@ const MrpProposta = (() => {
                 if (result.error === 'SMTP_NOT_CONFIGURED' || result.error === 'EMAIL_PROVA_MISSING') {
                     const idx = righeSelezionate.indexOf(riga);
                     for (let i = idx + 1; i < righeSelezionate.length; i++) {
-                        const sc = document.getElementById('batchSt_' + righeSelezionate[i].fornitore_codice);
+                        const rkSucc = String(righeSelezionate[i]._rowKey || righeSelezionate[i].fornitore_codice);
+                        const sc = document.getElementById('batchSt_' + rkSucc);
                         if (sc) sc.innerHTML = '<span style="color:var(--text-muted);">\u2014</span>';
                     }
                     break;
@@ -2661,9 +2768,10 @@ const MrpProposta = (() => {
                             String(p.numord) === String(d.NumOrd)
                         );
                         if (key) {
-                            const fk = String(key.fornitore_codice || '');
-                            if (!_batchCustomOverrides.has(fk)) {
-                                _batchCustomOverrides.set(fk, { oggetto_custom: d.OggettoCustom, corpo_custom: d.CorpoCustom });
+                            // Chiave univoca per ordine (fk + numord), supporta piu ordini per stesso fornitore
+                            const rk = String(key._rowKey || key.fornitore_codice || '');
+                            if (!_batchCustomOverrides.has(rk)) {
+                                _batchCustomOverrides.set(rk, { oggetto_custom: d.OggettoCustom, corpo_custom: d.CorpoCustom });
                             }
                         }
                     });
@@ -2703,6 +2811,9 @@ const MrpProposta = (() => {
 
             const righeHtml = pendenti.map(p => {
                 const fk = String(p.fornitore_codice || '');
+                // Chiave riga DOM univoca: supporta piu' ordini per stesso fornitore
+                // (es. fornitore X con 2 ordini pending entrambi da inviare).
+                const rk = String(p._rowKey || fk);
                 const selWidget = document.querySelector('.select-template-forn[data-forn="' + fk + '"]');
                 const selectedTid = selWidget ? selWidget.value : String(getTemplateIdPerFornitore(fk) || '');
                 const email = p.fornitore_email || p.email_fornitore || '';
@@ -2717,20 +2828,20 @@ const MrpProposta = (() => {
                 const emailColor = isWaiting ? 'var(--text-muted)' : (email ? 'var(--text-muted)' : 'var(--danger)');
                 const statusIcon = isWaiting ? '<span class="unified-status" style="color:var(--text-muted);">\u23F3</span>' : '';
 
-                const selHtml = '<select class="batch-tpl-sel" data-forn="' + escAttr(fk) + '" style="font-size:0.76rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;max-width:150px;"' + ctrlDisabled + '>' +
+                const selHtml = '<select class="batch-tpl-sel" data-forn="' + escAttr(fk) + '" data-rowkey="' + escAttr(rk) + '" style="font-size:0.76rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;max-width:150px;"' + ctrlDisabled + '>' +
                     buildBatchOptions(fk, selectedTid) + '</select>';
 
-                return '<tr id="batchRow_' + escAttr(fk) + '"' + rowClass + ' data-forn="' + escAttr(fk) + '">' +
-                    '<td style="text-align:center;"><input type="checkbox" class="batch-chk" id="batchChk_' + escAttr(fk) + '" data-forn="' + escAttr(fk) + '"' + chkDisabled + chkChecked + ' style="accent-color:var(--primary);" /></td>' +
-                    '<td id="batchOrd_' + escAttr(fk) + '"><strong>' + ordLabel + '</strong></td>' +
+                return '<tr id="batchRow_' + escAttr(rk) + '"' + rowClass + ' data-forn="' + escAttr(fk) + '" data-rowkey="' + escAttr(rk) + '">' +
+                    '<td style="text-align:center;"><input type="checkbox" class="batch-chk" id="batchChk_' + escAttr(rk) + '" data-forn="' + escAttr(fk) + '" data-rowkey="' + escAttr(rk) + '"' + chkDisabled + chkChecked + ' style="accent-color:var(--primary);" /></td>' +
+                    '<td id="batchOrd_' + escAttr(rk) + '"><strong>' + ordLabel + '</strong></td>' +
                     '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(p.fornitore_nome || '') + '">' + esc(p.fornitore_nome || fk) + '</td>' +
-                    '<td id="batchEmail_' + escAttr(fk) + '" style="font-size:0.73rem;color:' + emailColor + ';max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="' + escAttr(email) + '">' + emailLabel + '</td>' +
+                    '<td id="batchEmail_' + escAttr(rk) + '" style="font-size:0.73rem;color:' + emailColor + ';max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="' + escAttr(email) + '">' + emailLabel + '</td>' +
                     '<td>' + selHtml + '</td>' +
                     '<td style="text-align:center;white-space:nowrap;">' +
-                        '<button class="batch-edit-btn" id="batchEdit_' + escAttr(fk) + '" data-forn="' + escAttr(fk) + '" style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Modifica manuale"' + ctrlDisabled + '>\u270E</button>' +
-                        '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" style="display:' + ((_batchCustomOverrides.has(fk) || _emailTemplates.some(t => String(t.id) === selectedTid && t.fornitoreCode)) ? 'inline' : 'none') + ';font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
+                        '<button class="batch-edit-btn" id="batchEdit_' + escAttr(rk) + '" data-forn="' + escAttr(fk) + '" data-rowkey="' + escAttr(rk) + '" style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;" title="Modifica manuale"' + ctrlDisabled + '>\u270E</button>' +
+                        '<span class="batch-edit-badge" data-forn="' + escAttr(fk) + '" data-rowkey="' + escAttr(rk) + '" style="display:' + ((_batchCustomOverrides.has(rk) || _emailTemplates.some(t => String(t.id) === selectedTid && t.fornitoreCode)) ? 'inline' : 'none') + ';font-size:0.66rem;background:#dbeafe;color:var(--primary);padding:1px 6px;border-radius:8px;margin-left:3px;font-weight:600;">Personalizzato</span>' +
                     '</td>' +
-                    '<td id="batchSt_' + escAttr(fk) + '" style="text-align:center;width:32px;">' + statusIcon + '</td>' +
+                    '<td id="batchSt_' + escAttr(rk) + '" style="text-align:center;width:32px;">' + statusIcon + '</td>' +
                     '</tr>';
             }).join('');
 
@@ -2786,8 +2897,9 @@ const MrpProposta = (() => {
             document.querySelectorAll('.batch-tpl-sel').forEach(sel => {
                 sel.addEventListener('change', () => {
                     const fk = sel.dataset.forn;
-                    const badge = document.querySelector('.batch-edit-badge[data-forn="' + fk + '"]');
-                    if (_batchCustomOverrides.has(fk)) _batchCustomOverrides.delete(fk);
+                    const rk = sel.dataset.rowkey || fk;
+                    const badge = document.querySelector('.batch-edit-badge[data-rowkey="' + rk + '"]');
+                    if (_batchCustomOverrides.has(rk)) _batchCustomOverrides.delete(rk);
                     const tid = parseInt(sel.value, 10);
                     const tpl = _emailTemplates.find(t => t.id === tid);
                     if (badge) badge.style.display = (tpl && tpl.fornitoreCode) ? 'inline' : 'none';
@@ -2803,17 +2915,20 @@ const MrpProposta = (() => {
             document.querySelectorAll('.batch-edit-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     const fk = btn.dataset.forn;
+                    const rk = btn.dataset.rowkey || fk;
                     // In emissioneMode, l'emesso e nello stato unificato
                     let emesso;
                     if (emissioneMode) {
                         const f = _batchUnifiedState.fornitori.find(x => String(x.fornitore_codice) === fk);
                         emesso = f ? f.emissioneResult : null;
                     } else {
-                        emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
+                        // Cerca per _rowKey (univoco anche se piu ordini stesso fornitore)
+                        emesso = pendenti.find(p => String(p._rowKey || p.fornitore_codice) === rk);
                     }
                     if (!emesso) return;
 
-                    const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
+                    const tplSel = document.querySelector('.batch-tpl-sel[data-rowkey="' + rk + '"]')
+                                || document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
                     const tid = tplSel ? parseInt(tplSel.value, 10) : null;
 
                     const origText = btn.textContent;
@@ -2833,7 +2948,7 @@ const MrpProposta = (() => {
 
                         if (prevData.error) { alert('Errore: ' + prevData.error); return; }
 
-                        const esistente = _batchCustomOverrides.get(fk);
+                        const esistente = _batchCustomOverrides.get(rk);
                         const risultato = await modaleAnteprimaEmail({
                             ordine: emesso.numord + '/' + emesso.serie,
                             fornitore: prevData.fornitore_nome,
@@ -2846,8 +2961,8 @@ const MrpProposta = (() => {
                         });
 
                         if (risultato) {
-                            _batchCustomOverrides.set(fk, { oggetto_custom: risultato.oggetto, corpo_custom: risultato.corpo });
-                            const badge = document.querySelector('.batch-edit-badge[data-forn="' + fk + '"]');
+                            _batchCustomOverrides.set(rk, { oggetto_custom: risultato.oggetto, corpo_custom: risultato.corpo });
+                            const badge = document.querySelector('.batch-edit-badge[data-rowkey="' + rk + '"]');
                             if (badge) { badge.style.display = 'inline'; badge.title = risultato.oggetto.substring(0, 60); }
                             try {
                                 await fetch(`${MrpApp.API_BASE}/email-drafts`, {
@@ -2908,10 +3023,13 @@ const MrpProposta = (() => {
                     // Modalita normale: raccogli e risolvi
                     const righeSelezionate = [];
                     document.querySelectorAll('.batch-chk:checked').forEach(cb => {
-                        const fk = cb.dataset.forn;
-                        const emesso = pendenti.find(p => String(p.fornitore_codice) === fk);
+                        const rk = cb.dataset.rowkey || cb.dataset.forn;
+                        // Cerca per _rowKey (univoco anche se 2 ordini stesso fornitore)
+                        const emesso = pendenti.find(p => String(p._rowKey || p.fornitore_codice) === rk);
                         if (!emesso) return;
-                        const tplSel = document.querySelector('.batch-tpl-sel[data-forn="' + fk + '"]');
+                        // Template selector e' per riga (data-rowkey), fallback su data-forn
+                        const tplSel = document.querySelector('.batch-tpl-sel[data-rowkey="' + rk + '"]')
+                                    || document.querySelector('.batch-tpl-sel[data-forn="' + emesso.fornitore_codice + '"]');
                         const tid = tplSel ? parseInt(tplSel.value, 10) : null;
                         righeSelezionate.push({ ...emesso, templateId: tid });
                     });

@@ -45,9 +45,13 @@ BEGIN
     DECLARE @riga_start     INT;
     DECLARE @td_flevas      VARCHAR(1);
     DECLARE @td_conto       INT;
-    DECLARE @tot_merce      MONEY = 0;
+    DECLARE @td_valuta      SMALLINT;            -- valuta gia fissata sull'ordine esistente
+    DECLARE @td_cambio      DECIMAL(18,9);
+    DECLARE @tot_merce      MONEY = 0;           -- in EUR aziendale
     DECLARE @tot_imposta    MONEY = 0;
     DECLARE @tot_doc        MONEY = 0;
+    DECLARE @tot_merce_val  MONEY = 0;           -- in valuta originale
+    DECLARE @tot_doc_val    MONEY = 0;
     DECLARE @data_cons_min  DATETIME;
 
     -- ============================================================
@@ -75,7 +79,8 @@ BEGIN
         magaz       SMALLINT,
         quantita    DECIMAL(18,9),
         data_consegna DATE,
-        prezzo      DECIMAL(18,6),
+        prezzo      DECIMAL(18,6),         -- in EUR aziendale (gia convertito)
+        prezvalc    DECIMAL(18,6),         -- in valuta originale (= prezzo se EUR)
         perqta      DECIMAL(18,6),
         unmis       VARCHAR(3),
         ol_progr    INT,
@@ -84,12 +89,17 @@ BEGIN
         ar_codiva   SMALLINT,
         ar_controa  SMALLINT,
         contocontr  INT,
-        valore      MONEY,
+        valore      MONEY,                 -- in EUR aziendale
+        valore_val  MONEY,                 -- in valuta originale
         mo_riga_new INT                    -- mo_riga finale assegnata post-lock
     );
 
-    INSERT INTO #articoli (codart, fase, magaz, quantita, data_consegna, prezzo, perqta, unmis, ol_progr)
-    SELECT codart, fase, magaz, quantita, data_consegna, prezzo, ISNULL(perqta, 1), unmis, ISNULL(ol_progr, 0)
+    INSERT INTO #articoli (codart, fase, magaz, quantita, data_consegna, prezzo, prezvalc, perqta, unmis, ol_progr)
+    SELECT
+        codart, fase, magaz, quantita, data_consegna,
+        prezzo,
+        ISNULL(NULLIF(prezvalc, 0), prezzo),
+        ISNULL(perqta, 1), unmis, ISNULL(ol_progr, 0)
     FROM OPENJSON(@json_articoli)
     WITH (
         codart          VARCHAR(50)     '$.codart',
@@ -98,6 +108,7 @@ BEGIN
         quantita        DECIMAL(18,9)   '$.quantita',
         data_consegna   DATE            '$.data_consegna',
         prezzo          DECIMAL(18,6)   '$.prezzo',
+        prezvalc        DECIMAL(18,6)   '$.prezvalc',
         perqta          DECIMAL(18,6)   '$.perqta',
         unmis           VARCHAR(3)      '$.unmis',
         ol_progr        INT             '$.ol_progr'
@@ -117,7 +128,8 @@ BEGIN
         a.ar_desint  = COALESCE(ar.ar_desint, ''),
         a.ar_codiva  = COALESCE(ar.ar_codiva, 0),
         a.ar_controa = COALESCE(ar.ar_controa, 0),
-        a.valore     = a.quantita * a.prezzo / ISNULL(NULLIF(a.perqta, 0), 1)
+        a.valore     = a.quantita * a.prezzo   / ISNULL(NULLIF(a.perqta, 0), 1),
+        a.valore_val = a.quantita * a.prezvalc / ISNULL(NULLIF(a.perqta, 0), 1)
     FROM #articoli a
     LEFT JOIN [UJET11].[dbo].[artico] ar ON a.codart = ar.ar_codart;
 
@@ -151,7 +163,10 @@ BEGIN
     END
 
     -- 3a. Verifica esistenza ordine + stato (dentro l'applock)
-    SELECT @td_flevas = td_flevas, @td_conto = td_conto
+    -- Carica anche valuta+cambio: le nuove righe usano gli stessi.
+    SELECT @td_flevas = td_flevas, @td_conto = td_conto,
+           @td_valuta = COALESCE(td_valuta, 0),
+           @td_cambio = COALESCE(NULLIF(td_cambio, 0), 1)
     FROM [UJET11].[dbo].[testord]
     WHERE codditt = @codditt AND td_tipork = 'O'
       AND td_anno = @anno AND td_serie = @serie AND td_numord = @numord;
@@ -208,7 +223,7 @@ BEGIN
         codditt, mo_tipork, mo_anno, mo_serie, mo_numord, mo_riga,
         mo_codart, mo_datcons, mo_magaz, mo_unmis,
         mo_descr, mo_desint,
-        mo_quant, mo_prezzo, mo_valore,
+        mo_quant, mo_prezzo, mo_prezvalc, mo_valore,
         mo_codiva, mo_controp, mo_contocontr,
         mo_codcena,
         mo_stasino, mo_flevas, mo_flevapre,
@@ -222,7 +237,7 @@ BEGIN
         @codditt, 'O', @anno, @serie, @numord, a.mo_riga_new,
         a.codart, a.data_consegna, a.magaz, a.unmis,
         a.ar_descr, a.ar_desint,
-        a.quantita, a.prezzo, a.valore,
+        a.quantita, a.prezzo, a.prezvalc, a.valore,
         a.ar_codiva, a.ar_controa, a.contocontr,
         101,
         'S', 'C', 'C',
@@ -236,9 +251,15 @@ BEGIN
 
     -- ============================================================
     -- 5. Ricalcolo totali testata SU MOVORD COMPLETO (vecchie + nuove)
+    -- Calcola sia totale EUR (mo_valore) sia totale in valuta originale
+    -- (mo_prezvalc * mo_quant / mo_perqta) per popolare td_totmercev.
     -- ============================================================
     SELECT
         @tot_merce     = SUM(mo.mo_valore),
+        @tot_merce_val = SUM(
+            mo.mo_quant * COALESCE(NULLIF(mo.mo_prezvalc, 0), mo.mo_prezzo)
+            / ISNULL(NULLIF(mo.mo_perqta, 0), 1)
+        ),
         @data_cons_min = MIN(mo.mo_datcons)
     FROM [UJET11].[dbo].[movord] mo
     WHERE mo.codditt = @codditt AND mo.mo_tipork = 'O'
@@ -314,15 +335,23 @@ BEGIN
     SELECT @tot_imposta = COALESCE(SUM(imposta), 0) FROM #iva_riepilogo;
     SET @tot_doc = @tot_merce + @tot_imposta;
 
+    -- Totale documento in valuta originale: applica la stessa proporzione IVA del totale EUR
+    SET @tot_doc_val = CASE
+        WHEN @tot_merce <> 0 THEN @tot_merce_val * (@tot_doc / @tot_merce)
+        ELSE @tot_merce_val
+    END;
+
     -- ============================================================
-    -- 5b. UPDATE testord con nuovi totali
+    -- 5b. UPDATE testord con nuovi totali (incl. valuta originale)
     -- ============================================================
     UPDATE [UJET11].[dbo].[testord]
-    SET td_totmerce = @tot_merce,
-        td_totlordo = @tot_merce,
-        td_totdoc   = @tot_doc,
-        td_datcons  = @data_cons_min,
-        td_ultagg   = GETDATE(),
+    SET td_totmerce  = @tot_merce,
+        td_totlordo  = @tot_merce,
+        td_totdoc    = @tot_doc,
+        td_totmercev = @tot_merce_val,
+        td_totdocv   = @tot_doc_val,
+        td_datcons   = @data_cons_min,
+        td_ultagg    = GETDATE(),
         td_codiva_1  = COALESCE((SELECT codiva     FROM #iva_riepilogo WHERE pos = 1), 0),
         td_imponib_1 = COALESCE((SELECT imponibile FROM #iva_riepilogo WHERE pos = 1), 0),
         td_imposta_1 = COALESCE((SELECT imposta    FROM #iva_riepilogo WHERE pos = 1), 0),

@@ -257,6 +257,9 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                     COALESCE(ol.ol_stato, '')               AS ol_stato,
                     ISNULL(ol.ol_magaz, 0)                 AS ol_magaz,
                     ISNULL(ol.ol_prezzo, 0)                AS ol_prezzo,
+                    ISNULL(ol.ol_prezvalc, 0)              AS ol_prezvalc,
+                    ISNULL(ol.ol_codvalu, 0)               AS ol_codvalu,
+                    ISNULL(ol.ol_cambio, 0)                AS ol_cambio,
                     ISNULL(ol.ol_perqta, 1)                AS ol_perqta,
                     ol.ol_datord                           AS dt_min_ord
                 FROM dbo.ordlist ol

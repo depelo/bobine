@@ -749,6 +749,21 @@ Passo 1 — Conferma (client-side + safety-net DB):
     3. Emesso, email INVIATA -> blocco con EMAIL_GIA_INVIATA, l'operatore
        deve creare ordine separato (POST /emetti-ordine)
 
+  CARD FORNITORE — sempre visibile finche c'e' attivita pending:
+    renderProposta (gb2-proposta.js) aggiunge alla Map fornitori non solo i
+    fornitori con righe in proposta, ma anche quelli che hanno SOLO ordini
+    email-pending (ordiniEmessi / ordiniEmessiExtra). Senza questo fix la card
+    sparisce quando "tutte le proposte sono state gestite", impedendo l'invio
+    email e la modifica del campo email mancante.
+
+  MODALE "INVIA TUTTE LE EMAIL" — supporto multi-ordine per fornitore:
+    Con il modello "1 ordine = 1 fornitore", e' comune avere 2+ ordini pending
+    per lo stesso fornitore (operatore conferma in due tornate). inviaTutteEmailHandler
+    include sia ordiniEmessi sia ordiniEmessiExtra. Per evitare collisioni DOM/Map
+    ogni elemento pendente ha _rowKey = fornitore_codice + '_' + numord, usata
+    come chiave per id DOM (batchRow_, batchChk_, batchSt_, ecc.) e per
+    _batchCustomOverrides (override personalizzato per ordine).
+
     La SP usp_AggiungiRigheOrdineFornitore aggiunge righe IN-PLACE all'ordine
     esistente (preserva numord, ricalcola totali, rigenera PDF).
     NON ammette duplicati (codart, fase, magaz) — il dialog disabilita "Unisci"
@@ -1184,10 +1199,23 @@ ARCHITETTURA SP — DB [GB2] SUL SERVER DI DESTINAZIONE:
     [GB2].[dbo].Operators, UserPreferences, ElaborazioniMRP, SnapshotProposte, ecc.
 
 VERSIONING DEPLOY:
-  Costante DEPLOY_VERSION in helpers.js (attualmente '3.2'). Al boot e allo switch profilo,
+  Costante DEPLOY_VERSION in helpers.js (attualmente '3.3'). Al boot e allo switch profilo,
   il sistema confronta con [GB2].[dbo].[DeployVersion].Versione sul server target.
   Se uguale → skip (~50ms). Se diversa → deploy completo + aggiorna versione.
   Il suffisso prova e incluso nella versionKey: es. '2.0_T1' per prova T1.
+
+  Storico bump:
+    3.3 — Gestione valuta estera nelle SP (CreaOrdine + AggiungiRighe).
+          Le SP ora popolano correttamente:
+            testord.td_valuta, td_cambio, td_totmercev, td_totdocv
+            movord.mo_prezvalc
+          Senza queste, gli ordini USD avrebbero td_valuta=0 (= EUR aziendale)
+          e il PDF avrebbe usato il template italiano con valori in valuta originale
+          spacciati per EUR (errore ~13-17% sul totale al fornitore).
+          Payload SP arricchito con: prezvalc, codvalu, cambio per ogni articolo.
+          Frontend (gb2-progressivi.confermaOrdineHandler) memorizza ol_prezvalc/
+          ol_codvalu/ol_cambio dalla riga ordlist al confermare.
+          Backend mrp-proposte (/proposta-ordini) restituisce questi 3 campi extra.
 
 AVVIO (produzione e sviluppo — server.js):
   Chiama deployProductionObjects(poolProd, poolTarget) in background (fire-and-forget):

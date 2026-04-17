@@ -40,7 +40,10 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
     }
 
     // Versione deploy — incrementare quando si modificano le SP o le tabelle
-    const DEPLOY_VERSION = '3.2';
+    // 3.3 — Gestione valuta estera: SP CreaOrdine + AggiungiRighe ora popolano
+    //       td_valuta/td_cambio/td_totmercev/td_totdocv + mo_prezvalc.
+    //       Senza questa SP gli ordini USD avrebbero td_valuta=0 (= EUR) e PDF rotto.
+    const DEPLOY_VERSION = '3.3';
 
     /**
      * Deploy SP e tabelle nel DB [GB2_SP] del server di destinazione.

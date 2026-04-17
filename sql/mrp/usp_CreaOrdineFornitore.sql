@@ -52,14 +52,22 @@ BEGIN
     DECLARE @forn_email     VARCHAR(255);
     DECLARE @forn_fax       VARCHAR(50);
     DECLARE @forn_listino   SMALLINT;
+    DECLARE @forn_valuta    SMALLINT;
     DECLARE @pag_descr      VARCHAR(100);
 
     -- Variabili totali
-    DECLARE @tot_merce      MONEY = 0;
+    DECLARE @tot_merce      MONEY = 0;          -- in EUR aziendale
     DECLARE @tot_imposta    MONEY = 0;
     DECLARE @tot_doc        MONEY = 0;
+    DECLARE @tot_merce_val  MONEY = 0;          -- in valuta originale (USD, GBP, ...)
+    DECLARE @tot_doc_val    MONEY = 0;
     DECLARE @primo_magaz    SMALLINT = 1;
     DECLARE @data_cons_min  DATETIME;
+
+    -- Variabili valuta (modello "1 ordine = 1 valuta" come BCube)
+    -- Prese dal primo valore non-zero nel JSON; fallback su anagra.an_valuta.
+    DECLARE @ord_valuta     SMALLINT = 0;       -- 0 = EUR aziendale
+    DECLARE @ord_cambio     DECIMAL(18,9) = 0;  -- cambio applicato (1 = neutro)
 
     -- ============================================================
     -- 0. Validazione input
@@ -86,10 +94,13 @@ BEGIN
         magaz       SMALLINT,
         quantita    DECIMAL(18,9),
         data_consegna DATE,
-        prezzo      DECIMAL(18,6),
-        perqta      DECIMAL(18,6),   -- Prezzo per quantita (es. 250 = prezzo per 250 PZ)
+        prezzo      DECIMAL(18,6),    -- prezzo in EUR aziendale (gia convertito se valuta estera)
+        prezvalc    DECIMAL(18,6),    -- prezzo in valuta originale (= prezzo se EUR)
+        codvalu     SMALLINT,         -- codice valuta riga (0 = EUR aziendale)
+        cambio      DECIMAL(18,9),    -- cambio applicato (1 = neutro)
+        perqta      DECIMAL(18,6),    -- Prezzo per quantita (es. 250 = prezzo per 250 PZ)
         unmis       VARCHAR(3),
-        ol_progr    INT,            -- Progressivo ordlist (per registro ordini_emessi)
+        ol_progr    INT,              -- Progressivo ordlist (per registro ordini_emessi)
         -- Campi arricchiti da artico
         ar_descr    VARCHAR(255),
         ar_desint   VARCHAR(40),
@@ -98,11 +109,18 @@ BEGIN
         -- Fallback da ordini esistenti
         contocontr  INT,
         -- Calcolati
-        valore      MONEY
+        valore      MONEY,             -- in EUR aziendale
+        valore_val  MONEY              -- in valuta originale (per td_totmercev)
     );
 
-    INSERT INTO #articoli (codart, fase, magaz, quantita, data_consegna, prezzo, perqta, unmis, ol_progr)
-    SELECT codart, fase, magaz, quantita, data_consegna, prezzo, ISNULL(perqta, 1), unmis, ISNULL(ol_progr, 0)
+    INSERT INTO #articoli (codart, fase, magaz, quantita, data_consegna, prezzo, prezvalc, codvalu, cambio, perqta, unmis, ol_progr)
+    SELECT
+        codart, fase, magaz, quantita, data_consegna,
+        prezzo,
+        ISNULL(NULLIF(prezvalc, 0), prezzo),   -- se prezvalc non passato, defaulta a prezzo (caso EUR)
+        ISNULL(codvalu, 0),
+        ISNULL(NULLIF(cambio, 0), 1),          -- cambio mai 0 (causerebbe div/0)
+        ISNULL(perqta, 1), unmis, ISNULL(ol_progr, 0)
     FROM OPENJSON(@json_articoli)
     WITH (
         codart          VARCHAR(50)     '$.codart',
@@ -111,6 +129,9 @@ BEGIN
         quantita        DECIMAL(18,9)   '$.quantita',
         data_consegna   DATE            '$.data_consegna',
         prezzo          DECIMAL(18,6)   '$.prezzo',
+        prezvalc        DECIMAL(18,6)   '$.prezvalc',
+        codvalu         SMALLINT        '$.codvalu',
+        cambio          DECIMAL(18,9)   '$.cambio',
         perqta          DECIMAL(18,6)   '$.perqta',
         unmis           VARCHAR(3)      '$.unmis',
         ol_progr        INT             '$.ol_progr'
@@ -130,7 +151,8 @@ BEGIN
         a.ar_desint  = COALESCE(ar.ar_desint, ''),
         a.ar_codiva  = COALESCE(ar.ar_codiva, 0),
         a.ar_controa = COALESCE(ar.ar_controa, 0),
-        a.valore     = a.quantita * a.prezzo / ISNULL(NULLIF(a.perqta, 0), 1)
+        a.valore     = a.quantita * a.prezzo   / ISNULL(NULLIF(a.perqta, 0), 1),
+        a.valore_val = a.quantita * a.prezvalc / ISNULL(NULLIF(a.perqta, 0), 1)
     FROM #articoli a
     LEFT JOIN [UJET11].[dbo].[artico] ar ON a.codart = ar.ar_codart;
 
@@ -166,9 +188,30 @@ BEGIN
         @forn_codbanc = COALESCE(an_codbanc, 0),
         @forn_email   = COALESCE(an_email, ''),
         @forn_fax     = COALESCE(an_faxtlx, ''),
-        @forn_listino = COALESCE(an_listino, 0)
+        @forn_listino = COALESCE(an_listino, 0),
+        @forn_valuta  = COALESCE(an_valuta, 0)
     FROM [UJET11].[dbo].[anagra]
     WHERE an_conto = @fornitore_codice;
+
+    -- Determina valuta + cambio dell'ordine.
+    -- Priorita: 1) primo codvalu non-zero passato dal payload, 2) an_valuta del fornitore.
+    -- Modello "1 ordine = 1 valuta" (BCube non supporta valute miste in un ordine).
+    SELECT TOP 1 @ord_valuta = codvalu, @ord_cambio = cambio
+    FROM #articoli
+    WHERE codvalu <> 0
+    ORDER BY riga;
+
+    IF @ord_valuta IS NULL OR @ord_valuta = 0
+    BEGIN
+        SET @ord_valuta = @forn_valuta;
+        -- Per fornitori in valuta estera senza cambio nel payload: cerca cambio piu recente
+        IF @ord_valuta <> 0
+            SELECT TOP 1 @ord_cambio = wx_cambio
+            FROM [UJET11].[dbo].[cambi]
+            WHERE wx_codvalu = @ord_valuta AND wx_dtvalid <= @oggi
+            ORDER BY wx_dtvalid DESC;
+    END
+    IF @ord_cambio IS NULL OR @ord_cambio = 0 SET @ord_cambio = 1;
 
     IF @forn_nome IS NULL OR @forn_nome = ''
     BEGIN
@@ -195,7 +238,7 @@ BEGIN
     -- ============================================================
     -- 4. Calcola totali e castelletto IVA
     -- ============================================================
-    SELECT @tot_merce = SUM(valore) FROM #articoli;
+    SELECT @tot_merce = SUM(valore), @tot_merce_val = SUM(valore_val) FROM #articoli;
     SELECT @data_cons_min = MIN(data_consegna) FROM #articoli;
     SELECT TOP 1 @primo_magaz = magaz FROM #articoli ORDER BY riga;
 
@@ -240,6 +283,15 @@ BEGIN
 
     SELECT @tot_imposta = COALESCE(SUM(imposta), 0) FROM #iva_riepilogo;
     SET @tot_doc = @tot_merce + @tot_imposta;
+
+    -- Totale documento in valuta originale: applichiamo la stessa proporzione IVA
+    -- (semplifichiamo: le aliquote IVA sono in EUR; per le valute estere, la quota
+    -- IVA e' di solito 0 perche' export, ma manteniamo coerenza moltiplicando per
+    -- (tot_doc / tot_merce) se non zero)
+    SET @tot_doc_val = CASE
+        WHEN @tot_merce <> 0 THEN @tot_merce_val * (@tot_doc / @tot_merce)
+        ELSE @tot_merce_val
+    END;
 
     -- ============================================================
     -- 5. LOCK + NUMERAZIONE DA TABNUMA + INSERT (sezione critica)
@@ -308,6 +360,8 @@ BEGIN
         td_contodest, td_opnome, td_opcreaz, td_datcreaz, td_orcreaz,
         td_ultagg,
         td_totmerce, td_totlordo, td_totdoc,
+        td_totmercev, td_totdocv,
+        td_valuta, td_cambio,
         td_codiva_1, td_imponib_1, td_imposta_1,
         td_codiva_2, td_imponib_2, td_imposta_2,
         td_codiva_3, td_imponib_3, td_imposta_3,
@@ -327,6 +381,8 @@ BEGIN
         @fornitore_codice, @operatore, @operatore, @oggi, @ora_creaz,
         @oggi,
         @tot_merce, @tot_merce, @tot_doc,
+        @tot_merce_val, @tot_doc_val,
+        @ord_valuta, @ord_cambio,
         -- Castelletto IVA (fino a 3 aliquote, estendibile)
         COALESCE((SELECT codiva     FROM #iva_riepilogo WHERE pos = 1), 0),
         COALESCE((SELECT imponibile FROM #iva_riepilogo WHERE pos = 1), 0),
@@ -349,7 +405,7 @@ BEGIN
         codditt, mo_tipork, mo_anno, mo_serie, mo_numord, mo_riga,
         mo_codart, mo_datcons, mo_magaz, mo_unmis,
         mo_descr, mo_desint,
-        mo_quant, mo_prezzo, mo_valore,
+        mo_quant, mo_prezzo, mo_prezvalc, mo_valore,
         mo_codiva, mo_controp, mo_contocontr,
         mo_codcena,
         mo_stasino, mo_flevas, mo_flevapre,
@@ -363,7 +419,7 @@ BEGIN
         @codditt, 'O', @anno, @serie, @numord, a.riga,
         a.codart, a.data_consegna, a.magaz, a.unmis,
         a.ar_descr, a.ar_desint,
-        a.quantita, a.prezzo, a.valore,
+        a.quantita, a.prezzo, a.prezvalc, a.valore,
         a.ar_codiva, a.ar_controa, a.contocontr,
         101,
         'S', 'C', 'C',

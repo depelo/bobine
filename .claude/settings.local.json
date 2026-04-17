@@ -130,7 +130,9 @@
       "Bash(node --check gb2/js/gb2-parametri.js)",
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-proposta.js\")",
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-progressivi.js\")",
-      "Bash(grep -n \"INSERT.*movord\\\\|INSERT INTO.*movord\\\\|movord$\" \"C:/Users/depel/Documents/progetto/ujet/bobine/sql/mrp/usp_CreaOrdineFornitore.sql\")"
+      "Bash(grep -n \"INSERT.*movord\\\\|INSERT INTO.*movord\\\\|movord$\" \"C:/Users/depel/Documents/progetto/ujet/bobine/sql/mrp/usp_CreaOrdineFornitore.sql\")",
+      "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/routes/gb2/helpers.js\")",
+      "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/routes/gb2/mrp-proposte.js\")"
     ]
   }
 }
