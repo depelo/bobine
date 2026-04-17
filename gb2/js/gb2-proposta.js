@@ -141,7 +141,11 @@ const MrpProposta = (() => {
             MrpParametri.eseguiDiretto({
                 codart: ordine.ol_codart,
                 fase: ordine.ol_fase || '',
-                magaz: ordine.ol_magaz || '',
+                // magaz vuoto: l'operatore vuole vedere TUTTI i magazzini quando
+                // apre i progressivi (non solo quello della proposta — sempre 1).
+                // Comportamento equivalente a quello pre-refactor decision panel:
+                // setTimeout(btnEsegui.click) lasciava paramMagaz vuoto.
+                magaz: '',
                 descr: ordine.ar_descr || ''
             });
         }
@@ -230,11 +234,13 @@ const MrpProposta = (() => {
             righe: cardRowsData.get(codartRaw.trim() + '|' + (codartEl.dataset.fornitore || '')) || []
         };
 
-        // Chiamata diretta ai progressivi — nessun ponte via form DOM
+        // Chiamata diretta ai progressivi — nessun ponte via form DOM.
+        // magaz vuoto: vogliamo TUTTI i magazzini (le proposte BCube hanno sempre
+        // ol_magaz=1, ma l'operatore vuole vedere lo stock complessivo).
         MrpParametri.eseguiDiretto({
             codart: codartRaw.trim(),
             fase: codartEl.dataset.fase || '',
-            magaz: codartEl.dataset.magaz || '',
+            magaz: '',
             descr: codartEl.dataset.descr || ''
         });
     }
