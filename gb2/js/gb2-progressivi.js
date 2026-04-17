@@ -796,10 +796,10 @@ const MrpProgressivi = (() => {
         }
     }
 
-    function _renderScaglioni(panel, scaglioni, qtaAttuale, perqta, unmis) {
+    function _renderScaglioni(panel, scaglioni, qtaAttuale, perqta, unmis, fonte, prezzoFallback) {
         let container = panel.querySelector('.decisione-scaglioni');
-        // Nessuno scaglione → rimuovi barra se esiste
-        if (!scaglioni || scaglioni.length === 0) {
+        // Nessuno scaglione e nessun fallback → rimuovi barra se esiste
+        if ((!scaglioni || scaglioni.length === 0) && fonte !== 'artprox') {
             if (container) container.remove();
             return;
         }
@@ -816,6 +816,18 @@ const MrpProgressivi = (() => {
         const fmtPrezzo = (p) => p.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
         let html = '';
+
+        // Fallback artprox (ultimo costo, nessuno scaglione)
+        if ((!scaglioni || scaglioni.length === 0) && fonte === 'artprox' && prezzoFallback) {
+            html += '<span class="decisione-scaglioni-label">Ultimo costo:</span>';
+            html += `<span class="decisione-scaglione attivo">${fmtPrezzo(prezzoFallback)}</span>`;
+            html += '<span class="decisione-fonte-hint">da storico acquisti</span>';
+            if (perqta && perqta > 1) {
+                html += `<span class="decisione-perqta-hint">Prezzo per ${perqta} ${unmis || 'PZ'}</span>`;
+            }
+            container.innerHTML = html;
+            return;
+        }
 
         // Scaglione unico (prezzo piatto) → messaggio semplice, niente falsi "scaglioni"
         if (scaglioni.length === 1) {
@@ -882,8 +894,8 @@ const MrpProgressivi = (() => {
                     tr.dataset.prezzo = String(result.prezzo);
                     tr.dataset.perqta = String(result.perqta || 1);
                     aggiornaValoreRiga(qtaInput);
-                    _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis);
-                    _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni };
+                    _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis, result.fonte, result.prezzo);
+                    _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni, fonte: result.fonte, prezzo: result.prezzo };
                 }
             });
         }
@@ -898,8 +910,8 @@ const MrpProgressivi = (() => {
                 const result = await _fetchPrezzoListino(codart, fornitore, qta, data);
                 if (!result) return;
                 // Aggiorna scaglioni sempre (anche se override)
-                _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis);
-                _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni };
+                _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis, result.fonte, result.prezzo);
+                _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni, fonte: result.fonte, prezzo: result.prezzo };
                 // Aggiorna prezzo solo se non in override
                 if (!tr.dataset.prezzoOverride && result.prezzo != null) {
                     prezzoInput.value = result.prezzo;
@@ -927,8 +939,8 @@ const MrpProgressivi = (() => {
         const data = dataInput ? dataInput.value : '';
         const result = await _fetchPrezzoListino(codart, fornitore, qta, data);
         if (!result) return;
-        _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni };
-        _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis);
+        _scaglioniCache = { codart, fornitore, scaglioni: result.scaglioni, fonte: result.fonte, prezzo: result.prezzo };
+        _renderScaglioni(panel, result.scaglioni, qta, result.perqta, unmis, result.fonte, result.prezzo);
 
         // Per righe senza prezzo (catalogo/manuali): autocompila
         panel.querySelectorAll('.decisione-row').forEach(tr => {

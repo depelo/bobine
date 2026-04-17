@@ -700,17 +700,58 @@ router.get('/prezzo-listino', authMiddleware, async (req, res) => {
             `);
 
         const row = prezzoResult.recordset[0];
-        res.json({
-            prezzo: row ? Number(row.lc_prezzo) : null,
-            perqta: row ? Number(row.lc_perqta) || 1 : 1,
-            fonte: row ? (row.lc_conto > 0 ? 'fornitore' : 'listino') : null,
-            scaglioni: scaglioniResult.recordset.map(s => ({
-                da: Number(s.lc_daquant),
-                a: Number(s.lc_aquant),
-                prezzo: Number(s.lc_prezzo),
-                perqta: Number(s.lc_perqta) || 1
-            }))
-        });
+        const scaglioni = scaglioniResult.recordset.map(s => ({
+            da: Number(s.lc_daquant),
+            a: Number(s.lc_aquant),
+            prezzo: Number(s.lc_prezzo),
+            perqta: Number(s.lc_perqta) || 1
+        }));
+
+        if (row) {
+            // Trovato in listini
+            return res.json({
+                prezzo: Number(row.lc_prezzo),
+                perqta: Number(row.lc_perqta) || 1,
+                fonte: row.lc_conto > 0 ? 'fornitore' : 'listino',
+                scaglioni
+            });
+        }
+
+        // Fallback: ultimo costo da artprox (come fa BCube quando nListino=0)
+        const artproxResult = await pool.request()
+            .input('codart', sql.VarChar(50), codart)
+            .query(`
+                SELECT apx_ultcos
+                FROM dbo.artprox
+                WHERE codditt = 'UJET11'
+                  AND apx_codart = @codart
+                  AND apx_fase = 0
+            `);
+
+        const apxRow = artproxResult.recordset[0];
+        const ultCosto = apxRow ? Number(apxRow.apx_ultcos) : null;
+
+        if (ultCosto && ultCosto > 0) {
+            // Leggi ar_perqta dall'articolo (artprox non ha perqta)
+            const artiResult = await pool.request()
+                .input('codart', sql.VarChar(50), codart)
+                .query(`
+                    SELECT COALESCE(NULLIF(ar_perqta, 0), 1) AS ar_perqta
+                    FROM dbo.artico
+                    WHERE codditt = 'UJET11' AND ar_codart = @codart
+                `);
+            const perqta = artiResult.recordset[0]?.ar_perqta || 1;
+
+            return res.json({
+                prezzo: ultCosto,
+                perqta: Number(perqta),
+                fonte: 'artprox',
+                scaglioni: []
+            });
+        }
+
+        // Nessun prezzo trovato da nessuna parte
+        res.json({ prezzo: null, perqta: 1, fonte: null, scaglioni: [] });
     } catch (err) {
         console.error('[API] Errore prezzo-listino:', err.message);
         res.status(500).json({ error: err.message });

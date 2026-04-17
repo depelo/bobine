@@ -753,6 +753,9 @@ const MrpProposta = (() => {
 
     function _chiudiCatalogo() {
         if (_catalogoAperto) {
+            // Rimuovi la classe dalla card del fornitore
+            const cardFornitore = _catalogoAperto.closest('.proposta-fornitore');
+            if (cardFornitore) cardFornitore.classList.remove('catalogo-aperto');
             _catalogoAperto.remove();
             _catalogoAperto = null;
         }
@@ -788,6 +791,10 @@ const MrpProposta = (() => {
         // Posiziona sotto il pulsante
         header.appendChild(popup);
         _catalogoAperto = popup;
+
+        // Solleva la card del fornitore sopra le sorelle (evita clipping/overlap)
+        const cardFornitore = header.closest('.proposta-fornitore');
+        if (cardFornitore) cardFornitore.classList.add('catalogo-aperto');
 
         setTimeout(() => document.addEventListener('click', _chiudiCatalogoOutside), 0);
 

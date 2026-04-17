@@ -167,6 +167,13 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
+    position: relative;
+}
+
+/* Quando il popup catalogo è aperto: scopri il fornitore e portalo sopra le card sorelle */
+.proposta-fornitore.catalogo-aperto {
+    overflow: visible;
+    z-index: 1100;
 }
 
 /* Divider tra i tier del sort al refresh (email-pending / confermati / congelati / niente) */
