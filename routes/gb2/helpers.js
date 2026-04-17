@@ -304,6 +304,8 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
                            CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
                            t.td_vettor AS vettore_codice,
                            t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                           t.td_totmercev AS totale_merce_valuta, t.td_totdocv AS totale_documento_valuta,
+                           t.td_cambio AS cambio,
                            t.td_acuradi AS acuradi,
                            t.td_coddest AS coddest, t.td_contodest AS contodest,
                            a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
@@ -348,6 +350,8 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
                                CAST(t.td_note AS VARCHAR(MAX)) AS note_ordine,
                                t.td_vettor AS vettore_codice,
                                t.td_totmerce AS totale_merce, t.td_totdoc AS totale_documento,
+                           t.td_totmercev AS totale_merce_valuta, t.td_totdocv AS totale_documento_valuta,
+                           t.td_cambio AS cambio,
                                t.td_acuradi AS acuradi,
                                t.td_coddest AS coddest, t.td_contodest AS contodest,
                                a.an_descr1 AS fornitore_nome, a.an_indir AS fornitore_indirizzo,
@@ -390,7 +394,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
             .query(`
                 SELECT m.mo_riga, m.mo_codart, m.mo_descr, m.mo_desint,
                        m.mo_unmis, m.mo_ump, m.mo_quant, m.mo_colli,
-                       m.mo_prezzo, m.mo_valore, m.mo_datcons,
+                       m.mo_prezzo, m.mo_prezvalc, m.mo_valore, m.mo_datcons,
                        m.mo_fase, m.mo_magaz, m.mo_lotto,
                        m.mo_scont1, m.mo_scont2, m.mo_scont3,
                        m.mo_perqta,
@@ -406,7 +410,7 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
                 WHERE m.codditt = 'UJET11' AND m.mo_tipork = 'O'
                   AND m.mo_anno = @anno AND m.mo_serie = @serie AND m.mo_numord = @numord
                   AND m.mo_stasino <> 'N'
-                ORDER BY m.mo_riga
+                ORDER BY m.mo_datcons, m.mo_riga
             `);
 
         return { ordine, righe: righeRes.recordset };

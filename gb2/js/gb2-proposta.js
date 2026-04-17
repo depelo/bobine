@@ -868,8 +868,10 @@ const MrpProposta = (() => {
 
         // ── Passo 1: itero le card articolo, nascondo righe confermate,
         //    marco le card confermate, e raccolgo tutti i confermati per fornitore ──
-        // Map<fornCode, Map<dataCons, Array<{key, ordine}>>>
-        const confPerFornData = new Map();
+        // Modello "1 ordine = 1 fornitore": tutte le righe del fornitore (anche con
+        // date di consegna diverse) confluiscono in un singolo blocco visuale.
+        // Map<fornCode, Array<{key, ordine}>>
+        const confPerForn = new Map();
 
         document.querySelectorAll('.proposta-articolo').forEach(artEl => {
             const codartEl = artEl.querySelector('.proposta-art-codart');
@@ -916,15 +918,11 @@ const MrpProposta = (() => {
                 artEl.style.display = 'none';
             }
 
-            // Raccogli per (fornitore, data) — normalizza data a YYYY-MM-DD
+            // Raccogli per fornitore (flat — multi-data convivono nel blocco)
             for (const { key, ordine } of ordiniCard) {
                 const fk = String(ordine.fornitore_codice);
-                const dtRaw = ordine.data_consegna || '';
-                const dt = dtRaw ? new Date(dtRaw).toISOString().split('T')[0] : 'no-date';
-                if (!confPerFornData.has(fk)) confPerFornData.set(fk, new Map());
-                const byDate = confPerFornData.get(fk);
-                if (!byDate.has(dt)) byDate.set(dt, []);
-                byDate.get(dt).push({ key, ordine });
+                if (!confPerForn.has(fk)) confPerForn.set(fk, []);
+                confPerForn.get(fk).push({ key, ordine });
             }
         });
 
@@ -932,25 +930,27 @@ const MrpProposta = (() => {
         confermati.forEach((ordine, key) => {
             if (Number(key) >= 0) return;
             const fk = String(ordine.fornitore_codice);
-            const dtRaw = ordine.data_consegna || '';
-            const dt = dtRaw ? new Date(dtRaw).toISOString().split('T')[0] : 'no-date';
-            if (!confPerFornData.has(fk)) confPerFornData.set(fk, new Map());
-            const byDate = confPerFornData.get(fk);
-            if (!byDate.has(dt)) byDate.set(dt, []);
-            byDate.get(dt).push({ key, ordine });
+            if (!confPerForn.has(fk)) confPerForn.set(fk, []);
+            confPerForn.get(fk).push({ key, ordine });
         });
 
-        // ── Passo 2: per ogni (fornitore, data), creo un blocco ordine visuale ──
-        for (const [fornCode, byDate] of confPerFornData) {
+        // ── Passo 2: per ogni fornitore creo un UNICO blocco "Ordine da emettere"
+        //    che contiene tutte le righe del fornitore (anche multi-data) ──
+        for (const [fornCode, items] of confPerForn) {
             const fornEl = document.querySelector(`.proposta-fornitore-header[data-forn="${fornCode}"]`);
             if (!fornEl) continue;
             const bodyEl = fornEl.nextElementSibling;
             if (!bodyEl) continue;
 
-            for (const [dataConsegna, items] of byDate) {
-                const blocco = _buildBloccoOrdineConfermato(items, dataConsegna);
-                bodyEl.insertBefore(blocco, bodyEl.firstChild);
-            }
+            // Ordina le righe per data consegna (blocchi temporali piu antichi in alto)
+            items.sort((a, b) => {
+                const da = a.ordine.data_consegna ? new Date(a.ordine.data_consegna).getTime() : 0;
+                const db = b.ordine.data_consegna ? new Date(b.ordine.data_consegna).getTime() : 0;
+                return da - db;
+            });
+
+            const blocco = _buildBloccoOrdineConfermato(items);
+            bodyEl.insertBefore(blocco, bodyEl.firstChild);
         }
 
         aggiornaBarreFornitori();
@@ -958,17 +958,31 @@ const MrpProposta = (() => {
 
     /**
      * Costruisce un blocco visuale "ordine in attesa di emissione" che raggruppa
-     * tutti gli articoli confermati per la stessa (fornitore, data_consegna).
-     * Mostra una mini-tabella con tutti gli articoli + bottone Emetti.
+     * tutti gli articoli confermati per il fornitore. Il modello "1 ordine = 1
+     * fornitore" prevede che righe a date diverse convivano nello stesso blocco
+     * (e nello stesso ordine BCube): la data consegna e' una colonna della tabella.
      */
-    function _buildBloccoOrdineConfermato(items, dataConsegna) {
+    function _buildBloccoOrdineConfermato(items) {
         const div = document.createElement('div');
         div.className = 'proposta-articolo proposta-scorporo proposta-art-confermato';
 
-        const dataFmt = dataConsegna && dataConsegna !== 'no-date'
-            ? new Date(dataConsegna).toLocaleDateString('it-IT') : 'Senza data';
         const allKeys = items.map(i => i.key).join(',');
         const fornCode = items[0].ordine.fornitore_codice;
+
+        // Riepilogo date: se tutte uguali mostra "consegna X", altrimenti "N date"
+        const dateUniche = new Set(items.map(i => {
+            const dt = i.ordine.data_consegna || '';
+            return dt ? new Date(dt).toISOString().split('T')[0] : 'no-date';
+        }));
+        let labelDate;
+        if (dateUniche.size === 1) {
+            const unica = items[0].ordine.data_consegna;
+            labelDate = unica
+                ? 'consegna ' + new Date(unica).toLocaleDateString('it-IT')
+                : 'senza data';
+        } else {
+            labelDate = dateUniche.size + ' date di consegna';
+        }
 
         let totValore = 0;
         let htmlRighe = '';
@@ -976,6 +990,9 @@ const MrpProposta = (() => {
         for (const { key, ordine } of items) {
             const valore = ordine.quantita_confermata * ordine.prezzo / (Number(ordine.perqta) || 1);
             totValore += valore;
+            const dataFmt = ordine.data_consegna
+                ? new Date(ordine.data_consegna).toLocaleDateString('it-IT')
+                : '';
             htmlRighe += `<tr>
                 <td>${esc(ordine.ol_codart)}${isMultiRiga ? ' <button class="btn-annulla-conferma btn-annulla-inline" data-key="' + escAttr(key) + '" title="Rimuovi articolo">\u274C</button>' : ''}</td>
                 <td>${esc(ordine.ar_descr || '')}</td>
@@ -983,6 +1000,7 @@ const MrpProposta = (() => {
                 <td>${esc(ordine.ol_unmis || 'PZ')}</td>
                 <td class="num">${(ordine.prezzo || 0).toFixed(4)}</td>
                 <td class="num">\u20ac ${valore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td>${esc(dataFmt)}</td>
                 <td>
                     <button class="btn-modifica-conferma" data-key="${escAttr(key)}" title="Modifica">&#9998;</button>
                 </td>
@@ -992,7 +1010,7 @@ const MrpProposta = (() => {
         div.innerHTML = `
             <div class="proposta-scorporo-header">
                 <span class="conferma-icon">\u2713</span>
-                <strong>Ordine da emettere</strong> \u2014 consegna ${esc(dataFmt)}
+                <strong>Ordine da emettere</strong> \u2014 ${esc(labelDate)}
                 <span class="proposta-scorporo-actions">
                     <button class="btn-annulla-conferma" data-key="${escAttr(allKeys)}" title="Annulla ordine">\u274C Annulla</button>
                     <span class="proposta-scorporo-count">${items.length} art. \u2014 \u20ac ${totValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -1008,6 +1026,7 @@ const MrpProposta = (() => {
                         <th>UM</th>
                         <th class="num">Prezzo</th>
                         <th class="num">Valore</th>
+                        <th>Data Cons.</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -1773,22 +1792,6 @@ const MrpProposta = (() => {
     }
 
     /**
-     * Raggruppa articoli confermati per data_consegna.
-     * Articoli con la stessa data vanno nello stesso ordine.
-     * Date diverse → ordini separati (PDF + email distinti).
-     */
-    function raggruppaPerData(articoli) {
-        const gruppi = new Map();
-        for (const a of articoli) {
-            const dtRaw = a.data_consegna || '';
-            const dt = dtRaw ? new Date(dtRaw).toISOString().split('T')[0] : 'no-date';
-            if (!gruppi.has(dt)) gruppi.set(dt, []);
-            gruppi.get(dt).push(a);
-        }
-        return Array.from(gruppi.entries()).map(([data, arts]) => ({ data, articoli: arts }));
-    }
-
-    /**
      * Emetti da card singola — emette solo gli articoli specificati dai keys.
      * Riusa apriModaleEmettiOrdine filtrando i confermati ai soli keys richiesti.
      */
@@ -1815,46 +1818,23 @@ const MrpProposta = (() => {
 
         if (articoliFornitore.length === 0) return;
 
-        // Raggruppa per data consegna: date diverse → ordini separati
-        const gruppiData = raggruppaPerData(articoliFornitore);
-        const multiOrdine = gruppiData.length > 1;
-
-        // Raccogli TUTTI gli ordini pending (email non inviata) per questo fornitore
+        // MODELLO "1 ORDINE = 1 FORNITORE" (multi-data nello stesso ordine)
+        // Cerca un ordine pending del fornitore (= emesso ma email non ancora inviata).
+        // Se trovato → proponi merge nell'ordine esistente (la SP usp_AggiungiRigheOrdineFornitore
+        // aggiunge le righe in-place, ricalcola totali, rigenera PDF).
         const ordiniPending = [];
         const emesso = ordiniEmessi.get(String(fornitore_codice));
         if (emesso && !emesso.email_inviata) ordiniPending.push(emesso);
         const extras = ordiniEmessiExtra.get(String(fornitore_codice));
         if (extras) extras.filter(e => !e.email_inviata).forEach(e => ordiniPending.push(e));
 
-        // Per ogni ordine pending, calcola la data consegna predominante dalle sue righe
-        function getDataOrdine(ord) {
-            if (!ord.righe || ord.righe.length === 0) return 'no-date';
-            // Prendi la data della prima riga (gli ordini GB2 hanno tutti la stessa data)
-            const dt = ord.righe[0].ol_datcons || '';
-            return dt ? new Date(dt).toISOString().split('T')[0] : 'no-date';
-        }
-
-        // Mappa data → ordine pending con quella data
-        const pendingPerData = new Map();
-        for (const ord of ordiniPending) {
-            const dt = getDataOrdine(ord);
-            if (!pendingPerData.has(dt)) pendingPerData.set(dt, []);
-            pendingPerData.get(dt).push(ord);
-        }
-
-        // Per ogni gruppo, determina se c'è un ordine pending con stessa data → proponi merge
-        // Se multiOrdine, il merge viene chiesto per-gruppo nella fase emissione
-        let mergeMode = null; // null | 'merge' | 'separate'
-        let mergeTarget = null; // ordine a cui unire
-        if (!multiOrdine && gruppiData.length === 1) {
-            const dataGruppo = gruppiData[0].data;
-            const pendentiStessaData = pendingPerData.get(dataGruppo);
-            if (pendentiStessaData && pendentiStessaData.length > 0) {
-                mergeTarget = pendentiStessaData[0];
-                const scelta = await apriDialogMergeDecision(fornitore_codice, mergeTarget, articoliFornitore);
-                if (scelta === null) return;
-                mergeMode = scelta;
-            }
+        let mergeMode = null;     // null | 'merge' | 'separate'
+        let mergeTarget = null;   // ordine pending a cui unire
+        if (ordiniPending.length > 0) {
+            mergeTarget = ordiniPending[0];
+            const scelta = await apriDialogMergeDecision(fornitore_codice, mergeTarget, articoliFornitore);
+            if (scelta === null) return;
+            mergeMode = scelta;
         }
 
         // Check duplicati pre-emissione (skip in modalità merge)
@@ -1891,48 +1871,34 @@ const MrpProposta = (() => {
 
         const totale = articoliFornitore.reduce((s, a) => s + a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1), 0);
 
-        // Riepilogo — mostra raggruppamento per data se multi-ordine
+        // Riepilogo unico — tutte le righe del fornitore in un solo ordine
+        // (le diverse date di consegna convivono come righe separate in movord)
         let riepilogoHtml = `<div class="emetti-riepilogo-fornitore">${esc(fornitore_nome)} (${esc(String(fornitore_codice))})</div>`;
 
-        if (multiOrdine) {
-            riepilogoHtml += `<div class="emetti-multiordine-avviso">
-                Date di consegna diverse &rarr; verranno emessi <strong>${gruppiData.length} ordini separati</strong>,
-                ciascuno con il proprio PDF e la propria email.
-            </div>`;
-        }
+        // Ordina per data consegna per leggibilità
+        const articoliOrdinati = articoliFornitore.slice().sort((a, b) => {
+            const da = a.data_consegna ? new Date(a.data_consegna).getTime() : 0;
+            const db = b.data_consegna ? new Date(b.data_consegna).getTime() : 0;
+            return da - db;
+        });
 
-        for (const gruppo of gruppiData) {
-            const dataLabel = gruppo.data !== 'no-date'
-                ? new Date(gruppo.data).toLocaleDateString('it-IT')
-                : 'Senza data';
-            const totGruppo = gruppo.articoli.reduce((s, a) => s + a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1), 0);
+        riepilogoHtml += `
+        <table class="emetti-riepilogo-table">
+            <thead><tr><th>Cod. Articolo</th><th>Descrizione</th><th class="num">Qt\u00e0</th><th>UM</th><th class="num">Prezzo</th><th class="num">Valore</th><th>Data Cons.</th></tr></thead>
+            <tbody>
+            ${articoliOrdinati.map(a => `<tr>
+                <td>${esc(a.ol_codart)}</td>
+                <td>${esc(a.ar_descr || '')}</td>
+                <td class="num">${Number(a.quantita_confermata).toLocaleString('it-IT')}</td>
+                <td>${esc(a.ol_unmis || 'PZ')}</td>
+                <td class="num">${Number(a.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 4 })}</td>
+                <td class="num">\u20ac ${(a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td>${a.data_consegna ? new Date(a.data_consegna).toLocaleDateString('it-IT') : ''}</td>
+            </tr>`).join('')}
+            </tbody>
+        </table>`;
 
-            if (multiOrdine) {
-                riepilogoHtml += `<div class="emetti-gruppo-data-header">Ordine per consegna: <strong>${esc(dataLabel)}</strong></div>`;
-            }
-
-            riepilogoHtml += `
-            <table class="emetti-riepilogo-table">
-                <thead><tr><th>Cod. Articolo</th><th>Descrizione</th><th class="num">Qt\u00e0</th><th>UM</th><th class="num">Prezzo</th><th class="num">Valore</th><th>Data Cons.</th></tr></thead>
-                <tbody>
-                ${gruppo.articoli.map(a => `<tr>
-                    <td>${esc(a.ol_codart)}</td>
-                    <td>${esc(a.ar_descr || '')}</td>
-                    <td class="num">${Number(a.quantita_confermata).toLocaleString('it-IT')}</td>
-                    <td>${esc(a.ol_unmis || 'PZ')}</td>
-                    <td class="num">${Number(a.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 4 })}</td>
-                    <td class="num">\u20ac ${(a.quantita_confermata * a.prezzo / (Number(a.perqta) || 1)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td>${a.data_consegna ? new Date(a.data_consegna).toLocaleDateString('it-IT') : ''}</td>
-                </tr>`).join('')}
-                </tbody>
-            </table>`;
-
-            if (multiOrdine) {
-                riepilogoHtml += `<div class="emetti-gruppo-data-totale">Totale ordine: \u20ac ${totGruppo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
-            }
-        }
-
-        riepilogoHtml += `<div class="emetti-riepilogo-totale">Totale complessivo: \u20ac ${totale.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
+        riepilogoHtml += `<div class="emetti-riepilogo-totale">Totale ordine: \u20ac ${totale.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
 
         const riepilogoEl = document.getElementById('emettiRiepilogo');
         riepilogoEl.innerHTML = riepilogoHtml;
@@ -1947,65 +1913,18 @@ const MrpProposta = (() => {
 
         document.getElementById('btnEmettiConferma').onclick = () => {
             overlay.classList.remove('open');
-            if (multiOrdine) {
-                // Emetti N ordini separati, uno per gruppo data.
-                // Per ogni gruppo, verifica se c'è un ordine pending con stessa data → merge automatico.
-                emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData, pendingPerData);
-            } else {
-                const opts = {};
-                if (mergeMode === 'merge' && mergeTarget) {
-                    opts.mergeWith = {
-                        anno: mergeTarget.anno,
-                        serie: mergeTarget.serie,
-                        numord: mergeTarget.numord
-                    };
-                }
-                eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts);
+            // Modello "1 ordine = 1 fornitore": un'unica chiamata con TUTTE le righe
+            // (multi-data convivono come righe separate dello stesso ordine).
+            const opts = {};
+            if (mergeMode === 'merge' && mergeTarget) {
+                opts.mergeWith = {
+                    anno: mergeTarget.anno,
+                    serie: mergeTarget.serie,
+                    numord: mergeTarget.numord
+                };
             }
+            eseguiEmissioneOrdine(fornitore_codice, articoliFornitore, fornitore_nome, opts);
         };
-    }
-
-    /**
-     * Emette N ordini separati per lo stesso fornitore, uno per ogni data di consegna.
-     * Ogni ordine genera un proprio PDF e una propria email.
-     */
-    async function emettiOrdiniMultiData(fornitore_codice, fornitore_nome, gruppiData, pendingPerData) {
-        const risultati = [];
-        for (const gruppo of gruppiData) {
-            try {
-                const dataLabel = gruppo.data !== 'no-date'
-                    ? new Date(gruppo.data).toLocaleDateString('it-IT')
-                    : 'senza data';
-                console.log(`[Proposta] Emissione ordine per ${fornitore_codice} — consegna ${dataLabel} (${gruppo.articoli.length} art.)`);
-
-                // Se esiste un ordine pending con la stessa data → merge automatico
-                const opts = {};
-                if (pendingPerData) {
-                    const pendenti = pendingPerData.get(gruppo.data);
-                    if (pendenti && pendenti.length > 0) {
-                        const target = pendenti[0];
-                        opts.mergeWith = { anno: target.anno, serie: target.serie, numord: target.numord };
-                        console.log(`[Proposta] Merge con ordine ${target.numord}/${target.serie} (stessa data ${dataLabel})`);
-                    }
-                }
-
-                await eseguiEmissioneOrdine(fornitore_codice, gruppo.articoli, fornitore_nome, opts);
-                risultati.push({ data: gruppo.data, ok: true });
-            } catch (err) {
-                risultati.push({ data: gruppo.data, ok: false, error: err.message });
-            }
-        }
-
-        // Riepilogo finale se ci sono stati errori
-        const falliti = risultati.filter(r => !r.ok);
-        if (falliti.length > 0) {
-            const msg = falliti.map(f => {
-                const dl = f.data !== 'no-date' ? new Date(f.data).toLocaleDateString('it-IT') : 'senza data';
-                return `\u2022 Consegna ${dl}: ${f.error}`;
-            }).join('<br>');
-            await modale('warning', 'Emissione Parziale',
-                `${risultati.length - falliti.length} di ${risultati.length} ordini emessi con successo.<br><br>Errori:<br>${msg}`);
-        }
     }
 
     // ============================================================
@@ -3431,17 +3350,10 @@ const MrpProposta = (() => {
                 return;
             }
 
-            // Raggruppa per data: date diverse → ordini separati
-            const gruppi = raggruppaPerData(articoliFornitore);
-            for (const gruppo of gruppi) {
-                const dataLabel = gruppo.data !== 'no-date'
-                    ? new Date(gruppo.data).toLocaleDateString('it-IT')
-                    : '';
-                const nomeGruppo = gruppi.length > 1 && dataLabel
-                    ? nome + ' (cons. ' + dataLabel + ')'
-                    : nome;
-                fornitori.push({ fornitore_codice: fc, articoli: gruppo.articoli, nome: nomeGruppo });
-            }
+            // Modello "1 ordine = 1 fornitore": tutte le righe (anche con date diverse)
+            // entrano in un singolo ordine. Le diverse date di consegna convivono come
+            // righe separate dentro lo stesso movord.
+            fornitori.push({ fornitore_codice: fc, articoli: articoliFornitore, nome });
         });
 
         if (fornitori.length === 0 && skippedEmailPending.length === 0) return;
@@ -4079,7 +3991,7 @@ const MrpProposta = (() => {
         return `<select class="select-template-forn" data-forn="${escAttr(fornCode)}" title="Template email">${html}</select>`;
     }
 
-    return { init, aggiornaStatoVisivo, apriStorico, apriDettaglioOrdine };
+    return { init, aggiornaStatoVisivo, apriStorico, apriDettaglioOrdine, modale };
 })();
 
 document.addEventListener('DOMContentLoaded', MrpProposta.init);

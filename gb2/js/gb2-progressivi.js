@@ -1180,7 +1180,16 @@ const MrpProgressivi = (() => {
         const righeOrigine = (proposta.righe && proposta.righe.length > 0)
             ? proposta.righe : [proposta];
 
+        // Conta quante righe del fornitore esistevano GIA' in conferma prima di questa azione
+        // (per il toast "N righe aggiunte all'ordine pending del fornitore X")
+        const fornCodCorrente = String(proposta.fornitore_codice);
+        let righePreesistentiFornitore = 0;
+        MrpApp.state.ordiniConfermati.forEach(o => {
+            if (String(o.fornitore_codice) === fornCodCorrente) righePreesistentiFornitore++;
+        });
+
         let errori = 0;
+        let confermateOra = 0;
         checked.forEach(cb => {
             const tr = cb.closest('tr');
             if (!tr) return;
@@ -1215,6 +1224,7 @@ const MrpProgressivi = (() => {
                 perqta: Number(tr.dataset.perqta) || 1,
                 timestamp_conferma: new Date().toISOString()
             });
+            confermateOra++;
         });
 
         // Rimuovi conferme per righe de-selezionate (non manuali)
@@ -1238,6 +1248,19 @@ const MrpProgressivi = (() => {
 
         if (typeof MrpProposta !== 'undefined' && MrpProposta.aggiornaStatoVisivo) {
             MrpProposta.aggiornaStatoVisivo();
+        }
+
+        // Toast di merge: se prima della conferma esistevano già righe per questo
+        // fornitore, le nuove vengono accodate allo stesso ordine pending. Avvisa.
+        if (righePreesistentiFornitore > 0 && confermateOra > 0
+                && typeof MrpProposta !== 'undefined' && MrpProposta.modale) {
+            const fornNome = proposta.fornitore_nome || ('fornitore ' + fornCodCorrente);
+            const plurale = confermateOra > 1;
+            const msg = '<strong>' + confermateOra + '</strong> '
+                + (plurale ? 'righe sono state aggiunte' : 'riga è stata aggiunta')
+                + ' all\'ordine pending del fornitore<br><strong>' + fornNome + '</strong>.<br><br>'
+                + 'L\'ordine ora contiene <strong>' + (righePreesistentiFornitore + confermateOra) + '</strong> righe in totale.';
+            MrpProposta.modale('success', 'Righe aggiunte all\'ordine pending', msg);
         }
     }
 

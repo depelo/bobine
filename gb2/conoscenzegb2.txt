@@ -716,16 +716,43 @@ Passo 1 — Conferma (client-side + safety-net DB):
   o emesse vengono filtrate (righeDisponibili) prima del rendering.
 
   Scorporo visivo: articoli multi-data con conferme parziali mostrano le righe
-  confermate come blocchi "Ordine da emettere" raggruppati per (fornitore, data).
-  Articoli di codart diverso ma stessa data+fornitore vengono accorpati nello
-  stesso blocco — incluse righe manuali con stessa data. Re-merge automatico
-  al rimuovi conferma.
+  confermate come blocchi "Ordine da emettere" raggruppati per fornitore.
+  Tutte le righe del fornitore (anche con date di consegna diverse) confluiscono
+  nello stesso blocco. Re-merge automatico al rimuovi conferma.
 
-  Emissione per data: raggruppaPerData() normalizza a YYYY-MM-DD. Stessa data →
-  stesso ordine BCube. Date diverse → ordini separati (PDF+email distinti).
+  MODELLO "1 ORDINE = 1 FORNITORE" (aprile 2026):
+    L'operatore U.Jet ragiona per fornitore, non per finestra temporale.
+    Tutte le righe confermate per uno stesso fornitore (anche con date di consegna
+    diverse) vengono inviate in UN SOLO ordine e UN SOLO PDF.
+    Le diverse date convivono come righe separate dentro movord (mo_datcons varia).
+    BCube nativo fa lo stesso: vedi PDF reali (es. 28/F/2026 con 5 righe a 5 date).
 
-  Merge con ordini esistenti: dialog merge solo se esiste ordine pending (email
-  non inviata) con STESSA data consegna. La SP accetta duplicati codart.
+    Funzioni RIMOSSE rispetto al vecchio modello "1 ordine = 1 data":
+      - raggruppaPerData()       — non serve piu raggruppare per data
+      - emettiOrdiniMultiData()  — niente loop, una sola call per fornitore
+      - flag multiOrdine + rendering "ordini separati per data" nel modale emetti
+      - logica pendingPerData (merge per data)
+      - CSS: .emetti-multiordine-avviso, .emetti-gruppo-data-header,
+              .emetti-gruppo-data-totale (rimossi)
+
+  Toast post-conferma (gb2-progressivi.js confermaOrdineHandler):
+    Quando l'operatore conferma righe dal pannello decisione e ne esistono GIA'
+    altre per lo stesso fornitore in MrpApp.state.ordiniConfermati, mostra il
+    modale di feedback "N righe aggiunte all'ordine pending del fornitore X"
+    (usa MrpProposta.modale, esposto nel return del modulo).
+
+  Logica merge con ordini esistenti (3 stati):
+    1. Pending (in ordiniConfermati, no SP ancora) -> auto-merge silenzioso
+       (la Map raccoglie tutte le righe con chiavi ol_progr distinte)
+    2. Emesso, email NON inviata -> dialog apriDialogMergeDecision chiede
+       conferma per chiamare /modifica-ordine + SP usp_AggiungiRigheOrdineFornitore
+    3. Emesso, email INVIATA -> blocco con EMAIL_GIA_INVIATA, l'operatore
+       deve creare ordine separato (POST /emetti-ordine)
+
+    La SP usp_AggiungiRigheOrdineFornitore aggiunge righe IN-PLACE all'ordine
+    esistente (preserva numord, ricalcola totali, rigenera PDF).
+    NON ammette duplicati (codart, fase, magaz) — il dialog disabilita "Unisci"
+    se rileva conflitti.
 
 Passo 2 — Emissione (POST /emetti-ordine):
   Pool SP: in produzione usa poolBcube (BCUBE2 diretto), in prova usa getPoolMRP(uid).
@@ -863,6 +890,38 @@ PDF — PDFMAKE (layout dichiarativo a tabelle):
     Nel pdfOrdine.js la flag è:
       const isEstero = Number(ordine.valuta_codice || 0) !== 0;
     NON usare fornitore_tipo/an_nazion1/HH_TipoReport — sono sbagliati.
+
+    === CAMPI DB DIVERSI tra Ujetorfo e Ujetorfv ===
+    OLTRE al layout, i due template usano CAMPI DB DIVERSI per prezzi/totali:
+
+    Ujetorfo.rpt (IT, ordine in EUR):
+      - Riga prezzo:  movord.mo_prezzo     (gia in EUR aziendale)
+      - Totale doc:   testord.td_totdoc    (gia in EUR aziendale)
+      - Etichetta:    "Totale" (sigla EUR implicita)
+
+    Ujetorfv.rpt (EX, ordine in valuta estera):
+      - Riga prezzo:  movord.mo_prezvalc   (in VALUTA originale, es. USD)
+      - Totale doc:   testord.td_totdocv   (in VALUTA originale)
+      - Etichetta:    "<sigla_valuta> <valore>" (es. "USD 50.440,00")
+      - Tutti i sotto-totali e righe espressi nella valuta originale
+
+    Verifica empirica (PDF reale ord 269/F del 02/04/2026, XIANTAO MAOSHENG, USD):
+      DB: mo_prezzo=0.0179 EUR | mo_prezvalc=0.0210 USD | td_cambio=1.1721
+      PDF mostra: 0,0210 (= mo_prezvalc) ✓
+      DB: td_totmerce=44206.98 EUR | td_totmercev=51815 USD
+      PDF mostra: "USD 50.440,00" (= valore in USD, vicino a td_totmercev)
+
+    Schema dei campi paralleli (suffisso "v" = valuta originale):
+      td_totmerce  (EUR) ↔ td_totmercev  (valuta)
+      td_totdoc    (EUR) ↔ td_totdocv    (valuta)
+      mo_prezzo    (EUR) ↔ mo_prezvalc   (valuta)
+
+    REGOLA D'ORO: nel pdfOrdine.js, dentro la branca isEstero, leggere SEMPRE
+    i campi con suffisso "v"/"valc". Mai usare mo_prezzo/td_totdoc per estero.
+
+    Aggiornare fetchOrdineCompleto in helpers.js per includere nelle SELECT:
+      - movord:  mo_prezvalc
+      - testord: td_totmercev, td_totdocv
 
     === BUG STORICO: NON fare .trim() PRIMA dello split su ar_note ===
     Il campo ar_note può avere righe iniziali VUOTE come convenzione editoriale
@@ -1701,6 +1760,178 @@ lc_codtpro — PROMOZIONI (irrilevante per UJET11):
   - Tabella tabtpro e vuota (0 righe)
   - Le promozioni non sono mai state usate. Dimensione inerte.
   Non confondere con "tipo listino" — e una cosa diversa.
+
+================================================================================
+26.bis GESTIONE VALUTA NEI LISTINI E NEGLI ORDINI
+================================================================================
+
+PREMESSA:
+  UJET11 ha fornitori in valute diverse. Distribuzione produzione (apr 2026):
+  - EUR (lc_codvalu=0): 44.093 righe — 96,6%
+  - USD (lc_codvalu=20): 1.457 righe, 502 articoli, 55 fornitori — 3,2%
+  - Altre valute legacy (LST, SEK, CHF, NLG, DEM, FRF): poche righe
+  53 fornitori in anagrafica hanno an_valuta=20 (USD), prevalentemente asiatici e
+  fornitori "DOGANA DI X" (con valuta EUR per la doganalizzazione).
+
+SCHEMA CAMPI VALUTA NELLE TABELLE:
+  listini:
+    lc_codvalu  smallint  — codice valuta (0 = EUR aziendale, >0 = altra)
+
+  ordlist (proposte MRP):
+    ol_codvalu   smallint  — codice valuta
+    ol_cambio    decimal   — cambio applicato (vedi sotto: 0, 1 o reale)
+    ol_prezzo    decimal   — prezzo "principale" (DOVREBBE essere EUR, non sempre)
+    ol_prezvalc  decimal   — prezzo in valuta originale (SEMPRE corretto)
+
+  testord (testata ordine emesso):
+    td_valuta    smallint  — codice valuta dell'ordine
+    td_cambio    decimal   — cambio applicato all'ordine
+
+  movord (riga ordine emesso):
+    mo_prezzo    decimal   — prezzo in EUR (sempre convertito correttamente)
+    mo_prezvalc  decimal   — prezzo in valuta originale
+
+  anagra (anagrafica fornitore):
+    an_valuta    smallint  — valuta default del fornitore
+
+  artico: NESSUN campo valuta (l'articolo e agnostico)
+
+TABELLE DI CAMBIO:
+  tabvalu (decodifica valute):
+    tb_codvalu   smallint  — codice (0=EUR aziendale, 20=USD, etc.)
+    tb_desvalu   varchar   — sigla (USD, GBP, ...)
+    tb_nomvalu   varchar   — descrizione estesa
+    tb_cambeuro  decimal   — cambio fisso vs euro (per valute euro-zona legacy)
+    tb_cambvalu  decimal   — cambio storico
+    tb_ue        char(1)   — 'S' = valuta euro-zona (cambio sempre 1, no lookup)
+    tb_cambmens  char(1)   — 'S' = cambio mensile (range query nel mese corrente)
+                             'N' = cambio giornaliero (match esatto sulla data)
+    tb_moltdiv   char(1)   — 'M' = moltiplica, 'D' = dividi
+                             EUR = prezzo_valuta * cambio  (se M)
+                             EUR = prezzo_valuta / cambio  (se D)
+    tb_ndec      smallint  — decimali
+    tb_perqtav   decimal   — perqta in valuta
+
+  cambi (storico cambi):
+    wx_codvalu   smallint
+    wx_dtvalid   datetime  — data validita (solo giorni lavorativi!)
+    wx_cambio    decimal
+
+  Vis_01_ultimo_cambio (vista): cambio attuale per ogni valuta
+
+ALGORITMO BCube CercaCambioDiOggi (CLDLBBASE.cs:5351-5485):
+  IF tabvalu non trova la valuta:        return 0
+  IF tabvalu.tb_ue = 'S':                return 1   (euro-zona, no conversione)
+  IF tabvalu.tb_cambmens = 'S':
+      SELECT TOP 1 wx_cambio FROM cambi
+      WHERE wx_codvalu = @codvalu
+        AND wx_dtvalid <= @data
+        AND wx_dtvalid >= primo_del_mese
+      ORDER BY wx_dtvalid DESC
+  ELSE (tb_cambmens = 'N', es. USD):
+      SELECT wx_cambio FROM cambi
+      WHERE wx_codvalu = @codvalu
+        AND wx_dtvalid = @data       ← MATCH ESATTO, NESSUN FALLBACK!
+  IF nessun risultato:                   return 0
+  IF eccezione:                          return 0
+
+  Niente fallback al cambio piu recente. Niente interpolazione.
+
+IL FALLBACK SILENZIOSO MRP (CLEDBEMRP.cs:12153-12172):
+  if (nCodvalu > 0) {
+      dPrezzoVal = dPrezzo;                                      // salva valuta
+      dCambio = CercaCambioDiOggi(nCodvalu, dtDtOrd);
+      if (dCambio == 0) dCambio = 1m;                            // ⚠️ FALLBACK
+      dPrezzo = ConvImpValuta(..., dPrezzoVal, ..., dCambio, ...);
+                                                                 // con cambio=1:
+                                                                 // dPrezzo = dPrezzoVal
+                                                                 // (valuta non convertita)
+  }
+  Risultato in ordlist quando il fallback scatta:
+    ol_prezzo   = prezzo in valuta originale (NON in EUR!)
+    ol_prezvalc = prezzo in valuta originale
+    ol_codvalu  = valuta != 0
+    ol_cambio   = 1                ← marker del fallback
+
+PERCHE IL FALLBACK SCATTA — IL PATTERN "DOMENICHE":
+  Le proposte MRP hanno ol_datord = data di consegna prevista, spesso DOMENICA
+  (consegne settimanali). La tabella cambi e popolata solo nei giorni lavorativi
+  → match esatto sulla domenica fallisce → cambio=1 → prezzo NON convertito.
+
+  Verifica empirica produzione: tutte le 51 righe USD con cambio=1 hanno data
+  ordine domenica. Le 19 con cambio reale hanno date di business day o sono
+  state inserite manualmente (vedi sotto).
+
+7 PATH CHE SCRIVONO ol_cambio (con i loro comportamenti):
+  Path                  File:linea                       Cosa scrive
+  -------------------   ------------------------------   ------------
+  MRP elaboration       CLEDBEMRP.cs:12157-12161         CercaCambioDiOggi, fallback 1
+  Manuale RDA           CLERAGRDA.cs:1248,1283,1605      Reale + InputBox + persiste in cambi
+  Diba explosion        CLDRAGRDA.cs:1075                Omessa → DEFAULT (0)
+  Tasks → RDA           CLDPMGNRA.cs:382-432             Hardcoded 0
+  Imprev → RDA          CLDIMGSPJ.cs:2574                Omessa → DEFAULT (0)
+  RDO → RDA trasforma   CLDORGNOR.cs:174,178             0.0
+  Duplica RDA           CLDORGSOL.cs:738,842             Copia raw
+
+  IMPORTANTE: i path che scrivono 0 (non 1) producono righe con prezzo in EUR
+  ma indicato come valuta estera senza cambio — situazione ancora piu rotta.
+
+PATH MANUALE (form RDA — CLERAGRDA.cs):
+  Quando l'utente aggiunge una riga in valuta:
+  1. BeforeColUpdate_ol_codart: chiama CercaCambioDiOggi
+  2. Se cambio = 0: mostra InputBox "inserisci cambio"
+  3. Se utente preme Cancel: riga rifiutata
+  4. AggiornaCambio: persiste il cambio fornito in tabella cambi
+  → e' praticamente impossibile salvare manualmente con cambio=1
+     (a meno che l'utente non digiti "1" esplicitamente)
+
+EMISSIONE ORDINE — comportamento corretto:
+  Quando una proposta diventa ordine reale, BCube ricalcola:
+    td_cambio   = CercaCambioDiOggi(td_valuta, td_datord)  ← data ordine emesso
+    mo_prezvalc = lc_prezzo (valuta originale dal listino)
+    mo_prezzo   = mo_prezvalc / td_cambio  (con tb_moltdiv='D')
+
+  Verifica produzione (ordini USD reali):
+    Ord 2026/F/216 cambio=1.15 art=0072649 mo_prezvalc=0.5595 USD mo_prezzo=0.4865 EUR
+    Verifica: 0.5595 / 1.15 = 0.4865 EUR ✓
+
+LOGICA DI LETTURA RIGHE ORDLIST PER GB2:
+  Quattro casi distinti:
+
+  function risolviPrezzoEur(row) {
+      // Caso 1: valuta EUR aziendale
+      if (row.ol_codvalu === 0) return row.ol_prezzo;
+
+      // Caso 2: valuta estera con cambio applicato (raro ma corretto)
+      if (row.ol_cambio > 0 && row.ol_cambio !== 1) return row.ol_prezzo;
+
+      // Caso 3-4: cambio=0 oppure cambio=1 con valuta != 0 (BUG ordlist)
+      // ol_prezzo NON e in EUR, e' in valuta originale
+      const cambio = await getCambioPiuRecente(row.ol_codvalu, row.ol_datord);
+      if (cambio > 0) return row.ol_prezvalc / cambio;  // o * se moltdiv=M
+      return null;  // cambio non trovato → mostrare warning UI
+  }
+
+LOGICA DI LOOKUP PREZZO LISTINI PER GB2:
+  Quando si cerca un prezzo per articolo+fornitore (es. catalogo manuale):
+  1. NON filtrare lc_codvalu=0 (perderebbe le righe in valuta estera)
+  2. Leggere lc_prezzo + lc_codvalu dal listino
+  3. Se lc_codvalu = 0: prezzo gia in EUR
+  4. Se lc_codvalu != 0:
+     - Leggere tb_ue, tb_cambmens, tb_moltdiv da tabvalu
+     - Se tb_ue='S': cambio = 1 (no conversione)
+     - Altrimenti cercare cambio attuale in cambi (vista Vis_01_ultimo_cambio)
+     - Convertire: EUR = prezzo / cambio (se moltdiv='D') o prezzo * cambio (se 'M')
+  5. Restituire alla UI: prezzo_eur, prezzo_originale, valuta, cambio
+     (per trasparenza con badge tipo "12,04 USD × 1,15 = 10,47 EUR")
+
+DATI EMPIRICI PRODUZIONE (16/04/2026):
+  Righe ordlist totali UJET11:        ~8.565
+  - In EUR (codvalu=0, cambio=0):     8.495   (99.2%)
+  - In USD con cambio=1 (rotte):      51      (0.6%)  ← bug
+  - In USD con cambio reale:          19      (0.2%)
+  Tutti i fornitori USD: 8 in proposte attuali, 53 in anagra, 55 in listini
+  Impatto economico errore: ~13-17% sottostima sulle 51 righe rotte
 
 CALCOLO perqta:
   dPerQta = (ar_perqta == 0) ? 1 : ar_perqta   (da artico.ar_perqta)

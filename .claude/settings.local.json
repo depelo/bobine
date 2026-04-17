@@ -127,7 +127,10 @@
       "Bash(node --check routes/gb2/email.js)",
       "Bash(node --check routes/gb2/helpers.js)",
       "Bash(node --check gb2/js/gb2-theme.js)",
-      "Bash(node --check gb2/js/gb2-parametri.js)"
+      "Bash(node --check gb2/js/gb2-parametri.js)",
+      "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-proposta.js\")",
+      "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-progressivi.js\")",
+      "Bash(grep -n \"INSERT.*movord\\\\|INSERT INTO.*movord\\\\|movord$\" \"C:/Users/depel/Documents/progetto/ujet/bobine/sql/mrp/usp_CreaOrdineFornitore.sql\")"
     ]
   }
 }

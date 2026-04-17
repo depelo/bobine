@@ -470,7 +470,7 @@ function buildMiniTabellaArticolo(r, isEstero) {
         buildDescrizioneRiga(r, isEstero),
         { text: um, fontSize: 8, alignment: 'center' },
         { text: quant, fontSize: 8, alignment: 'right' },
-        { text: isDescRiga ? '' : fmtPrezzo(r.mo_prezzo), fontSize: 8, alignment: 'right' },
+        { text: isDescRiga ? '' : fmtPrezzo(isEstero ? r.mo_prezvalc : r.mo_prezzo), fontSize: 8, alignment: 'right' },
         { text: isDescRiga ? '' : fmtSconti(r.mo_scont1, r.mo_scont2, r.mo_scont3), fontSize: 6, alignment: 'right' },
         { text: isDescRiga ? '' : fmtData(r.mo_datcons), fontSize: 7, alignment: 'center' },
         { text: '', fontSize: 7 }
@@ -609,9 +609,13 @@ function buildFooter(ordine, isEstero) {
     }
 
     // ========== COLONNA DX DEL BOX: totale + firma ==========
+    // Per ordini esteri usa td_totmercev (totale in valuta originale, es. USD)
+    // Per ordini in EUR usa td_totmerce (totale in EUR aziendale)
+    // Replica esattamente Crystal Ujetorfv.rpt che mostra td_totmercev nei piè di pagina.
+    const totaleDaMostrare = isEstero ? (ordine.totale_merce_valuta || 0) : (ordine.totale_merce || 0);
     const rightStack = [
         { text: 'totale ordine', fontSize: 7, color: '#555', alignment: 'right' },
-        { text: valSigla + '  ' + fmtNum(ordine.totale_merce, 2), fontSize: 12, bold: true, alignment: 'right', margin: [0, 1, 0, 0] },
+        { text: valSigla + '  ' + fmtNum(totaleDaMostrare, 2), fontSize: 12, bold: true, alignment: 'right', margin: [0, 1, 0, 0] },
         { text: 'Distinti saluti / Regards', fontSize: 7, color: '#555', alignment: 'right', margin: [0, 12, 0, 0] },
         { text: AZIENDA.nome, fontSize: 8, bold: true, alignment: 'right', margin: [0, 2, 0, 0] },
         { text: AZIENDA.firma_nome, fontSize: 8, alignment: 'right' }

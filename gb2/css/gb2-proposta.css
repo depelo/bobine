@@ -1216,37 +1216,8 @@
 }
 
 /* Pannello multi-data rimosso — ora unificato in gb2-decisione.css */
-
-/* Avviso multi-ordine nel riepilogo emissione */
-.emetti-multiordine-avviso {
-    background: #fff7ed;
-    border: 1px solid #fed7aa;
-    border-left: 3px solid #f97316;
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-size: 0.82rem;
-    color: #9a3412;
-    margin: 8px 0;
-}
-
-.emetti-gruppo-data-header {
-    background: #e0f2fe;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 0.82rem;
-    margin-top: 10px;
-    margin-bottom: 4px;
-    border-left: 3px solid var(--primary, #2563eb);
-}
-
-.emetti-gruppo-data-totale {
-    text-align: right;
-    font-size: 0.8rem;
-    font-weight: 600;
-    padding: 4px 10px;
-    color: #1e40af;
-    margin-bottom: 6px;
-}
+/* Avviso/header/totale "multi-ordine per data" rimossi:
+   nuovo modello "1 ordine = 1 fornitore" (multi-data nello stesso ordine). */
 
 /* ============================================================
    BLOCCHI ORDINI EXTRA (Phase 6) — sub-card dentro il fornitore padre
