@@ -1,0 +1,373 @@
+# TASKFUTURE — GB2
+
+Documento di parcheggio. Due lavori strutturali identificati ma non ancora
+eseguiti. Tutto quello che abbiamo imparato durante il brainstorming resta qui
+in forma autonoma, cosi chi riprende (umano o agente) non deve ripercorrere la
+discussione.
+
+Ultimo aggiornamento: 2026-04-17.
+
+
+================================================================================
+CONTESTO STRATEGICO COMUNE ALLE DUE TASK
+================================================================================
+
+UJET ha ~40 dipendenti totali, l'ufficio acquisti ne ha 2 attivi su GB2.
+L'obiettivo a 6-12 mesi e' che l'operativita' dell'ufficio acquisti sia eseguita
+da un AGENTE AI supervisionato in tempo reale da un umano. Oggi non esiste
+ancora agente, ma tutto quello che costruiamo ora deve essere compatibile con
+quello scenario futuro.
+
+Conseguenze sulle scelte:
+- L'observability (chi fa cosa, quando, con quale evidenza) e' valore fin da
+  subito: oggi aiuta i 2 operatori a coordinarsi, domani diventa la console
+  dell'agente.
+- Il DB resta sempre fonte di verita' unica. Ogni canale "live" e' pubblicita'
+  di un cambio, non trasporto di stato.
+- Niente denormalizzazione preventiva di campi che servono solo all'agente
+  (es. actor_type, confidence, evidence): quando l'agente esiste, avra' il suo
+  user_id normale e le sue righe nell'event log.
+
+
+================================================================================
+TASK 1 — PM2: cluster mode + rolling reload per zero-downtime
+================================================================================
+
+### Situazione attuale (verificata il 2026-04-17)
+
+File: `ecosystem.config.js` in root.
+
+```javascript
+exec_mode: 'fork',
+instances: 1,
+wait_ready: true,
+kill_timeout: 5000,
+listen_timeout: 10000,
+max_memory_restart: '500M'
+```
+
+PM2 e' stato introdotto tempo fa con l'obiettivo dichiarato di "riavviare per
+applicare aggiornamenti senza far cadere tutti", ma la configurazione attuale
+NON lo garantisce: con una sola instance, ogni `pm2 reload` causa un gap di
+5-10 secondi durante cui il gateway HTTPS e' offline. Le sessioni HTTP
+sopravvivono via JWT, ma i socket si disconnettono e il client deve
+riconnettere.
+
+### Perche' e' importante (sintetico)
+
+1. Gli operatori GB2 perdono awareness in tempo reale durante il reload
+   (socket kill).
+2. Quando esistera' l'agente, un reload del server = agente offline per 10s
+   = potenziale perdita di coordinazione con l'umano supervisore.
+3. Gia' ora i Captain perdono la visibilita' "online/offline" degli utenti
+   durante il riavvio.
+
+### Cosa va fatto
+
+Passare a:
+```javascript
+exec_mode: 'cluster',
+instances: 2   // o 'max' / '-1' a seconda della scelta
+```
+
+Con cluster mode, `pm2 reload` fa **rolling restart**: una instance alla volta,
+niente interruzione di servizio percepita.
+
+### Implicazioni architetturali (attenzione)
+
+Con >1 processo Node attivi contemporaneamente cambiano cose che oggi sono
+implicite nel single-process:
+
+1. **Socket.io** — le room `user_<id>` vivono in memoria del singolo worker.
+   Un evento emesso dal worker A per un utente connesso al worker B non arriva.
+   Serve uno dei due:
+   - **Sticky sessions** (header-based o cookie-based) perche' il client torni
+     sempre sullo stesso worker: `@socket.io/sticky` (gia' installato in
+     package.json, non attivato).
+   - **Cluster adapter** che propaga gli eventi tra worker:
+     `@socket.io/cluster-adapter` (gia' installato, non attivato).
+   Tipicamente si usano entrambi insieme. Il codice di setup va in `server.js`
+   nella sezione di istanza `io`.
+
+2. **Stato in memoria "globale"** — diventa per-worker. Oggetti toccati:
+   - `activeUserSockets: Map<userId, Set<socketId>>` in `server.js` — oggi
+     non si accorge di essere per-worker perche' c'e' un solo worker.
+   - Cache profili attivi (se esiste una map in `config/db-gb2`).
+   - Qualunque altro stato app-level.
+
+   Opzioni in ordine di invasivita':
+   a) Usare il cluster adapter di socket.io che mantiene `activeUserSockets`
+      sincronizzata come effetto collaterale (riceve `register`/`disconnect`
+      propagati).
+   b) Migrare lo stato condiviso su Redis (pub/sub + storage).
+   c) Accettare che ogni worker abbia la sua vista parziale e che il filtro
+      "chi e' online" sia dato dall'aggregazione via adapter.
+
+   La scelta c) e' probabilmente la piu' pragmatica finche' i worker sono 2-3.
+
+3. **Auto-deploy SQL al boot** (in `server.js`, `deployProductionObjects` +
+   `cleanupStaleConfermatiPending`) oggi gira una volta. In cluster mode
+   girerebbe N volte, una per worker. Gli script sono idempotenti quindi
+   funziona, ma introduce una piccola race al primo boot. Soluzione tipica:
+   eseguire SOLO sul worker con `process.env.NODE_APP_INSTANCE === '0'`
+   (variabile che PM2 inietta automaticamente in cluster mode).
+
+4. **SIGINT handler** e `wait_ready` funzionano gia' correttamente in cluster
+   mode, non serve modificarli.
+
+### File da toccare
+
+- `ecosystem.config.js` — cambio `exec_mode` e `instances`.
+- `server.js` — setup cluster adapter + sticky, guard su `NODE_APP_INSTANCE`
+  per il boot SQL.
+- `package.json` — niente da installare (dipendenze gia' presenti).
+- `conoscenze.txt` sezione 2.1.1 — aggiornare la nota "fork single-process"
+  in "cluster mode con N instance" e descrivere adapter/sticky attivi.
+
+### Test minimi dopo il cambio
+
+1. Due tab dello stesso utente, `pm2 reload`, entrambe mantengono la sessione
+   socket (possono riconnettersi ma dovrebbero connettersi a worker diversi).
+2. Captain vede gli utenti online correttamente anche se connessi a worker
+   diversi.
+3. Kick da Captain arriva al target indipendentemente dal worker.
+4. Boot SQL GB2 eseguito una volta sola (log con "Auto-deploy SQL completato"
+   una sola volta).
+
+### Rischio di rollback
+
+Se qualcosa va storto, rollback = `instances: 1, exec_mode: 'fork'` +
+`pm2 reload`. Zero perdite di dati. Lo stato e' tutto in DB.
+
+
+================================================================================
+TASK 2 — Sincronizzazione realtime ordini GB2 via socket (cost-minimal)
+================================================================================
+
+### Problema che risolve
+
+Due (o piu') operatori dell'ufficio acquisti lavorano sulla stessa elaborazione
+MRP. Oggi NON si vedono a vicenda: ognuno ha il suo carrello pendings filtrato
+`WHERE user_id = @uid`. Conseguenza: rischio di ordinare due volte lo stesso
+codart, inconsapevolmente. Si sono gia' verificati episodi (es. Gabriel con
+4 pending invisibili all'user 20).
+
+In prospettiva agente: il supervisore umano deve vedere in tempo reale ogni
+mossa dell'agente (pending creato/modificato, ordine emesso, email inviata).
+Il canale che costruiamo ora per i 2 umani e' lo stesso che domani trasportera'
+le azioni dell'agente.
+
+### Idea di base (approvata in brainstorming)
+
+"Thin notification + pull from DB" = pattern **cache invalidation via pub/sub**.
+
+Il socket porta SOLO un dirty-bit ("qualcosa e' cambiato sul dominio MRP",
+con i 3 contesti: pending / emesso / email). I client interessati rileggono
+dal DB. Il payload socket NON trasporta mai lo stato, solo il segnale.
+
+Motivazioni tecniche:
+1. DB unica fonte di verita' → zero divergenza socket↔DB.
+2. Idempotenza gratuita: N notifiche in 200ms → 1 refresh (debounce client).
+3. Robusto a evoluzioni schema: il messaggio non cambia mai.
+4. Graceful degradation: nessun operatore online = messaggio nel vuoto = zero
+   costo. Come volevamo.
+
+### Design concreto
+
+**Evento unico:** `mrp:dirty`
+**Payload:** `{ topic, elaborazione_id, ambiente }`
+**Topic:** `'pending' | 'emesso' | 'email'` (i 3 stati di un ordine in GB2).
+
+**Chi riceve — filtro server-side:**
+```
+per ogni uid in activeUserSockets:
+    profilo = getActiveProfile(uid)
+    se profilo.ambiente === evento.ambiente
+       e elaborazioneCorrenteDi(profilo.ambiente) === evento.elaborazione_id:
+         io.to('user_' + uid).emit('mrp:dirty', payload)
+```
+Costo filtro: zero (profilo attivo e' in cache in memoria). Chi non e' su GB2
+non riceve. Chi e' su ambiente sbagliato non riceve. Chi non e' online non
+riceve. Nessun setup di subscribe/unsubscribe client-side.
+
+**Cosa fa il client:**
+```javascript
+socket.on('mrp:dirty', ({ topic, elaborazione_id, ambiente }) => {
+    if (elaborazione_id !== viewState.elaborazioneCorrente) return;
+    if (ambiente !== viewState.ambienteCorrente) return;
+    scheduleRefresh(topic);  // debounce 200ms
+});
+
+function scheduleRefresh(topic) {
+    clearTimeout(timers[topic]);
+    timers[topic] = setTimeout(() => {
+        if (topic === 'pending') refreshPendingCorrente();
+        else if (topic === 'emesso') refreshOrdiniEmessi();
+        else if (topic === 'email') refreshStatoEmail();
+    }, 200);
+}
+```
+Le funzioni `refreshX` sono QUELLE CHE GIA' ESISTONO per il primo caricamento
+della vista. Il socket e' solo un trigger, non serve nuova logica di rendering.
+
+**Reconnect handling:**
+```javascript
+socket.on('reconnect', () => {
+    socket.emit('register', { userId });
+    if (viewState.elaborazioneCorrente) {
+        refreshPendingCorrente();
+        refreshOrdiniEmessi();
+    }
+});
+```
+Un refresh per riconnessione. Niente storia eventi sul server = stateless.
+
+### Punti di injection nel backend
+
+Aggiungere una helper in `routes/gb2/helpers.js`:
+```javascript
+function broadcastMrpDirty(io, activeUserSockets, { topic, elaborazione_id, ambiente }) {
+    for (const uid of activeUserSockets.keys()) {
+        const profilo = getActiveProfile(uid);
+        if (!profilo) continue;
+        if (profilo.ambiente !== ambiente) continue;
+        if (elaborazioneCorrenteDi(ambiente) !== elaborazione_id) continue;
+        io.to('user_' + uid).emit('mrp:dirty', { topic, elaborazione_id, ambiente });
+    }
+}
+```
+
+Chiamare la helper in questi 4 punti, SEMPRE dopo commit DB riuscito:
+
+| Endpoint | File | Topic |
+|---|---|---|
+| Conferma/modifica pending | `routes/gb2/mrp-proposte.js` (POST /conferma-pending o simile) | `pending` |
+| Rimozione pending | idem | `pending` |
+| Emissione ordine | `routes/gb2/ordini.js` POST `/emetti-ordine` | `emesso` |
+| Invio email ordine | `routes/gb2/email.js` POST `/invia-ordine-email` | `email` |
+
+### Prerequisito: rimuovere filtro `WHERE user_id` nei SELECT pending
+
+Senza questo passaggio, il broadcast e' inutile: ogni operatore continua a
+vedere solo i propri pending. Dove cercare il filtro:
+- `routes/gb2/mrp-proposte.js` riga ~320 (verificata in conversazione)
+- Altri punti: `grep -n "user_id" routes/gb2/*.js` per trovarli tutti.
+
+Il `user_id` resta nella tabella come actor/audit, non come filtro di
+visibilita'. La visibilita' si restringe a `elaborazione_id + ambiente`.
+
+Attenzione anche al cleanup-on-emit: se oggi cancella i pending consumati con
+`WHERE user_id = @uid`, va reso per elaborazione+codart. Altrimenti emettendo
+un pending di un altro operatore, il suo pending resta orfano.
+
+### Cabling minimo richiesto
+
+In `server.js`:
+```javascript
+app.use('/api/mrp', createGb2Routes({ io, activeUserSockets }));
+```
+(oggi passa solo `{io}`.)
+
+In `routes/gb2Routes.js` (composizione dei sub-router), propagare
+`activeUserSockets` ai sub-router che ne hanno bisogno
+(`mrp-proposte`, `ordini`, `email`).
+
+### Costo stimato
+
+- Backend: ~50 righe (1 helper + 4 chiamate).
+- Frontend: ~40 righe (handler socket + 3 refresh esistenti + reconnect).
+- Infra: ZERO (PM2 fork:1 attuale e' gia' sufficiente).
+- DB: ZERO (niente nuove tabelle).
+
+### Rate limiting — YAGNI per ora
+
+Con 2 operatori umani e eventi sporadici (qualche al minuto), nessun problema
+di burst. Quando arrivera' l'agente e ragionera' in raffiche rapide, si
+aggiungera' un debounce server-side nella helper (coalesce per tupla
+`topic+elab+ambiente` in finestra 200ms). I call site non cambiano.
+
+### Dipendenza con Task 1
+
+Se Task 1 viene eseguito PRIMA di Task 2: la helper deve usare il cluster
+adapter di socket.io per far arrivare gli emit a tutti i worker. Se Task 2
+viene eseguito prima (fork:1 attuale), tutto funziona senza adapter.
+
+Scenario ideale: prima Task 2 (piu' urgente, risolve problema presente), poi
+Task 1 (miglioria operativa, non ha deadline). L'adapter cluster quando
+arrivera' sara' trasparente alla helper di Task 2.
+
+
+================================================================================
+COSA ABBIAMO IMPARATO OGGI (reference tecnica rapida)
+================================================================================
+
+### Socket.io — stato corrente
+
+File: `server.js` righe 41-102.
+
+- Istanza `io` creata sull'HTTPS server.
+- Iniettata in TUTTE le factory route: `createAuthRoutes({io})`,
+  `createAdminRoutes({io, activeUserSockets})`, `createBobineRoutes({io})`,
+  `createGb2Routes({io})`, ecc. Oggi solo `adminRoutes` riceve
+  `activeUserSockets`.
+- Room convention: `'user_<userId>'` — ogni utente connesso entra qui su
+  `register`. Multi-tab = piu' socket nella stessa room. Emit alla room
+  raggiunge tutti i tab dell'utente.
+- `activeUserSockets: Map<userId, Set<socketId>>` mantenuta in `server.js`.
+- Room Captain: `'captains_room'` via evento `register_captain`.
+
+### Eventi socket esistenti (non toccare, usare come riferimento)
+
+Client → server:
+- `register { userId }` — registrazione base.
+- `register_captain` — entra in `captains_room`.
+- `kick_user { targetUserId }` — Captain forza logout di un utente.
+- `force_pwd_curtain { targetUserId, ... }` — Captain forza cambio password.
+
+Server → client:
+- `force_logout` — arrivo del kick.
+- `show_pwd_curtain` — arrivo del sipario password.
+- `user_status_changed { userId, isOnline }` — broadcast a captains_room.
+- `initial_online_users` — snapshot a un captain che si registra.
+
+### Convenzione per eventi nuovi
+
+- Prefisso di dominio: `mrp:*`, `et:*`, ecc.
+- Emit via room utente `io.to('user_<uid>').emit(...)` dopo filtro server-side
+  basato su `activeUserSockets` + stato dominio (profilo, elaborazione, ecc.).
+- Niente nuove room per domini applicativi: il filtro server-side e' piu'
+  robusto e non richiede gestione di subscribe/unsubscribe.
+
+### PM2 — stato corrente
+
+Gia' documentato in `conoscenze.txt` sezione 2.1.1.
+TL;DR: fork single-process, `instances: 1`, non zero-downtime, adapter
+cluster socket.io installato ma non attivo.
+
+### Decisioni di design accettate nel brainstorm
+
+- NIENTE campi actor_type / actor_label / confidence / evidence sulla tabella
+  `ordini_confermati_pending`. Quando l'agente esistera', avra' un user_id
+  normale. Il display name viene dalla tabella Users via JOIN.
+- NIENTE polling come fallback: si usa direttamente il socket esistente.
+- NIENTE claim/transfer di proprieta' dei pending: chiunque puo' modificare
+  qualunque pending dell'elaborazione corrente.
+- NIENTE lock pessimistici: con 2 umani i conflitti reali sono trascurabili.
+- NIENTE event log persistente per ora: la tab "Attivita'" / event sourcing
+  e' una feature interessante ma rinviata a quando arrivera' l'agente
+  (rende il supervisore capace di fare replay). Oggi non ha abbastanza valore
+  per giustificare il costo.
+
+### Decisioni di design RINVIATE (da riconsiderare con l'agente)
+
+- Event log `system_events` append-only per replay e debugging.
+- UI "console di supervisione" (feed live, pausa, veto, confidence, escalation).
+- Tabella autonomia (quali azioni agente vs umano in base al tipo di
+  decisione) — contratto tra agente e umano.
+- Rollback/compensation di ordini gia' emessi.
+- Confidence + evidence nei pending creati dall'agente.
+
+
+================================================================================
+FINE DOCUMENTO
+================================================================================

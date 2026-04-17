@@ -80,6 +80,36 @@ Il file **`server.js`** funge da **composizione minima** del gateway:
 
 **Non** si aggiungono nuove rotte HTTP direttamente in `server.js` salvo eccezioni architetturali esplicitamente approvate. La logica di business risiede nei router.
 
+### 2.1.1 Runtime PM2 — fork single-process (verificato 2026-04-17)
+Il processo Node.js e' orchestrato da **PM2** con la configurazione in `ecosystem.config.js`:
+- **`exec_mode: 'fork'` + `instances: 1`** → un **unico processo** Node serve tutto il traffico (HTTP + Socket.io).
+- **`wait_ready: true`** + `process.send('ready')` in `server.js` → PM2 aspetta il segnale di readiness prima di marcare l'app come pronta (deploy SQL GB2 in background puo' completare senza bloccare il boot).
+- **`kill_timeout: 5000`** + `SIGINT` handler in `server.js` → shutdown graceful con chiusura del listener HTTPS entro ~4s.
+- **`max_memory_restart: '500M'`** → auto-restart se la RAM supera la soglia.
+
+**Conseguenze architetturali di fork single-process:**
+- Le **room Socket.io** (`io.to('user_<id>').emit(...)`, `activeUserSockets Map`) vivono in memoria del processo unico: **nessun adapter cluster, nessun pub/sub, nessuna sticky session necessari**. Gli eventi server→client partono dallo stesso processo che ha scritto sul DB, consegna garantita tra i socket attualmente connessi.
+- Lo **stato in memoria** del server (cache profili attivi in `config/db-gb2`, `activeUserSockets`) e' single source of truth per quel processo; non deve essere replicato.
+- Il **riavvio/reload PM2 non e' zero-downtime**: con una sola instance, durante il riavvio il gateway e' giu' per alcuni secondi (kill_timeout + listen_timeout del nuovo processo). Le sessioni HTTP sopravvivono via JWT/cookie, ma i socket si disconnettono e il client deve riconnettere.
+- Le dipendenze `@socket.io/cluster-adapter` e `@socket.io/sticky` sono installate in `package.json` ma **NON sono attive** in fork mode: sono residui/predisposizione per un'eventuale futura migrazione a cluster mode. Se un giorno si passera' a `exec_mode: 'cluster'` con `instances > 1` per abilitare rolling reload, andranno attivate per far funzionare le room tra processi.
+
+### 2.1.2 Canale Socket.io — convenzioni in uso (verificato 2026-04-17)
+Tutti i listener server sono definiti in `server.js` dentro `io.on('connection', ...)`. La factory di **tutti i router** riceve `io` come dipendenza (`createGb2Routes({ io })`, ecc.): qualunque handler HTTP puo' emettere eventi senza toccare `server.js`.
+
+**Registrazione client:**
+- `socket.emit('register', { userId })` → il server fa `socket.join('user_<userId>')` e aggiorna `activeUserSockets: Map<userId, Set<socketId>>`. Multi-tab: piu' socket dello stesso utente nello stesso set, tutti nella stessa room.
+- `socket.emit('register_captain')` → il socket entra anche in `captains_room` e riceve `initial_online_users`.
+
+**Eventi esistenti (gateway di sicurezza):**
+- Client→server: `kick_user {targetUserId}`, `force_pwd_curtain {targetUserId, ...}` — emessi dal Captain.
+- Server→client target: `force_logout`, `show_pwd_curtain`.
+- Server→captains_room: `user_status_changed {userId, isOnline}` su ogni connect/full-disconnect.
+
+**Regola per eventi futuri (es. notifiche di dominio GB2/MRP):**
+- Usare sempre la room `'user_<id>'` per messaggi diretti a un singolo utente. La mappa `activeUserSockets` e' il filtro per sapere chi e' online prima di emettere broadcast selettivi (iterare le chiavi, filtrare per criterio di dominio, emettere a `io.to('user_<uid>')`).
+- Namespace degli eventi: prefisso di dominio (es. `mrp:pending_changed`, `mrp:ordine_emesso`) per evitare collisioni tra moduli.
+- **Non serve** creare nuove room per domini applicativi: il filtro lato server sul profilo/stato dell'utente e' gratuito (cache in memoria) e piu' robusto della gestione di subscribe/unsubscribe esplicite.
+
 ### 2.2 Struttura delle rotte (`routes/`)
 Le API REST sono organizzate in moduli dedicati, tipicamente:
 - **`routes/authRoutes.js`**: autenticazione globale (Passaporto) — login, logout, sessione corrente, password utente, recupero credenziali.

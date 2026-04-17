@@ -143,7 +143,10 @@
       "Bash(node diag-user42.js)",
       "Bash(node fix-sp-gabriel.js)",
       "Bash(node diag-ordini-gabriel.js)",
-      "Bash(node diag-mrp.js)"
+      "Bash(node diag-mrp.js)",
+      "Bash(cmd.exe /c \"pm2 list\")",
+      "Bash(wc -l C:\\\\\\\\Users\\\\\\\\depel\\\\\\\\Documents\\\\\\\\progetto\\\\\\\\ujet\\\\\\\\bobine\\\\\\\\conoscenze.txt)",
+      "Bash(node diag-mappatura-acquisti.js)"
     ]
   }
 }
