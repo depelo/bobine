@@ -63,6 +63,189 @@ router.get('/articoli/search', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// API: TOOLBAR INFO ARTICOLO (caricata IN PARALLELO al render progressivi)
+// Restituisce in un singolo round-trip: dati arricchiti articolo, fornitori
+// principale + secondario (con nomi), codice articolo del fornitore (caf_codarfo),
+// lead time fornitore (caf_rrfence), prezzo corrente + scaglioni, sigla valuta.
+// 4 query in PARALLELO (Promise.all): zero impatto seriale sul tempo di risposta.
+// ============================================================
+router.get('/articoli/:codart/toolbar-info', authMiddleware, async (req, res) => {
+    try {
+        const codart = req.params.codart;
+        if (!codart) return res.status(400).json({ error: 'codart obbligatorio' });
+        const pool = await getPoolDest(getUserId(req));
+
+        // 1) Dati arricchiti articolo + nomi fornitori (1 sola query con JOIN)
+        const qArtico = pool.request()
+            .input('c', sql.VarChar(50), codart)
+            .query(`
+                SELECT
+                    a.ar_codart, a.ar_descr, a.ar_codalt, a.ar_unmis,
+                    a.ar_perqta, a.ar_inesaur, a.ar_blocco,
+                    a.ar_minord, a.ar_polriord,
+                    a.ar_forn  AS forn1_codice, f1.an_descr1 AS forn1_nome,
+                    a.ar_forn2 AS forn2_codice, f2.an_descr1 AS forn2_nome
+                FROM dbo.artico a
+                LEFT JOIN dbo.anagra f1 ON f1.an_conto = a.ar_forn
+                LEFT JOIN dbo.anagra f2 ON f2.an_conto = a.ar_forn2
+                WHERE a.codditt = 'UJET11' AND a.ar_codart = @c
+            `);
+
+        // 2-3) Codice articolo del fornitore (caf_codarfo + caf_rrfence) per
+        //      ENTRAMBI i fornitori (principale + secondario) — una sola query
+        //      che ritorna max 2 righe.
+        const qCodarfo = pool.request()
+            .input('c', sql.VarChar(50), codart)
+            .query(`
+                SELECT
+                    cf.caf_conto, cf.caf_codarfo, cf.caf_desnote, cf.caf_rrfence,
+                    CASE
+                        WHEN cf.caf_conto = ar.ar_forn  THEN 1
+                        WHEN cf.caf_conto = ar.ar_forn2 THEN 2
+                        ELSE 0
+                    END AS rank_forn
+                FROM dbo.codarfo cf
+                INNER JOIN dbo.artico ar
+                    ON ar.codditt='UJET11' AND ar.ar_codart = cf.caf_codart
+                WHERE cf.codditt='UJET11' AND cf.caf_codart = @c
+                  AND (cf.caf_conto = ar.ar_forn OR cf.caf_conto = ar.ar_forn2)
+                  AND cf.caf_conto > 0
+            `);
+
+        // 4) Prezzo + scaglioni per ENTRAMBI i fornitori (principale + secondario).
+        //    Cascata BCube: fornitore-specifico (lc_conto=forn) o listino generico
+        //    (lc_conto=0 AND lc_listino=an_listino del fornitore).
+        //    Le righe risultanti hanno una colonna "rank_forn" = 1 (principale) o 2.
+        const oggi = new Date().toISOString().split('T')[0];
+        const qListino = pool.request()
+            .input('c', sql.VarChar(50), codart)
+            .input('data', sql.Date, oggi)
+            .query(`
+                DECLARE @forn1 INT, @forn2 INT, @nlist1 SMALLINT, @nlist2 SMALLINT;
+                SELECT @forn1 = ar_forn, @forn2 = ar_forn2
+                  FROM dbo.artico WHERE codditt='UJET11' AND ar_codart=@c;
+                SELECT @nlist1 = COALESCE(an_listino, 0) FROM dbo.anagra WHERE an_conto = @forn1;
+                SELECT @nlist2 = COALESCE(an_listino, 0) FROM dbo.anagra WHERE an_conto = @forn2;
+
+                ;WITH listini_filtrati AS (
+                    SELECT
+                        l.lc_prezzo, l.lc_codvalu, l.lc_perqta,
+                        l.lc_daquant, l.lc_aquant, l.lc_conto, l.lc_listino,
+                        v.tb_desvalu AS valuta_sigla, v.tb_nomvalu AS valuta_nome
+                    FROM dbo.listini l
+                    LEFT JOIN dbo.tabvalu v ON v.tb_codvalu = l.lc_codvalu
+                    WHERE l.codditt='UJET11'
+                      AND l.lc_codart = @c
+                      AND @data BETWEEN l.lc_datagg AND l.lc_datscad
+                      AND l.lc_codvalu IS NOT NULL
+                      AND l.lc_codlavo = 0
+                )
+                SELECT *,
+                    CASE
+                        WHEN @forn1 > 0 AND (lc_conto = @forn1 OR (lc_conto = 0 AND lc_listino = @nlist1)) THEN 1
+                        WHEN @forn2 > 0 AND (lc_conto = @forn2 OR (lc_conto = 0 AND lc_listino = @nlist2)) THEN 2
+                        ELSE 0
+                    END AS rank_forn
+                FROM listini_filtrati
+                WHERE
+                    (@forn1 > 0 AND (lc_conto = @forn1 OR (lc_conto = 0 AND lc_listino = @nlist1)))
+                 OR (@forn2 > 0 AND (lc_conto = @forn2 OR (lc_conto = 0 AND lc_listino = @nlist2)))
+                ORDER BY rank_forn ASC, lc_conto DESC, lc_daquant ASC
+            `);
+
+        const [rArt, rCodarfo, rListino] = await Promise.all([qArtico, qCodarfo, qListino]);
+
+        const articolo = rArt.recordset[0] || null;
+        const codarfoRows = rCodarfo.recordset || [];
+        const listiniRows = rListino.recordset || [];
+
+        // Split per fornitore (principale vs secondario)
+        const codarfo1 = codarfoRows.find(c => c.rank_forn === 1) || null;
+        const codarfo2 = codarfoRows.find(c => c.rank_forn === 2) || null;
+        const listini1 = listiniRows.filter(l => l.rank_forn === 1);
+        const listini2 = listiniRows.filter(l => l.rank_forn === 2);
+
+        const buildScaglioni = (rows) => rows.map(l => ({
+            da: Number(l.lc_daquant) || 0,
+            a: Number(l.lc_aquant) || 0,
+            prezzo: Number(l.lc_prezzo) || 0,
+            perqta: Number(l.lc_perqta) || 1
+        }));
+        const buildPrezzo = (rows) => {
+            const primo = rows[0];
+            if (!primo) return null;
+            return {
+                valore: Number(primo.lc_prezzo) || 0,
+                perqta: Number(primo.lc_perqta) || 1,
+                codvalu: Number(primo.lc_codvalu) || 0,
+                valuta_sigla: (primo.valuta_sigla || 'EUR').trim(),
+                valuta_nome: (primo.valuta_nome || '').trim()
+            };
+        };
+
+        const scaglioni = buildScaglioni(listini1);
+        const primo = listini1[0] || {};
+
+        // Politica riordino — codice → label umana
+        const polLabel = {
+            G: 'A fabbisogno', M: 'Manuale', F: 'Lotto fisso', O: 'On-demand'
+        };
+
+        res.json({
+            articolo: articolo ? {
+                codart: articolo.ar_codart,
+                descr: articolo.ar_descr || '',
+                codalt: articolo.ar_codalt || '',
+                unmis: articolo.ar_unmis || 'PZ',
+                perqta: Number(articolo.ar_perqta) || 1,
+                in_esaur: articolo.ar_inesaur === 'S',
+                blocco: articolo.ar_blocco && articolo.ar_blocco !== 'N',
+                minord: Number(articolo.ar_minord) || null,
+                politica: articolo.ar_polriord || '',
+                politica_label: polLabel[articolo.ar_polriord] || ''
+            } : null,
+            // Fornitore PRINCIPALE: tutto incluso (codarfo + prezzo + scaglioni)
+            forn1: articolo && articolo.forn1_codice ? {
+                codice: Number(articolo.forn1_codice),
+                nome: (articolo.forn1_nome || '').trim(),
+                codice_articolo_fornitore: codarfo1 ? (codarfo1.caf_codarfo || '').trim() : '',
+                lead_time_giorni: codarfo1 ? (Number(codarfo1.caf_rrfence) || null) : null,
+                note: codarfo1 ? (codarfo1.caf_desnote || '').trim() : '',
+                prezzo: buildPrezzo(listini1),
+                scaglioni: buildScaglioni(listini1)
+            } : null,
+            // Fornitore SECONDARIO: stesse identiche info per confronto diretto
+            forn2: articolo && articolo.forn2_codice ? {
+                codice: Number(articolo.forn2_codice),
+                nome: (articolo.forn2_nome || '').trim(),
+                codice_articolo_fornitore: codarfo2 ? (codarfo2.caf_codarfo || '').trim() : '',
+                lead_time_giorni: codarfo2 ? (Number(codarfo2.caf_rrfence) || null) : null,
+                note: codarfo2 ? (codarfo2.caf_desnote || '').trim() : '',
+                prezzo: buildPrezzo(listini2),
+                scaglioni: buildScaglioni(listini2)
+            } : null,
+            // Backward compat (i campi top-level codarfo/prezzo/scaglioni puntano al principale)
+            codarfo: codarfo1 ? {
+                codice_articolo_fornitore: (codarfo1.caf_codarfo || '').trim(),
+                lead_time_giorni: Number(codarfo1.caf_rrfence) || null,
+                note: (codarfo1.caf_desnote || '').trim()
+            } : null,
+            prezzo: primo.lc_prezzo != null ? {
+                valore: Number(primo.lc_prezzo),
+                perqta: Number(primo.lc_perqta) || 1,
+                codvalu: Number(primo.lc_codvalu) || 0,
+                valuta_sigla: (primo.valuta_sigla || 'EUR').trim(),
+                valuta_nome: (primo.valuta_nome || '').trim()
+            } : null,
+            scaglioni
+        });
+    } catch (err) {
+        console.error('[API] Errore toolbar-info:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
 // API 2: FASI DI UN ARTICOLO (per la combo Fase)
 // Traduzione della Sub load_fasi() VBA in frmParRMP
 // ============================================================

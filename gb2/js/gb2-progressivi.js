@@ -678,6 +678,10 @@ const MrpProgressivi = (() => {
             }
         }
 
+        // Toolbar info articolo: carica IN PARALLELO (fire-and-forget).
+        // Mostra subito skeleton, popola quando arrivano i dati. Non blocca il render.
+        _caricaToolbarInfo(articolo.ar_codart);
+
         const rootCodart = articolo.ar_codart;
 
         if (data.sostitutivo) {
@@ -3299,6 +3303,290 @@ const MrpProgressivi = (() => {
     }
 
     document.addEventListener('DOMContentLoaded', init);
+    // ============================================================
+    // TOOLBAR INFO ARTICOLO — caricamento PARALLELO (fire-and-forget)
+    // ============================================================
+    // Token per cancellare risposte stantie (l'utente naviga rapidamente:
+    // l'ultima fetch in volo deve vincere; le precedenti vanno scartate).
+    let _toolbarReqId = 0;
+
+    function _toolbarSkeleton() {
+        return ''
+            + '<div class="at-row">'
+            +   '<div class="at-skel" style="width:180px;"></div>'
+            +   '<div class="at-skel" style="width:120px;"></div>'
+            +   '<div class="at-skel" style="width:100px;"></div>'
+            + '</div>'
+            + '<div class="at-row">'
+            +   '<div class="at-skel" style="width:140px;"></div>'
+            +   '<div class="at-skel" style="width:90px;"></div>'
+            + '</div>';
+    }
+
+    async function _caricaToolbarInfo(codart) {
+        const el = document.getElementById('articoloToolbar');
+        if (!el) return;
+
+        const reqId = ++_toolbarReqId;
+        el.innerHTML = _toolbarSkeleton();
+        el.style.display = '';
+
+        try {
+            const res = await fetch(`${MrpApp.API_BASE}/articoli/${encodeURIComponent(codart)}/toolbar-info`, { credentials: 'include' });
+            if (reqId !== _toolbarReqId) return;  // risposta obsoleta, l'utente ha gia navigato altrove
+            if (!res.ok) { el.style.display = 'none'; return; }
+            const data = await res.json();
+            if (reqId !== _toolbarReqId) return;
+            _renderToolbarInfo(el, data);
+        } catch (_err) {
+            if (reqId === _toolbarReqId) el.style.display = 'none';
+        }
+    }
+
+    function _fmtNumIT(n, dec) {
+        if (n === null || n === undefined) return '';
+        return Number(n).toLocaleString('it-IT', {
+            minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0
+        });
+    }
+    // Formattazione "intelligente" prezzo: max N decimali, ma trim degli zeri
+    // finali. Es: 31.0000 → "31", 1.2540 → "1,254", 0.236 → "0,236".
+    function _fmtPrezzoIT(n, maxDec) {
+        if (n === null || n === undefined) return '';
+        const num = Number(n);
+        if (Number.isNaN(num)) return '';
+        return num.toLocaleString('it-IT', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: (maxDec === undefined ? 4 : maxDec)
+        });
+    }
+    function _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function _renderToolbarInfo(el, data) {
+        if (!data || !data.articolo) { el.style.display = 'none'; return; }
+
+        const a = data.articolo;
+        const f1 = data.forn1;
+        const f2 = data.forn2;
+        const cf = data.codarfo;
+        const p  = data.prezzo;
+        const sc = data.scaglioni || [];
+
+        // ── Riga 1: fornitore principale + cod articolo fornitore + lead time + flag stato ──
+        const cells1 = [];
+
+        // Flag stato (in esaur, blocco)
+        if (a.in_esaur) cells1.push('<span class="at-flag at-flag-esaur">⚠ in esaurimento</span>');
+        if (a.blocco)   cells1.push('<span class="at-flag at-flag-blocco">bloccato</span>');
+
+        // Fornitore principale
+        if (f1) {
+            cells1.push(
+                '<span class="at-cell">' +
+                    '<span class="at-icon">🏢</span>' +
+                    '<span class="at-label">forn.</span>' +
+                    '<span class="at-value-strong">' + _esc(f1.nome || '?') + '</span>' +
+                    '<span class="at-value" style="color:var(--text-muted)">(' + _esc(f1.codice) + ')</span>' +
+                '</span>'
+            );
+        } else {
+            cells1.push('<span class="at-cell" style="color:var(--text-muted)">⚠ Nessun fornitore principale configurato</span>');
+        }
+
+        // Codice articolo del fornitore
+        if (cf && cf.codice_articolo_fornitore) {
+            cells1.push(
+                '<span class="at-cell">' +
+                    '<span class="at-label">cod.forn.</span>' +
+                    '<span class="at-value">' + _esc(cf.codice_articolo_fornitore) + '</span>' +
+                '</span>'
+            );
+        }
+
+        // Lead time
+        if (cf && cf.lead_time_giorni) {
+            cells1.push(
+                '<span class="at-cell">' +
+                    '<span class="at-icon">⏱</span>' +
+                    '<span class="at-value">' + _esc(cf.lead_time_giorni) + 'gg</span>' +
+                '</span>'
+            );
+        }
+
+        // Fornitore secondario (badge cliccabile)
+        if (f2) {
+            cells1.push(
+                '<span class="at-badge" id="atBadgeForn2" title="Fornitore secondario">' +
+                    '🪙 secondario: ' + _esc(f2.nome || '?') +
+                '</span>'
+            );
+        }
+
+        // ── Riga 2: prezzo + scaglioni + MOQ + politica riordino ──
+        const cells2 = [];
+
+        if (p) {
+            const valutaSpan = (p.codvalu === 0)
+                ? '€'
+                : '<span class="at-valuta-fx">' + _esc(p.valuta_sigla || ('cv' + p.codvalu)) + '</span>';
+            const perqtaTxt = (p.perqta && p.perqta !== 1)
+                ? ' / ' + _fmtNumIT(p.perqta) + ' ' + _esc(a.unmis)
+                : ' / ' + _esc(a.unmis);
+            cells2.push(
+                '<span class="at-cell">' +
+                    '<span class="at-icon">💰</span>' +
+                    '<span class="at-value-strong">' + valutaSpan + ' ' + _fmtPrezzoIT(p.valore) + '</span>' +
+                    '<span class="at-value" style="color:var(--text-muted)">' + perqtaTxt + '</span>' +
+                '</span>'
+            );
+        } else if (f1) {
+            cells2.push('<span class="at-cell" style="color:var(--text-muted)">💰 prezzo da listino non disponibile</span>');
+        }
+
+        if (sc.length > 1) {
+            cells2.push(
+                '<span class="at-badge" id="atBadgeScaglioni" title="Scaglioni di prezzo">' +
+                    '📊 ' + sc.length + ' scaglioni ▾' +
+                '</span>'
+            );
+        }
+
+        if (a.minord) {
+            cells2.push(
+                '<span class="at-cell">' +
+                    '<span class="at-label">MOQ</span>' +
+                    '<span class="at-value">' + _fmtNumIT(a.minord) + ' ' + _esc(a.unmis) + '</span>' +
+                '</span>'
+            );
+        }
+
+        if (a.politica_label) {
+            cells2.push(
+                '<span class="at-cell">' +
+                    '<span class="at-label">politica</span>' +
+                    '<span class="at-value">' + _esc(a.politica_label) + '</span>' +
+                '</span>'
+            );
+        }
+
+        el.innerHTML =
+            '<div class="at-row">' + cells1.join('') + '</div>' +
+            (cells2.length ? '<div class="at-row">' + cells2.join('') + '</div>' : '');
+
+        // ── Listener popover ──
+        const badgeSc = document.getElementById('atBadgeScaglioni');
+        if (badgeSc) badgeSc.addEventListener('click', (e) => _togglePopoverScaglioni(e.currentTarget, sc, a.unmis, p && p.valuta_sigla, p && p.codvalu));
+        const badgeF2 = document.getElementById('atBadgeForn2');
+        if (badgeF2) badgeF2.addEventListener('click', (e) => _togglePopoverForn2(e.currentTarget, f2, cf, a.unmis, f1));
+    }
+
+    // ── Popover scaglioni ──
+    let _atPopoverEl = null;
+    function _closeAtPopover() {
+        if (_atPopoverEl) { _atPopoverEl.remove(); _atPopoverEl = null; }
+    }
+    function _showAtPopover(html, anchorEl) {
+        _closeAtPopover();
+        const pop = document.createElement('div');
+        pop.className = 'at-popover';
+        pop.innerHTML = html;
+        document.body.appendChild(pop);
+        // Posiziona sotto l'ancora
+        const r = anchorEl.getBoundingClientRect();
+        pop.style.top  = (window.scrollY + r.bottom + 4) + 'px';
+        pop.style.left = (window.scrollX + r.left) + 'px';
+        _atPopoverEl = pop;
+        // Click fuori → chiude
+        setTimeout(() => {
+            const onDoc = (e) => {
+                if (!_atPopoverEl) { document.removeEventListener('click', onDoc); return; }
+                if (!_atPopoverEl.contains(e.target) && e.target !== anchorEl) {
+                    _closeAtPopover();
+                    document.removeEventListener('click', onDoc);
+                }
+            };
+            document.addEventListener('click', onDoc);
+        }, 0);
+    }
+
+    function _togglePopoverScaglioni(anchorEl, scaglioni, unmis, valutaSigla, codvalu) {
+        if (_atPopoverEl) { _closeAtPopover(); return; }
+        const sigla = (codvalu === 0) ? '€' : (valutaSigla || ('cv' + codvalu));
+        let html = '<div class="at-popover-title">Scaglioni di prezzo</div>'
+                 + '<table class="at-popover-table"><thead><tr>'
+                 +   '<th>Da</th><th>A</th><th>Prezzo</th><th>per</th>'
+                 + '</tr></thead><tbody>';
+        scaglioni.forEach(s => {
+            const da = s.da > 0 ? _fmtNumIT(s.da) : '–';
+            const a  = (s.a >= 9999999 || s.a === 0) ? '∞' : _fmtNumIT(s.a);
+            html += '<tr>'
+                  +   '<td>' + da + '</td>'
+                  +   '<td>' + a + '</td>'
+                  +   '<td>' + sigla + ' ' + _fmtPrezzoIT(s.prezzo) + '</td>'
+                  +   '<td>' + (s.perqta > 1 ? _fmtNumIT(s.perqta) + ' ' + _esc(unmis || 'PZ') : _esc(unmis || 'PZ')) + '</td>'
+                  + '</tr>';
+        });
+        html += '</tbody></table>';
+        _showAtPopover(html, anchorEl);
+    }
+
+    function _togglePopoverForn2(anchorEl, f2, _cf, unmis, f1) {
+        if (_atPopoverEl) { _closeAtPopover(); return; }
+        // Render simmetrico: stessi campi del primario per confronto diretto.
+        // f1 e' incluso per mostrare entrambi affiancati (PRIMARIO vs SECONDARIO).
+        const renderColonna = (titolo, accent, f) => {
+            if (!f) {
+                return '<div style="flex:1;min-width:160px;">' +
+                       '<div class="at-popover-title" style="color:' + accent + ';">' + titolo + '</div>' +
+                       '<div style="color:var(--text-muted);font-size:0.74rem;">non configurato</div>' +
+                       '</div>';
+            }
+            const p = f.prezzo;
+            const sigla = (p && p.codvalu === 0) ? '€' : (p ? (p.valuta_sigla || ('cv'+p.codvalu)) : '');
+            const perqtaTxt = (p && p.perqta && p.perqta !== 1)
+                ? ' / ' + _fmtNumIT(p.perqta) + ' ' + _esc(unmis || 'PZ')
+                : (p ? ' / ' + _esc(unmis || 'PZ') : '');
+            let scagliHtml = '';
+            if (f.scaglioni && f.scaglioni.length > 1) {
+                scagliHtml = '<table class="at-popover-table" style="margin-top:4px;">'
+                           + '<thead><tr><th>Da</th><th>A</th><th>Prezzo</th></tr></thead><tbody>';
+                f.scaglioni.forEach(s => {
+                    const da = s.da > 0 ? _fmtNumIT(s.da) : '–';
+                    const a  = (s.a >= 9999999 || s.a === 0) ? '∞' : _fmtNumIT(s.a);
+                    scagliHtml += '<tr><td>' + da + '</td><td>' + a + '</td><td>' + sigla + ' ' + _fmtPrezzoIT(s.prezzo) + '</td></tr>';
+                });
+                scagliHtml += '</tbody></table>';
+            }
+            return '<div style="flex:1;min-width:200px;">' +
+                   '<div class="at-popover-title" style="color:' + accent + ';">' + titolo + '</div>' +
+                   '<div style="font-weight:700;font-size:0.85rem;">' + _esc(f.nome || '?') + '</div>' +
+                   '<div style="color:var(--text-muted);font-size:0.72rem;margin-bottom:4px;">cod. ' + _esc(f.codice) + '</div>' +
+                   (f.codice_articolo_fornitore
+                       ? '<div style="font-size:0.78rem;"><span style="color:var(--text-muted);">cod.forn.</span> <strong>' + _esc(f.codice_articolo_fornitore) + '</strong></div>'
+                       : '') +
+                   (f.lead_time_giorni
+                       ? '<div style="font-size:0.78rem;"><span style="color:var(--text-muted);">lead time</span> <strong>' + _esc(f.lead_time_giorni) + ' gg</strong></div>'
+                       : '') +
+                   (p
+                       ? '<div style="font-size:0.85rem;margin-top:4px;"><strong>' + sigla + ' ' + _fmtPrezzoIT(p.valore) + '</strong>' +
+                         '<span style="color:var(--text-muted);font-size:0.74rem;">' + perqtaTxt + '</span></div>'
+                       : '<div style="font-size:0.78rem;color:var(--text-muted);">prezzo da listino non disponibile</div>') +
+                   scagliHtml +
+                   '</div>';
+        };
+
+        const html = '<div class="at-popover-title">Confronto fornitori</div>' +
+                     '<div style="display:flex;gap:14px;align-items:flex-start;">' +
+                         renderColonna('PRIMARIO', 'var(--primary, #2563a8)', f1) +
+                         '<div style="width:1px;align-self:stretch;background:var(--border);"></div>' +
+                         renderColonna('SECONDARIO', '#c2410c', f2) +
+                     '</div>';
+        _showAtPopover(html, anchorEl);
+    }
+
     // Esponi le funzioni breadcrumb + navigazione articolo per uso cross-modulo
     // (es. drawer Selezione Articolo che continua la catena di esplorazione).
     function getBreadcrumbStack() { return _navStack.slice(); }

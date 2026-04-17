@@ -472,3 +472,156 @@ body:not(.show-scaduti) .mrp-table tr.row-scaduto + tr.matrioska-nested-row {
     font-size: 0.7rem;
 }
 
+
+/* ============================================================
+   TOOLBAR INFO ARTICOLO (sotto breadcrumb, sopra griglia)
+   Caricata in PARALLELO al render — placeholder skeleton mentre carica.
+   ============================================================ */
+.articolo-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 16px;
+    background: linear-gradient(to bottom, var(--bg) 0%, var(--bg-content, #fff) 100%);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+}
+.articolo-toolbar .at-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+.articolo-toolbar .at-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text);
+}
+.articolo-toolbar .at-icon {
+    font-size: 0.95em;
+    opacity: 0.85;
+}
+.articolo-toolbar .at-label {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-right: 2px;
+}
+.articolo-toolbar .at-value {
+    font-weight: 600;
+}
+.articolo-toolbar .at-value-strong {
+    font-weight: 700;
+    color: var(--primary-dark, #1a4d82);
+}
+.articolo-toolbar .at-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--border);
+}
+
+/* Badge cliccabile (scaglioni / fornitore secondario) */
+.articolo-toolbar .at-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.1s, border-color 0.1s;
+}
+.articolo-toolbar .at-badge:hover {
+    background: var(--primary-light, #e3eef8);
+    border-color: var(--primary, #2563a8);
+    color: var(--primary-dark, #1a4d82);
+}
+
+/* Flag stato (in esaurimento, blocco) */
+.articolo-toolbar .at-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.articolo-toolbar .at-flag-esaur {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+.articolo-toolbar .at-flag-blocco {
+    background: #f3f4f6;
+    color: #4b5563;
+    border: 1px solid #d1d5db;
+}
+
+/* Valuta non-EUR evidenziata */
+.articolo-toolbar .at-valuta-fx {
+    color: #c2410c;
+    font-weight: 700;
+}
+
+/* Skeleton durante il caricamento parallelo */
+.articolo-toolbar .at-skel {
+    height: 12px;
+    background: linear-gradient(90deg, var(--border) 25%, var(--bg) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: at-skel-shimmer 1.2s infinite;
+    border-radius: 3px;
+}
+@keyframes at-skel-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Popover scaglioni / fornitore secondario */
+.at-popover {
+    position: absolute;
+    z-index: 1500;
+    background: var(--bg-content, #fff);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    padding: 10px 12px;
+    font-size: 0.78rem;
+    min-width: 220px;
+    max-width: 560px;
+}
+.at-popover-title {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 6px;
+}
+.at-popover-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.at-popover-table th,
+.at-popover-table td {
+    padding: 3px 8px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.78rem;
+}
+.at-popover-table th:first-child,
+.at-popover-table td:first-child {
+    text-align: left;
+}
+.at-popover-table tr:last-child td { border-bottom: none; }
+.at-popover-table tr.attivo td {
+    background: color-mix(in srgb, var(--primary, #2563a8) 8%, white);
+    font-weight: 700;
+}

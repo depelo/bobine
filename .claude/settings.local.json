@@ -135,7 +135,8 @@
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/routes/gb2/mrp-proposte.js\")",
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-parametri.js\")",
       "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/routes/gb2/articoli.js\")",
-      "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-app.js\")"
+      "Bash(node -c \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/js/gb2-app.js\")",
+      "Bash(grep -n \"\\\\\\\\.progressivi-breadcrumb\" \"C:/Users/depel/Documents/progetto/ujet/bobine/gb2/css/gb2-progressivi.css\")"
     ]
   }
 }
