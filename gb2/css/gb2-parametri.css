@@ -69,7 +69,10 @@
     border-bottom: 1px solid #f1f5f9;
     transition: background 0.1s;
 }
-.mrp-dropdown-item:hover { background: var(--primary-light); }
+.mrp-dropdown-item:hover,
+.mrp-dropdown-item.highlighted { background: var(--primary-light); }
+/* Highlight da tastiera: bordo sinistro accent per distinguerlo dal hover mouse */
+.mrp-dropdown-item.highlighted { box-shadow: inset 3px 0 0 var(--primary); }
 .mrp-dropdown-item .dd-code {
     font-weight: 700;
     color: var(--primary-dark);

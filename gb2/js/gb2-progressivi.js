@@ -975,6 +975,18 @@ const MrpProgressivi = (() => {
             return;
         }
 
+        // Guardia: la propostaCorrente potrebbe essere "stantia" (es. l'utente
+        // ha navigato a un padre via drill/breadcrumb dopo aver aperto un articolo
+        // dal drawer). In quel caso il pannello non riguarda l'articolo che si
+        // sta vedendo → nascondi e azzera per evitare conferme su articolo sbagliato.
+        const ultimoRis = MrpApp.state.ultimoRisultato;
+        const articoloCorrente = ultimoRis && ultimoRis.articolo && ultimoRis.articolo.ar_codart;
+        if (articoloCorrente && proposta.ol_codart && articoloCorrente !== proposta.ol_codart) {
+            MrpApp.state.propostaCorrente = null;
+            panel.style.display = 'none';
+            return;
+        }
+
         panel.style.display = 'block';
 
         // Costruisci righe: da propostaCorrente.righe (multi-data) o singola riga
@@ -2168,7 +2180,11 @@ const MrpProgressivi = (() => {
         tbody.innerHTML = '';
         data.forEach(o => {
             const tr = document.createElement('tr');
-            tr.className = 'modal-row-ordprod';
+            // Riga cliccabile: porta ai progressivi del codart padre + push breadcrumb
+            // (stesso pattern di _renderDrillPadreRmpRows nella tab MRP)
+            tr.className = 'modal-row-ordprod rmp-row-clickable';
+            tr.dataset.codart = o.padre_codart;
+            tr.title = 'Apri progressivi di ' + (o.padre_codart || '');
             tr.innerHTML = '<td></td>'
                 + '<td>' + esc(o.padre_desc_tipo || o.padre_tipork) + '</td>'
                 + '<td>' + esc(o.padre_anno) + '</td>'
@@ -2194,6 +2210,7 @@ const MrpProgressivi = (() => {
             const tr = document.createElement('tr');
             tr.className = 'modal-row-ordprod rmp-row-clickable';
             tr.dataset.codart = o.padre_codart;
+            tr.title = 'Apri progressivi di ' + (o.padre_codart || '');
             const badgeColor = o.padre_conf_gen === 'Confermato' ? 'background:#16a34a;color:white;' : 'background:#f59e0b;color:white;';
             const badge = '<span style="border-radius:3px;padding:2px 6px;font-size:0.75rem;font-weight:bold;' + badgeColor + '">' + esc(o.padre_conf_gen || '') + '</span>';
             tr.innerHTML = '<td><strong>' + esc(o.padre_codart) + '</strong></td>'
@@ -3282,5 +3299,15 @@ const MrpProgressivi = (() => {
     }
 
     document.addEventListener('DOMContentLoaded', init);
-    return { render };
+    // Esponi le funzioni breadcrumb + navigazione articolo per uso cross-modulo
+    // (es. drawer Selezione Articolo che continua la catena di esplorazione).
+    function getBreadcrumbStack() { return _navStack.slice(); }
+
+    return {
+        render,
+        pushBreadcrumb: _pushBreadcrumb,
+        resetBreadcrumb: _resetBreadcrumb,
+        getBreadcrumbStack,
+        navigateTo: navigaProgressiviDaRmp
+    };
 })();

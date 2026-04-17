@@ -68,6 +68,11 @@ const MrpApp = (() => {
         if (targetView) targetView.classList.add('active');
         if (targetBtn) targetBtn.classList.add('active');
 
+        // Traccia la vista corrente in state — usata da features cross-view
+        // (es. drawer Selezione Articolo decide reset vs push breadcrumb in base
+        // a viewActive='progressivi' = continua catena, altrimenti = reset).
+        state.viewActive = viewName;
+
         // Mostra il contesto "Pianificazione Fabbisogni Materiali" solo nella vista progressivi
         const ctxLabel = document.getElementById('headerContextLabel');
         if (ctxLabel) ctxLabel.style.display = (viewName === 'progressivi') ? '' : 'none';

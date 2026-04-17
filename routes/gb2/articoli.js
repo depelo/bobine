@@ -10,18 +10,24 @@ module.exports = function(router, deps) {
 
 router.get('/articoli/search', authMiddleware, async (req, res) => {
     try {
-        const { q, field } = req.query; // field: 'codart' | 'codalt' | 'descr'
+        const { q, field } = req.query; // field: 'codart' | 'codalt'
         const pool = await getPoolDest(getUserId(req));
 
         let where = '';
+        let orderBy = 'a.ar_descr';
         if (q && q.trim()) {
             const term = q.trim();
-            if (field === 'codart') {
-                where = `WHERE a.ar_codart LIKE @term + '%'`;
-            } else if (field === 'codalt') {
+            if (field === 'codalt') {
                 where = `WHERE a.ar_codalt LIKE '%' + @term + '%'`;
             } else {
-                where = `WHERE a.ar_descr LIKE '%' + @term + '%'`;
+                // 'codart' (e default): ricerca combinata su CODICE e DESCRIZIONE
+                // - codart: match a inizio stringa (piu rilevante)
+                // - descr: match ovunque (full-text-style)
+                // Ordinamento: prima i match esatti di codice, poi quelli su descrizione
+                where = `WHERE (a.ar_codart LIKE @term + '%' OR a.ar_descr LIKE '%' + @term + '%')`;
+                orderBy = `
+                    CASE WHEN a.ar_codart LIKE @term + '%' THEN 0 ELSE 1 END,
+                    a.ar_codart`;
             }
         }
 
@@ -33,10 +39,20 @@ router.get('/articoli/search', authMiddleware, async (req, res) => {
                     a.ar_codalt,
                     a.ar_descr,
                     a.ar_tipo,
-                    a.ar_desint
+                    a.ar_desint,
+                    a.ar_unmis,
+                    a.ar_perqta,
+                    -- Fornitore principale + secondario (scelta operativa di Pietro
+                    -- in BCube: ar_forn = fornitore preferito per quell'articolo).
+                    a.ar_forn  AS forn1_codice,
+                    f1.an_descr1 AS forn1_nome,
+                    a.ar_forn2 AS forn2_codice,
+                    f2.an_descr1 AS forn2_nome
                 FROM dbo.artico a
+                LEFT JOIN dbo.anagra f1 ON f1.an_conto = a.ar_forn
+                LEFT JOIN dbo.anagra f2 ON f2.an_conto = a.ar_forn2
                 ${where}
-                ORDER BY a.ar_descr
+                ORDER BY ${orderBy}
             `);
 
         res.json(result.recordset);

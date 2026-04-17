@@ -25,6 +25,15 @@ const MrpProposta = (() => {
         } catch (_) {}
     }
 
+    /** True se l'elemento e' un campo editabile (input/textarea/select/contenteditable). */
+    function _isEditable(el) {
+        if (!el) return false;
+        const tag = (el.tagName || '').toUpperCase();
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+        if (el.isContentEditable) return true;
+        return false;
+    }
+
     // ── Pannello Selezione Articolo (drawer laterale) ──
     function togglePanelSelezione(forceOpen) {
         const panel = document.getElementById('panelSelezione');
@@ -35,9 +44,32 @@ const MrpProposta = (() => {
         if (shouldOpen) {
             panel.classList.remove('collapsed');
             if (overlay) overlay.classList.add('open');
+            // Focus IMMEDIATO (no setTimeout — la classe rimossa sblocca
+            // pointer-events e visibilita' subito, il transform CSS non
+            // impedisce focus()).
+            const inp = document.getElementById('paramCodart');
+            if (inp) { inp.focus(); inp.select(); }
         } else {
             panel.classList.add('collapsed');
             if (overlay) overlay.classList.remove('open');
+            // Blur del focus se e' su un elemento DENTRO il drawer: senza questo,
+            // l'input resta "active" anche da invisibile, e il successivo Tab
+            // viene bloccato dal check _isEditable → drawer non si riapre.
+            const ae = document.activeElement;
+            if (ae && ae.closest && ae.closest('#panelSelezione')) ae.blur();
+            // RESET dei campi cosi' la prossima apertura mostra il drawer pulito
+            // (no testo della ricerca precedente, no dropdown aperto).
+            const inpCod = document.getElementById('paramCodart');
+            const inpAlt = document.getElementById('paramCodalt');
+            if (inpCod) inpCod.value = '';
+            if (inpAlt) inpAlt.value = '';
+            document.querySelectorAll('#panelSelezione .mrp-dropdown').forEach(d => {
+                d.classList.remove('open');
+                d.innerHTML = '';
+            });
+            // Status (es. "Articolo selezionato: X") non serve piu' al prossimo giro
+            const status = document.getElementById('paramStatus');
+            if (status) { status.textContent = ''; status.className = 'mrp-status'; }
         }
     }
 
@@ -59,6 +91,33 @@ const MrpProposta = (() => {
         if (btnToggle) btnToggle.addEventListener('click', () => togglePanelSelezione());
         const overlay = document.getElementById('selezioneOverlay');
         if (overlay) overlay.addEventListener('click', () => togglePanelSelezione(false));
+
+        // Hotkey globale TAB = TOGGLE drawer Selezione Articolo.
+        // Logica:
+        //   - Drawer APERTO → Tab CHIUDE (anche se il focus e' sull'input drawer).
+        //   - Drawer CHIUSO + focus su elemento editabile (altro form) → Tab fa
+        //     la sua cosa standard (navigazione tabular), non interferiamo.
+        //   - Drawer CHIUSO + focus su body o elemento non editabile → Tab APRE.
+        // Premendo Tab piu volte: apre → chiude → apre → chiude (reattivo).
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Tab') return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return; // niente Ctrl+Tab / Alt+Tab
+            const panel = document.getElementById('panelSelezione');
+            const isDrawerOpen = panel && !panel.classList.contains('collapsed');
+
+            if (isDrawerOpen) {
+                // Drawer gia aperto → Tab lo chiude (toggle)
+                e.preventDefault();
+                togglePanelSelezione(false);
+                return;
+            }
+
+            // Drawer chiuso: apri solo se non interferiamo con altri form
+            const ae = document.activeElement;
+            if (ae && _isEditable(ae)) return;
+            e.preventDefault();
+            togglePanelSelezione(true);
+        });
 
         initStorico();
 
@@ -4115,7 +4174,7 @@ const MrpProposta = (() => {
         return `<select class="select-template-forn" data-forn="${escAttr(fornCode)}" title="Template email">${html}</select>`;
     }
 
-    return { init, aggiornaStatoVisivo, apriStorico, apriDettaglioOrdine, modale };
+    return { init, aggiornaStatoVisivo, apriStorico, apriDettaglioOrdine, modale, togglePanelSelezione };
 })();
 
 document.addEventListener('DOMContentLoaded', MrpProposta.init);

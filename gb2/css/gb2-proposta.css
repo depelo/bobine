@@ -20,7 +20,8 @@
     overflow-y: auto;
     background: var(--bg-content, #fff);
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
-    transition: transform 0.25s ease, opacity 0.2s ease;
+    /* Transizione snappy per il toggle Tab/Tab/Tab — ritmo veloce dell'operatore */
+    transition: transform 0.12s ease-out, opacity 0.10s ease-out;
     transform: translateX(0);
     opacity: 1;
     padding: 10px;

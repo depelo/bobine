@@ -51,19 +51,18 @@
     <!-- AREA CONTENUTO PRINCIPALE -->
     <main class="mrp-main">
         <!-- VIEW: PARAMETRI (frmParRMP) -->
-        <section id="view-parametri" class="mrp-view active">
-            <div class="mrp-parametri-layout">
-                <div class="selezione-overlay" id="selezioneOverlay"></div>
-                <div class="mrp-parametri-col-left collapsed" id="panelSelezione">
-                    <div class="mrp-card mrp-parametri-card">
+        <!-- DRAWER GLOBALE: Selezione Articolo (fuori dalle viste, accessibile da ovunque) -->
+        <div class="selezione-overlay" id="selezioneOverlay"></div>
+        <div class="mrp-parametri-col-left collapsed" id="panelSelezione">
+            <div class="mrp-card mrp-parametri-card">
                 <h2 class="mrp-card-title">Selezione Articolo</h2>
 
-                <!-- Riga 1: Cod.Articolo -->
+                <!-- Riga 1: Cod.Articolo (cerca anche per descrizione) -->
                 <div class="mrp-field-row">
                     <label class="mrp-label" for="paramCodart">Cod. Articolo:</label>
                     <div class="mrp-field-input">
                         <input type="text" id="paramCodart" class="mrp-control mrp-combo"
-                               placeholder="Digita codice..." autocomplete="off" />
+                               placeholder="Codice o descrizione..." autocomplete="off" />
                         <div id="paramCodartDropdown" class="mrp-dropdown"></div>
                     </div>
                 </div>
@@ -75,16 +74,6 @@
                         <input type="text" id="paramCodalt" class="mrp-control mrp-combo"
                                placeholder="Codice alternativo..." autocomplete="off" />
                         <div id="paramCodaltDropdown" class="mrp-dropdown"></div>
-                    </div>
-                </div>
-
-                <!-- Riga 3: Descr.Articolo -->
-                <div class="mrp-field-row">
-                    <label class="mrp-label" for="paramDescr">Descr. Articolo:</label>
-                    <div class="mrp-field-input">
-                        <input type="text" id="paramDescr" class="mrp-control mrp-combo"
-                               placeholder="Cerca per descrizione..." autocomplete="off" />
-                        <div id="paramDescrDropdown" class="mrp-dropdown"></div>
                     </div>
                 </div>
 
@@ -136,9 +125,11 @@
 
                 <!-- Barra stato -->
                 <div id="paramStatus" class="mrp-status"></div>
-                    </div>
-                </div>
+            </div>
+        </div>
 
+        <section id="view-parametri" class="mrp-view active">
+            <div class="mrp-parametri-layout">
                 <div class="mrp-parametri-col-right">
                     <div class="mrp-card mrp-proposta-card">
                         <div class="proposta-header">
