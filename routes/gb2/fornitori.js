@@ -616,16 +616,31 @@ router.get('/fornitore-articoli/:codice', authMiddleware, async (req, res) => {
         const codice = parseInt(req.params.codice, 10);
         if (!codice || isNaN(codice)) return res.status(400).json({ error: 'codice non valido' });
         const pool = await getPoolDest(getUserId(req));
+        // UNION di codarfo (mapping formale) + listini (articoli con prezzo valido oggi).
+        // Senza l'unione perdiamo ~68% dei fornitori che hanno listini ma non sono in codarfo.
         const r = await pool.request()
             .input('codice', sql.Int, codice)
             .query(`
-                SELECT cf.caf_codart AS codart, cf.caf_codarfo AS codart_forn,
-                       a.ar_descr AS descr, a.ar_codalt AS codalt, a.ar_unmis AS unmis,
-                       a.ar_polriord AS polriord
-                FROM dbo.codarfo cf
-                INNER JOIN dbo.artico a ON cf.caf_codart = a.ar_codart
-                WHERE cf.caf_conto = @codice AND cf.codditt = 'UJET11'
-                ORDER BY cf.caf_codart
+                WITH articoli_fornitore AS (
+                    SELECT cf.caf_codart AS codart, cf.caf_codarfo AS codart_forn
+                    FROM dbo.codarfo cf
+                    WHERE cf.codditt = 'UJET11' AND cf.caf_conto = @codice
+
+                    UNION
+
+                    SELECT DISTINCT lc_codart AS codart, NULL AS codart_forn
+                    FROM dbo.listini
+                    WHERE codditt = 'UJET11' AND lc_conto = @codice
+                      AND GETDATE() BETWEEN lc_datagg AND lc_datscad
+                      AND lc_codlavo = 0
+                )
+                SELECT af.codart, MAX(af.codart_forn) AS codart_forn,
+                       a.ar_descr AS descr, a.ar_codalt AS codalt,
+                       a.ar_unmis AS unmis, a.ar_polriord AS polriord
+                FROM articoli_fornitore af
+                INNER JOIN dbo.artico a ON af.codart = a.ar_codart AND a.codditt = 'UJET11'
+                GROUP BY af.codart, a.ar_descr, a.ar_codalt, a.ar_unmis, a.ar_polriord
+                ORDER BY af.codart
             `);
         res.json({ articoli: r.recordset });
     } catch (err) {
