@@ -8,6 +8,14 @@ const MrpProposta = (() => {
     // Popolata da renderProposta, usata dal pannello decisionale multi-data.
     const cardRowsData = new Map();
 
+    // Helper ACL BCube (lato client): nome canonico (ar_descr + ar_desint).
+    // Il backend espone ora `nome` ovunque possibile; questo helper sceglie con
+    // fallback retrocompatibili.
+    const _nomeArt = (o) => {
+        if (!o) return '';
+        return (o.nome || o.descr || o.ar_descr || '').toString();
+    };
+
     async function waitForDB() {
         // Check singolo + 1 retry — il pool DB si connette durante il caricamento della pagina,
         // quindi e quasi sempre pronto. Max 1s di attesa invece dei precedenti 5s.
@@ -183,6 +191,8 @@ const MrpProposta = (() => {
                 ol_codart: ordine.ol_codart,
                 ar_codalt: ordine.ar_codalt,
                 ar_descr: ordine.ar_descr,
+                ar_desint: ordine.ar_desint || '',     // ACL
+                nome: _nomeArt(ordine),                // ACL
                 ol_fase: ordine.ol_fase,
                 ol_magaz: ordine.ol_magaz,
                 ol_unmis: ordine.ol_unmis,
@@ -205,7 +215,7 @@ const MrpProposta = (() => {
                 // Comportamento equivalente a quello pre-refactor decision panel:
                 // setTimeout(btnEsegui.click) lasciava paramMagaz vuoto.
                 magaz: '',
-                descr: ordine.ar_descr || ''
+                descr: _nomeArt(ordine)
             });
         }
 
@@ -411,6 +421,8 @@ const MrpProposta = (() => {
                             ol_codart: riga.ol_codart,
                             ar_codalt: riga.ar_codalt,
                             ar_descr: riga.ar_descr,
+                            ar_desint: riga.ar_desint || '',         // ACL: 2a meta
+                            nome: _nomeArt(riga),                    // ACL: nome canonico
                             ol_fase: riga.ol_fase || 0,
                             ol_magaz: riga.ol_magaz || 1,
                             quantita_confermata: Number(p.quantita_confermata),
@@ -663,12 +675,12 @@ const MrpProposta = (() => {
                     data-colli="${escAttr(String(first.ol_colli ?? '0'))}"
                     data-ump="${escAttr(first.ol_ump || '')}"
                     data-stato="${escAttr(first.ol_stato || '')}"
-                    data-descr="${escAttr(first.ar_descr || '')}"
+                    data-descr="${escAttr(_nomeArt(first))}"
                     data-codalt="${escAttr(first.ar_codalt || '')}"
                     data-fasedescr="${escAttr(first.fase_descr || '')}"
                     title="${rows.length > 1 ? 'Clicca per decisione multi-data (' + rows.length + ' date)' : 'Clicca per aprire i Progressivi'}">${esc(String(codart))}</span>
                         ${codaltStr}
-                        <span class="proposta-art-descr">${esc(first.ar_descr)}</span>
+                        <span class="proposta-art-descr">${esc(_nomeArt(first))}</span>
                         ${rows.length > 1 ? '<span class="proposta-multidate-badge">' + rows.length + ' date</span>' : ''}
                         <span class="proposta-art-flags">${flags.join('')}</span>
                         ${faseStr}
@@ -787,7 +799,7 @@ const MrpProposta = (() => {
             const rigaNum = r.ord_riga || r.mo_riga || 0;
             htmlRighe += `<tr>
                 <td>${esc(r.ol_codart)}${extraMultiRiga ? ' <button class="btn-rimuovi-riga-ordine" data-anno="' + escAttr(String(extra.anno)) + '" data-serie="' + escAttr(extra.serie) + '" data-numord="' + escAttr(String(extra.numord)) + '" data-riga="' + escAttr(String(rigaNum)) + '" data-codart="' + escAttr(r.ol_codart) + '" title="Rimuovi articolo dall\'ordine">\u274C</button>' : ''}</td>
-                <td>${esc(r.ar_descr || '')}</td>
+                <td>${esc(_nomeArt(r))}</td>
                 <td>${fmtDate(r.ol_datcons)}</td>
                 <td>${esc(r.ol_unmis || 'PZ')}</td>
                 <td class="num">${fmtNum(r.ol_quant, 3)}</td>
@@ -943,11 +955,13 @@ const MrpProposta = (() => {
 
             let html = '<table class="catalogo-table"><thead><tr><th>Codice</th><th>Descrizione</th><th>UM</th></tr></thead><tbody>';
             for (const art of data.articoli) {
-                html += `<tr class="catalogo-row" data-codart="${escAttr(art.codart)}" data-descr="${escAttr(art.descr || '')}"
+                // ACL: nome canonico (descr+desint) — il backend ora espone art.nome
+                const nm = _nomeArt(art);
+                html += `<tr class="catalogo-row" data-codart="${escAttr(art.codart)}" data-descr="${escAttr(nm)}"
                              data-unmis="${escAttr(art.unmis || 'PZ')}" data-codalt="${escAttr(art.codalt || '')}"
                              data-forn="${escAttr(fornCode)}" data-fornnome="${escAttr(fornNome)}">
                     <td class="catalogo-codart">${esc(art.codart)}</td>
-                    <td>${esc(art.descr || '')}</td>
+                    <td>${esc(nm)}</td>
                     <td>${esc(art.unmis || 'PZ')}</td>
                 </tr>`;
             }
@@ -1130,7 +1144,7 @@ const MrpProposta = (() => {
                 : '';
             htmlRighe += `<tr>
                 <td>${esc(ordine.ol_codart)}${isMultiRiga ? ' <button class="btn-annulla-conferma btn-annulla-inline" data-key="' + escAttr(key) + '" title="Rimuovi articolo">\u274C</button>' : ''}</td>
-                <td>${esc(ordine.ar_descr || '')}</td>
+                <td>${esc(_nomeArt(ordine))}</td>
                 <td class="num">${Number(ordine.quantita_confermata).toLocaleString('it-IT')}</td>
                 <td>${esc(ordine.ol_unmis || 'PZ')}</td>
                 <td class="num">${(ordine.prezzo || 0).toFixed(4)}</td>
@@ -2041,7 +2055,7 @@ const MrpProposta = (() => {
                 const v = a.quantita_confermata * p / (Number(a.perqta) || 1);
                 return `<tr>
                 <td>${esc(a.ol_codart)}</td>
-                <td>${esc(a.ar_descr || '')}</td>
+                <td>${esc(_nomeArt(a))}</td>
                 <td class="num">${Number(a.quantita_confermata).toLocaleString('it-IT')}</td>
                 <td>${esc(a.ol_unmis || 'PZ')}</td>
                 <td class="num">${Number(p).toLocaleString('it-IT', { minimumFractionDigits: 4 })}</td>

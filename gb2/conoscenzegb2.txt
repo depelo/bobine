@@ -2,7 +2,7 @@
   CONOSCENZE PROGETTO GB2 (Gabriele 2.0) — APP MRP WEB
   Modulo integrato nell'ecosistema PortalUjet
   Documento destinato a un'IA che prende in mano il progetto
-  Ultimo aggiornamento: 16 Aprile 2026
+  Ultimo aggiornamento: 18 Aprile 2026
 ================================================================================
 
 INDICE
@@ -34,6 +34,8 @@ INDICE
 25. PREZZO PER QUANTITA (perqta)
 26. SISTEMA PREZZI BCUBE — TABELLA LISTINI E MOTORE PRICING (+ pricing dinamico)
 27. BUG FIX LOG
+28. CONOSCENZA DISTRIBUITA: ar_note / an_note / an_note2
+29. ANTI-CORRUPTION LAYER lib/bcube/ — Nome canonico + Politica riordino
 
 
 ================================================================================
@@ -2069,6 +2071,31 @@ PRICING DINAMICO NEL PANNELLO DECISIONE (implementato):
     e di nuovo a riga ~2166 (aggiunta per tracciamento). Errore sintassi: duplicate.
   Fix: rimossa la seconda dichiarazione, riusata la variabile gia esistente.
 
+2026-04-18: Politica riordino "G nudo" — 94 articoli mostravano solo "G"
+  File: routes/gb2/helpers.js (mappa locale getPoliticaRiordino)
+  Problema: la mappa inline { M, F, L, N } NON conteneva 'G' (la politica piu
+    comune dopo F), NON conteneva 'O', conteneva 'L' che NON ESISTE in BCube,
+    e traduceva 'N' come "nessuna politica" (sbagliato — N e una scorta minima).
+    Risultato: articolo 0010862 e altri 93 articoli attivi mostravano "G" nudo
+    in tabella, senza spiegazione. L'operatore non sapeva cosa volesse dire.
+  Causa radice: nessuno aveva letto dbo._Politica (5 righe canoniche F/G/M/N/O).
+  Fix: creato lib/bcube/politica.js (cache della tabella _Politica) e
+    lib/bcube/articolo.js (normalize + politicaDisplay). Eliminate 3 mappe
+    inline duplicate (helpers.js, mrp-proposte.js, articoli.js) e delegato
+    tutto all'ACL. Vedi sezione 29.
+
+2026-04-18: Nome articolo troncato — ar_descr senza ar_desint in 13+ punti UI
+  Files: gb2/js/gb2-progressivi.js, gb2-proposta.js, gb2-parametri.js + 6 endpoint
+  Problema: BCube spalma il nome articolo su DUE colonne ar_descr (40 char) +
+    ar_desint (40 char) perche la prima e limitata. Le SP che generano i PDF
+    al fornitore usano correttamente entrambe. La nostra UI e i nostri endpoint
+    in 13+ punti mostravano solo ar_descr (es. "FOGLIO A4" invece di
+    "FOGLIO A4 PER STAMPA LASER"), generando confusione e ricerche errate.
+  Fix: aggiunta `composeNome(descr, desint)` in lib/bcube/articolo.js, esposto
+    `nome` canonico in tutti gli endpoint, helper client `_nomeArt()` con
+    fallback chain `nome → descr → ar_descr → figlio_descr` per retrocompatibilita.
+    Vedi sezione 29.
+
 
 ================================================================================
 ================================================================================
@@ -2312,7 +2339,7 @@ annulla+riemetti.
 
 
 ================================================================================
-[34] CONOSCENZA DISTRIBUITA: ar_note / an_note / an_note2
+28. CONOSCENZA DISTRIBUITA: ar_note / an_note / an_note2
 ================================================================================
 
 Confermato dall'ufficio acquisti (aprile 2026) e verificato sul DB produzione
@@ -2455,6 +2482,311 @@ RIFERIMENTI INCROCIATI
   - routes/gb2/articoli.js: endpoint /toolbar-info — punto naturale dove
     aggiungere ar_note / an_note / an_note2 quando vorremo esporli in UI
   - routes/gb2/fornitori.js: endpoint fornitore — punto naturale per an_note*
+
+
+================================================================================
+29. ANTI-CORRUPTION LAYER lib/bcube/ — Nome canonico + Politica riordino
+================================================================================
+
+Aggiunto il 18 Aprile 2026. Cartella: lib/bcube/ (nuova).
+
+PROBLEMA DI BASE — DUE FERITE PARALLELE
+---------------------------------------
+
+Lavorando su un articolo qualunque l'operatore vedeva due cose insensate:
+  a) il NOME troncato: "FOGLIO A4" invece di "FOGLIO A4 PER STAMPA LASER",
+     perche la UI mostrava solo ar_descr (40 char) ignorando ar_desint (altri
+     40 char). BCube aveva spezzato il nome su 2 colonne perche la prima e
+     limitata, e nessuno l'aveva ricomposto lato app.
+  b) la POLITICA RIORDINO "nuda": una "G" senza spiegazione, perche la mappa
+     inline in helpers.js aveva 4 codici, di cui uno inesistente, e gli altri
+     94+ articoli con politica G mostravano il codice grezzo.
+
+Entrambi i problemi avevano la stessa causa radice architetturale: l'app
+trattava le tabelle BCube come "schemi nudi" senza un layer di traduzione,
+duplicando e sbagliando i mapping in piu punti.
+
+LA SOLUZIONE — UN ANTI-CORRUPTION LAYER MIRATO
+----------------------------------------------
+
+lib/bcube/ e l'unico punto di traduzione "riga grezza BCube" → "entita
+canonica GB2". Tutti gli endpoint che leggono articoli passano (o dovrebbero
+passare) di qui.
+
+Tre file, ~280 righe totali:
+
+  lib/bcube/
+    politica.js   — cache di dbo._Politica (5 righe immutabili F/G/M/N/O)
+    articolo.js   — normalize() di una riga artico, composeNome(), politicaDisplay()
+    index.js      — barrel export: bcube.politica, bcube.articolo
+
+TABELLA dbo._Politica — LA FONTE CANONICA (5 codici)
+----------------------------------------------------
+
+E una tabella interna a UJET11 che mappa i codici ar_polriord:
+
+  polriord  politica                                pol  tipo_pol
+  --------  --------------------------------------  ---  ------------------
+  F         fabbisogno con lotto                    MTO  A fabbisogno
+  G         fabbisogno senza lotto                  MTO  A fabbisogno
+  M         scorta minimo con lotto                 MTS  A scorta minima
+  N         scorta minima senza lotto               MTS  A scorta minima
+  O         scorta minima con multiplo di lotto     MTS  A scorta minima
+
+Significato dei campi:
+  - polriord  : codice grezzo che vive in artico.ar_polriord
+  - politica  : nome leggibile (display naturale)
+  - pol       : MTO (Make-To-Order) | MTS (Make-To-Stock)
+  - tipo_pol  : categoria a livello UI ("A fabbisogno" | "A scorta minima")
+
+5 righe, immutabili come dominio: per cambiarle bisognerebbe modificare BCube,
+quindi il riavvio del processo Node e accettabile come politica di refresh.
+
+REGOLA COMPOSIZIONE NOME — composeNome(descr, desint)
+-----------------------------------------------------
+
+  composeNome("FOGLIO A4", "PER STAMPA LASER") -> "FOGLIO A4 PER STAMPA LASER"
+  composeNome("BULLONE M8", "")                -> "BULLONE M8"
+  composeNome("", "SOLO DESINT")               -> "SOLO DESINT"
+  composeNome(null, null)                      -> ""
+
+Implementazione: trim + concat con singolo spazio se entrambe presenti.
+La SP usp_CreaOrdineFornitore concatenava gia entrambe per il PDF al fornitore.
+La UI ora fa lo stesso. Esposto in tutti gli endpoint come campo `nome`.
+
+API ESPORTATA DAL MODULO
+------------------------
+
+  bcube.politica.loadPolitica(pool)   — bootstrap cache (chiamato in server.js)
+  bcube.politica.lookupSync(code)     — lookup sincrono dopo bootstrap
+  bcube.politica._resetCache()        — solo per test
+
+  bcube.articolo.ARTICO_FIELDS_SQL    — costante: lista colonne SELECT standard
+  bcube.articolo.composeNome(d, di)   — stringa nome canonica
+  bcube.articolo.nomeCompleto(row)    — wrapper: composeNome(row.ar_descr, row.ar_desint)
+  bcube.articolo.normalize(row)       — riga grezza → Articolo canonico
+  bcube.articolo.politicaDisplay(row) — solo la stringa display politica
+                                        (drop-in replacement della vecchia
+                                         helpers.getPoliticaRiordino)
+  bcube.articolo.findByCodart(pool, codart, sql)
+                                      — fetch + normalize in un colpo solo
+
+OGGETTO ARTICOLO CANONICO (da normalize)
+----------------------------------------
+
+  {
+    codart, codalt,
+    descr, desint,             // legacy, lasciati per chi ha bisogno della 1a/2a meta
+    nome,                      // <-- canonico, sempre composto
+    unmis, perqta,
+    fornitore, fornitoreSecondario,
+    inEsaurimento, bloccato,
+    politica: {
+      codice,                  // 'F'|'G'|'M'|'N'|'O' o '' se vuoto
+      nome,                    // 'fabbisogno senza lotto' (da _Politica.politica)
+      mode,                    // 'MTO' | 'MTS'
+      categoria,               // 'A fabbisogno' | 'A scorta minima'
+      descr                    // stringa pronta per UI; per MTS aggiunge
+                               // '(scorta min. X, lotto Y, lead time Z gg)'
+    },
+    scorta: { min, lotto, leadTimeGg }
+  }
+
+Per le politiche MTS (M/N/O) la `descr` integra automaticamente i parametri
+scorta/lotto/lead time se popolati. Per le MTO (F/G) resta il solo nome.
+
+BOOTSTRAP IN server.js (al boot del processo)
+---------------------------------------------
+
+Dopo aver creato i pool e fatto il deploy SQL, il server fa lazy-load
+preventivo della cache _Politica:
+
+  try {
+      const bcube = require('./lib/bcube');
+      const polMap = await bcube.politica.loadPolitica(poolTarget);
+      console.log(`[BCUBE-ACL] Cache _Politica caricata (${polMap.size} codici: ${[...polMap.keys()].join(',')})`);
+  } catch (err) {
+      console.warn('[BCUBE-ACL] Bootstrap cache _Politica fallito (lazy-load al primo accesso):', err.message);
+  }
+
+Se il bootstrap fallisce (poolTarget non disponibile, _Politica spostata, ecc.)
+il modulo fa lazy-load alla prima chiamata. La cache vive in memoria per
+tutta la vita del processo, dedup di concurrent first-loads tramite
+_loadingPromise.
+
+LE 3 MAPPE INLINE BUGGY ELIMINATE
+---------------------------------
+
+Prima di questo refactoring esistevano TRE mappe diverse, tutte sbagliate:
+
+  Mappa #1 — routes/gb2/helpers.js:313 (la "originale", riusata via deps):
+    { 'M': 'a punto di riordino', 'F': 'fabbisogno puro',
+      'L': 'a lotto fisso', 'N': 'nessuna politica' }
+    BUG: G mancante, O mancante, L NON ESISTE in BCube,
+         N tradotto male (N e MTS, non "nessuna").
+
+  Mappa #2 — routes/gb2/mrp-proposte.js:639 (duplicato verbatim della #1):
+    Stesso bug della #1, copiato per non avere dipendenza circolare.
+
+  Mappa #3 — routes/gb2/articoli.js:191 (toolbar-info, INDIPENDENTE):
+    { G: 'A fabbisogno', M: 'Manuale', F: 'Lotto fisso', O: 'On-demand' }
+    BUG: 3 codici su 4 SBAGLIATI rispetto alla canonica _Politica:
+         M -> "Manuale"      (canonico: "scorta minimo con lotto")
+         F -> "Lotto fisso"  (canonico: "fabbisogno con lotto")
+         O -> "On-demand"    (canonico: "scorta minima con multiplo di lotto")
+
+Tabella confronto VECCHIO vs NUOVO (output del diag-bcube-acl.js):
+
+  cod  helpers.js (vecchio)      articoli.js polLabel    ACL (canonico, nuovo)
+  ---  ------------------------  ------------------      -------------------------
+  F    "fabbisogno puro"         "Lotto fisso"           "fabbisogno con lotto"
+  G    "G" (mancava!)            "A fabbisogno"          "fabbisogno senza lotto"
+  M    "a punto di riordino"     "Manuale"               "scorta minimo con lotto"
+  N    "nessuna politica"        ""  (mancava!)          "scorta minima senza lotto"
+  O    "O" (mancava!)            "On-demand"             "scorta minima con multiplo di lotto"
+
+Tutti i 5 codici erano sbagliati o mancanti in almeno una delle due mappe inline.
+
+ENDPOINT BACKEND MIGRATI ALL'ACL (6)
+------------------------------------
+
+  routes/gb2/helpers.js
+    - getPoliticaRiordino: ridotto a 1 riga `return bcubeArticolo.politicaDisplay(art)`
+    - resta esportato in deps.helpers per chi lo importava cosi
+
+  routes/gb2/mrp-proposte.js
+    - getPoliticaRiordino locale: idem (delegato all'ACL)
+    - GET /proposta-ordini: SELECT include ar_desint; ogni riga arricchita
+      con `nome` (composeNome) e `politica_descr` (politicaDisplay)
+
+  routes/gb2/articoli.js
+    - GET /articoli/search: ogni riga arricchita con `nome`
+    - GET /articoli/:codart/toolbar-info: tutto il blocco articolo passa per
+      bcubeArticolo.normalize(); la response include politica.{codice,nome,
+      categoria,descr,mode}
+    - GET /progressivi: padre, sostitutivo-header e componenti includono
+      `desint` e `nome`
+    - GET /progressivi/expand: stessa enrichment per i componenti
+
+  routes/gb2/fornitori.js
+    - GET /fornitore/:codice/articoli: SELECT include desint, scomin, minord,
+      rrfence; map enrichment con `nome` e `politica_descr`
+
+  routes/gb2/ordini.js
+    - GET /elaborazione/:id/dettaglio: artMap costruita su {descr, nome};
+      ogni riga del dettaglio espone sia `articolo_descr` (legacy) sia
+      `articolo_nome` (canonico)
+
+FRONTEND — HELPER _nomeArt CON FALLBACK CHAIN
+---------------------------------------------
+
+In testa a 3 moduli client e stato aggiunto un piccolo helper:
+
+  // gb2/js/gb2-progressivi.js
+  // gb2/js/gb2-proposta.js
+  // gb2/js/gb2-parametri.js
+  const _nomeArt = (o) => {
+      if (!o) return '';
+      return (o.nome || o.descr || o.ar_descr || o.figlio_descr || '').toString();
+  };
+
+La fallback chain serve per retrocompatibilita: il backend ora espone `nome`
+ovunque, ma esistono ancora oggetti in localStorage o in transit con la
+forma legacy (descr/ar_descr/figlio_descr). Quando l'oggetto e fresh dal
+server prendi `nome`, quando arriva da una vecchia sessione cadi sul legacy.
+
+PUNTI UI MIGRATI (~13 chiamate)
+-------------------------------
+
+gb2-progressivi.js (riga ~533, 668, 672, 676, 1062, 1316, 1370, 1396-98,
+1419, 1536, 1638-41, 3032):
+  - banner sostitutivo, titolo articolo, breadcrumb push/update, header
+    proposta, dataset descr del nodo padre, label albero, btn consumi storici,
+    tabelle accorpate
+
+gb2-proposta.js:
+  - card render (data-descr + proposta-art-descr)
+  - riga ordine extra
+  - tabella confermati
+  - riepilogo emetti
+  - popup catalogo
+  - hydration pending (restore da DB con `nome` propagato)
+  - modifica conferma (idem)
+
+gb2-parametri.js:
+  - dropdown items, status message, _lastDescr, propostaCorrente
+
+PERSISTENZA — CONSERVA `nome` E `ar_desint` IN TUTTE LE COPIE
+-------------------------------------------------------------
+
+Quando il client conferma una riga (PendingSync), salva ora nell'oggetto
+persistito SIA `ar_desint` SIA `nome`. Cosi al rehydrate da localStorage o
+dalla tabella ordini_confermati_pending il nome canonico sopravvive senza
+dover rifare query articoli.
+
+SMOKE TEST — diag-bcube-acl.js (root progetto)
+----------------------------------------------
+
+Script di verifica eseguibile con `node diag-bcube-acl.js` (richiede pool
+diretto a UJET11 di prova). Cinque check:
+
+  [1] Bootstrap cache _Politica e dump dei 5 codici
+  [2] Articolo 0010862 (caso "G nudo") → mostra nome composto + politica leggibile
+  [3] politicaDisplay() su tutti i 5 codici + 1 sconosciuto + 1 vuoto
+  [4] CONFRONTO VECCHIO vs NUOVO per i 5 codici (tabella di sopra)
+  [5] composeNome() con edge case (null, vuoto, entrambi)
+
+Da rieseguire dopo modifiche a lib/bcube/* o se in futuro qualcuno
+re-introduce mappe inline (verifica che nessuno regredisca).
+
+DEPLOY
+------
+
+Le modifiche backend richiedono RESTART di PM2 (o reload) per prendere in
+carico:
+  - server.js (bootstrap cache)
+  - lib/bcube/* (nuovo modulo)
+  - routes/gb2/* (5 file modificati)
+
+Comando in produzione:
+  npx pm2 reload portalujet
+
+Le modifiche frontend (3 file in gb2/js/) sono servite con Cache-Control:
+no-cache, quindi il browser le ricarica al refresh successivo (vedi sezione
+21 sulla cache).
+
+ESTENSIONI FUTURE
+-----------------
+
+Lo stesso pattern si applica naturalmente ad altre entita BCube che oggi
+sono trattate come righe grezze in piu punti:
+
+  - Anagrafica fornitore (anagra.an_*): an_ragsoc + an_ragsoc2,
+    classificazione lingua, valuta default, listino, condizioni pagamento
+  - Codarfo (codarfo.cf_*): codice articolo presso il fornitore — punto
+    naturale per regola "se popolato, mostra al posto del nostro codart in
+    PDF e UI"
+  - Tabelle di lookup tabpaga / tabport / tabvalu: stesso pattern cache
+    immutabile come _Politica
+
+Il principio: una sola fonte di verita per ogni traduzione, cachata se
+piccola, esposta come API pulita, mai duplicata in mappe inline.
+
+RIFERIMENTI INCROCIATI
+----------------------
+  - lib/bcube/politica.js          (cache _Politica)
+  - lib/bcube/articolo.js          (normalize + composeNome + politicaDisplay)
+  - lib/bcube/index.js             (barrel export)
+  - server.js (riga ~134)          (bootstrap)
+  - diag-bcube-acl.js              (smoke test root)
+  - routes/gb2/helpers.js:318      (delegate)
+  - routes/gb2/mrp-proposte.js:647 (delegate)
+  - routes/gb2/articoli.js         (search, toolbar-info, progressivi, expand)
+  - routes/gb2/fornitori.js        (articoli per fornitore)
+  - routes/gb2/ordini.js           (dettaglio elaborazione)
+  - gb2/js/gb2-progressivi.js      (_nomeArt + ~13 punti UI)
+  - gb2/js/gb2-proposta.js         (_nomeArt + persistenza)
+  - gb2/js/gb2-parametri.js        (_nomeArt + propostaCorrente)
 
 
 ================================================================================

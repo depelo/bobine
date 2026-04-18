@@ -1,6 +1,8 @@
 /**
  * GB2 Routes — Proposte ordini MRP + consumi storici
  */
+const bcubeArticolo = require('../../lib/bcube/articolo');
+
 module.exports = function(router, deps) {
     const { sql, getPoolDest, getPool163, getActiveProfile,
             PRODUCTION_PROFILE, authMiddleware } = deps;
@@ -244,6 +246,7 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
                     ol.ol_codart,
                     COALESCE(a.ar_codalt, '')              AS ar_codalt,
                     COALESCE(a.ar_descr, '')               AS ar_descr,
+                    COALESCE(a.ar_desint, '')              AS ar_desint,
                     COALESCE(a.ar_inesaur, 'N')            AS ar_inesaur,
                     COALESCE(a.ar_blocco, 'N')             AS ar_blocco,
                     COALESCE(a.ar_polriord, '')             AS ar_polriord,
@@ -621,6 +624,10 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
             } else {
                 r.emesso = false;
             }
+            // ACL BCube: nome canonico (descr + desint) e politica leggibile.
+            // ar_descr e mantenuto per retrocompat; il frontend deve preferire `nome`.
+            r.nome = bcubeArticolo.composeNome(r.ar_descr, r.ar_desint);
+            r.politica_descr = bcubeArticolo.politicaDisplay(r);
             return r;
         });
 
@@ -635,26 +642,10 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
     }
 });
 
-// Helper: descrizione politica riordino (traduzione logica Access)
+// Helper: descrizione politica riordino — delegato all'ACL BCube
+// (vecchia mappa locale era duplicata, incompleta, errata: vedi lib/bcube/politica.js)
 function getPoliticaRiordino(art) {
-    const pol = (art.ar_polriord || '').trim().toUpperCase();
-    const map = {
-        'M': 'a punto di riordino',
-        'F': 'fabbisogno puro',
-        'L': 'a lotto fisso',
-        'N': 'nessuna politica'
-    };
-    let descr = map[pol] || pol;
-
-    // Aggiungi dettagli scorta minima e lotto se presenti
-    if (pol === 'M' && art.ar_scomin) {
-        descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_minord || 0}, lead time ${art.ar_rrfence || 0} gg)`;
-    }
-    if (pol === 'F') {
-        const desint = (art.ar_desint || '').trim();
-        if (desint) descr += ` (${desint})`;
-    }
-    return descr;
+    return bcubeArticolo.politicaDisplay(art);
 }
 
 // ============================================================

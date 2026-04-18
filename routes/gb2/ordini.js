@@ -2,6 +2,7 @@
  * GB2 Routes — Emissione ordini + PDF + storico + duplicati
  */
 const { generaPdfOrdine } = require('../../utils/pdfOrdine');
+const bcubeArticolo = require('../../lib/bcube/articolo');
 module.exports = function(router, deps) {
     const { sql, getPoolDest, getPool163, getActiveProfile,
             PRODUCTION_PROFILE, authMiddleware } = deps;
@@ -1204,19 +1205,29 @@ router.get('/elaborazione-dettaglio/:id', authMiddleware, async (req, res) => {
             if (codarts.length > 0) {
                 const rqAr = poolErp.request();
                 codarts.forEach((c, i) => rqAr.input('a' + i, sql.NVarChar, c));
-                const artRes = await rqAr.query('SELECT ar_codart, ar_descr FROM dbo.artico WHERE ar_codart IN (' + codarts.map((_, i) => '@a' + i).join(',') + ')');
-                artRes.recordset.forEach(r => { artMap[r.ar_codart] = r.ar_descr; });
+                // ACL BCube: includi anche ar_desint per il nome canonico (descr+desint)
+                const artRes = await rqAr.query('SELECT ar_codart, ar_descr, ar_desint FROM dbo.artico WHERE ar_codart IN (' + codarts.map((_, i) => '@a' + i).join(',') + ')');
+                artRes.recordset.forEach(r => {
+                    artMap[r.ar_codart] = {
+                        descr: r.ar_descr || '',
+                        nome: bcubeArticolo.composeNome(r.ar_descr, r.ar_desint)
+                    };
+                });
             }
         } catch (erpErr) {
             console.warn('[Elab Dettaglio] Enrichment ERP fallito:', erpErr.message);
         }
 
         // Merge in Node.js
-        const dettaglio = { recordset: dettaglioApp.recordset.map(r => ({
-            ...r,
-            fornitore_nome: anagMap[r.ol_conto] || '',
-            articolo_descr: artMap[r.ol_codart] || ''
-        })) };
+        const dettaglio = { recordset: dettaglioApp.recordset.map(r => {
+            const art = artMap[r.ol_codart];
+            return {
+                ...r,
+                fornitore_nome: anagMap[r.ol_conto] || '',
+                articolo_descr: art ? art.descr : '',         // legacy
+                articolo_nome: art ? art.nome : ''            // canonico (descr + desint)
+            };
+        }) };
 
         // Conteggi
         const proposte = dettaglio.recordset;

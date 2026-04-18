@@ -1,6 +1,8 @@
 /**
  * GB2 Routes — Classificazione fornitori + anagrafica + template assegnazioni
  */
+const bcubeArticolo = require('../../lib/bcube/articolo');
+
 module.exports = function(router, deps) {
     const { sql, getPoolDest, getPool163, getActiveProfile,
             PRODUCTION_PROFILE, authMiddleware } = deps;
@@ -635,14 +637,28 @@ router.get('/fornitore-articoli/:codice', authMiddleware, async (req, res) => {
                       AND lc_codlavo = 0
                 )
                 SELECT af.codart, MAX(af.codart_forn) AS codart_forn,
-                       a.ar_descr AS descr, a.ar_codalt AS codalt,
-                       a.ar_unmis AS unmis, a.ar_polriord AS polriord
+                       a.ar_descr AS descr, a.ar_desint AS desint,
+                       a.ar_codalt AS codalt,
+                       a.ar_unmis AS unmis, a.ar_polriord AS polriord,
+                       a.ar_scomin AS scomin, a.ar_minord AS minord, a.ar_rrfence AS rrfence
                 FROM articoli_fornitore af
                 INNER JOIN dbo.artico a ON af.codart = a.ar_codart AND a.codditt = 'UJET11'
-                GROUP BY af.codart, a.ar_descr, a.ar_codalt, a.ar_unmis, a.ar_polriord
+                GROUP BY af.codart, a.ar_descr, a.ar_desint, a.ar_codalt, a.ar_unmis,
+                         a.ar_polriord, a.ar_scomin, a.ar_minord, a.ar_rrfence
                 ORDER BY af.codart
             `);
-        res.json({ articoli: r.recordset });
+        // Arricchisci con nome canonico (descr+desint) e politica leggibile (ACL BCube)
+        const articoli = r.recordset.map(row => ({
+            ...row,
+            nome: bcubeArticolo.composeNome(row.descr, row.desint),
+            politica_descr: bcubeArticolo.politicaDisplay({
+                ar_polriord: row.polriord,
+                ar_scomin: row.scomin,
+                ar_minord: row.minord,
+                ar_rrfence: row.rrfence
+            })
+        }));
+        res.json({ articoli });
     } catch (err) {
         console.error('[API] Errore fornitore-articoli:', err.message);
         res.status(500).json({ error: err.message });

@@ -129,6 +129,15 @@ server.listen(PORT, '0.0.0.0', async () => {
                     console.warn('[GB2] Cleanup ordini_confermati_pending fallito:', e.message);
                 });
             });
+
+            // Bootstrap cache _Politica (5 righe immutabili — anti-corruption layer BCube)
+            try {
+                const bcube = require('./lib/bcube');
+                const polMap = await bcube.politica.loadPolitica(poolTarget);
+                console.log(`[BCUBE-ACL] Cache _Politica caricata (${polMap.size} codici: ${[...polMap.keys()].join(',')})`);
+            } catch (err) {
+                console.warn('[BCUBE-ACL] Bootstrap cache _Politica fallito (lazy-load al primo accesso):', err.message);
+            }
         } catch (err) {
             console.warn('[GB2] Auto-deploy SQL non riuscito (il server prosegue):', err.message);
         }

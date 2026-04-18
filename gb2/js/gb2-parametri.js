@@ -13,6 +13,12 @@
 const MrpParametri = (() => {
     let debounceTimer = null;
 
+    // Helper ACL BCube (lato client): nome canonico (ar_descr + ar_desint).
+    const _nomeArt = (o) => {
+        if (!o) return '';
+        return (o.nome || o.descr || o.ar_descr || '').toString();
+    };
+
     function init() {
         // Solo 2 combo: codart (cerca anche per descrizione) + codalt
         setupCombo('paramCodart', 'paramCodartDropdown', 'codart');
@@ -186,7 +192,7 @@ const MrpParametri = (() => {
                 item.className = 'mrp-dropdown-item';
                 item.innerHTML = `
                     <span class="dd-code">${art.ar_codart}</span>
-                    <span class="dd-descr">${art.ar_descr || ''}</span>
+                    <span class="dd-descr">${_nomeArt(art)}</span>
                     <span class="dd-alt">${art.ar_codalt || ''}</span>
                 `;
                 item.addEventListener('click', () => selezionaArticolo(art, dropdown));
@@ -213,13 +219,13 @@ const MrpParametri = (() => {
         // Salva nello stato
         MrpApp.state.articoloSelezionato = art;
         MrpApp.state.parametri.codart = art.ar_codart;
-        MrpApp.state.parametri._lastDescr = art.ar_descr || '';
+        MrpApp.state.parametri._lastDescr = _nomeArt(art);   // ACL: canonico
 
         // Carica le fasi
         await caricaFasi(art.ar_codart);
 
         // Status
-        setStatus(`Articolo selezionato: ${art.ar_codart} — ${art.ar_descr}`);
+        setStatus(`Articolo selezionato: ${art.ar_codart} — ${_nomeArt(art)}`);
 
         // Imposta propostaCorrente per ABILITARE il pannello "Decisione Ordine"
         // anche da apertura via drawer. Il fornitore default e' ar_forn (scelta
@@ -233,6 +239,8 @@ const MrpParametri = (() => {
                 ol_codart: art.ar_codart,
                 ar_codalt: art.ar_codalt || '',
                 ar_descr: art.ar_descr || '',
+                ar_desint: art.ar_desint || '',          // ACL
+                nome: _nomeArt(art),                     // ACL
                 ol_fase: 0,
                 ol_magaz: 1,
                 ol_unmis: art.ar_unmis || 'PZ',

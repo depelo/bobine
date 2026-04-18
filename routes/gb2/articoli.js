@@ -1,6 +1,8 @@
 /**
  * GB2 Routes — Ricerca articoli + progressivi + caricaMRP
  */
+const bcubeArticolo = require('../../lib/bcube/articolo');
+
 module.exports = function(router, deps) {
     const { sql, getPoolDest, getPool163, getActiveProfile,
             PRODUCTION_PROFILE, authMiddleware } = deps;
@@ -55,7 +57,13 @@ router.get('/articoli/search', authMiddleware, async (req, res) => {
                 ORDER BY ${orderBy}
             `);
 
-        res.json(result.recordset);
+        // ACL BCube: arricchisci con nome canonico (descr+desint).
+        // ar_descr resta per retrocompatibilita; il frontend deve preferire `nome`.
+        const arricchiti = result.recordset.map(r => ({
+            ...r,
+            nome: bcubeArticolo.composeNome(r.ar_descr, r.ar_desint)
+        }));
+        res.json(arricchiti);
     } catch (err) {
         console.error('[API] Errore ricerca articoli:', err);
         res.status(500).json({ error: err.message });
@@ -80,9 +88,9 @@ router.get('/articoli/:codart/toolbar-info', authMiddleware, async (req, res) =>
             .input('c', sql.VarChar(50), codart)
             .query(`
                 SELECT
-                    a.ar_codart, a.ar_descr, a.ar_codalt, a.ar_unmis,
+                    a.ar_codart, a.ar_descr, a.ar_desint, a.ar_codalt, a.ar_unmis,
                     a.ar_perqta, a.ar_inesaur, a.ar_blocco,
-                    a.ar_minord, a.ar_polriord,
+                    a.ar_minord, a.ar_polriord, a.ar_scomin, a.ar_rrfence,
                     a.ar_forn  AS forn1_codice, f1.an_descr1 AS forn1_nome,
                     a.ar_forn2 AS forn2_codice, f2.an_descr1 AS forn2_nome
                 FROM dbo.artico a
@@ -186,23 +194,28 @@ router.get('/articoli/:codart/toolbar-info', authMiddleware, async (req, res) =>
         const scaglioni = buildScaglioni(listini1);
         const primo = listini1[0] || {};
 
-        // Politica riordino — codice → label umana
-        const polLabel = {
-            G: 'A fabbisogno', M: 'Manuale', F: 'Lotto fisso', O: 'On-demand'
-        };
+        // Politica riordino — letta dall'ACL BCube (cache su dbo._Politica).
+        // La vecchia mappa inline era sbagliata in 3 codici su 4
+        // (M="Manuale", F="Lotto fisso", O="On-demand" non corrispondono
+        //  ai significati canonici di _Politica).
+        const artNorm = bcubeArticolo.normalize(articolo);
 
         res.json({
-            articolo: articolo ? {
-                codart: articolo.ar_codart,
-                descr: articolo.ar_descr || '',
-                codalt: articolo.ar_codalt || '',
-                unmis: articolo.ar_unmis || 'PZ',
-                perqta: Number(articolo.ar_perqta) || 1,
-                in_esaur: articolo.ar_inesaur === 'S',
-                blocco: articolo.ar_blocco && articolo.ar_blocco !== 'N',
-                minord: Number(articolo.ar_minord) || null,
-                politica: articolo.ar_polriord || '',
-                politica_label: polLabel[articolo.ar_polriord] || ''
+            articolo: artNorm ? {
+                codart: artNorm.codart,
+                descr: artNorm.descr,                 // legacy: 1a meta sola
+                desint: artNorm.desint,               // 2a meta
+                nome: artNorm.nome,                   // canonico (descr + desint)
+                codalt: artNorm.codalt,
+                unmis: artNorm.unmis,
+                perqta: artNorm.perqta,
+                in_esaur: artNorm.inEsaurimento,
+                blocco: artNorm.bloccato,
+                minord: artNorm.scorta.lotto || null,
+                politica: artNorm.politica.codice,             // 'F'|'G'|'M'|'N'|'O'
+                politica_label: artNorm.politica.categoria || '',  // 'A fabbisogno'|'A scorta minima'
+                politica_descr: artNorm.politica.descr,        // testo display completo
+                politica_mode: artNorm.politica.mode             // 'MTO' | 'MTS'
             } : null,
             // Fornitore PRINCIPALE: tutto incluso (codarfo + prezzo + scaglioni)
             forn1: articolo && articolo.forn1_codice ? {
@@ -780,6 +793,8 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
             codart: articolo.ar_codart,
             codalt: articolo.ar_codalt,
             descr: articolo.ar_descr,
+            desint: articolo.ar_desint || '',
+            nome: bcubeArticolo.nomeCompleto(articolo),  // ACL: descr + desint
             polriord: getPoliticaRiordino(articolo),
             um: articolo.ar_unmis || 'PZ',
             inesaur: articolo.ar_inesaur,
@@ -830,6 +845,8 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
                 codart: sostitutivo.ar_codart,
                 codalt: sostitutivo.ar_codalt,
                 descr: sostitutivo.ar_descr,
+                desint: sostitutivo.ar_desint || '',
+                nome: bcubeArticolo.nomeCompleto(sostitutivo),  // ACL
                 polriord: getPoliticaRiordino(sostitutivo),
                 um: sostitutivo.ar_unmis || 'PZ',
                 inesaur: sostitutivo.ar_inesaur,
@@ -901,6 +918,8 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
                 codart: f.md_codfigli,
                 codalt: f.figlio_codalt,
                 descr: f.figlio_descr,
+                desint: f.figlio_desint || '',
+                nome: bcubeArticolo.composeNome(f.figlio_descr, f.figlio_desint),  // ACL
                 faseDistinta: f.md_fasefigli,
                 quantDistinta: f.md_quant,
                 umDistinta: f.md_unmis || f.md_ump || 'PZ',
@@ -934,6 +953,10 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
         }
 
         righe[0].espandibile = figliRes.recordset.length > 0;
+
+        // ACL BCube: arricchisci con il nome canonico (descr + desint)
+        articolo.nome = bcubeArticolo.nomeCompleto(articolo);
+        if (sostitutivo) sostitutivo.nome = bcubeArticolo.nomeCompleto(sostitutivo);
 
         const payload = {
             articolo,
@@ -999,6 +1022,8 @@ router.get('/progressivi/expand', authMiddleware, async (req, res) => {
                 codart: f.md_codfigli,
                 codalt: f.figlio_codalt,
                 descr: f.figlio_descr,
+                desint: f.figlio_desint || '',
+                nome: bcubeArticolo.composeNome(f.figlio_descr, f.figlio_desint),  // ACL
                 faseDistinta: f.md_fasefigli,
                 quantDistinta: f.md_quant,
                 umDistinta: f.md_unmis || f.md_ump || 'PZ',

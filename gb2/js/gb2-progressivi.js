@@ -9,6 +9,14 @@ const MrpProgressivi = (() => {
     // ── Breadcrumb navigazione articoli ──
     let _navStack = []; // [{ codart, descr }]
 
+    // Helper ACL BCube (lato client): nome canonico articolo (descr + desint).
+    // Il backend ora espone `nome` ovunque; questo helper sceglie con fallback
+    // per i punti del codice che ancora arrivano con i nomi legacy.
+    const _nomeArt = (o) => {
+        if (!o) return '';
+        return (o.nome || o.descr || o.ar_descr || o.figlio_descr || '').toString();
+    };
+
     const MRP_COL_COUNT = 14;
 
     // Stato interno modale ordini
@@ -522,7 +530,7 @@ const MrpProgressivi = (() => {
         if (data && data.sostitutivo) {
             el.style.display = 'block';
             el.innerHTML =
-                `⚠️ In esaurimento — Sost.: <strong>${esc(data.sostitutivo.ar_codart)}</strong> (${esc(data.sostitutivo.ar_descr || '')})`;
+                `⚠️ In esaurimento — Sost.: <strong>${esc(data.sostitutivo.ar_codart)}</strong> (${esc(_nomeArt(data.sostitutivo))})`;
         } else {
             el.style.display = 'none';
             el.innerHTML = '';
@@ -664,16 +672,17 @@ const MrpProgressivi = (() => {
         splitSostData = null;
 
         const { articolo, righe } = data;
+        const _nomeFull = _nomeArt(articolo);  // canonico (descr + desint)
         document.getElementById('progressiviTitle').textContent =
-            `${articolo.ar_descr} (${articolo.ar_codart})`;
+            `${_nomeFull} (${articolo.ar_codart})`;
 
         // Breadcrumb: aggiorna descrizione dell'ultimo elemento (poteva essere stato pushato con solo codart)
         if (_navStack.length === 0) {
-            _pushBreadcrumb(articolo.ar_codart, articolo.ar_descr);
+            _pushBreadcrumb(articolo.ar_codart, _nomeFull);
         } else {
             const last = _navStack[_navStack.length - 1];
             if (last && last.codart === articolo.ar_codart) {
-                last.descr = articolo.ar_descr;
+                last.descr = _nomeFull;
                 _renderBreadcrumb();
             }
         }
@@ -1049,10 +1058,11 @@ const MrpProgressivi = (() => {
                 ? `<div class="decisione-info">BCube propone <strong>${righeDisponibili.length} date di consegna</strong> per questo articolo. Seleziona le righe da confermare \u2014 ogni data produce un ordine separato.</div>`
                 : '');
 
+        const _propNome = _nomeArt(proposta);
         panel.innerHTML = `
             <div class="decisione-header">
                 <strong>Decisione Ordine: ${esc(proposta.ol_codart)}</strong>
-                ${proposta.ar_descr ? ' \u2014 ' + esc(proposta.ar_descr) : ''}
+                ${_propNome ? ' \u2014 ' + esc(_propNome) : ''}
                 <span class="decisione-fornitore">${esc(proposta.fornitore_nome)} (${esc(proposta.fornitore_codice)})</span>
             </div>
             ${infoHtml}
@@ -1235,7 +1245,9 @@ const MrpProgressivi = (() => {
                 fornitore_nome: proposta.fornitore_nome,
                 ol_codart: proposta.ol_codart,
                 ar_codalt: proposta.ar_codalt,
-                ar_descr: proposta.ar_descr,
+                ar_descr: proposta.ar_descr,                  // legacy
+                ar_desint: proposta.ar_desint || '',          // ACL: 2a meta nome
+                nome: _nomeArt(proposta),                     // ACL: nome canonico
                 ol_fase: rigaOrig ? rigaOrig.ol_fase : proposta.ol_fase,
                 ol_magaz: rigaOrig ? rigaOrig.ol_magaz : proposta.ol_magaz,
                 ol_unmis: rigaOrig ? (rigaOrig.ol_unmis || proposta.ol_unmis) : proposta.ol_unmis,
@@ -1303,7 +1315,7 @@ const MrpProgressivi = (() => {
         nodeDiv.className = 'tree-node';
         
         nodeDiv.dataset.codart = articolo.codart;
-        nodeDiv.dataset.descr = articolo.descr || '';
+        nodeDiv.dataset.descr = _nomeArt(articolo);
         nodeDiv.dataset.livello = livello;
         
         // Icona + o spazio
@@ -1357,7 +1369,7 @@ const MrpProgressivi = (() => {
         const iconaDoc = articolo.espandibile ? '📁' : '📄';
         
         const labelSpan = document.createElement('span');
-        labelSpan.innerHTML = `&nbsp;${iconaDoc} ${esc(articolo.descr)} <span class="code-dim">${esc(articolo.codart)}</span>`;
+        labelSpan.innerHTML = `&nbsp;${iconaDoc} ${esc(_nomeArt(articolo))} <span class="code-dim">${esc(articolo.codart)}</span>`;
         
         nodeDiv.appendChild(toggleIcon);
         nodeDiv.appendChild(labelSpan);
@@ -1383,9 +1395,10 @@ const MrpProgressivi = (() => {
             // Popola Dettaglio con pulsante Consumi
             const titleEl = document.getElementById('splitDetailTitle');
             if (titleEl) {
-                const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:10px;vertical-align:middle;" title="Vedi Consumi Storici">\uD83D\uDCCA</button>`;
+                const _nm = _nomeArt(articolo);
+                const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(_nm)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:10px;vertical-align:middle;" title="Vedi Consumi Storici">\uD83D\uDCCA</button>`;
                 const btnQlik = `<button type="button" class="btn-qlikview" data-codart="${esc(articolo.codart)}" style="background:none;border:none;cursor:pointer;font-size:16px;margin-left:2px;vertical-align:middle;" title="Analisi Articolo (QlikView)">\uD83D\uDCC8</button>`;
-                titleEl.innerHTML = `${esc(articolo.descr)} <span class="code-dim">(${esc(articolo.codart)})</span> ${btnConsumi}${btnQlik}`;
+                titleEl.innerHTML = `${esc(_nm)} <span class="code-dim">(${esc(articolo.codart)})</span> ${btnConsumi}${btnQlik}`;
                 const bc = titleEl.querySelector('.btn-consumi');
                 if (bc) {
                     bc.addEventListener('click', (ev) => {
@@ -1405,7 +1418,7 @@ const MrpProgressivi = (() => {
             }
             
             const dbEl = document.getElementById('splitDetDB');
-            if (dbEl) dbEl.textContent = articolo.descr; // Come da specifiche, qua si mette la descrizione
+            if (dbEl) dbEl.textContent = _nomeArt(articolo); // Come da specifiche, qua si mette la descrizione (canonica: descr+desint)
             // Tutti gli altri per ora "-"
             ['splitDetNote', 'splitDetFornitore', 'splitDetImballo', 'splitDetSost'].forEach(id => {
                 const el = document.getElementById(id);
@@ -1522,7 +1535,7 @@ const MrpProgressivi = (() => {
 
         const h = sostData.header || {};
         html += splitMrpSectionHeader(
-            `<span style="font-weight:700;padding:8px;display:block;background:#e8f5e9;">🔄 Sostitutivo: ${esc(h.descr || '')} (${esc(h.codart || '')})</span>`,
+            `<span style="font-weight:700;padding:8px;display:block;background:#e8f5e9;">🔄 Sostitutivo: ${esc(_nomeArt(h))} (${esc(h.codart || '')})</span>`,
             'mrp-blocco-sostitutivo'
         );
         html += nestedTbodyFromMrp(sostData.mrp || [], { emptyMode: (sostData.mrp && sostData.mrp.length) ? 'none' : 'fetched-empty' });
@@ -1624,10 +1637,11 @@ const MrpProgressivi = (() => {
 
         const btnEspandi = (isRoot || soloFlatMrp) ? '' : '<button type="button" class="btn-matrioska toggle-matrioska">Espandi ▼</button>';
         const scadutoBadge = isScaduto(articolo) ? '<span class="scaduto-badge">SCADUTO</span>' : '';
+        const _nomeArtRiga = _nomeArt(articolo);  // canonico (descr+desint)
         const descrStrong = (articolo.tipo === 'padre' || articolo.tipo === 'sostitutivo-header' || isRoot)
-            ? `<strong>${esc(articolo.descr)}</strong>`
-            : esc(articolo.descr);
-        const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(articolo.descr)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:4px;" title="Vedi Consumi Storici">\uD83D\uDCCA</button>`;
+            ? `<strong>${esc(_nomeArtRiga)}</strong>`
+            : esc(_nomeArtRiga);
+        const btnConsumi = `<button type="button" class="btn-consumi" data-codart="${esc(articolo.codart)}" data-descr="${esc(_nomeArtRiga)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:4px;" title="Vedi Consumi Storici">\uD83D\uDCCA</button>`;
         const btnQlikview = `<button type="button" class="btn-qlikview" data-codart="${esc(articolo.codart)}" style="background:none;border:none;cursor:pointer;font-size:14px;margin-left:1px;" title="Analisi Articolo (QlikView)">\uD83D\uDCC8</button>`;
 
         const marginL = (isRoot || soloFlatMrp) ? '0' : '8px';
@@ -3017,7 +3031,7 @@ const MrpProgressivi = (() => {
         const isAccorpato = !!(codartSost && codartEsaur && String(codart) === String(codartEsaur));
         const codartCacheKey = isAccorpato ? `${codartEsaur},${codartSost}` : codart;
         const descrDisplay = isAccorpato
-            ? `${descr} (${codart}) + ${lastResult.sostitutivo.ar_descr} (${codartSost})`
+            ? `${descr} (${codart}) + ${_nomeArt(lastResult.sostitutivo)} (${codartSost})`
             : `${descr} (${codart})`;
 
         titolo.textContent = `Analisi Consumi e Previsioni: ${descrDisplay}`;

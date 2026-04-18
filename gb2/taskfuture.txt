@@ -5,7 +5,7 @@ eseguiti. Tutto quello che abbiamo imparato durante il brainstorming resta qui
 in forma autonoma, cosi chi riprende (umano o agente) non deve ripercorrere la
 discussione.
 
-Ultimo aggiornamento: 2026-04-17.
+Ultimo aggiornamento: 2026-04-18.
 
 
 ================================================================================
@@ -295,6 +295,189 @@ viene eseguito prima (fork:1 attuale), tutto funziona senza adapter.
 Scenario ideale: prima Task 2 (piu' urgente, risolve problema presente), poi
 Task 1 (miglioria operativa, non ha deadline). L'adapter cluster quando
 arrivera' sara' trasparente alla helper di Task 2.
+
+
+================================================================================
+TASK 3 — Strutturare in tabelle GB2 la knowledge dispersa nei 5 campi BCube
+================================================================================
+
+### Problema che risolve
+
+L'ufficio acquisti UJET ha accumulato negli anni una conoscenza operativa
+informale (lead time reali, lotti minimi, contatti fornitori, varianti
+prodotto, istruzioni di confezionamento) che oggi vive sparsa dentro 5 campi
+di tabelle BCube. Ogni operatore ha i suoi 1-2 campi preferiti, ignora gli
+altri, e quando si scambiano un articolo si perdono pezzi. Esempio reale: un
+operatore ricorda il lotto minimo a memoria, un altro lo legge da
+`an_note2`, un terzo dalle righe 6+ di `ar_note`. Quando uno e' in ferie,
+l'altro spesso non sa dove trovare l'informazione.
+
+L'obiettivo del task e' DECIDERE come modellare questa knowledge in tabelle
+NOSTRE in GB2 (database `bobine_gb2` o equivalente) cosi' che:
+- la knowledge sia consultabile/modificabile dall'app GB2 con UI dedicate
+  (no piu' note testuali sparse a senso libero);
+- l'agente AI futuro abbia una base dati strutturata su cui ragionare (no
+  parsing di testo libero italiano);
+- BCube resti la sorgente per i campi che restano suoi (anagrafica base,
+  prezzi, ordini), GB2 sia la sorgente per la conoscenza-acquisti.
+
+### I 5 campi target (popolazione: ultimi 365 gg, 454 articoli, 114 fornitori)
+
+| # | Campo BCube | Cosa contiene | Popolamento sui dati attivi |
+|---|---|---|---|
+| 1 | `artico.ar_note` (righe 6+) | Knowledge prodotto/processo: cicli produzione, controlli QC, specifiche fornitore, avvertenze. Le righe 1-5 vanno nel PDF al fornitore, dalla 6 in poi e' SOLO interno. | 65 articoli (16% degli attivi) hanno contenuto >riga 5; 35 hanno SOLO contenuto nascosto. Separatori usati: `\r\n` e `\u00d0` (Ð). |
+| 2 | `anagra.an_note2` | Knowledge rapporto fornitore: rubrica contatti per ruolo (commerciale, qualita', logistica, amministrazione), credenziali portali web, agenti, riferimenti tecnici, note d'uso. | 93/114 fornitori attivi (81.6%). Lunghezze fino a 1500+ caratteri. |
+| 3 | `artico.ar_scomin` | Scorta minima (numero, decimal). | 79.3% articoli attivi. Distribuzione molto sparsa (no default unico) → segnale di configurazione ad-hoc. |
+| 4 | `artico.ar_minord` | Quantita' lotto / multiplo d'ordine (numero, decimal). | 91.9% articoli attivi. Top valori: 1, 1000, 500, 100, 2000, 48 (= pacchi/cartoni reali del fornitore). 86 articoli a "1" = "no lotto". |
+| 5 | `artico.ar_rrfence` | Lead time / Release Required Fence in giorni (smallint). | 96.7% articoli attivi. Top: 30 gg (49% — sospetto default), poi 90, 45, 120, 20, 60, 25, 40, 15, 75. 15 valori distinti = vera personalizzazione. |
+
+### Conoscenza chiave gia' acquisita (NON ripartire da zero)
+
+#### Tabella `dbo._Politica` (UJET11 / BCUBE2) — fonte canonica del codice politica
+
+```sql
+SELECT polriord, politica, pol, tipo_pol FROM dbo._Politica
+```
+Contenuto reale (5 righe, lette il 2026-04-18):
+
+| polriord | politica                            | pol | tipo_pol           |
+|----------|-------------------------------------|-----|--------------------|
+| F        | fabbisogno con lotto                | MTO | A fabbisogno       |
+| G        | fabbisogno senza lotto              | MTO | A fabbisogno       |
+| M        | scorta minimo con lotto             | MTS | A scorta minima    |
+| N        | scorta minima senza lotto           | MTS | A scorta minima    |
+| O        | scorta minima con multiplo di lotto | MTS | A scorta minima    |
+
+Implicazioni:
+- "G" che nessuno in UJet sapeva cosa fosse = MTO senza lotto fisso
+  (l'articolo e' make-to-order, ogni ordine e' un fabbisogno reale, niente
+  multipli di lotto). Coerente con il dato osservato: i 94 articoli `G`
+  attivi hanno `ar_minord=0` e `ar_scomin=0` praticamente sempre.
+- Il mapping in `routes/gb2/helpers.js:313`
+  `const map = { 'M': 'a punto di riordino', 'F': 'fabbisogno puro', 'L': 'a lotto fisso', 'N': 'nessuna politica' };`
+  e' SBAGLIATO/INCOMPLETO:
+  * `'N'` non e' "nessuna politica" — e' "scorta minima senza lotto"
+  * `'L'` non esiste in `_Politica` (verificare se BCube lo usa altrove o se e' codice morto)
+  * Mancano `'G'` (94 articoli attivi) e `'O'` (verificare popolazione)
+- La fonte canonica e' `_Politica`. Quando facciamo lookup di descrizioni,
+  meglio leggere da li' invece che hardcodare in JS.
+
+#### Distribuzione politica sui 454 articoli attivi
+
+| polriord | n articoli | %    |
+|----------|------------|------|
+| M        | 358        | 79%  |
+| G        | 94         | 21%  |
+| F        | 1          | 0.2% |
+| N, O     | 0          | -    |
+
+Quindi MTO e MTS sono entrambi presenti in numeri significativi. Una
+qualunque tabella GB2 di "politica acquisti" deve gestire entrambi.
+
+#### Default-fasulli BCube (rumore da NON considerare conoscenza)
+
+Tutti i 453 articoli attivi hanno questi valori IDENTICI = default BCube
+mai personalizzati:
+- `ar_ggant = 999` (giorni anticipo)
+- `ar_ggpost = 1` (giorni posticipo)
+- `ar_ggragg = 2` (giorni raggruppamento)
+- `ar_perragg = 'S'` (periodo raggruppamento)
+
+Il task NON deve considerarli campi-knowledge. Sono rumore.
+
+#### Campi adiacenti UTILI gia' disponibili (potenziali alleati)
+
+- `artico.ar_forn` (fornitore primario): popolato 99.6%, 437/451 (97%)
+  coincide col fornitore EFFETTIVO degli ordini → BCube lo aggiorna in
+  automatico, e' affidabile.
+- `artico.ar_forn2` (fornitore secondario): popolato 40.7% — l'ufficio
+  acquisti CONOSCE il multi-source per quasi meta' degli articoli. Gia'
+  visualizzato nell'app GB2 (badge "🪙 secondario" in gb2-progressivi.js).
+- `codarfo.caf_codarfo` (codice articolo presso fornitore): popolato 12.5% —
+  utile per chiarezza ordine, sotto-popolato.
+- `codarfo.caf_desnote` (note coppia articolo-fornitore): popolato 21.7% —
+  contiene specifiche acquisto, varianti, packaging dettagli.
+
+#### Riferimenti file
+
+- Diag completi: `diag-mappatura-acquisti.js` (popolamento) e
+  `diag-mappatura-contenuti.js` (cosa c'e' dentro davvero) in root progetto.
+  Eseguibili con `node diag-mappatura-*.js`.
+- Documentazione precedente: `gb2/conoscenzegb2.txt` sezione [34] copre
+  ar_note e an_note/an_note2 sulla popolazione INTERA (non solo attivi).
+- Helpers oggi: `routes/gb2/helpers.js` funzione `getPoliticaRiordino` riga
+  311 (con il mapping da correggere) — duplicata in
+  `routes/gb2/mrp-proposte.js:639` (refactor opportuno: una sola fonte).
+
+### Cosa va fatto in questo task
+
+Questa e' una task di RICERCA + DESIGN, non di implementazione immediata.
+Output atteso (in ordine):
+
+1. **Mappatura semantica delle note** (`ar_note` >riga 5 + `an_note2`):
+   prendere un campione di 20-30 articoli/fornitori e classificare a mano
+   il contenuto in categorie. Ipotesi categorie da verificare:
+   - Per `ar_note`: { istruzioni_confezionamento, controlli_qc,
+                     specifiche_tecniche_fornitore, avvertenze_acquisto,
+                     dimensioni_tolleranze, riferimenti_documenti }
+   - Per `an_note2`: { contatti_per_ruolo, credenziali_portali,
+                       agenti_intermediari, modalita_invio_ordine,
+                       riferimenti_pagamento, note_logistica }
+   Output: una bozza di "schema concettuale" per ognuna delle due fonti.
+
+2. **Decidere il modello dati GB2**. Tre alternative da valutare:
+   a) Tabella unica `gb2_articolo_knowledge` con FK a `ar_codart` + colonne
+      JSON per le 6 categorie. Flessibile ma poco SQL-friendly.
+   b) Una tabella per categoria (`gb2_art_istruzioni`, `gb2_art_controlli_qc`,
+      `gb2_art_specifiche`, ecc.) con FK comune. Verbose ma queryabile.
+   c) Tabella generica chiave-valore tipata
+      (`gb2_knowledge { entita, codice, categoria, sotto_categoria, valore_text, valore_num, sorgente, autore, ts }`)
+      che gestisce sia articolo che fornitore. Pattern EAV — flessibile,
+      ma rischio di esplosione complessita' query.
+   La risposta dipende dal volume e dalla varieta' che emerge al punto 1.
+
+3. **Decidere modello per i 3 campi numerici** (`ar_scomin`, `ar_minord`,
+   `ar_rrfence`). Opzioni:
+   a) Restano in BCube, GB2 li legge sempre da li' — accettiamo che la fonte
+      di verita' sia BCube. Vantaggio: zero duplicazione. Svantaggio: BCube
+      e' modificabile da chiunque abbia accesso, no audit lato GB2.
+   b) Mirror in GB2 con ultima_modifica + autore, sync verso BCube su
+      conferma operatore. Vantaggio: audit, possibilita' di proporre valori
+      "agente-suggested" prima di sovrascrivere BCube. Svantaggio: doppia
+      verita' da mantenere allineata.
+   c) Override-only in GB2: BCube resta default, ma se esiste un override
+      GB2 quello prevale. Pattern "transparent overlay".
+   Combinare con la riflessione su politica (`_Politica`): forse il modello
+   target e' "configurazione di acquisto" come singola entita' che racchiude
+   politica + scorta_min + lotto + lead_time + note operative.
+
+4. **Strategia di migrazione/import iniziale**: come popolare la nuova
+   struttura partendo dai dati BCube esistenti? Parsing automatico delle
+   note (rischioso) vs revisione manuale per i ~65 articoli con ar_note >5
+   e i ~93 fornitori con an_note2 (fattibile, scope contenuto)?
+
+5. **UI concept**: dove e come l'operatore vede/modifica questa knowledge
+   nell'app GB2? Pannello dedicato per articolo? Pannello per fornitore?
+   Hint contestuali nel pannello "Decisione Ordine"?
+
+### Cosa NON e' parte di questo task
+
+- Il fix `ar_descr + ar_desint` per il nome composto dell'articolo →
+  affrontato SUBITO (2026-04-18) come Anti-Corruption Layer di livello
+  minimo, vedi le modifiche fatte oggi (cercare `descrCompleta` o
+  equivalente in helpers).
+- Il fix del mapping `getPoliticaRiordino` per le politiche mancanti →
+  affrontato SUBITO se non incluso nell'ACL di cui sopra.
+- Cancellare campi BCube → mai. BCube resta sorgente, noi aggiungiamo
+  layer sopra.
+
+### Quando affrontarlo
+
+E' la task piu' ricca di valore strategico delle tre, perche' costruisce
+la base dati su cui l'agente AI futuro ragionera'. Pero' richiede tempo
+DELL'UTENTE (Andrea + operatori acquisti) per la classificazione manuale
+delle note. Da pianificare come sprint dedicato di 1-2 settimane, non
+come work in background.
 
 
 ================================================================================

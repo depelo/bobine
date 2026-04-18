@@ -4,6 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
+const bcubeArticolo = require('../../lib/bcube/articolo');
 
 function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServerDest,
     getTestHasRiep, PRODUCTION_PROFILE }) {
@@ -308,18 +309,14 @@ function createHelpers({ sql, getPool163, getPoolDest, getActiveProfile, getServ
         return getPool163();
     }
 
+    // Delegata all'Anti-Corruption Layer BCube — la mappa locale era incompleta
+    // (mancava 'G', 'O'; aveva 'L' inesistente; 'N' tradotto male).
+    // La fonte canonica e dbo._Politica, cachata in lib/bcube/politica.js.
+    // NB: il vecchio comportamento "F + ar_desint in parentesi" era basato sul
+    // malinteso che ar_desint fosse un dettaglio della politica; in realta
+    // ar_desint e la 2a meta del nome articolo (vedi articolo.js composeNome).
     function getPoliticaRiordino(art) {
-        const pol = (art.ar_polriord || '').trim().toUpperCase();
-        const map = { 'M': 'a punto di riordino', 'F': 'fabbisogno puro', 'L': 'a lotto fisso', 'N': 'nessuna politica' };
-        let descr = map[pol] || pol;
-        if (pol === 'M' && art.ar_scomin) {
-            descr += ` (scorta min. ${art.ar_scomin}, lotto ${art.ar_minord || 0}, lead time ${art.ar_rrfence || 0} gg)`;
-        }
-        if (pol === 'F') {
-            const desint = (art.ar_desint || '').trim();
-            if (desint) descr += ` (${desint})`;
-        }
-        return descr;
+        return bcubeArticolo.politicaDisplay(art);
     }
 
     /**

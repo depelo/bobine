@@ -146,7 +146,12 @@
       "Bash(node diag-mrp.js)",
       "Bash(cmd.exe /c \"pm2 list\")",
       "Bash(wc -l C:\\\\\\\\Users\\\\\\\\depel\\\\\\\\Documents\\\\\\\\progetto\\\\\\\\ujet\\\\\\\\bobine\\\\\\\\conoscenze.txt)",
-      "Bash(node diag-mappatura-acquisti.js)"
+      "Bash(node diag-mappatura-acquisti.js)",
+      "Bash(node diag-mappatura-contenuti.js)",
+      "Bash(node diag-cafhh.js)",
+      "Bash(node diag-art-0010862.js)",
+      "Bash(node diag-politica.js)",
+      "Bash(node diag-bcube-acl.js)"
     ]
   }
 }
