@@ -2,6 +2,7 @@
  * GB2 Routes — Ricerca articoli + progressivi + caricaMRP
  */
 const bcubeArticolo = require('../../lib/bcube/articolo');
+const bcubePolitica = require('../../lib/bcube/politica');
 
 module.exports = function(router, deps) {
     const { sql, getPoolDest, getPool163, getActiveProfile,
@@ -9,6 +10,25 @@ module.exports = function(router, deps) {
     const helpers = deps.helpers;
     const getUserId = helpers.getUserId;
     const getPoliticaRiordino = helpers.getPoliticaRiordino;
+
+// Lista canonica delle politiche di riordino (da dbo._Politica via cache ACL).
+// Usata dal toolbar dell'articolo per popolare il dropdown "politica".
+// Lazy-load se la cache non e ancora inizializzata (bootstrap a server.js fallito).
+router.get('/politiche', authMiddleware, async (req, res) => {
+    try {
+        let lista = bcubePolitica.listSync();
+        if (!lista.length) {
+            // Cache vuota: tenta lazy-load
+            const pool = await getPoolDest(getUserId(req));
+            await bcubePolitica.loadPolitica(pool);
+            lista = bcubePolitica.listSync();
+        }
+        res.json({ politiche: lista });
+    } catch (err) {
+        console.error('[GET /politiche]', err.message);
+        res.status(500).json({ error: 'Errore caricamento politiche', details: err.message });
+    }
+});
 
 router.get('/articoli/search', authMiddleware, async (req, res) => {
     try {
@@ -212,10 +232,13 @@ router.get('/articoli/:codart/toolbar-info', authMiddleware, async (req, res) =>
                 in_esaur: artNorm.inEsaurimento,
                 blocco: artNorm.bloccato,
                 minord: artNorm.scorta.lotto || null,
+                scomin: artNorm.scorta.min || null,             // scorta minima (per ricomputo client)
+                rrfence: artNorm.scorta.leadTimeGg || null,     // lead time gg (per ricomputo client)
                 politica: artNorm.politica.codice,             // 'F'|'G'|'M'|'N'|'O'
                 politica_label: artNorm.politica.categoria || '',  // 'A fabbisogno'|'A scorta minima'
                 politica_descr: artNorm.politica.descr,        // testo display completo
-                politica_mode: artNorm.politica.mode             // 'MTO' | 'MTS'
+                politica_mode: artNorm.politica.mode,            // 'MTO' | 'MTS'
+                politica_nome: artNorm.politica.nome             // nome canonico es. "fabbisogno senza lotto"
             } : null,
             // Fornitore PRINCIPALE: tutto incluso (codarfo + prezzo + scaglioni)
             forn1: articolo && articolo.forn1_codice ? {
@@ -796,6 +819,14 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
             desint: articolo.ar_desint || '',
             nome: bcubeArticolo.nomeCompleto(articolo),  // ACL: descr + desint
             polriord: getPoliticaRiordino(articolo),
+            // Parametri grezzi per il rendering "pillole semaforo" client-side.
+            // Il client decide cosa mostrare in base a politica.codice (regole _Politica).
+            politica: {
+                codice: (articolo.ar_polriord || '').trim().toUpperCase(),
+                scomin: Number(articolo.ar_scomin) || 0,
+                lotto: Number(articolo.ar_minord) || 0,
+                leadTimeGg: Number(articolo.ar_rrfence) || 0
+            },
             um: articolo.ar_unmis || 'PZ',
             inesaur: articolo.ar_inesaur,
             ...(vistaSostitutivo ? { etichettaBlocco: 'esaurimento' } : {})
@@ -848,6 +879,12 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
                 desint: sostitutivo.ar_desint || '',
                 nome: bcubeArticolo.nomeCompleto(sostitutivo),  // ACL
                 polriord: getPoliticaRiordino(sostitutivo),
+                politica: {
+                    codice: (sostitutivo.ar_polriord || '').trim().toUpperCase(),
+                    scomin: Number(sostitutivo.ar_scomin) || 0,
+                    lotto: Number(sostitutivo.ar_minord) || 0,
+                    leadTimeGg: Number(sostitutivo.ar_rrfence) || 0
+                },
                 um: sostitutivo.ar_unmis || 'PZ',
                 inesaur: sostitutivo.ar_inesaur,
                 etichettaBlocco: 'sostitutivo',
@@ -929,6 +966,12 @@ router.get('/progressivi', authMiddleware, async (req, res) => {
                     ar_ggrior: f.figlio_ggrior, ar_minord: f.figlio_minord, ar_rrfence: f.figlio_rrfence,
                     ar_desint: f.figlio_desint
                 }),
+                politica: {
+                    codice: (f.figlio_polriord || '').trim().toUpperCase(),
+                    scomin: Number(f.figlio_scomin) || 0,
+                    lotto: Number(f.figlio_minord) || 0,
+                    leadTimeGg: Number(f.figlio_rrfence) || 0
+                },
                 um: f.figlio_unmis || 'PZ',
                 inesaur: f.figlio_inesaur,
                 espandibile: f.espandibile === 1,
@@ -1033,6 +1076,12 @@ router.get('/progressivi/expand', authMiddleware, async (req, res) => {
                     ar_ggrior: f.figlio_ggrior, ar_minord: f.figlio_minord, ar_rrfence: f.figlio_rrfence,
                     ar_desint: f.figlio_desint
                 }),
+                politica: {
+                    codice: (f.figlio_polriord || '').trim().toUpperCase(),
+                    scomin: Number(f.figlio_scomin) || 0,
+                    lotto: Number(f.figlio_minord) || 0,
+                    leadTimeGg: Number(f.figlio_rrfence) || 0
+                },
                 um: f.figlio_unmis || 'PZ',
                 inesaur: f.figlio_inesaur,
                 espandibile: f.espandibile === 1,

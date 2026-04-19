@@ -73,6 +73,75 @@
 .col-fase { width: 50px; text-align: center; }
 .col-pol { min-width: 200px; }
 .col-um { width: 40px; text-align: center; }
+
+/* ── Pillole semaforo politica riordino ────────────────────────────────
+   Cella .col-pol-articolo: 0-3 pillole (lotto/scorta/leadtime).
+   Metafora mentale per l'operatore:
+     ROSSO   = LOTTO     vincolo del fornitore (ti obbliga a quantita minima)
+     GIALLO  = SCORTA    soglia di attenzione (sotto -> riordino)
+     VERDE   = LEAD TIME tempo di flusso (giorni di consegna)
+   Numero in nero+bold per leggibilita immediata; icona+label minuscole. */
+.pol-pills {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+.pol-pills-empty {
+    color: var(--text-muted, #94a3b8);
+    font-size: 0.78rem;
+    opacity: 0.6;
+}
+.pol-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px 1px 6px;
+    border-radius: 10px;
+    border: 1px solid;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: help;
+    /* Il "color" della pillola si applica SOLO a sfondo+bordo (ereditato dalle
+       varianti -lotto/-scorta/-leadtime sotto). Testo e icona usano un dark
+       neutro per garantire leggibilita su qualsiasi tinta. */
+}
+.pol-pill-icon {
+    font-size: 0.82rem;
+    line-height: 1;
+    /* Emoji renderizzata "spenta" per non competere con i numeri.
+       Su browser non supportati il filter viene ignorato, niente di rotto. */
+    filter: grayscale(0.4);
+    opacity: 0.85;
+}
+.pol-pill-label {
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #475569;          /* slate-600: leggibile su qualsiasi sfondo tenue */
+}
+.pol-pill-value {
+    color: #0f172a;          /* slate-900: massimo contrasto, e' il dato */
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    margin-left: 1px;
+}
+/* Le 3 varianti tinteggiano SOLO sfondo + bordo (segnale "semaforico").
+   Il testo resta neutro grazie alle regole sopra (.pol-pill-label / -value). */
+.pol-pill-lotto {
+    background: #fef2f2;     /* red-50 */
+    border-color: #f5b3b3;   /* red-200 leggermente piu carico per stacco */
+}
+.pol-pill-scorta {
+    background: #fefce8;     /* yellow-50 */
+    border-color: #f4dd5b;   /* yellow-300 */
+}
+.pol-pill-leadtime {
+    background: #f0fdf4;     /* green-50 */
+    border-color: #95e0ad;   /* green-300 */
+}
 .col-date { width: 90px; text-align: center; }
 
 /* Stili riga per tipo (replica palette Access) */
@@ -520,6 +589,29 @@ body:not(.show-scaduti) .mrp-table tr.row-scaduto + tr.matrioska-nested-row {
     width: 1px;
     height: 14px;
     background: var(--border);
+}
+
+/* Dropdown politica riordino: visivamente in linea con .at-value, ma
+   editabile. Contestuale alla toolbar in alto del pannello articolo. */
+.articolo-toolbar .at-politica-select {
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.78rem;
+    color: var(--text, #1e293b);
+    background: var(--bg, #fff);
+    border: 1px solid var(--border, #cbd5e1);
+    border-radius: var(--radius-sm, 4px);
+    padding: 2px 22px 2px 6px;
+    cursor: pointer;
+    transition: border-color 0.1s, box-shadow 0.1s;
+}
+.articolo-toolbar .at-politica-select:hover {
+    border-color: var(--primary, #2563a8);
+}
+.articolo-toolbar .at-politica-select:focus {
+    outline: none;
+    border-color: var(--primary, #2563a8);
+    box-shadow: 0 0 0 2px rgba(37, 99, 168, 0.15);
 }
 
 /* Badge cliccabile (scaglioni / fornitore secondario) */

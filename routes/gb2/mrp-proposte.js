@@ -628,6 +628,13 @@ router.get('/proposta-ordini', authMiddleware, async (req, res) => {
             // ar_descr e mantenuto per retrocompat; il frontend deve preferire `nome`.
             r.nome = bcubeArticolo.composeNome(r.ar_descr, r.ar_desint);
             r.politica_descr = bcubeArticolo.politicaDisplay(r);
+            // Parametri grezzi per le pillole semaforo client-side
+            r.politica = {
+                codice: (r.ar_polriord || '').trim().toUpperCase(),
+                scomin: Number(r.ar_scomin) || 0,
+                lotto: Number(r.ar_minord) || 0,
+                leadTimeGg: Number(r.ar_rrfence) || 0
+            };
             return r;
         });
 

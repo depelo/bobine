@@ -151,7 +151,16 @@
       "Bash(node diag-cafhh.js)",
       "Bash(node diag-art-0010862.js)",
       "Bash(node diag-politica.js)",
-      "Bash(node diag-bcube-acl.js)"
+      "Bash(node diag-bcube-acl.js)",
+      "Bash(node diag-g-lotto.js)",
+      "Bash(node diag-g-lotto2.js)",
+      "Bash(node -c lib/bcube/articolo.js)",
+      "Bash(node -c diag-bcube-acl.js)",
+      "Bash(node diag-bisturi.js)",
+      "Bash(node diag-polriord-sp.js)",
+      "Bash(node --check \"gb2/js/gb2-progressivi.js\")",
+      "Bash(node --check \"routes/gb2/articoli.js\")",
+      "Bash(node --check \"routes/gb2/mrp-proposte.js\")"
     ]
   }
 }

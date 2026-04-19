@@ -1701,7 +1701,12 @@ const MrpProgressivi = (() => {
         const faseD = articolo.tipo === 'componente' && articolo.faseDistinta != null && articolo.faseDistinta !== ''
             ? esc(String(articolo.faseDistinta))
             : '';
-        const pol = articolo.polriord != null ? esc(String(articolo.polriord)) : '';
+        // Pillole semaforo (rosso=lotto, giallo=scorta, verde=lead time).
+        // Fallback alla vecchia stringa polriord se il backend non espone
+        // ancora l'oggetto politica (compat).
+        const pol = articolo.politica
+            ? _renderPoliticaPills(articolo.politica)
+            : (articolo.polriord != null ? esc(String(articolo.polriord)) : '');
         const um = esc(articolo.um || 'PZ');
 
         const txtEsist = totali ? fmt(totali.esistenza) : '';
@@ -1715,7 +1720,7 @@ const MrpProgressivi = (() => {
             <td class="col-parte">${parteCell}</td>
             <td class="col-mag"></td>
             <td class="col-fase">${faseD}</td>
-            <td class="col-pol">${pol}</td>
+            <td class="col-pol col-pol-articolo">${pol}</td>
             <td class="col-um">${um}</td>
             <td class="col-num cell-valore-totale cell-esistenza">${txtEsist}</td>
             <td class="col-num cell-valore-totale cell-ordinato">${txtOrd}</td>
@@ -3324,6 +3329,123 @@ const MrpProgressivi = (() => {
     // l'ultima fetch in volo deve vincere; le precedenti vanno scartate).
     let _toolbarReqId = 0;
 
+    // ── Cache politiche di riordino (carica una volta, lifetime sessione) ──
+    // Popolata dall'endpoint /politiche, che a sua volta legge dbo._Politica
+    // tramite il nuovo ACL lib/bcube. Lista di { polriord, politica, pol, tipoPol }.
+    let _politicheCache = null;
+    let _politicheLoadingPromise = null;
+    async function _fetchPolitiche() {
+        if (_politicheCache) return _politicheCache;
+        if (_politicheLoadingPromise) return _politicheLoadingPromise;
+        _politicheLoadingPromise = (async () => {
+            try {
+                const res = await fetch(`${MrpApp.API_BASE}/politiche`, { credentials: 'include' });
+                if (!res.ok) return [];
+                const j = await res.json();
+                _politicheCache = Array.isArray(j.politiche) ? j.politiche : [];
+                return _politicheCache;
+            } catch (_e) {
+                return [];
+            } finally {
+                _politicheLoadingPromise = null;
+            }
+        })();
+        return _politicheLoadingPromise;
+    }
+
+    /**
+     * Compone la stringa display per una politica + parametri articolo.
+     * Mirror client-side della logica in lib/bcube/articolo.js#buildPolitica.
+     * Regola: il NOME della politica E LA REGOLA di display.
+     *   - "senza lotto" nel nome  → NON mostra il lotto in parentesi
+     *   - pol === 'MTS'           → mostra la scorta minima se popolata
+     *   - lead time SEMPRE        → mostrato se popolato (tempo di consegna fornitore)
+     */
+    function _buildPoliticaDescr(politicaRow, params) {
+        if (!politicaRow) return '';
+        const includeLotto = !/senza\s+lotto/i.test(politicaRow.politica || '');
+        const isMTS = politicaRow.pol === 'MTS';
+        const parts = [];
+        if (isMTS && Number(params.scomin) > 0) parts.push(`scorta min. ${params.scomin}`);
+        if (includeLotto && Number(params.minord) > 0) parts.push(`lotto ${params.minord}`);
+        if (Number(params.rrfence) > 0) parts.push(`lead time ${params.rrfence} gg`);
+        return politicaRow.politica + (parts.length ? ` (${parts.join(', ')})` : '');
+    }
+
+    // ── Pillole semaforo politica (cella col-pol) ───────────────────────────
+    // Le 5 politiche di _Politica sono dominio immutabile: hardcodare le regole
+    // qui e' OK ed evita un primo-render vuoto in attesa di /politiche.
+    // La cache _politicheCache ha la fonte canonica e prevale appena disponibile.
+    const _POLITICHE_FALLBACK = {
+        'F': { includeLotto: true,  isMTS: false, nome: 'fabbisogno con lotto' },
+        'G': { includeLotto: false, isMTS: false, nome: 'fabbisogno senza lotto' },
+        'M': { includeLotto: true,  isMTS: true,  nome: 'scorta minimo con lotto' },
+        'N': { includeLotto: false, isMTS: true,  nome: 'scorta minima senza lotto' },
+        'O': { includeLotto: true,  isMTS: true,  nome: 'scorta minima con multiplo di lotto' },
+    };
+    function _politicaRule(codice) {
+        const cod = (codice || '').trim().toUpperCase();
+        if (!cod) return null;
+        if (Array.isArray(_politicheCache)) {
+            const row = _politicheCache.find(p => p.polriord === cod);
+            if (row) return {
+                includeLotto: !/senza\s+lotto/i.test(row.politica || ''),
+                isMTS: row.pol === 'MTS',
+                nome: row.politica || ''
+            };
+        }
+        return _POLITICHE_FALLBACK[cod] || null;
+    }
+    function _polPill(kind, icon, label, value, tooltip) {
+        return `<span class="pol-pill pol-pill-${kind}" title="${_esc(tooltip)}">` +
+                 `<span class="pol-pill-icon">${icon}</span>` +
+                 `<span class="pol-pill-label">${_esc(label)}</span>` +
+                 `<span class="pol-pill-value">${_esc(value)}</span>` +
+               `</span>`;
+    }
+    /**
+     * Rendering pillole "semaforo" per la cella col-pol.
+     * Riceve { codice, scomin, lotto, leadTimeGg }, genera 0-3 pillole secondo
+     * le regole della politica:
+     *   - LOTTO (rosso)    → vincolo del fornitore: ti obbliga alla quantita
+     *                        minima d'ordine. Mostrato solo se la politica
+     *                        include il lotto (no per G/N) e il valore > 0.
+     *   - SCORTA (giallo)  → soglia di attenzione: sotto questo livello scatta
+     *                        il riordino. Mostrato solo per politiche MTS
+     *                        (M/N/O) e se il valore > 0.
+     *   - LEAD TIME (verde)→ tempo di consegna del fornitore. SEMPRE mostrato
+     *                        se popolato, indipendentemente dalla politica.
+     * Se nessun parametro e' attivo, mostra '—' tenue (cella altrimenti vuota).
+     */
+    function _renderPoliticaPills(pol) {
+        if (!pol || !pol.codice) {
+            return '<span class="pol-pills-empty" title="Politica non definita">—</span>';
+        }
+        const rule = _politicaRule(pol.codice);
+        if (!rule) {
+            // Codice sconosciuto → degrada mostrando il codice grezzo
+            return `<span class="pol-pills-empty" title="Politica sconosciuta">${_esc(pol.codice)}</span>`;
+        }
+        const pills = [];
+        if (rule.isMTS && Number(pol.scomin) > 0) {
+            pills.push(_polPill('scorta', '🛡', 'scorta', _fmtNumIT(pol.scomin),
+                'Scorta minima — sotto questo livello scatta il riordino'));
+        }
+        if (rule.includeLotto && Number(pol.lotto) > 0) {
+            pills.push(_polPill('lotto', '📦', 'lotto', _fmtNumIT(pol.lotto),
+                "Lotto minimo d'ordine imposto dal fornitore"));
+        }
+        if (Number(pol.leadTimeGg) > 0) {
+            pills.push(_polPill('leadtime', '⏱', 'lead', `${_fmtNumIT(pol.leadTimeGg)} gg`,
+                'Lead time — giorni di consegna del fornitore'));
+        }
+        if (!pills.length) {
+            // Politica popolata ma nessun parametro applicabile → tenue
+            return `<span class="pol-pills-empty" title="${_esc(rule.nome)} — nessun parametro popolato">—</span>`;
+        }
+        return `<span class="pol-pills">${pills.join('')}</span>`;
+    }
+
     function _toolbarSkeleton() {
         return ''
             + '<div class="at-row">'
@@ -3346,11 +3468,19 @@ const MrpProgressivi = (() => {
         el.style.display = '';
 
         try {
-            const res = await fetch(`${MrpApp.API_BASE}/articoli/${encodeURIComponent(codart)}/toolbar-info`, { credentials: 'include' });
+            // Fetch toolbar-info E politiche in parallelo. La lista politiche
+            // serve a popolare il dropdown nel render — viene cachata dopo la
+            // prima chiamata, quindi tipicamente solo la prima apertura paga il costo.
+            const [res, politiche] = await Promise.all([
+                fetch(`${MrpApp.API_BASE}/articoli/${encodeURIComponent(codart)}/toolbar-info`, { credentials: 'include' }),
+                _fetchPolitiche()
+            ]);
             if (reqId !== _toolbarReqId) return;  // risposta obsoleta, l'utente ha gia navigato altrove
             if (!res.ok) { el.style.display = 'none'; return; }
             const data = await res.json();
             if (reqId !== _toolbarReqId) return;
+            data._politiche = politiche;
+            data._codart = codart;
             _renderToolbarInfo(el, data);
         } catch (_err) {
             if (reqId === _toolbarReqId) el.style.display = 'none';
@@ -3477,7 +3607,25 @@ const MrpProgressivi = (() => {
             );
         }
 
-        if (a.politica_label) {
+        // Politica riordino: dropdown popolato da _Politica via /politiche.
+        // Fallback al label legacy se la lista non e arrivata (es. errore /politiche).
+        const politiche = Array.isArray(data._politiche) ? data._politiche : [];
+        if (politiche.length) {
+            const codCorr = (a.politica || '').trim().toUpperCase();
+            const opts = politiche.map(pl => {
+                const sel = pl.polriord === codCorr ? ' selected' : '';
+                return `<option value="${_esc(pl.polriord)}"${sel}>${_esc(pl.politica)}</option>`;
+            }).join('');
+            cells2.push(
+                '<span class="at-cell">' +
+                    '<span class="at-label">politica</span>' +
+                    `<select id="atPoliticaSelect" class="at-politica-select" data-codart="${_esc(a.codart)}">` +
+                        opts +
+                    '</select>' +
+                '</span>'
+            );
+        } else if (a.politica_label) {
+            // Fallback legacy
             cells2.push(
                 '<span class="at-cell">' +
                     '<span class="at-label">politica</span>' +
@@ -3495,6 +3643,33 @@ const MrpProgressivi = (() => {
         if (badgeSc) badgeSc.addEventListener('click', (e) => _togglePopoverScaglioni(e.currentTarget, sc, a.unmis, p && p.valuta_sigla, p && p.codvalu));
         const badgeF2 = document.getElementById('atBadgeForn2');
         if (badgeF2) badgeF2.addEventListener('click', (e) => _togglePopoverForn2(e.currentTarget, f2, cf, a.unmis, f1));
+
+        // ── Listener dropdown politica ──
+        // Cambio politica → ricomputa pillole client-side e aggiorna .col-pol
+        // delle righe articolo con quel codart. Per ora SOLO visualizzazione:
+        // la persistenza su artico.ar_polriord arrivera dopo (UPDATE diretto:
+        // verificato che BCube non ha SP/trigger sui cambi di ar_polriord).
+        const polSelect = document.getElementById('atPoliticaSelect');
+        if (polSelect) {
+            polSelect.addEventListener('change', (e) => {
+                const codSel = e.currentTarget.value;
+                // Le regole (includeLotto/isMTS) le pesca _renderPoliticaPills
+                // dalla cache _politicheCache che e' gia stata caricata.
+                const newPol = {
+                    codice: codSel,
+                    scomin: Number(a.scomin) || 0,
+                    lotto: Number(a.minord) || 0,
+                    leadTimeGg: Number(a.rrfence) || 0
+                };
+                const newHtml = _renderPoliticaPills(newPol);
+                // Aggiorna SOLO le celle "col-pol-articolo" — esclude le
+                // .col-pol delle righe magazzino (che mostrano descMagazzino)
+                // e quelle totali (vuote).
+                const codartSel = e.currentTarget.dataset.codart;
+                document.querySelectorAll(`tr[data-codart="${CSS.escape(codartSel)}"] td.col-pol-articolo`)
+                    .forEach(td => { td.innerHTML = newHtml; });
+            });
+        }
     }
 
     // ── Popover scaglioni ──

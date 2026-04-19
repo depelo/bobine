@@ -2084,6 +2084,26 @@ PRICING DINAMICO NEL PANNELLO DECISIONE (implementato):
     inline duplicate (helpers.js, mrp-proposte.js, articoli.js) e delegato
     tutto all'ACL. Vedi sezione 29.
 
+2026-04-18: Politica display — F senza lotto, N con lotto fantasma
+  File: lib/bcube/articolo.js (funzione buildPolitica)
+  Problema: la prima versione dell'ACL classificava "cosa mostrare in parentesi"
+    in base a row.pol (MTO vs MTS). Conseguenza:
+    - F (MTO con lotto): NON mostrava il lotto -> info importante persa
+    - N (MTS senza lotto): mostrava ar_minord se popolato -> bugia,
+      perche BCube ignora ar_minord per la politica N
+    - 62,6% degli articoli G ha ar_minord > 0 nel DB ma BCube lo ignora;
+      la prima versione faceva la cosa giusta per G (perche MTO -> nulla)
+      ma per la ragione sbagliata (la regola era "MTO=niente", non "G=senza lotto")
+  Verifica empirica: diag-g-lotto.js mostra che il claim "G implica lotto=0"
+    e SMENTITO (max ar_minord per G = 500.000), ma il NOME della politica
+    e LA regola di display.
+  Fix: la regola ora legge il NOME della politica:
+    includeLotto = !/senza\s+lotto/i.test(row.politica)
+    isMTS = row.pol === 'MTS'
+    - lotto: mostra se la politica non dice "senza lotto" E popolato
+    - scorta_min + lead time: mostra se MTS E popolato
+  Vedi sezione 29 "REGOLA DI DISPLAY POLITICA — IL NOME E LA REGOLA".
+
 2026-04-18: Nome articolo troncato — ar_descr senza ar_desint in 13+ punti UI
   Files: gb2/js/gb2-progressivi.js, gb2-proposta.js, gb2-parametri.js + 6 endpoint
   Problema: BCube spalma il nome articolo su DUE colonne ar_descr (40 char) +
@@ -2541,6 +2561,58 @@ Significato dei campi:
 
 5 righe, immutabili come dominio: per cambiarle bisognerebbe modificare BCube,
 quindi il riavvio del processo Node e accettabile come politica di refresh.
+
+REGOLA DI DISPLAY POLITICA — IL NOME E LA REGOLA
+-------------------------------------------------
+
+Chiarito 18/04/2026 dopo verifica empirica DB. Il nome canonico della
+politica NON e solo un'etichetta: dichiara COSA mostrare nella stringa
+display. La regola operativa:
+
+  pol  nome canonico                          parametri da mostrare
+  ---  ------------------------------------   --------------------------------
+  F    "fabbisogno con lotto"                 lotto (se popolato)
+  G    "fabbisogno senza lotto"               niente in parentesi (esplicito)
+  M    "scorta minimo con lotto"              scorta_min, lotto, lead time
+  N    "scorta minima senza lotto"            scorta_min, lead time (NO lotto)
+  O    "scorta minima con multiplo di lotto"  scorta_min, lotto, lead time
+
+In codice (lib/bcube/articolo.js, buildPolitica):
+  const includeLotto = !/senza\s+lotto/i.test(row.politica);
+  const isMTS = row.pol === 'MTS';
+  if (isMTS && art.ar_scomin)        parts.push(`scorta min. ${art.ar_scomin}`);
+  if (includeLotto && art.ar_minord) parts.push(`lotto ${art.ar_minord}`);
+  if (isMTS && art.ar_rrfence)       parts.push(`lead time ${art.ar_rrfence} gg`);
+
+VERIFICA EMPIRICA DEL CASO "G + lotto popolato" (script diag-g-lotto.js):
+  Distribuzione articoli per polriord + popolamento ar_minord:
+    F: 67 articoli, 100% con lotto popolato
+    G: 14.599 articoli, 62,6% con lotto popolato (max 500.000)
+    M: 1.000 articoli, 100% con lotto popolato
+    O: 25 articoli, 100% con lotto popolato
+    N: 0 articoli (politica configurata in _Politica ma nessuno la usa)
+
+  Quindi il claim "G implica lotto vuoto" e SMENTITO dai dati. La maggioranza
+  dei G ha il lotto popolato. Ma BCube IGNORA quel valore per la politica G
+  (politica MTO "senza lotto"): mostrarlo all'operatore lo inganna.
+  La regola corretta e seguire la SEMANTICA del nome, non il valore del campo.
+
+Esempi di output (da diag-bcube-acl.js):
+  F lotto=200            -> "fabbisogno con lotto (lotto 200)"
+  F lotto=0              -> "fabbisogno con lotto"
+  G lotto=500000         -> "fabbisogno senza lotto"   (lotto IGNORATO)
+  G lotto=0              -> "fabbisogno senza lotto"
+  M scomin=100 lotto=50 rr=30
+                         -> "scorta minimo con lotto (scorta min. 100, lotto 50, lead time 30 gg)"
+  N scomin=5 lotto=999 rr=7
+                         -> "scorta minima senza lotto (scorta min. 5, lead time 7 gg)"
+                            (anche se lotto=999 nel DB, NON appare)
+  O scomin=10 lotto=5 rr=14
+                         -> "scorta minima con multiplo di lotto (scorta min. 10, lotto 5, lead time 14 gg)"
+
+PRINCIPIO GENERALE: per ogni parametro che la politica DICHIARA, mostralo
+se popolato; per quelli che la politica esplicitamente esclude ("senza
+lotto"), non mostrarlo MAI, indipendentemente dal valore nel DB.
 
 REGOLA COMPOSIZIONE NOME — composeNome(descr, desint)
 -----------------------------------------------------

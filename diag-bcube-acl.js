@@ -41,19 +41,44 @@ const bcube = require('./lib/bcube');
     }
 
     // 3) Test drop-in vs vecchia logica per i 5 codici di _Politica
-    console.log('\n=== [3] politicaDisplay - tutti i 5 codici ===');
+    //    Casi costruiti per stressare la regola "il nome E la regola di display":
+    //     - F con lotto -> mostra lotto
+    //     - F senza lotto -> niente in parentesi (campo vuoto)
+    //     - G con lotto popolato (caso reale: 62.6% dei G nel DB) -> NON mostra lotto
+    //     - G senza lotto -> niente
+    //     - M con tutto popolato -> scorta+lotto+leadtime
+    //     - N con tutto popolato (compreso lotto!) -> scorta+leadtime, NIENTE lotto
+    //     - O con tutto popolato -> scorta+lotto+leadtime
+    console.log('\n=== [3] politicaDisplay - regola "il nome E la regola" ===');
     const samples = [
-        { ar_polriord: 'F', ar_desint: 'qualcosa', ar_scomin: 0, ar_minord: 0, ar_rrfence: 0 },
-        { ar_polriord: 'G', ar_desint: 'PER STAMPA LASER', ar_scomin: 0, ar_minord: 0, ar_rrfence: 0 },
-        { ar_polriord: 'M', ar_desint: '', ar_scomin: 100, ar_minord: 50, ar_rrfence: 30 },
-        { ar_polriord: 'N', ar_desint: '', ar_scomin: 5, ar_minord: 0, ar_rrfence: 0 },
-        { ar_polriord: 'O', ar_desint: '', ar_scomin: 10, ar_minord: 5, ar_rrfence: 14 },
-        { ar_polriord: 'XX', ar_desint: '', ar_scomin: 0, ar_minord: 0, ar_rrfence: 0 }, // sconosciuto
-        { ar_polriord: '',   ar_desint: '', ar_scomin: 0, ar_minord: 0, ar_rrfence: 0 }, // vuoto
+        { ar_polriord: 'F', ar_scomin: 0,   ar_minord: 200, ar_rrfence: 0 },
+        { ar_polriord: 'F', ar_scomin: 0,   ar_minord: 0,   ar_rrfence: 0 },
+        { ar_polriord: 'G', ar_scomin: 0,   ar_minord: 500000, ar_rrfence: 0 },
+        { ar_polriord: 'G', ar_scomin: 0,   ar_minord: 0,   ar_rrfence: 0 },
+        { ar_polriord: 'M', ar_scomin: 100, ar_minord: 50,  ar_rrfence: 30 },
+        { ar_polriord: 'N', ar_scomin: 5,   ar_minord: 999, ar_rrfence: 7  }, // lotto NON deve apparire
+        { ar_polriord: 'O', ar_scomin: 10,  ar_minord: 5,   ar_rrfence: 14 },
+        { ar_polriord: 'XX',ar_scomin: 0,   ar_minord: 0,   ar_rrfence: 0 },
+        { ar_polriord: '',  ar_scomin: 0,   ar_minord: 0,   ar_rrfence: 0 },
     ];
     for (const s of samples) {
         const out = bcube.articolo.politicaDisplay(s);
-        console.log(`  '${s.ar_polriord || '(vuoto)'}' -> "${out}"`);
+        const tag = `[scomin=${s.ar_scomin} minord=${s.ar_minord} rrfence=${s.ar_rrfence}]`.padEnd(40);
+        console.log(`  '${s.ar_polriord || '(vuoto)'}' ${tag} -> "${out}"`);
+    }
+
+    // 3.bis) Tre articoli G reali dal DB: lotto popolato deve essere IGNORATO
+    console.log('\n=== [3.bis] Tre articoli G reali (lotto NON deve apparire) ===');
+    const r3 = await pool.request().query(`
+        SELECT TOP 3 ar_codart, ar_descr, ar_desint, ar_polriord,
+                     ar_scomin, ar_minord, ar_rrfence
+        FROM dbo.artico
+        WHERE codditt='UJET11' AND ar_polriord='G' AND ar_minord > 1000
+        ORDER BY ar_minord DESC
+    `);
+    for (const a of r3.recordset) {
+        const display = bcube.articolo.politicaDisplay(a);
+        console.log(`  ${a.ar_codart} (lotto DB=${a.ar_minord}) -> "${display}"`);
     }
 
     // 4) Confronto col vecchio comportamento per evidenziare le correzioni
